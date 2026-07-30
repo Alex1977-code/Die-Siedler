@@ -1,0 +1,35 @@
+name: GitHub Pages aktivieren
+
+on:
+  push:
+    branches: [claude/siedler-2-mobile-clone-0rc5db]
+  workflow_dispatch:
+
+permissions:
+  pages: write
+  contents: read
+
+jobs:
+  enable-pages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pages einschalten (Quelle = dieser Branch)
+        run: |
+          BODY='{"build_type":"legacy","source":{"branch":"${{ github.ref_name }}","path":"/"}}'
+          # anlegen (409/Fehler ok, wenn schon aktiv) ...
+          curl -sS -o /tmp/create.json -w "create: %{http_code}\n" -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" \
+            -d "$BODY" || true
+          cat /tmp/create.json || true
+          # ... dann Quelle aktualisieren (idempotent)
+          curl -sS -o /tmp/update.json -w "update: %{http_code}\n" -X PUT \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages" \
+            -d "$BODY" || true
+          cat /tmp/update.json || true
+          curl -sS -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/pages"
