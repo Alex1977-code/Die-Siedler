@@ -1,5 +1,5 @@
 // Neuland – Serviceworker: Offline-Cache
-const CACHE = 'neuland-v1';
+const CACHE = 'neuland-v2';
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest', './icon.svg',
   './js/main.js', './js/ui.js', './js/sim.js', './js/render.js', './js/map.js',

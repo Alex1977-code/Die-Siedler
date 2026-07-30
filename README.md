@@ -40,10 +40,16 @@ Verzeichnis auf einen beliebigen statischen Webspace legen (GitHub Pages,
 Netlify, …). Im Browser-Menü **„Zum Startbildschirm hinzufügen"** wählen –
 dann startet das Spiel im Vollbild wie eine native App und läuft offline.
 
-### GitHub Pages (empfohlen)
+### GitHub Pages (eingerichtet)
 
-Repository-Einstellungen → Pages → Branch wählen → fertig. Das Spiel liegt
-komplett im Repo-Wurzelverzeichnis, es ist kein Build-Schritt nötig.
+Das Spiel wird automatisch über GitHub Pages veröffentlicht
+(Workflow `.github/workflows/pages.yml` aktiviert Pages mit diesem Branch
+als Quelle):
+
+**https://alex1977-code.github.io/Die-Siedler/**
+
+Auf dem Handy öffnen → Browser-Menü → „Zum Startbildschirm hinzufügen" →
+läuft im Vollbild wie eine native App, auch offline.
 
 ### Als Store-App (Android/iOS)
 
