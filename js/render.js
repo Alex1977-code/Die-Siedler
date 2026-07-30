@@ -3,7 +3,7 @@ import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK, RANKS } from './core.
 import { TILE, ROWH, HSCALE } from './map.js';
 
 const TER_COL = {
-  gruen:  { [TER.WATER]:'#4187b5', [TER.GRASS]:'#72b25c', [TER.DESERT]:'#d8c184', [TER.MOUNT]:'#a29a8c', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#5d8a62', [TER.LAVA]:'#8d3a1e' },
+  gruen:  { [TER.WATER]:'#3a86ba', [TER.GRASS]:'#6bb254', [TER.DESERT]:'#dbc17e', [TER.MOUNT]:'#a29a8c', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#568a5e', [TER.LAVA]:'#8d3a1e' },
   winter: { [TER.WATER]:'#4f7d9c', [TER.GRASS]:'#93b184', [TER.DESERT]:'#d3bf84', [TER.MOUNT]:'#949aa6', [TER.SNOW]:'#eef2f8', [TER.SWAMP]:'#6d8573', [TER.LAVA]:'#8d3a1e' },
   wueste: { [TER.WATER]:'#4693ba', [TER.GRASS]:'#a3b268', [TER.DESERT]:'#e3cd8c', [TER.MOUNT]:'#b3a184', [TER.SNOW]:'#f1ece0', [TER.SWAMP]:'#7d8c60', [TER.LAVA]:'#8d3a1e' },
   vulkan: { [TER.WATER]:'#3f7899', [TER.GRASS]:'#7d9a5e', [TER.DESERT]:'#b3956e', [TER.MOUNT]:'#84766c', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#67785231', [TER.LAVA]:'#d05a20' },
@@ -70,6 +70,42 @@ export class Renderer {
     this.sprites.clear();
     this.lastTerritoryVer=-1;
     this.borderEdges=[];
+    this._fogCount=-1; this._fogT=-1e9;
+    this.fogDark=null; this.fogMist=null;
+  }
+  // ---------- Nebel: weiche Dunstschichten statt harter Kreise ----------
+  rebuildFog(){
+    const m=this.game.map;
+    let count=0;
+    for(let i=0;i<m.explored.length;i++) if(!m.explored[i]) count++;
+    if(count===this._fogCount && this.fogDark) return;
+    this._fogCount=count;
+    const S=4;
+    const w=m.w*S, h=m.h*S;
+    const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
+    const tg=tmp.getContext('2d');
+    tg.fillStyle='#000';
+    // Rand außerhalb der Karte gehört ebenfalls zum Unbekannten
+    tg.fillRect(0,0,w,S); tg.fillRect(0,h-S,w,S); tg.fillRect(0,0,S,h); tg.fillRect(w-S,0,S,h);
+    for(let y=0;y<m.h;y++){
+      const off=(y&1)*S*0.5;
+      for(let x=0;x<m.w;x++){
+        if(m.explored[m.idx(x,y)]) continue;
+        tg.fillRect(x*S+off-S*0.15, y*S-S*0.15, S*1.3, S*1.3);
+      }
+    }
+    const mk=(blur,tint)=>{
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      const g2=cv.getContext('2d');
+      if('filter' in g2) g2.filter=`blur(${blur}px)`;
+      g2.drawImage(tmp,0,0);
+      g2.filter='none';
+      g2.globalCompositeOperation='source-in';
+      g2.fillStyle=tint; g2.fillRect(0,0,w,h);
+      return cv;
+    };
+    this.fogDark=mk(2.6,'#0e1520');
+    this.fogMist=mk(7,'#9fb2c2');
   }
   resize(w,h,dpr){
     this.cv.width=w*dpr; this.cv.height=h*dpr;
@@ -297,6 +333,23 @@ export class Renderer {
         g.strokeStyle=OUT; g.lineWidth=1.4; g.strokeRect(x,y-h,7,h);
         g.fillStyle='#4a4640'; g.fillRect(x-1.5,y-h-3,10,4);
       };
+      // heraldisches Wappenschild in Spielerfarbe
+      const heraldShield=(x,y,s2=1)=>{
+        g.save(); g.translate(x,y); g.scale(s2,s2);
+        g.fillStyle=pc;
+        g.beginPath();
+        g.moveTo(-5.5,-6); g.lineTo(5.5,-6);
+        g.lineTo(5.5,0); g.quadraticCurveTo(5,4.6, 0,7);
+        g.quadraticCurveTo(-5,4.6, -5.5,0);
+        g.closePath(); g.fill();
+        g.strokeStyle='rgba(40,26,14,0.7)'; g.lineWidth=1.3; g.stroke();
+        // Sparren (Chevron)
+        g.strokeStyle='rgba(255,255,255,0.85)'; g.lineWidth=2;
+        g.beginPath(); g.moveTo(-4,-0.5); g.lineTo(0,-3.6); g.lineTo(4,-0.5); g.stroke();
+        g.strokeStyle='rgba(255,255,255,0.35)'; g.lineWidth=1;
+        g.beginPath(); g.moveTo(-4.5,-5); g.lineTo(4.5,-5); g.stroke();
+        g.restore();
+      };
 
       // ================= Baustelle =================
       if(state==='build'){
@@ -367,6 +420,7 @@ export class Renderer {
             door(W*0.44,H*0.68,W*0.12,H*0.2);
             g.strokeStyle='#7a6a52'; g.lineWidth=1.4;
             g.beginPath(); g.moveTo(W*0.44,H*0.74); g.lineTo(W*0.56,H*0.74); g.stroke();
+            heraldShield(W*0.5,H*0.55,1.25);
             banner(W*0.5,H*0.04,16);
             break;
           }
@@ -448,8 +502,7 @@ export class Renderer {
             g.fillStyle='#b9b4aa';
             for(let k=0;k<4;k++) g.fillRect(W*0.26+k*W*0.125,H*0.15,W*0.075,8);
             window_(W*0.44,H*0.36,7,8,true);
-            g.fillStyle='#22303e';
-            g.fillRect(W*0.42,H*0.52,W*0.16,4); // Schießscharte
+            heraldShield(W*0.5,H*0.58,1);
             door(W*0.43,H*0.72,10,15);
             banner(W*0.5,H*0.02,14);
             break;
@@ -520,6 +573,7 @@ export class Renderer {
             for(let k=0;k<4;k++) g.fillRect(W*0.21+k*W*0.15,H*0.34,W*0.09,8);
             g.fillStyle='#22303e'; g.fillRect(W*0.28,H*0.52,W*0.1,4); g.fillRect(W*0.6,H*0.52,W*0.1,4);
             door(W*0.42,H*0.68,11,15);
+            heraldShield(W*0.71,H*0.66,0.9);
             banner(W*0.5,H*0.1,14);
             if(type==='guardhouse'){ window_(W*0.28,H*0.6,7,8,true); }
             break;
@@ -592,7 +646,7 @@ export class Renderer {
         const leaf= winter? '#5d8a68' : '#4f9448';
         const leafD= winter? '#4a7355' : '#3f7d3a';
         const leafL= winter? '#7da888' : '#6cb060';
-        const layer=(y,w2,h2,c)=>{
+        const layer=(y,w2,h2,c,ink)=>{
           g.fillStyle=c;
           g.beginPath();
           g.moveTo(0,y-h2);
@@ -601,12 +655,13 @@ export class Renderer {
           g.quadraticCurveTo(-w2*0.4,y+2.5, -w2,y);
           g.quadraticCurveTo(-w2*0.9,y-h2*0.35, 0,y-h2);
           g.closePath(); g.fill();
+          if(ink){ g.strokeStyle='rgba(35,62,38,0.65)'; g.lineWidth=1.6; g.stroke(); }
         };
-        layer(-12*s, 17*s, 17*s, leafD);
+        layer(-12*s, 17*s, 17*s, leafD, true);
         layer(-13*s, 15.5*s, 16*s, leaf);
-        layer(-24*s, 12.5*s, 15*s, leafD);
+        layer(-24*s, 12.5*s, 15*s, leafD, true);
         layer(-25*s, 11*s, 14*s, leaf);
-        layer(-35*s, 8.5*s, 13*s, leafD);
+        layer(-35*s, 8.5*s, 13*s, leafD, true);
         layer(-36*s, 7.4*s, 12*s, leafL);
         if(winter){
           g.fillStyle='rgba(244,248,252,0.95)';
@@ -620,6 +675,12 @@ export class Renderer {
         const leafD= winter? '#6d8a63' : '#4a8a3c';
         const leafL= winter? '#a8c29a' : '#7cc168';
         const blob=(bx,by,r,c)=>{ g.fillStyle=c; g.beginPath(); g.arc(bx*s,by*s,r*s,0,7); g.fill(); };
+        // Tusche-Silhouette hinter der Krone
+        g.strokeStyle='rgba(35,62,38,0.7)'; g.lineWidth=2.2;
+        g.beginPath();
+        g.arc(0,-24*s,12.5*s,0,7); g.arc(-10*s,-28*s,9.5*s,0,7);
+        g.arc(10*s,-28*s,9.5*s,0,7); g.arc(0,-38*s,10.5*s,0,7);
+        g.stroke();
         blob(0,-24,12.5,leafD); blob(-10,-28,9.5,leafD); blob(10,-28,9.5,leafD); blob(0,-38,10.5,leafD);
         blob(-8,-30,8.6,leaf); blob(8.5,-29,8.2,leaf); blob(0,-37,9,leaf); blob(0,-25,10,leaf);
         blob(-4,-40,5.4,leafL); blob(-11,-31,4.6,leafL); blob(3,-34,4,leafL);
@@ -803,17 +864,18 @@ export class Renderer {
         g.beginPath(); g.arc(px,py,(mine?2.2:3),0,7); g.fill();
       }
     }
-    // Nebel (unerforscht) – ein Pfad, stark überlappende Kreise = weicher Rand ohne Wabenmuster
-    g.fillStyle='rgba(9,13,20,0.9)';
-    g.beginPath();
-    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
-      const i=m.idx(x,y);
-      if(m.explored[i]) continue;
-      const [px,py]=m.worldPos(i);
-      g.moveTo(px+TILE*0.85,py);
-      g.arc(px,py,TILE*0.85,0,7);
+    // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
+    if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }
+    if(this.fogDark){
+      const fx=-TILE*0.5, fy=-ROWH*0.5;
+      const fw=m.w*TILE, fh=m.h*ROWH;
+      const drift=Math.sin(this.time/2600)*7;
+      const drift2=Math.cos(this.time/3400)*5;
+      g.globalAlpha=0.4; g.drawImage(this.fogMist, fx+drift, fy+drift2*0.5, fw, fh);
+      g.globalAlpha=0.45; g.drawImage(this.fogMist, fx-drift2, fy-drift*0.4, fw, fh);
+      g.globalAlpha=0.96; g.drawImage(this.fogDark, fx, fy, fw, fh);
+      g.globalAlpha=1;
     }
-    g.fill();
     g.restore();
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
@@ -943,21 +1005,22 @@ export class Renderer {
     g.strokeStyle='#7a5b35'; g.lineWidth=1.2;
     g.beginPath(); g.moveTo(x-0.6,y-1); g.lineTo(x-0.6,y-18); g.stroke();
     g.fillStyle='#c9a05a'; g.beginPath(); g.arc(x,y-19.6,1.7,0,7); g.fill();
-    // wehendes Tuch
+    // wehender Ritter-Wimpel mit Schwalbenschwanz
     const col=pl>=0?PLAYER_COLORS[pl]:'#999';
-    const w1=Math.sin(this.time/260+i)*1.8, w2=Math.sin(this.time/260+i+1.4)*2.4;
+    const w1=Math.sin(this.time/260+i)*1.8, w2=Math.sin(this.time/260+i+1.4)*2.6;
     g.fillStyle=col;
     g.beginPath();
     g.moveTo(x,y-19);
-    g.quadraticCurveTo(x+6,y-20+w1, x+12,y-17+w2);
-    g.lineTo(x+12,y-12.6+w2);
-    g.quadraticCurveTo(x+6,y-14.6+w1, x,y-12);
+    g.quadraticCurveTo(x+7,y-20+w1, x+14,y-17.6+w2);   // Oberkante
+    g.lineTo(x+9.5,y-15.6+w2*0.8);                      // Kerbe innen
+    g.lineTo(x+14,y-13+w2*0.7);                         // untere Spitze
+    g.quadraticCurveTo(x+7,y-14.4+w1, x,y-12);
     g.closePath(); g.fill();
-    g.strokeStyle='rgba(30,20,10,0.45)'; g.lineWidth=1; g.stroke();
-    g.fillStyle='rgba(255,255,255,0.22)';
+    g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=1.1; g.stroke();
+    g.fillStyle='rgba(255,255,255,0.25)';
     g.beginPath();
-    g.moveTo(x,y-19); g.quadraticCurveTo(x+6,y-20+w1, x+12,y-17+w2);
-    g.lineTo(x+12,y-16+w2); g.quadraticCurveTo(x+6,y-18.6+w1,x,y-17.4);
+    g.moveTo(x,y-19); g.quadraticCurveTo(x+7,y-20+w1, x+14,y-17.6+w2);
+    g.lineTo(x+13,y-16.6+w2); g.quadraticCurveTo(x+6.5,y-18.6+w1,x,y-17.4);
     g.closePath(); g.fill();
     // wartende Waren als Kistenstapel
     const items=game.flagItems.get(i);

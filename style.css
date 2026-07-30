@@ -21,9 +21,14 @@ body{
 }
 .title-wrap{ text-align:center; padding:24px; max-width:420px; width:100%; }
 h1{
-  font-size:clamp(46px,12vw,74px); letter-spacing:0.12em;
+  font-family:Georgia,'Times New Roman',serif;
+  font-size:clamp(46px,12vw,74px); letter-spacing:0.14em;
   color:#f2d98c; text-shadow:0 3px 0 #7a5b35, 0 8px 24px rgba(0,0,0,0.6);
   margin-bottom:4px;
+}
+h1::after{
+  content:'⚜'; display:block; font-size:22px; letter-spacing:0;
+  color:#c9a05a; text-shadow:none; margin-top:2px;
 }
 .subtitle{ opacity:0.85; margin-bottom:28px; letter-spacing:0.06em; }
 .credits{ margin-top:26px; font-size:12px; opacity:0.55; }
@@ -41,7 +46,11 @@ h1{
   max-width:520px; margin:0 auto; padding:22px 18px calc(30px + env(safe-area-inset-bottom));
   display:flex; flex-direction:column; gap:12px; min-height:100%;
 }
-.panel h2{ color:#f2d98c; margin-bottom:6px; }
+.panel h2{
+  font-family:Georgia,'Times New Roman',serif;
+  color:#f2d98c; margin-bottom:6px; letter-spacing:0.03em;
+  border-bottom:1px solid rgba(201,160,90,0.35); padding-bottom:6px;
+}
 .panel h3{ color:#f2d98c; margin-top:8px; font-size:15px; }
 .panel p{ line-height:1.45; font-size:14.5px; }
 .note{ opacity:0.8; font-size:13.5px; line-height:1.4; }
@@ -88,9 +97,10 @@ h1{
   box-shadow:0 2px 8px rgba(0,0,0,0.3);
 }
 #res-bar{
-  flex:1; display:flex; gap:10px; overflow-x:auto; padding:4px 6px;
-  background:rgba(20,30,44,0.75); border-radius:10px; font-size:14.5px;
+  flex:1; display:flex; gap:10px; overflow-x:auto; padding:4px 8px;
+  background:rgba(20,30,44,0.78); border-radius:12px; font-size:14.5px;
   white-space:nowrap; scrollbar-width:none;
+  border:1px solid rgba(201,160,90,0.3);
 }
 #res-bar span{ display:inline-flex; gap:2px; align-items:center; }
 #objectives{
@@ -120,7 +130,10 @@ h1{
   box-shadow:0 -8px 30px rgba(0,0,0,0.4);
 }
 .sh-head{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
-.sh-head b{ flex:1; font-size:16.5px; color:#f2d98c; }
+.sh-head b{
+  flex:1; font-size:16.5px; color:#f2d98c;
+  font-family:Georgia,'Times New Roman',serif; letter-spacing:0.02em;
+}
 .tabs{ display:flex; gap:6px; overflow-x:auto; margin-bottom:8px; padding-bottom:2px; }
 .tab{
   padding:8px 12px; border-radius:16px; border:1px solid #4a5a70; white-space:nowrap;
