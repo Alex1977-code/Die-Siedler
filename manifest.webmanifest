@@ -1,0 +1,16 @@
+{
+  "name": "Neuland – Aufbau-Strategie",
+  "short_name": "Neuland",
+  "description": "Siedeln, Wirtschaft, Eroberung: Aufbau-Strategie im Geiste der Klassiker – mit Kampagne, freiem Spiel und Partien gegen Computer-Fürsten.",
+  "lang": "de",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#16202e",
+  "theme_color": "#16202e",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}

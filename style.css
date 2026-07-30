@@ -1,0 +1,144 @@
+/* Neuland – mobile-first UI */
+*{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; overflow:hidden; }
+body{
+  font-family:'Segoe UI', system-ui, sans-serif;
+  background:#16202e; color:#e8e4d8;
+  user-select:none; -webkit-user-select:none;
+  touch-action:none;
+}
+#app{ position:fixed; inset:0; }
+.screen{ position:absolute; inset:0; overflow-y:auto; touch-action:pan-y; }
+.hidden{ display:none !important; }
+
+/* ---------- Titel & Menüs ---------- */
+#scr-title{
+  background:
+    radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
+    #16202e;
+  display:flex; align-items:center; justify-content:center;
+}
+.title-wrap{ text-align:center; padding:24px; max-width:420px; width:100%; }
+h1{
+  font-size:clamp(46px,12vw,74px); letter-spacing:0.12em;
+  color:#f2d98c; text-shadow:0 3px 0 #7a5b35, 0 8px 24px rgba(0,0,0,0.6);
+  margin-bottom:4px;
+}
+.subtitle{ opacity:0.85; margin-bottom:28px; letter-spacing:0.06em; }
+.credits{ margin-top:26px; font-size:12px; opacity:0.55; }
+.menu{ display:flex; flex-direction:column; gap:10px; }
+.mbtn{
+  font-size:17px; padding:13px 18px; border-radius:12px; border:1px solid #4a5a70;
+  background:linear-gradient(#31435c,#26364b); color:#e8e4d8; cursor:pointer;
+  transition:transform 0.06s;
+}
+.mbtn:active{ transform:scale(0.97); }
+.mbtn.primary{ background:linear-gradient(#3d6b3f,#2d5230); border-color:#5d8a5f; }
+.mbtn.back{ background:linear-gradient(#41414b,#31313a); border-color:#5a5a66; }
+.panel{
+  max-width:520px; margin:0 auto; padding:22px 18px calc(30px + env(safe-area-inset-bottom));
+  display:flex; flex-direction:column; gap:12px; min-height:100%;
+}
+.panel h2{ color:#f2d98c; margin-bottom:6px; }
+.panel h3{ color:#f2d98c; margin-top:8px; font-size:15px; }
+.panel p{ line-height:1.45; font-size:14.5px; }
+.note{ opacity:0.8; font-size:13.5px; line-height:1.4; }
+.warn{ color:#ffb44a; font-size:13.5px; }
+.tips{ font-style:italic; opacity:0.75; font-size:13px; }
+.row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.form{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form label{ display:flex; flex-direction:column; gap:5px; font-size:13px; opacity:0.9; }
+.form select,.form input{
+  padding:10px; border-radius:9px; border:1px solid #4a5a70; background:#1d2a3a; color:#e8e4d8; font-size:15px;
+}
+.opt{ display:flex; gap:10px; align-items:center; font-size:16px; padding:8px 0; }
+.opt input{ width:22px; height:22px; }
+
+.mission-list,.slot-list{ display:flex; flex-direction:column; gap:8px; }
+.mission,.slot{
+  display:flex; gap:12px; align-items:center; text-align:left;
+  padding:12px; border-radius:12px; border:1px solid #4a5a70;
+  background:#22334a; color:#e8e4d8; font-size:15px; cursor:pointer;
+}
+.mission.locked,.slot.locked{ opacity:0.45; }
+.mission small,.slot small{ opacity:0.7; }
+.mnum{
+  background:#f2d98c; color:#4a3a18; font-weight:bold; border-radius:50%;
+  width:34px; height:34px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.story{ justify-content:center; }
+#story-text{ white-space:pre-line; }
+
+/* ---------- Spiel-HUD ---------- */
+#scr-game{ overflow:hidden; }
+#cv{ position:absolute; inset:0; touch-action:none; }
+#hud-top{
+  position:absolute; top:0; left:0; right:0;
+  padding:calc(6px + env(safe-area-inset-top)) 8px 6px;
+  display:flex; gap:8px; align-items:center;
+  background:linear-gradient(rgba(10,14,22,0.85), rgba(10,14,22,0));
+  pointer-events:none;
+}
+#hud-top>*{ pointer-events:auto; }
+.hbtn{
+  min-width:42px; height:42px; border-radius:10px; border:1px solid #4a5a70;
+  background:rgba(34,51,74,0.92); color:#e8e4d8; font-size:18px; cursor:pointer;
+}
+#res-bar{
+  flex:1; display:flex; gap:10px; overflow-x:auto; padding:4px 6px;
+  background:rgba(20,30,44,0.75); border-radius:10px; font-size:14.5px;
+  white-space:nowrap; scrollbar-width:none;
+}
+#res-bar span{ display:inline-flex; gap:2px; align-items:center; }
+#objectives{
+  position:absolute; top:calc(58px + env(safe-area-inset-top)); left:8px;
+  background:rgba(20,30,44,0.92); border:1px solid #4a5a70; border-radius:12px;
+  padding:10px 14px; font-size:13.5px; line-height:1.55; max-width:75vw; z-index:5;
+}
+#msg-toast{
+  position:absolute; top:calc(60px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
+  background:rgba(20,30,44,0.94); border:1px solid #f2d98c66; color:#f6edd8;
+  padding:9px 16px; border-radius:20px; font-size:14px; z-index:6; max-width:88vw; text-align:center;
+}
+#minimap-wrap{
+  position:absolute; right:8px; bottom:calc(8px + env(safe-area-inset-bottom));
+  border:2px solid rgba(74,90,112,0.9); border-radius:10px; overflow:hidden;
+  background:#0a0e16; opacity:0.94; z-index:4;
+}
+#minimap{ display:block; width:130px; height:130px; }
+
+/* Bottom-Sheet */
+#sheet{
+  position:absolute; left:0; right:0; bottom:0;
+  background:rgba(20,30,44,0.97); border-top:2px solid #4a5a70;
+  border-radius:18px 18px 0 0; padding:10px 12px calc(14px + env(safe-area-inset-bottom));
+  max-height:52vh; overflow-y:auto; z-index:8; touch-action:pan-y;
+}
+.sh-head{ display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.sh-head b{ flex:1; font-size:16.5px; color:#f2d98c; }
+.tabs{ display:flex; gap:6px; overflow-x:auto; margin-bottom:8px; padding-bottom:2px; }
+.tab{
+  padding:8px 12px; border-radius:16px; border:1px solid #4a5a70; white-space:nowrap;
+  background:#22334a; color:#cfd6df; font-size:13.5px;
+}
+.tab.on{ background:#f2d98c; color:#4a3a18; border-color:#f2d98c; font-weight:600; }
+.bgrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
+.bitem{
+  display:flex; flex-direction:column; gap:2px; text-align:left;
+  padding:10px; border-radius:10px; border:1px solid #4a5a70;
+  background:#26364b; color:#e8e4d8; font-size:14px; cursor:pointer;
+}
+.bitem small{ opacity:0.75; font-size:11.5px; }
+.bitem .desc{ opacity:0.6; }
+.bitem.off{ opacity:0.5; }
+#sheet input[type=range]{ flex:1; }
+
+#game-menu,#dlg{
+  position:absolute; inset:0; background:rgba(8,12,18,0.72); z-index:20;
+  display:flex; align-items:center; justify-content:center; padding:18px;
+}
+#game-menu .panel,#dlg .panel{
+  background:#1d2a3a; border:1px solid #4a5a70; border-radius:16px;
+  min-height:0; width:100%; max-width:360px; max-height:82vh; overflow-y:auto;
+}
