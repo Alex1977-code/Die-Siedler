@@ -98,48 +98,98 @@ export const Sound = {
     }
   },
 
-  // ---------- Generative Musik ----------
-  // ruhige Pentatonik über Bordun – bewusst schlicht & eigenständig
+  // ---------- Generative Musik: moderner Chill-Soundtrack (eigene Komposition) ----------
+  _mNoise(t,dur,vol,f1,f2){
+    const n=Math.max(1,(this.ctx.sampleRate*dur)|0);
+    const buf=this.ctx.createBuffer(1,n,this.ctx.sampleRate);
+    const d=buf.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+    const src=this.ctx.createBufferSource(); src.buffer=buf;
+    const f=this.ctx.createBiquadFilter(); f.type='bandpass';
+    f.frequency.value=(f1+f2)/2; f.Q.value=0.8;
+    const gn=this.ctx.createGain();
+    gn.gain.setValueAtTime(vol,t);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(f); f.connect(gn); gn.connect(this.musicGain);
+    src.start(t);
+  },
+  _pluck(t,f,vol){
+    const o=this.ctx.createOscillator(); o.type='triangle'; o.frequency.value=f;
+    const flt=this.ctx.createBiquadFilter(); flt.type='lowpass'; flt.frequency.value=2600;
+    const gn=this.ctx.createGain();
+    gn.gain.setValueAtTime(0.0001,t);
+    gn.gain.linearRampToValueAtTime(vol,t+0.012);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t+0.34);
+    o.connect(flt); flt.connect(gn); gn.connect(this.musicGain);
+    o.start(t); o.stop(t+0.4);
+  },
   startMusic(){
     if(this._musicTimer||!this.ctx) return;
-    const scale=[220, 261.6, 293.7, 329.6, 392, 440, 523.3, 587.3];
-    const beat=0.42; this._step=0;
-    const tickMusic=()=>{
-      if(!this.musicOn){ return; }
-      const t=this.ctx.currentTime;
+    const BPM=92, STEP=60/BPM/4;             // 16tel-Raster
+    // eigene, schlichte 4-Akkord-Schleife (moll -> träumerisch-modern)
+    const CH=[
+      { pad:[220.00,261.63,329.63], bass:55.00, arp:[220.00,261.63,329.63,440.00] },
+      { pad:[174.61,220.00,261.63], bass:43.65, arp:[174.61,220.00,261.63,349.23] },
+      { pad:[196.00,246.94,293.66], bass:49.00, arp:[196.00,246.94,293.66,392.00] },
+      { pad:[164.81,196.00,246.94], bass:41.20, arp:[164.81,196.00,246.94,329.63] },
+    ];
+    this._step=0;
+    const play=()=>{
+      if(!this.musicOn) return;
+      const t=this.ctx.currentTime+0.02;
       const s=this._step++;
-      // Bordun alle 16 Schritte
-      if(s%16===0){
-        const o=this.ctx.createOscillator(), g=this.ctx.createGain();
-        o.type='sine'; o.frequency.value=110;
-        g.gain.setValueAtTime(0.0001,t);
-        g.gain.linearRampToValueAtTime(0.10,t+0.6);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+beat*16);
-        o.connect(g); g.connect(this.musicGain);
-        o.start(t); o.stop(t+beat*16);
-        const o2=this.ctx.createOscillator(), g2=this.ctx.createGain();
-        o2.type='sine'; o2.frequency.value=164.8;
-        g2.gain.setValueAtTime(0.0001,t);
-        g2.gain.linearRampToValueAtTime(0.05,t+0.8);
-        g2.gain.exponentialRampToValueAtTime(0.0001,t+beat*16);
-        o2.connect(g2); g2.connect(this.musicGain);
-        o2.start(t); o2.stop(t+beat*16);
+      const ch=CH[(s>>4)%4], st=s&15;
+      // warmes Pad bei jedem Akkordwechsel (2 leicht verstimmte Sägezähne durch Tiefpass)
+      if(st===0){
+        for(const f of ch.pad){
+          const o=this.ctx.createOscillator(), o2=this.ctx.createOscillator();
+          o.type='sawtooth'; o2.type='sawtooth';
+          o.frequency.value=f*0.997; o2.frequency.value=f*1.003;
+          const flt=this.ctx.createBiquadFilter(); flt.type='lowpass';
+          flt.frequency.value=820; flt.Q.value=0.4;
+          const gn=this.ctx.createGain();
+          const dur=STEP*16;
+          gn.gain.setValueAtTime(0.0001,t);
+          gn.gain.linearRampToValueAtTime(0.042,t+0.9);
+          gn.gain.setValueAtTime(0.042,t+dur-1.1);
+          gn.gain.exponentialRampToValueAtTime(0.0001,t+dur+0.2);
+          o.connect(flt); o2.connect(flt); flt.connect(gn); gn.connect(this.musicGain);
+          o.start(t); o2.start(t); o.stop(t+dur+0.3); o2.stop(t+dur+0.3);
+        }
       }
-      // Melodienote mit Pausen
-      if(Math.random()<0.55){
-        const note=scale[(Math.random()*scale.length)|0];
-        const o=this.ctx.createOscillator(), g=this.ctx.createGain();
-        o.type='triangle'; o.frequency.value=note;
-        const dur=beat*(Math.random()<0.3?2:1)*0.95;
-        g.gain.setValueAtTime(0.0001,t);
-        g.gain.linearRampToValueAtTime(0.12,t+0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-        o.connect(g); g.connect(this.musicGain);
-        o.start(t); o.stop(t+dur+0.05);
+      // Sub-Bass-Muster
+      if(st===0||st===3||st===8||st===10){
+        const o=this.ctx.createOscillator(); o.type='sine'; o.frequency.value=ch.bass*2;
+        const gn=this.ctx.createGain();
+        gn.gain.setValueAtTime(0.0001,t);
+        gn.gain.linearRampToValueAtTime(0.15,t+0.015);
+        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.32);
+        o.connect(gn); gn.connect(this.musicGain);
+        o.start(t); o.stop(t+0.38);
       }
-      this._musicTimer=setTimeout(tickMusic, beat*1000);
+      // weiche Kick auf den Vierteln
+      if(st%4===0){
+        const o=this.ctx.createOscillator(); o.type='sine';
+        o.frequency.setValueAtTime(105,t);
+        o.frequency.exponentialRampToValueAtTime(42,t+0.1);
+        const gn=this.ctx.createGain();
+        gn.gain.setValueAtTime(0.2,t);
+        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
+        o.connect(gn); gn.connect(this.musicGain);
+        o.start(t); o.stop(t+0.18);
+      }
+      // Snare-Hauch auf 2 und 4, HiHat-Ticken auf Achteln
+      if(st===4||st===12) this._mNoise(t,0.1,0.05,1300,3200);
+      if(st%2===0) this._mNoise(t,0.025,(st%4===2)?0.032:0.02,6500,10500);
+      // Arpeggio-Pluck mit Echo
+      if(st%2===1 && Math.random()<0.65){
+        const f=ch.arp[(Math.random()*ch.arp.length)|0]*(Math.random()<0.25?2:1);
+        this._pluck(t,f,0.055);
+        this._pluck(t+STEP*3,f,0.02);
+      }
+      this._musicTimer=setTimeout(play, STEP*1000);
     };
-    tickMusic();
+    play();
   },
   stopMusic(){
     if(this._musicTimer){ clearTimeout(this._musicTimer); this._musicTimer=null; }
