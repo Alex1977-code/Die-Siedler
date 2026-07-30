@@ -157,8 +157,66 @@ export class Renderer {
         this.tri(g, m, cols, ncache, i, iSE, iSW);
       }
     }
+    // handgemalte Textur-Tupfer je Gelände (im Chunk gecacht -> kostenlos zur Laufzeit)
+    for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
+      for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+        const i=m.idx(x,y);
+        this.terrainBrush(g, m, i);
+      }
+    }
     g.restore();
     return c;
+  }
+  terrainBrush(g, m, i){
+    const t=m.terr[i];
+    const h=hash01(i*17+9);
+    const [px,py]=m.worldPos(i);
+    const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
+    if(t===TER.GRASS && h<0.5){
+      // Grasbüschel-Pinselstriche in zwei Tönen
+      const dark=h<0.25;
+      g.strokeStyle=dark?'rgba(52,110,48,0.35)':'rgba(180,225,140,0.3)';
+      g.lineWidth=1.5;
+      for(let k=0;k<4;k++){
+        const bx=px+o1+k*4-6, by=py+o2;
+        g.beginPath();
+        g.moveTo(bx,by);
+        g.quadraticCurveTo(bx+1.2,by-3.4, bx+2.6,by-5.4);
+        g.stroke();
+      }
+    } else if(t===TER.MOUNT && h<0.55){
+      // Felsrisse + Kantenlicht
+      g.strokeStyle='rgba(52,46,40,0.4)'; g.lineWidth=1.6;
+      g.beginPath();
+      g.moveTo(px+o1-8,py+o2);
+      g.lineTo(px+o1-2,py+o2+4);
+      g.lineTo(px+o1+5,py+o2+2);
+      g.stroke();
+      g.strokeStyle='rgba(255,255,255,0.22)'; g.lineWidth=1.2;
+      g.beginPath();
+      g.moveTo(px+o1-7,py+o2-1.5); g.lineTo(px+o1-1,py+o2+2.5);
+      g.stroke();
+    } else if(t===TER.DESERT && h<0.4){
+      g.fillStyle='rgba(160,130,80,0.3)';
+      for(let k=0;k<5;k++){
+        g.beginPath();
+        g.arc(px+o1+hash01(i*7+k)*20-10, py+o2+hash01(i*11+k)*14-7, 1.1, 0, 7);
+        g.fill();
+      }
+    } else if(t===TER.SWAMP && h<0.45){
+      g.fillStyle='rgba(40,70,45,0.3)';
+      g.beginPath(); g.ellipse(px+o1,py+o2,7,3.4,0.4,0,7); g.fill();
+      g.strokeStyle='rgba(120,160,90,0.4)'; g.lineWidth=1.3;
+      g.beginPath(); g.moveTo(px+o1+3,py+o2); g.lineTo(px+o1+4,py+o2-6); g.stroke();
+    } else if(t===TER.SNOW && h<0.3){
+      g.fillStyle='rgba(255,255,255,0.5)';
+      g.beginPath(); g.arc(px+o1,py+o2,1.3,0,7); g.arc(px+o1+7,py+o2+4,1,0,7); g.fill();
+    } else if(t===TER.LAVA && h<0.5){
+      g.strokeStyle='rgba(255,190,80,0.5)'; g.lineWidth=1.6;
+      g.beginPath();
+      g.moveTo(px+o1-6,py+o2); g.lineTo(px+o1,py+o2+3); g.lineTo(px+o1+6,py+o2+1);
+      g.stroke();
+    }
   }
   // weiche Farbe pro KNOTEN (Küstenmischung + sanfte, örtlich korrelierte Variation)
   nodeColor(m, cols, coast, ncache, i){
@@ -169,10 +227,23 @@ export class Renderer {
     let col;
     if(t===TER.WATER){
       const landN=nbs.filter(n=>m.terr[n]!==TER.WATER).length;
-      col = landN? mixArr(hex2arr(cols[TER.WATER]), hex2arr(coast[1]), Math.min(1,landN/4)*0.75) : hex2arr(cols[TER.WATER]);
+      if(landN){
+        col = mixArr(hex2arr(cols[TER.WATER]), hex2arr(coast[1]), Math.min(1,landN/4)*0.75);
+      } else {
+        // Tiefenstufen: 2. Ring vom Ufer = mittel, weiter draußen = tiefdunkel
+        let ring2=false;
+        for(const n of nbs){ if(m.nbs(n).some(q=>m.terr[q]!==TER.WATER)){ ring2=true; break; } }
+        const deep=hex2arr(cols[TER.WATER]).map(v=>v*0.72);
+        col = ring2? hex2arr(cols[TER.WATER]) : deep;
+      }
     } else if(t===TER.GRASS||t===TER.DESERT||t===TER.SNOW){
       const waterN=nbs.filter(n=>m.terr[n]===TER.WATER).length;
       col = waterN? mixArr(hex2arr(cols[t]), hex2arr(coast[0]), Math.min(1,waterN/4)*0.8) : hex2arr(cols[t]);
+    } else if(t===TER.MOUNT){
+      col = hex2arr(cols[t]);
+      // hohe Gipfel hell/verschneit anmalen
+      const peak=Math.max(0,Math.min(0.75,(m.hgt[i]-0.85)*1.1));
+      if(peak>0) col=mixArr(col, [223,228,236], peak);
     } else {
       col = hex2arr(cols[t]||'#888888');
     }
@@ -281,6 +352,16 @@ export class Renderer {
         g.quadraticCurveTo(x+w/2,y+4, x-over,y+1);
         g.closePath(); g.fill();
         g.strokeStyle=OUT; g.lineWidth=1.5; g.stroke();
+        // Schindelreihen (angedeutet, folgen der Dachkrümmung)
+        g.strokeStyle='rgba(40,26,14,0.16)'; g.lineWidth=1.1;
+        for(const fr of [0.3,0.55,0.78]){
+          const yy=y-rh*(1-fr);
+          const spread=over+(w/2+over)*(fr*0.85);
+          g.beginPath();
+          g.moveTo(x+w/2-spread, y+1-(y+1-yy)*0.96);
+          g.quadraticCurveTo(x+w/2, yy+3, x+w/2+spread, y+1-(y+1-yy)*0.96);
+          g.stroke();
+        }
         g.strokeStyle='rgba(255,255,255,0.4)'; g.lineWidth=1.4;
         g.beginPath(); g.moveTo(x-over+3,y-1); g.quadraticCurveTo(x+w*0.17,y-rh*0.6, x+w/2-2,y-rh+2.4); g.stroke();
       };
@@ -683,7 +764,15 @@ export class Renderer {
         g.stroke();
         blob(0,-24,12.5,leafD); blob(-10,-28,9.5,leafD); blob(10,-28,9.5,leafD); blob(0,-38,10.5,leafD);
         blob(-8,-30,8.6,leaf); blob(8.5,-29,8.2,leaf); blob(0,-37,9,leaf); blob(0,-25,10,leaf);
+        // Formschatten unten rechts, Sonnenlicht oben links (plastische Krone)
+        g.globalAlpha=0.35;
+        blob(6,-22,8.5, winter?'#4a5f4a':'#2e5c28');
+        blob(10,-27,6.5, winter?'#4a5f4a':'#2e5c28');
+        g.globalAlpha=1;
         blob(-4,-40,5.4,leafL); blob(-11,-31,4.6,leafL); blob(3,-34,4,leafL);
+        g.globalAlpha=0.55;
+        blob(-7,-38,3.4,'#d8f0b0'); blob(-12,-33,2.6,'#d8f0b0');
+        g.globalAlpha=1;
       }
     });
   }
@@ -779,6 +868,28 @@ export class Renderer {
       const ox=Math.sin(ph*0.7)*6;
       g.beginPath(); g.moveTo(px-7+ox,py); g.lineTo(px+2+ox,py); g.stroke();
       g.beginPath(); g.moveTo(px+6-ox,py+6); g.lineTo(px+12-ox,py+6); g.stroke();
+    }
+    // sanfter Uferschaum entlang der Küste (animiert)
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=m.idx(x,y);
+      if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+      const hsh=hash01(i*5+1);
+      const foamA=0.16+0.14*Math.sin(this.time/800+hsh*6.28);
+      if(foamA<=0.05) continue;
+      for(const n of m.nbs(i)){
+        if(m.terr[n]===TER.WATER) continue;
+        const [px,py]=m.worldPos(i), [lx,ly]=m.worldPos(n);
+        const mx=(px+lx)/2, my=(py+ly)/2;
+        const dx=lx-px, dy=ly-py;
+        const L=Math.hypot(dx,dy)||1;
+        const tx=-dy/L, ty=dx/L;
+        g.strokeStyle=`rgba(240,250,255,${foamA})`;
+        g.lineWidth=2.2;
+        g.beginPath();
+        g.moveTo(mx-tx*12,my-ty*12);
+        g.quadraticCurveTo(mx-dx*0.12, my-dy*0.12, mx+tx*12, my+ty*12);
+        g.stroke();
+      }
     }
     // Wiesen-Deko (nur bei näherem Zoom sichtbar sinnvoll)
     if(cam.z>=0.7){
@@ -877,6 +988,13 @@ export class Renderer {
       g.globalAlpha=1;
     }
     g.restore();
+    // warme Sonnenstimmung: Licht von Nordwest, kühle Schatten im Südosten
+    const sun=g.createLinearGradient(0,0,this.vw,this.vh);
+    sun.addColorStop(0,'rgba(255,214,150,0.07)');
+    sun.addColorStop(0.5,'rgba(255,214,150,0)');
+    sun.addColorStop(1,'rgba(40,60,110,0.08)');
+    g.fillStyle=sun;
+    g.fillRect(0,0,this.vw,this.vh);
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
   }
