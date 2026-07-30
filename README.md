@@ -40,16 +40,27 @@ Verzeichnis auf einen beliebigen statischen Webspace legen (GitHub Pages,
 Netlify, …). Im Browser-Menü **„Zum Startbildschirm hinzufügen"** wählen –
 dann startet das Spiel im Vollbild wie eine native App und läuft offline.
 
-### GitHub Pages (eingerichtet)
+### GitHub Pages (einmalig freischalten, dann automatisch)
 
-Das Spiel wird automatisch über GitHub Pages veröffentlicht
-(Workflow `.github/workflows/pages.yml` aktiviert Pages mit diesem Branch
-als Quelle):
+GitHub erlaubt das allererste Aktivieren von Pages nur dem Repo-Besitzer
+über die Weboberfläche. **Einmalige Einrichtung (30 Sekunden):**
+
+1. Auf GitHub öffnen: **Settings → Pages**
+   (https://github.com/Alex1977-code/Die-Siedler/settings/pages)
+2. Unter **Source**: „Deploy from a branch" wählen
+3. Branch **`claude/siedler-2-mobile-clone-0rc5db`**, Ordner **`/ (root)`** → **Save**
+
+Nach 1–2 Minuten ist das Spiel dauerhaft erreichbar unter:
 
 **https://alex1977-code.github.io/Die-Siedler/**
 
-Auf dem Handy öffnen → Browser-Menü → „Zum Startbildschirm hinzufügen" →
+Jeder weitere Push auf den Branch wird automatisch veröffentlicht.
+Auf dem Handy: Link öffnen → Browser-Menü → „Zum Startbildschirm hinzufügen" →
 läuft im Vollbild wie eine native App, auch offline.
+
+*Alternative:* Unter Source „GitHub Actions" wählen – dann übernimmt der
+mitgelieferte Workflow `.github/workflows/pages.yml` das Deployment
+(ggf. unter Settings → Environments → github-pages den Branch erlauben).
 
 ### Als Store-App (Android/iOS)
 
