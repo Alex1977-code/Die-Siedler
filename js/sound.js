@@ -12,7 +12,15 @@ export const Sound = {
     this.master=this.ctx.createGain(); this.master.gain.value=0.9;
     this.master.connect(this.ctx.destination);
     this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=0.8; this.sfxGain.connect(this.master);
-    this.musicGain=this.ctx.createGain(); this.musicGain.gain.value=0.32; this.musicGain.connect(this.master);
+    this.musicGain=this.ctx.createGain(); this.musicGain.gain.value=0.34; this.musicGain.connect(this.master);
+    // Raumklang für die Musik: gefiltertes Echo mit Rückkopplung
+    this.mDelay=this.ctx.createDelay(1); this.mDelay.delayTime.value=0.31;
+    const fb=this.ctx.createGain(); fb.gain.value=0.34;
+    const lp=this.ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=2600;
+    const wet=this.ctx.createGain(); wet.gain.value=0.28;
+    this.musicGain.connect(this.mDelay);
+    this.mDelay.connect(lp); lp.connect(fb); fb.connect(this.mDelay);
+    lp.connect(wet); wet.connect(this.master);
   },
   unlock(){ // beim ersten Touch aufrufen
     this.init();
@@ -123,69 +131,108 @@ export const Sound = {
     o.connect(flt); flt.connect(gn); gn.connect(this.musicGain);
     o.start(t); o.stop(t+0.4);
   },
+  // weiche Lead-Stimme mit Vibrato für Melodie-Motive
+  _lead(t,f,dur,vol){
+    const o=this.ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+    const lfo=this.ctx.createOscillator(); lfo.frequency.value=5.2;
+    const lg=this.ctx.createGain(); lg.gain.value=f*0.006;
+    lfo.connect(lg); lg.connect(o.frequency);
+    const gn=this.ctx.createGain();
+    gn.gain.setValueAtTime(0.0001,t);
+    gn.gain.linearRampToValueAtTime(vol,t+0.06);
+    gn.gain.setValueAtTime(vol*0.85,t+dur*0.7);
+    gn.gain.exponentialRampToValueAtTime(0.0001,t+dur+0.15);
+    o.connect(gn); gn.connect(this.musicGain);
+    o.start(t); lfo.start(t); o.stop(t+dur+0.2); lfo.stop(t+dur+0.2);
+  },
   startMusic(){
     if(this._musicTimer||!this.ctx) return;
-    const BPM=92, STEP=60/BPM/4;             // 16tel-Raster
-    // eigene, schlichte 4-Akkord-Schleife (moll -> träumerisch-modern)
+    const BPM=84, STEP=60/BPM/4;                       // entspanntes 16tel-Raster
+    const N=(s)=>220*Math.pow(2,s/12);                 // Halbtöne relativ zu A3
+    // eigene 8-Takt-Schleife aus schlichten Septakkorden (A-Teil + B-Teil)
+    const mk=(root,ints,arp)=>({ pad:ints.map(s=>N(root+s)), bass:N(root-24), arp:arp.map(s=>N(root+s)) });
     const CH=[
-      { pad:[220.00,261.63,329.63], bass:55.00, arp:[220.00,261.63,329.63,440.00] },
-      { pad:[174.61,220.00,261.63], bass:43.65, arp:[174.61,220.00,261.63,349.23] },
-      { pad:[196.00,246.94,293.66], bass:49.00, arp:[196.00,246.94,293.66,392.00] },
-      { pad:[164.81,196.00,246.94], bass:41.20, arp:[164.81,196.00,246.94,329.63] },
+      mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
+      mk(3,[0,4,7,11],[0,7,11,12]),   mk(-2,[0,4,7,9],[0,7,9,12]),
+      mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
+      mk(5,[0,3,7,10],[0,7,10,12]),   mk(-2,[0,4,7,9],[0,4,7,9]),
     ];
+    // kleine eigene Melodie-Motive (Pentatonik, als Halbton-Schritte + Länge in 16teln)
+    const MOTIFS=[
+      [[12,2],[10,2],[7,4],[3,4]],
+      [[7,2],[10,2],[12,4],[15,4],[12,4]],
+      [[3,2],[7,2],[10,2],[7,4],[3,4]],
+      [[15,2],[12,2],[10,4],[7,6]],
+    ];
+    const ARP=[0,1,2,3,2,1,0,2];                        // festes, musikalisches Muster
     this._step=0;
     const play=()=>{
       if(!this.musicOn) return;
-      const t=this.ctx.currentTime+0.02;
+      const t=this.ctx.currentTime+0.03;
       const s=this._step++;
-      const ch=CH[(s>>4)%4], st=s&15;
-      // warmes Pad bei jedem Akkordwechsel (2 leicht verstimmte Sägezähne durch Tiefpass)
+      const bar=(s>>4)%8, st=s&15;
+      const ch=CH[bar];
+      // Pad: drei verstimmte Stimmen, Filter öffnet und schließt sanft
       if(st===0){
         for(const f of ch.pad){
-          const o=this.ctx.createOscillator(), o2=this.ctx.createOscillator();
-          o.type='sawtooth'; o2.type='sawtooth';
-          o.frequency.value=f*0.997; o2.frequency.value=f*1.003;
-          const flt=this.ctx.createBiquadFilter(); flt.type='lowpass';
-          flt.frequency.value=820; flt.Q.value=0.4;
-          const gn=this.ctx.createGain();
-          const dur=STEP*16;
-          gn.gain.setValueAtTime(0.0001,t);
-          gn.gain.linearRampToValueAtTime(0.042,t+0.9);
-          gn.gain.setValueAtTime(0.042,t+dur-1.1);
-          gn.gain.exponentialRampToValueAtTime(0.0001,t+dur+0.2);
-          o.connect(flt); o2.connect(flt); flt.connect(gn); gn.connect(this.musicGain);
-          o.start(t); o2.start(t); o.stop(t+dur+0.3); o2.stop(t+dur+0.3);
+          for(const det of [0.996,1.0,1.004]){
+            const o=this.ctx.createOscillator();
+            o.type=det===1.0?'triangle':'sawtooth';
+            o.frequency.value=f*det;
+            const flt=this.ctx.createBiquadFilter(); flt.type='lowpass'; flt.Q.value=0.4;
+            const dur=STEP*16;
+            flt.frequency.setValueAtTime(620,t);
+            flt.frequency.linearRampToValueAtTime(1150,t+dur*0.55);
+            flt.frequency.linearRampToValueAtTime(700,t+dur);
+            const gn=this.ctx.createGain();
+            gn.gain.setValueAtTime(0.0001,t);
+            gn.gain.linearRampToValueAtTime(det===1.0?0.028:0.02,t+1.1);
+            gn.gain.setValueAtTime(det===1.0?0.028:0.02,t+dur-1.2);
+            gn.gain.exponentialRampToValueAtTime(0.0001,t+dur+0.3);
+            o.connect(flt); flt.connect(gn); gn.connect(this.musicGain);
+            o.start(t); o.stop(t+dur+0.4);
+          }
         }
       }
-      // Sub-Bass-Muster
-      if(st===0||st===3||st===8||st===10){
-        const o=this.ctx.createOscillator(); o.type='sine'; o.frequency.value=ch.bass*2;
+      // runder Bass (Grundton, Oktave als Antwort)
+      if(st===0||st===7||st===10){
+        const o=this.ctx.createOscillator(); o.type='sine';
+        o.frequency.value=ch.bass*(st===10?2:1)*2;
         const gn=this.ctx.createGain();
         gn.gain.setValueAtTime(0.0001,t);
-        gn.gain.linearRampToValueAtTime(0.15,t+0.015);
-        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.32);
+        gn.gain.linearRampToValueAtTime(st===0?0.17:0.11,t+0.02);
+        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.45);
         o.connect(gn); gn.connect(this.musicGain);
-        o.start(t); o.stop(t+0.38);
+        o.start(t); o.stop(t+0.5);
       }
-      // weiche Kick auf den Vierteln
-      if(st%4===0){
+      // LoFi-Beat: Kick 1 & "und" von 3, Snare-Hauch auf 3, Hats mit Dynamik
+      if(st===0||st===11){
         const o=this.ctx.createOscillator(); o.type='sine';
-        o.frequency.setValueAtTime(105,t);
-        o.frequency.exponentialRampToValueAtTime(42,t+0.1);
+        o.frequency.setValueAtTime(96,t);
+        o.frequency.exponentialRampToValueAtTime(40,t+0.11);
         const gn=this.ctx.createGain();
-        gn.gain.setValueAtTime(0.2,t);
-        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.14);
+        gn.gain.setValueAtTime(st===0?0.2:0.12,t);
+        gn.gain.exponentialRampToValueAtTime(0.0001,t+0.15);
         o.connect(gn); gn.connect(this.musicGain);
-        o.start(t); o.stop(t+0.18);
+        o.start(t); o.stop(t+0.2);
       }
-      // Snare-Hauch auf 2 und 4, HiHat-Ticken auf Achteln
-      if(st===4||st===12) this._mNoise(t,0.1,0.05,1300,3200);
-      if(st%2===0) this._mNoise(t,0.025,(st%4===2)?0.032:0.02,6500,10500);
-      // Arpeggio-Pluck mit Echo
-      if(st%2===1 && Math.random()<0.65){
-        const f=ch.arp[(Math.random()*ch.arp.length)|0]*(Math.random()<0.25?2:1);
-        this._pluck(t,f,0.055);
-        this._pluck(t+STEP*3,f,0.02);
+      if(st===8) this._mNoise(t,0.12,0.045,1100,2800);
+      if(st%2===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
+      if(st===6||st===14) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
+      // Arpeggio: festes Muster, sanfte Anschläge
+      if(st%2===0 && Math.random()<0.9){
+        const f=ch.arp[ARP[(s>>1)%ARP.length]%ch.arp.length]*2;
+        this._pluck(t,f,0.045);
+        this._pluck(t+STEP*3,f,0.016);
+      }
+      // Melodie-Motiv alle zwei Takte, zart obenauf
+      if(st===0 && bar%2===1 && Math.random()<0.75){
+        const mo=MOTIFS[(Math.random()*MOTIFS.length)|0];
+        let off=STEP*2;
+        for(const [semi,len] of mo){
+          this._lead(t+off, N(semi)*2, STEP*len*0.92, 0.05);
+          off+=STEP*len;
+        }
       }
       this._musicTimer=setTimeout(play, STEP*1000);
     };

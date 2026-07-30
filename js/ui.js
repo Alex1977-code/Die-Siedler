@@ -332,6 +332,11 @@ export class UI {
       if(d>750) return;
       Sound.sfx(name, Math.max(0.15, 1-d/750));
     };
+    g.onGeoProbe=(u)=>{
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d>750) return;
+      Sound.sfx('pick', Math.max(0.15, 1-d/750));
+    };
     g.onClash=()=>Sound.sfx('clash');
     g.onRecruit=()=>Sound.sfx('recruit');
     g.onPromote=()=>Sound.sfx('coin');
@@ -365,9 +370,11 @@ export class UI {
       }
       return;
     }
-    // Auswahl: Gebäude? Fahne? freier Knoten?
+    // Auswahl: Gebäude? Fahne? Weg? freier Knoten?
     if(m.bld[i]>=0){ this.state.sel=i; this.openBuildingSheet(this.game.buildings.get(m.bld[i])); return; }
     if(m.flag[i]){ this.state.sel=i; this.openFlagSheet(i); return; }
+    const road=this.game.roadAt(i);
+    if(road && road.player===0){ this.state.sel=i; this.openRoadSheet(road, i); return; }
     if(m.owner[i]===0){ this.state.sel=i; this.openBuildSheet(i); return; }
     this.state.sel=-1; this.closeSheet();
   }
@@ -391,14 +398,23 @@ export class UI {
     this.state.roadNodes=[fromFlag];
     this.closeSheet();
     this.sheet(`<div class="sh-head"><b>Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">Tippe Wegpunkte bis zu einer anderen Fahne (oder freiem Punkt → neue Fahne).
+      <p class="note">Tippe Wegpunkte. Abschluss: andere Fahne, bestehender Weg (Fahne wird gesetzt)
+      oder unten „Fahne setzen &amp; fertig".
       ${autoHint?'<br><b>Dieses Gebäude braucht eine Verbindung zum Hauptquartier!</b>':''}</p>
-      <div class="row"><button class="mbtn" id="road-undo">↩ Zurück</button>
+      <div class="row">
+      <button class="mbtn primary" id="road-done">🚩 Fahne setzen &amp; fertig</button>
+      <button class="mbtn" id="road-undo">↩ Zurück</button>
       <button class="mbtn back" id="road-cancel">Abbrechen</button></div>`);
     $('#sh-x').onclick=()=>this.cancelRoad();
     $('#road-cancel').onclick=()=>this.cancelRoad();
     $('#road-undo').onclick=()=>{
       if(this.state.roadNodes.length>1){ this.state.roadNodes.pop(); }
+    };
+    $('#road-done').onclick=()=>{
+      const nodes=this.state.roadNodes;
+      if(!nodes || nodes.length<2){ this.toast('Erst Wegpunkte antippen'); return; }
+      if(this.game.buildRoad(0,nodes)){ Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad(); }
+      else this.toast('Hier ist keine Fahne möglich (Abstand!)');
     };
   }
   cancelRoad(){ this.state.mode='view'; this.state.roadNodes=null; this.closeSheet(); }
@@ -410,9 +426,17 @@ export class UI {
     if(!seg){ this.toast('Kein Weg dorthin möglich'); return; }
     const newPath=[...this.state.roadNodes, ...seg.slice(1)];
     if(g.map.flag[i] && i!==this.state.roadFrom){
-      // fertig
+      // fertig: an bestehender Fahne angeschlossen
       if(g.buildRoad(0, newPath)){ Sound.sfx('road'); this.cancelRoad(); }
       else this.toast('Straße nicht möglich');
+      return;
+    }
+    // an bestehendem Weg anschließen: Fahne setzen (teilt den Weg) und abschließen
+    const onRoad=g.roadAt(i);
+    if(onRoad && onRoad.player===0 && g.canPlaceFlag(i,0)){
+      if(g.placeFlag(i,0) && g.buildRoad(0,newPath)){
+        Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad();
+      } else this.toast('Anschluss nicht möglich');
       return;
     }
     this.state.roadNodes=newPath;
@@ -424,7 +448,7 @@ export class UI {
         return;
       }
       this.lastRoadEnd=i;
-      this.toast('Nochmal tippen: Fahne setzen & fertig');
+      this.toast('Nochmal tippen oder „Fahne setzen & fertig"');
     }
   }
 
@@ -488,15 +512,40 @@ export class UI {
   openFlagSheet(i){
     const g=this.game;
     const isDoor=[...g.buildings.values()].some(b=>b.door===i);
+    const hasMount=g.nodesInRange(i,6).some(n=>g.map.terr[n]===TER.MOUNT && !g.signs.has(n));
     this.sheet(`<div class="sh-head"><b>Fahne</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="row">
       <button class="mbtn primary" id="fl-road">🛤️ Straße bauen</button>
+      ${hasMount?'<button class="mbtn" id="fl-geo">⛏️ Geologen rufen</button>':''}
       ${isDoor?'':'<button class="mbtn back" id="fl-del">Fahne entfernen</button>'}
-      </div>`);
+      </div>
+      ${hasMount?'<p class="note">Der Geologe untersucht das Gebirge in der Nähe und stellt Schilder auf, wo Erz liegt.</p>':''}`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#fl-road').onclick=()=>this.startRoad(i);
+    const geo=$('#fl-geo');
+    if(geo) geo.onclick=()=>{
+      if(g.callGeologist(0,i)){ Sound.sfx('tap'); this.toast('Der Geologe macht sich auf den Weg'); this.state.sel=-1; this.closeSheet(); }
+    };
     const del=$('#fl-del');
     if(del) del.onclick=()=>{ g.removeFlag(i); Sound.sfx('tap'); this.state.sel=-1; this.closeSheet(); };
+  }
+  openRoadSheet(road, i){
+    const g=this.game;
+    const canFlag=g.canPlaceFlag(i,0);
+    this.sheet(`<div class="sh-head"><b>Weg</b><button class="hbtn" id="sh-x">✕</button></div>
+      <div class="row">
+      ${canFlag?'<button class="mbtn primary" id="rd-flag">🚩 Fahne setzen (Weg teilen)</button>':''}
+      <button class="mbtn back" id="rd-del">🔥 Weg abreißen</button>
+      </div>`);
+    $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
+    const fl=$('#rd-flag');
+    if(fl) fl.onclick=()=>{
+      if(g.placeFlag(i,0)){ Sound.sfx('flag'); this.state.sel=-1; this.closeSheet(); }
+    };
+    $('#rd-del').onclick=()=>{
+      g.removeRoad(road.id); Sound.sfx('place');
+      this.state.sel=-1; this.closeSheet();
+    };
   }
   openBuildingSheet(b){
     if(!b) return;

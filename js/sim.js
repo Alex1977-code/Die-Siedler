@@ -30,6 +30,7 @@ export class Game {
     this.flagItems = new Map();       // nodeIdx -> [{good,destB,reserved}]
     this.units = [];                  // sichtbare Figuren
     this.battles = [];                // laufende Kämpfe
+    this.signs = new Map();           // nodeIdx -> Erztyp (0=nichts,1=Kohle,2=Eisen,3=Gold,4=Granit)
     this.players = setup.players.map((p,i)=>({
       id:i, name:p.name, ai:!!p.ai, aiLevel:p.aiLevel||1, defeated:false,
       recruits: 4, aiState:{phase:0, lastAttack:0, wait:0},
@@ -416,6 +417,53 @@ export class Game {
         const dx=x-x0, dy=y-y0;
         if(dx*dx+dy*dy<=r*r+2) m.explored[m.idx(x,y)]=1;
       }
+  }
+
+  // ---------- Geologe ----------
+  callGeologist(pl, flagNode){
+    if(!this.map.flag[flagNode]) return false;
+    const near=this.nodesInRange(flagNode,6).some(n=>this.map.terr[n]===TER.MOUNT && !this.signs.has(n));
+    if(!near) return false;
+    const hq=this.buildings.get(this.players[pl].hq);
+    const [sx,sy]=this.map.worldPos((hq||{node:flagNode}).node);
+    this.units.push({ id:NEXT_ID++, type:'geo', player:pl, x:sx, y:sy,
+      flag:flagNode, probes:7, state:'toFlag', target:-1, actT:0 });
+    return true;
+  }
+  tickGeo(u){
+    const m=this.map;
+    if(u.state==='toFlag'){
+      const [tx,ty]=m.worldPos(u.flag);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)) u.state='seek';
+    } else if(u.state==='seek'){
+      let best=-1;
+      for(const n of this.nodesInRange(u.flag,6)){
+        if(m.terr[n]!==TER.MOUNT || this.signs.has(n) || m.bld[n]>=0) continue;
+        best=n; break;
+      }
+      if(best<0 || u.probes<=0){ u.state='home'; return; }
+      u.target=best; u.state='walk';
+    } else if(u.state==='walk'){
+      const [tx,ty]=m.worldPos(u.target);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){ u.state='probe'; u.actT=0; }
+    } else if(u.state==='probe'){
+      u.actT++;
+      if(u.actT%11===1 && u.player===0) this.onGeoProbe && this.onGeoProbe(u);
+      if(u.actT>=44){
+        const ore=m.oreT[u.target]||0;
+        this.signs.set(u.target, ore);
+        u.probes--;
+        if(u.player===0 && ore){
+          const name=['','Kohle','Eisenerz','Golderz','Granit'][ore];
+          this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target);
+        }
+        u.state='seek';
+      }
+    } else if(u.state==='home'){
+      const hq=this.buildings.get(this.players[u.player].hq);
+      const [tx,ty]=hq? m.worldPos(hq.node):[u.x,u.y];
+      if(this.moveToward(u,tx,ty,WALK_SPEED)) u.dead=true;
+    }
   }
 
   // ---------- Angriff ----------
@@ -867,6 +915,7 @@ export class Game {
     for(const u of this.units){
       if(u.type==='worker') this.tickWorker(u);
       else if(u.type==='attack') this.tickAttack(u);
+      else if(u.type==='geo') this.tickGeo(u);
       else if(u.type==='soldierMove') this.tickSoldierMove(u);
       else if(u.type==='boulder'){
         u.prog+=0.02;
@@ -1287,6 +1336,7 @@ export class Game {
       roads:[...this.roads.values()],
       flagItems:[...this.flagItems.entries()],
       units:this.units, battles:this.battles,
+      signs:[...this.signs.entries()],
       objectives:this.objectives, over:this.over, winner:this.winner,
       msgs:this.msgs.slice(-40),
     };
@@ -1314,6 +1364,7 @@ export class Game {
     for(const r of data.roads) g.roads.set(r.id,r);
     g.flagItems=new Map(data.flagItems);
     g.units=data.units||[]; g.battles=data.battles||[];
+    g.signs=new Map(data.signs||[]);
     // Reservierungen & halboffene Trägeraufträge nach dem Laden zurücksetzen
     for(const items of g.flagItems.values()) for(const it of items) it.reserved=false;
     for(const r of g.roads.values()){

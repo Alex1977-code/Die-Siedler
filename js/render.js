@@ -182,20 +182,25 @@ export class Renderer {
     for(let i=0;i<m.explored.length;i++) if(!m.explored[i]) count++;
     if(count===this._fogCount && this.fogDark) return;
     this._fogCount=count;
-    const S=4;
+    const S=8;
     const w=m.w*S, h=m.h*S;
     const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
     const tg=tmp.getContext('2d');
     tg.fillStyle='#000';
     // Rand außerhalb der Karte gehört ebenfalls zum Unbekannten
     tg.fillRect(0,0,w,S); tg.fillRect(0,h-S,w,S); tg.fillRect(0,0,S,h); tg.fillRect(w-S,0,S,h);
+    // Knoten als überlappende Kreise -> keine Raster-/Sechseckkanten im Dunst
+    tg.beginPath();
     for(let y=0;y<m.h;y++){
       const off=(y&1)*S*0.5;
       for(let x=0;x<m.w;x++){
         if(m.explored[m.idx(x,y)]) continue;
-        tg.fillRect(x*S+off-S*0.15, y*S-S*0.15, S*1.3, S*1.3);
+        const cx=x*S+off+S*0.5, cy=y*S+S*0.5;
+        tg.moveTo(cx+S*0.95,cy);
+        tg.arc(cx,cy,S*0.95,0,7);
       }
     }
+    tg.fill();
     const mk=(blur,tint)=>{
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       const g2=cv.getContext('2d');
@@ -206,8 +211,8 @@ export class Renderer {
       g2.fillStyle=tint; g2.fillRect(0,0,w,h);
       return cv;
     };
-    this.fogDark=mk(2.6,'#0e1520');
-    this.fogMist=mk(7,'#9fb2c2');
+    this.fogDark=mk(6,'#0e1520');
+    this.fogMist=mk(15,'#9fb2c2');
   }
   resize(w,h,dpr){
     this.cv.width=w*dpr; this.cv.height=h*dpr;
@@ -268,7 +273,7 @@ export class Renderer {
     }
     tg.restore();
     // 2) weichgezeichnet übernehmen -> Facetten verschwinden vollständig
-    if('filter' in g){ g.filter='blur(3px)'; }
+    if('filter' in g){ g.filter='blur(4px)'; }
     g.drawImage(this._tmpChunk,0,0);
     g.filter='none';
     // 3) Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf
@@ -310,18 +315,39 @@ export class Renderer {
           g.stroke();
         }
       }
-    } else if(t===TER.MOUNT && h<0.55){
-      // Felsrisse + Kantenlicht
-      g.strokeStyle='rgba(52,46,40,0.4)'; g.lineWidth=1.6;
-      g.beginPath();
-      g.moveTo(px+o1-8,py+o2);
-      g.lineTo(px+o1-2,py+o2+4);
-      g.lineTo(px+o1+5,py+o2+2);
-      g.stroke();
-      g.strokeStyle='rgba(255,255,255,0.22)'; g.lineWidth=1.2;
-      g.beginPath();
-      g.moveTo(px+o1-7,py+o2-1.5); g.lineTo(px+o1-1,py+o2+2.5);
-      g.stroke();
+    } else if(t===TER.MOUNT){
+      const hg=m.hgt[i];
+      if(h<0.34){
+        // Felsgrat: gezackter dunkler Zug mit Lichtkante darüber
+        const zx=px+o1, zy=py+o2;
+        const seg=[[-11,2],[-4,-3],[2,1],[8,-2],[13,2]];
+        g.strokeStyle='rgba(48,42,35,0.5)'; g.lineWidth=2;
+        g.beginPath();
+        seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx,zy+dy); else g.lineTo(zx+dx,zy+dy); });
+        g.stroke();
+        g.strokeStyle='rgba(255,255,255,0.32)'; g.lineWidth=1.2;
+        g.beginPath();
+        seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx-1,zy+dy-2); else g.lineTo(zx+dx-1,zy+dy-2); });
+        g.stroke();
+      } else if(h<0.58){
+        // Geröllfeld
+        g.fillStyle='rgba(60,54,46,0.35)';
+        for(let k=0;k<6;k++){
+          g.beginPath();
+          g.arc(px+o1+hash01(i*7+k)*26-13, py+o2+hash01(i*11+k)*18-9, 1+hash01(i*13+k)*1.6, 0, 7);
+          g.fill();
+        }
+        g.fillStyle='rgba(255,255,255,0.14)';
+        for(let k=0;k<3;k++){
+          g.beginPath();
+          g.arc(px+o1+hash01(i*17+k)*22-11, py+o2+hash01(i*19+k)*15-8, 1.1, 0, 7);
+          g.fill();
+        }
+      } else if(h<0.68 && hg>1.0){
+        // Schneefleck in Gipfelnähe
+        g.fillStyle='rgba(240,246,252,0.5)';
+        g.beginPath(); g.ellipse(px+o1,py+o2,8,3.4,h*3,0,7); g.fill();
+      }
     } else if(t===TER.DESERT && h<0.4){
       g.fillStyle='rgba(160,130,80,0.3)';
       for(let k=0;k<5;k++){
@@ -352,38 +378,62 @@ export class Renderer {
     const nbs=m.nbs(i);
     let col;
     if(t===TER.WATER){
+      // kontinuierlicher Küsten-/Tiefenverlauf über zwei Nachbarringe (keine Sprünge)
       const landN=nbs.filter(n=>m.terr[n]!==TER.WATER).length;
-      if(landN){
-        col = mixArr(hex2arr(cols[TER.WATER]), hex2arr(coast[1]), Math.min(1,landN/4)*0.75);
-      } else {
-        // Tiefenstufen: 2. Ring vom Ufer = mittel, weiter draußen = tiefdunkel
-        let ring2=false;
-        for(const n of nbs){ if(m.nbs(n).some(q=>m.terr[q]!==TER.WATER)){ ring2=true; break; } }
-        const deep=hex2arr(cols[TER.WATER]).map(v=>v*0.72);
-        col = ring2? hex2arr(cols[TER.WATER]) : deep;
+      const seen=new Set([i]); let landC=0;
+      for(const n of nbs){
+        for(const q of m.nbs(n)){
+          if(seen.has(q)) continue; seen.add(q);
+          if(m.terr[q]!==TER.WATER) landC++;
+        }
       }
+      const base=hex2arr(cols[TER.WATER]);
+      const depth=Math.min(1,(landN*3+landC)/9);          // 1 = ufernah
+      const shore=Math.min(1,(landN*2.2+landC*0.55)/8);   // Flachwasser-Anteil
+      col=mixArr(base.map(v=>v*0.87), base, depth);
+      col=mixArr(col, hex2arr(coast[1]), shore*0.6);
     } else if(t===TER.GRASS||t===TER.DESERT||t===TER.SNOW){
       const waterN=nbs.filter(n=>m.terr[n]===TER.WATER).length;
       col = waterN? mixArr(hex2arr(cols[t]), hex2arr(coast[0]), Math.min(1,waterN/4)*0.8) : hex2arr(cols[t]);
     } else if(t===TER.MOUNT){
-      col = hex2arr(cols[t]);
-      // hohe Gipfel hell/verschneit anmalen
-      const peak=Math.max(0,Math.min(0.75,(m.hgt[i]-0.85)*1.1));
-      if(peak>0) col=mixArr(col, [223,228,236], peak);
+      // Höhenzonen: Geröllfuß -> Fels -> Gipfellicht/Schnee; Grasübergang am Bergfuß
+      const rock=hex2arr(cols[t]);
+      const scree=mixArr(rock, hex2arr(cols[TER.GRASS]||'#6bb254'), 0.42);
+      const hg=m.hgt[i];
+      col = hg<0.8 ? mixArr(scree, rock, Math.max(0,Math.min(1,(hg-0.4)/0.4))) : rock.slice();
+      const peak=Math.max(0,Math.min(0.8,(hg-0.98)*1.35));
+      if(peak>0) col=mixArr(col,[229,234,241],peak);
+      const grassN=nbs.filter(n=>m.terr[n]===TER.GRASS||n===i&&false).length;
+      if(grassN) col=mixArr(col, hex2arr(cols[TER.GRASS]), Math.min(1,grassN/4)*0.45);
     } else {
       col = hex2arr(cols[t]||'#888888');
     }
-    // großflächiges, weich interpoliertes Wertrauschen -> sanfte Farbwolken statt Facetten
-    const gx=m.X(i)/7, gy=m.Y(i)/7;
-    const x0=Math.floor(gx), y0=Math.floor(gy);
-    const fx=gx-x0, fy=gy-y0;
-    const sm=(u)=>u*u*(3-2*u);
-    const vv=(xx,yy)=>hash01(((xx*73856093)^(yy*19349663))|0);
-    const s=(vv(x0,y0)*(1-sm(fx))+vv(x0+1,y0)*sm(fx))*(1-sm(fy))
-          + (vv(x0,y0+1)*(1-sm(fx))+vv(x0+1,y0+1)*sm(fx))*sm(fy);
-    let f = t===TER.MOUNT? 0.92+s*0.16 : 0.955+s*0.09;
-    f *= 0.995+hash01(i)*0.01;   // hauchdünne Kornstruktur
-    col=[col[0]*f, col[1]*f, col[2]*f];
+    // großflächiges, weich interpoliertes Wertrauschen (nicht auf Wasser)
+    if(t!==TER.WATER){
+      const gx0=m.X(i)/7, gy0=m.Y(i)/7;
+      const x0=Math.floor(gx0), y0=Math.floor(gy0);
+      const fx=gx0-x0, fy=gy0-y0;
+      const sm=(u)=>u*u*(3-2*u);
+      const vv=(xx,yy)=>hash01(((xx*73856093)^(yy*19349663))|0);
+      const s=(vv(x0,y0)*(1-sm(fx))+vv(x0+1,y0)*sm(fx))*(1-sm(fy))
+            + (vv(x0,y0+1)*(1-sm(fx))+vv(x0+1,y0+1)*sm(fx))*sm(fy);
+      const f = t===TER.MOUNT? 0.93+s*0.14 : 0.958+s*0.084;
+      col=[col[0]*f, col[1]*f, col[2]*f];
+    }
+    // Relieflicht pro KNOTEN (nicht pro Dreieck!) -> nach dem Weichzeichnen keinerlei Facetten
+    if(t!==TER.WATER){
+      let gx=0, gy=0;
+      for(const n of nbs){
+        const ddx=(m.X(n)+((m.Y(n)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
+        const ddy=m.Y(n)-m.Y(i);
+        const dh=m.hgt[n]-m.hgt[i];
+        gx+=dh*ddx; gy+=dh*ddy;
+      }
+      const k = t===TER.MOUNT? 0.30 : 0.11;
+      let l=1-(gx*0.7+gy)*k;
+      l=Math.max(t===TER.MOUNT?0.72:0.86, Math.min(t===TER.MOUNT?1.32:1.14, l));
+      col=[col[0]*l, col[1]*l, col[2]*l];
+    }
     ncache.set(i,col);
     return col;
   }
@@ -393,19 +443,11 @@ export class Renderer {
     const ca=this.nodeColor(m,cols,coast,ncache,a);
     const cb=this.nodeColor(m,cols,coast,ncache,b);
     const cc=this.nodeColor(m,cols,coast,ncache,c);
-    // Eckfarben mitteln -> Nachbardreiecke teilen 2 Ecken -> sanfte Verläufe statt Facetten
-    let r=(ca[0]+cb[0]+cc[0])/3, gr=(ca[1]+cb[1]+cc[1])/3, bl=(ca[2]+cb[2]+cc[2])/3;
-    // sehr sanftes Relieflicht (Licht von Nordwest)
-    const water=m.terr[a]===TER.WATER&&m.terr[b]===TER.WATER&&m.terr[c]===TER.WATER;
-    const mount=m.terr[a]===TER.MOUNT||m.terr[b]===TER.MOUNT||m.terr[c]===TER.MOUNT;
-    const amp=mount?0.4:0.22;
-    let l=1 + ((m.hgt[a]-m.hgt[c])*amp + (m.hgt[a]-m.hgt[b])*amp*0.55);
-    if(water) l=1;
-    l=Math.max(0.85,Math.min(1.15,l));
-    g.fillStyle=`rgb(${(r*l)|0},${(gr*l)|0},${(bl*l)|0})`;
+    // reine Eckfarben-Mittelung, Licht steckt bereits in den Knotenfarben
+    const r=(ca[0]+cb[0]+cc[0])/3, gr=(ca[1]+cb[1]+cc[1])/3, bl=(ca[2]+cb[2]+cc[2])/3;
+    g.fillStyle=`rgb(${r|0},${gr|0},${bl|0})`;
     g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.lineTo(cx2,cy2); g.closePath();
     g.fill();
-    // hauchdünn nachziehen, damit keine Antialiasing-Ritzen entstehen
     g.strokeStyle=g.fillStyle; g.lineWidth=1; g.stroke();
     // Lava-Glut
     if(m.terr[a]===TER.LAVA){
@@ -1405,8 +1447,8 @@ export class Renderer {
     // Hintergrund: Tiefwasser mit leichtem Verlauf
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     const bg=g.createLinearGradient(0,0,0,this.vh);
-    bg.addColorStop(0, shade(cols[TER.WATER],1.12));
-    bg.addColorStop(1, shade(cols[TER.WATER],0.8));
+    bg.addColorStop(0, shade(cols[TER.WATER],0.95));
+    bg.addColorStop(1, shade(cols[TER.WATER],0.85));
     g.fillStyle=bg;
     g.fillRect(0,0,this.vw,this.vh);
     // Kamera
@@ -1486,7 +1528,7 @@ export class Renderer {
       g.strokeStyle=PLAYER_COLORS[e.pl]+'cc'; g.lineWidth=2;
       g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
     }
-    // Straßen: gejitterte Zwischenpunkte + Kurvenglättung = natürliche Wege statt Gitterlinien
+    // Straßen: sanft geschwungen und gepflastert
     for(const r of game.roads.values()){
       const pts=this.roadPts(r);
       const trace=()=>{
@@ -1498,9 +1540,30 @@ export class Renderer {
         }
         g.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
       };
-      trace(); g.strokeStyle='rgba(122,96,62,0.5)'; g.lineWidth=8.5; g.stroke();
-      trace(); g.strokeStyle='#d9c096'; g.lineWidth=5.6; g.stroke();
-      trace(); g.strokeStyle='rgba(248,236,206,0.55)'; g.lineWidth=1.6; g.setLineDash([4,10]); g.stroke(); g.setLineDash([]);
+      trace(); g.strokeStyle='rgba(84,76,64,0.6)'; g.lineWidth=9.5; g.stroke();   // Bordkante
+      trace(); g.strokeStyle='#b0a795'; g.lineWidth=7; g.stroke();                // Pflasterbett
+      // Pflastersteine entlang des Weges (zwei Farbtöne, versetzt)
+      if(cam.z>0.55){
+        const dark=new Path2D(), light=new Path2D();
+        let acc=0, idx=0;
+        for(let k=0;k<pts.length-1;k++){
+          const dx=pts[k+1][0]-pts[k][0], dy=pts[k+1][1]-pts[k][1];
+          const L=Math.hypot(dx,dy)||1;
+          const ux=dx/L, uy=dy/L, vx=-uy, vy=ux;
+          for(let d2=acc; d2<L; d2+=5.6, idx++){
+            const cx3=pts[k][0]+ux*d2, cy3=pts[k][1]+uy*d2;
+            const side=(idx%2? 1:-1)*1.75;
+            const p=(idx%3===0)? dark:light;
+            p.moveTo(cx3+vx*side+1.55, cy3+vy*side);
+            p.arc(cx3+vx*side, cy3+vy*side, 1.55, 0, 7);
+            p.moveTo(cx3-vx*side*0.4+1.3, cy3-vy*side*0.4);
+            p.arc(cx3-vx*side*0.4, cy3-vy*side*0.4, 1.3, 0, 7);
+          }
+          acc=(acc-L)%5.6; if(acc<0) acc+=5.6;
+        }
+        g.fillStyle='rgba(126,118,104,0.55)'; g.fill(dark);
+        g.fillStyle='rgba(206,198,183,0.6)'; g.fill(light);
+      }
     }
     // Straßen-Vorschau
     if(ui.roadPreview && ui.roadPreview.length>1){
@@ -1518,6 +1581,7 @@ export class Renderer {
       if(o!==OBJ.NONE) items.push({kind:'obj', i, o, y:m.worldPos(i)[1]});
       if(m.bld[i]>=0){ const b=game.buildings.get(m.bld[i]); if(b) items.push({kind:'bld', b, y:m.worldPos(i)[1]}); }
       if(m.flag[i]) items.push({kind:'flag', i, y:m.worldPos(i)[1]+2});
+      if(game.signs && game.signs.has(i) && m.bld[i]<0) items.push({kind:'sign', i, ore:game.signs.get(i), y:m.worldPos(i)[1]+1});
     }
     for(const r of game.roads.values()){
       const c=r.carrier;
@@ -1529,6 +1593,7 @@ export class Renderer {
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
+      else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
       else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier');
       else if(it.kind==='unit') this.drawUnit(g, it.u);
@@ -1609,13 +1674,13 @@ export class Renderer {
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
   }
-  // Straßenpunkte mit deterministischem Versatz (Enden/Fahnen bleiben exakt)
+  // Straßenpunkte mit dezentem Versatz (Enden/Fahnen bleiben exakt)
   roadPts(r){
     const m=this.game.map;
     return r.path.map((n,ix)=>{
       const [x,y]=m.worldPos(n);
       if(ix===0 || ix===r.path.length-1 || m.flag[n]) return [x,y];
-      return [x+(hash01(n*3+1)-0.5)*11, y+(hash01(n*5+2)-0.5)*9];
+      return [x+(hash01(n*3+1)-0.5)*6, y+(hash01(n*5+2)-0.5)*5];
     });
   }
   roadPos(r, pos){
@@ -1806,12 +1871,34 @@ export class Renderer {
       return;
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.rank); return; }
+    if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo'); return; }
     this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype);
+  }
+  // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
+  drawSign(g, m, i, ore){
+    const [x,y]=m.worldPos(i);
+    this.shadow(g,x+1,y+1.4,4,1.6,0.25);
+    g.strokeStyle='#5d452a'; g.lineWidth=2.2;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-12); g.stroke();
+    g.fillStyle='#c9a05a';
+    g.beginPath(); g.arc(x,y-14.5,5,0,7); g.fill();
+    g.strokeStyle='rgba(60,40,20,0.6)'; g.lineWidth=1.2; g.stroke();
+    const oc=['#a8a29a','#31312e','#b3705a','#e8c258','#84807a'][ore]||'#a8a29a';
+    if(ore===0){
+      g.strokeStyle='#8a8478'; g.lineWidth=1.6;
+      g.beginPath(); g.moveTo(x-2.4,y-14.5); g.lineTo(x+2.4,y-14.5); g.stroke();
+    } else {
+      g.fillStyle=oc;
+      g.beginPath(); g.arc(x,y-14.5,2.8,0,7); g.fill();
+      g.fillStyle='rgba(255,255,255,0.35)';
+      g.beginPath(); g.arc(x-0.9,y-15.3,1,0,7); g.fill();
+    }
   }
   drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null){
     const col=PLAYER_COLORS[pl]||'#888';
     // Berufs-Ausstattung: Kleidung, Kopfbedeckung, Werkzeug
     const PRO={
+      geo:       {tunic:'#7d5a6b', hat:'band',    hatC:'#5a4050', tool:'pick'},
       woodcutter:{tunic:'#8a6242', hat:'cap',     hatC:'#6d4f2e', tool:'axe'},
       forester:  {tunic:'#4e7d48', hat:'cap',     hatC:'#3d6338', tool:'sapling'},
       quarry:    {tunic:'#7d7a72', hat:'band',    hatC:'#5d5a52', tool:'pick'},
@@ -1823,7 +1910,10 @@ export class Renderer {
     const tunic= kind==='soldier' ? '#8a95a0' : pro? pro.tunic : '#6d5a44';
     const step=Math.sin((this.time/85)+x*0.31);
     const bob=Math.abs(step)*1.1;
-    this.shadow(g,x,y+6.6,5,2,0.26);
+    this.shadow(g,x,y+7.4,5.8,2.3,0.26);
+    // Figuren etwas größer und dadurch feiner lesbar
+    g.save();
+    g.translate(x,y); g.scale(1.22,1.22); g.translate(-x,-y);
     y-=bob;
     // Beine mit Schuhen
     g.strokeStyle='#4a3b2c'; g.lineWidth=2.2;
@@ -1965,6 +2055,7 @@ export class Renderer {
       g.fillStyle='rgba(255,255,255,0.3)'; g.fillRect(x-3.4,y-20,6.8,1.6);
       g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-3.4,y-20,6.8,5.4);
     }
+    g.restore();
   }
   computeBorders(){
     const m=this.game.map;
