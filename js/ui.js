@@ -11,7 +11,7 @@ import * as SAVE from './save.js';
 const $=(s)=>document.querySelector(s);
 const el=(tag,cls,html)=>{ const e=document.createElement(tag); if(cls) e.className=cls; if(html!=null) e.innerHTML=html; return e; };
 
-const CATS=[['basis','Holz & Stein'],['nahrung','Nahrung'],['industrie','Industrie'],['militaer','Militär'],['lager','Lager']];
+const CATS=[['basis','Holz & Stein'],['nahrung','Nahrung'],['industrie','Industrie'],['militaer','Militär'],['lager','Lager'],['schmuck','Schmuck']];
 
 export class UI {
   constructor(){
@@ -303,6 +303,7 @@ export class UI {
     this._goHandled=false;
     this.state.sel=-1; this.state.mode='view'; this.state.msgSeen=0;
     this.renderer.setGame(game);
+    this.renderer.onAmbient=(name,scale)=>Sound.sfx(name,scale);
     this.hookSounds(game);
     // Kamera aufs HQ
     const hq=game.buildings.get(game.players[0].hq);
@@ -322,7 +323,15 @@ export class UI {
   hookSounds(g){
     g.onBuilt=()=>Sound.sfx('done');
     g.onProduce=()=>{};
-    g.onWorkerAct=(u)=>{ if(u.jobKind==='chop') Sound.sfx('chop'); else if(u.jobKind==='pick') Sound.sfx('pick'); };
+    // Handwerker-Geräusche je nach Tätigkeit, leiser mit Entfernung zur Kamera
+    const JOB_SFX={chop:'chop', pick:'pick', sow:'dig', plant:'dig', harvest:'rustle', fish:'splash', hunt:'rustle'};
+    g.onWorkerAct=(u)=>{
+      const name=JOB_SFX[u.jobKind];
+      if(!name) return;
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d>750) return;
+      Sound.sfx(name, Math.max(0.15, 1-d/750));
+    };
     g.onClash=()=>Sound.sfx('clash');
     g.onRecruit=()=>Sound.sfx('recruit');
     g.onPromote=()=>Sound.sfx('coin');
@@ -517,6 +526,7 @@ export class UI {
       }
       return;
     }
+    if(b.type==='chapel' && b.state==='done') Sound.sfx('bell');
     let body='';
     if(b.state==='build'){
       const needB=def.cost.board||0, needS=def.cost.stone||0;

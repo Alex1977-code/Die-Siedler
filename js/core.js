@@ -57,6 +57,8 @@ export const BLD = {
   watchtower: { name:'Wachturm', cat:'militaer', size:'M', cost:{board:3,stone:5}, mil:{cap:6,radius:11}, desc:'Hoher Turm, weite Grenzen.' },
   fortress:   { name:'Festung', cat:'militaer', size:'L', cost:{board:4,stone:7}, mil:{cap:9,radius:13}, desc:'Mächtigste Verteidigung, größtes Gebiet.' },
   catapult:   { name:'Katapult', cat:'militaer', size:'M', cost:{board:4,stone:2}, cata:{radius:11, time:220}, desc:'Beschießt feindliche Militärgebäude mit Steinen.' },
+  chapel:     { name:'Kapelle', cat:'schmuck', size:'S', cost:{board:1,stone:2}, desc:'Schmuckbau. Tippe sie an – die Glocke läutet!' },
+  tithebarn:  { name:'Zehntscheune', cat:'schmuck', size:'M', cost:{board:3,stone:1}, store:true, desc:'Große Strohscheune, dient als kleines Zusatzlager.' },
 };
 export const BLD_KEYS = Object.keys(BLD);
 

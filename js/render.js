@@ -72,6 +72,108 @@ export class Renderer {
     this.borderEdges=[];
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
+    this.initSheep();
+  }
+  // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
+  initSheep(){
+    const m=this.game.map;
+    this.sheep=[];
+    let tries=0;
+    while(this.sheep.length<9 && tries<600){
+      tries++;
+      const i=(hash01(tries*7919+m.w)*m.terr.length)|0;
+      if(m.terr[i]!==1 /*GRASS*/ || m.obj[i]!==0 || m.bld[i]>=0) continue;
+      const [x,y]=m.worldPos(i);
+      this.sheep.push({ home:i, x, y, tx:x, ty:y, state:'graze', t:1000+hash01(tries)*3000, phase:hash01(tries*13)*6.28 });
+    }
+  }
+  updateSheep(dt){
+    if(!this.sheep) return;
+    const m=this.game.map;
+    for(const s of this.sheep){
+      s.t-=dt;
+      if(s.state==='walk'){
+        const dx=s.tx-s.x, dy=s.ty-s.y;
+        const d=Math.hypot(dx,dy);
+        const sp=dt*0.011;
+        if(d<sp||d<0.5){ s.x=s.tx; s.y=s.ty; s.state='graze'; s.t=1800+Math.random()*4200; }
+        else { s.x+=dx/d*sp; s.y+=dy/d*sp; }
+      } else if(s.t<=0){
+        // neues Ziel in Heimatnähe suchen (nur freie Wiese)
+        const [hx,hy]=m.worldPos(s.home);
+        for(let k=0;k<6;k++){
+          const nx=hx+(Math.random()-0.5)*140, ny=hy+(Math.random()-0.5)*110;
+          const n=m.nearestNode(nx,ny);
+          if(n>=0 && m.terr[n]===1 && m.bld[n]<0 && (m.obj[n]&127)===0){
+            s.tx=nx; s.ty=ny; s.state='walk';
+            break;
+          }
+        }
+        s.t=2000;
+        // seltenes Blöken, wenn nahe der Kamera
+        if(this.onAmbient && Math.random()<0.3 && m.explored[s.home]){
+          const cam=this._lastCam;
+          if(cam){
+            const d=Math.hypot(s.x-cam.x,s.y-cam.y)*cam.z;
+            if(d<600) this.onAmbient('sheep', Math.max(0.15,1-d/600));
+          }
+        }
+      }
+    }
+  }
+  drawSheep(g, s){
+    const m=this.game.map;
+    const n=m.nearestNode(s.x,s.y);
+    if(n<0 || !m.explored[n]) return;
+    const walk=s.state==='walk';
+    const bob=walk? Math.abs(Math.sin(this.time/130+s.phase))*1.4 : 0;
+    const x=s.x, y=s.y-bob;
+    this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
+    // Beine
+    g.strokeStyle='#5a5248'; g.lineWidth=1.8;
+    const st=walk? Math.sin(this.time/130+s.phase)*1.6 : 0;
+    g.beginPath();
+    g.moveTo(x-3.5,y+1); g.lineTo(x-3.5+st,y+4.6);
+    g.moveTo(x+3.5,y+1); g.lineTo(x+3.5-st,y+4.6);
+    g.stroke();
+    // flauschiger Körper
+    g.fillStyle='#f4f1e8';
+    g.beginPath();
+    g.arc(x-3,y-2.4,4.4,0,7); g.arc(x+2.6,y-2.6,4.6,0,7); g.arc(x,y-4.6,4.2,0,7);
+    g.fill();
+    g.strokeStyle='rgba(120,110,95,0.4)'; g.lineWidth=1;
+    g.beginPath(); g.arc(x,y-3,6.6,0,7); g.stroke();
+    // Kopf (grast: unten, sonst vorn)
+    const graze=s.state==='graze' && (this.time/1000+s.phase)%4<2.6;
+    const hx2=x+6.4, hy2=graze? y+2.4 : y-3.4;
+    g.fillStyle='#4a4038';
+    g.beginPath(); g.ellipse(hx2,hy2,2.8,3.4,graze?0.9:0.3,0,7); g.fill();
+    // Öhrchen
+    g.beginPath(); g.ellipse(hx2-1.6,hy2-2,1.6,0.9,0.6,0,7); g.fill();
+    g.fillStyle='#f4f1e8';
+    g.beginPath(); g.arc(hx2-1,hy2-2.6,1.7,0,7); g.fill();
+    // Schwänzchen
+    g.fillStyle='#f4f1e8';
+    g.beginPath(); g.arc(x-7,y-3.4,1.7,0,7); g.fill();
+  }
+  drawBirds(g, cw, chh, wx0, wx1, wy0, wy1){
+    for(let f=0; f<3; f++){
+      const spd=24+f*8;
+      const bx=((this.time/1000*spd + f*2381)%(cw+500))-250;
+      const by=((f*761)%(chh*0.8))+90 + Math.sin(this.time/1900+f*2.4)*46;
+      if(bx+80<wx0||bx-80>wx1||by+40<wy0||by-40>wy1) continue;
+      g.strokeStyle='rgba(40,44,52,0.75)';
+      g.lineWidth=1.6;
+      for(let k=0;k<4;k++){
+        const ox=bx-k*15-(k%2)*7, oy=by+(k%2)*9+k*2.4;
+        const flap=Math.sin(this.time/130+f*3+k*1.3)*2.8;
+        g.beginPath();
+        g.moveTo(ox-5,oy-flap*0.4);
+        g.quadraticCurveTo(ox-2,oy-3-flap, ox,oy);
+        g.quadraticCurveTo(ox+2,oy-3-flap, ox+5,oy-flap*0.4);
+        g.stroke();
+      }
+    }
   }
   // ---------- Nebel: weiche Dunstschichten statt harter Kreise ----------
   rebuildFog(){
@@ -350,6 +452,37 @@ export class Renderer {
         g.fillStyle='rgba(255,255,255,0.14)';
         for(let yy=y+3; yy<y+h-5; yy+=11){ g.fillRect(x+1,yy,4.5,5); g.fillRect(x+w-5.5,yy+5.5,4.5,5); }
       };
+      // Blockhaus aus liegenden Stämmen (Waldarbeiter-Hütten)
+      const logWall=(x,y,w,h)=>{
+        sideQuad(x+w,y+2,x+w,y+h,'#7d5a34');
+        const gr=g.createLinearGradient(0,y,0,y+h);
+        gr.addColorStop(0,'#c99e66'); gr.addColorStop(1,'#a37c4c');
+        g.fillStyle=gr; rr(g,x,y,w,h,3); g.fill();
+        g.strokeStyle=OUT; g.lineWidth=1.4; g.stroke();
+        g.strokeStyle='rgba(90,60,30,0.4)'; g.lineWidth=1.1;
+        for(let yy=y+4.5;yy<y+h-2;yy+=4.5){
+          g.beginPath(); g.moveTo(x+1.5,yy); g.lineTo(x+w-1.5,yy); g.stroke();
+        }
+        // Stirnseiten der Stämme
+        g.fillStyle='#d9b37d';
+        for(let yy=y+2.2;yy<y+h-2;yy+=4.5){
+          g.beginPath(); g.arc(x+1.6,yy+2.2,1.5,0,7); g.fill();
+        }
+      };
+      // heller Verputz mit Bruchstein-Sockel (Stadthandwerker)
+      const plaster=(x,y,w,h)=>{
+        sideQuad(x+w,y+2,x+w,y+h,'#c2b193');
+        const gr=g.createLinearGradient(0,y,0,y+h);
+        gr.addColorStop(0,'#f4ecd9'); gr.addColorStop(1,'#ddd0b3');
+        g.fillStyle=gr; rr(g,x,y,w,h,2.5); g.fill();
+        g.strokeStyle=OUT; g.lineWidth=1.4; g.stroke();
+        // Bruchstein-Sockel
+        g.fillStyle='#a89f8d'; g.fillRect(x+1,y+h-6,w-2,5);
+        g.strokeStyle='rgba(80,70,58,0.3)'; g.lineWidth=0.9;
+        for(let xx=x+4;xx<x+w-3;xx+=6.5){
+          g.beginPath(); g.arc(xx,y+h-3.4,2.4,Math.PI,0); g.stroke();
+        }
+      };
       const timber=(x,y,w,h)=>{
         g.strokeStyle='rgba(140,105,62,0.55)'; g.lineWidth=2.2;
         g.beginPath();
@@ -614,6 +747,9 @@ export class Renderer {
             // Biforium (romanisches Doppelfenster)
             window_(W*0.42,H*0.26,5.5,8,true); window_(W*0.53,H*0.26,5.5,8,true);
             g.fillStyle='#c2b8a4'; g.fillRect(W*0.485,H*0.26,2.4,8);
+            // Kragstein-Reihe (Maschikuli) unter dem Bergfried-Abschluss
+            g.fillStyle='#8f897b';
+            for(let k=0;k<6;k++) g.fillRect(W*0.36+k*W*0.048,H*0.2,W*0.024,3.4);
             // Ringmauer mit Wehrgang
             stoneGrad(W*0.14,H*0.5,W*0.72,H*0.38);
             g.fillStyle='#c6c1b4';
@@ -621,17 +757,24 @@ export class Renderer {
               g.fillRect(W*0.155+k*W*0.1,H*0.455,W*0.06,7);
               g.strokeStyle=OUT; g.lineWidth=0.9; g.strokeRect(W*0.155+k*W*0.1,H*0.455,W*0.06,7);
             }
-            // Wehrgang-Schatten unter den Zinnen
+            // Wehrgang-Schatten + Verwitterungsspuren
             g.fillStyle='rgba(40,30,20,0.18)'; g.fillRect(W*0.15,H*0.5,W*0.7,4);
+            g.strokeStyle='rgba(60,55,45,0.16)'; g.lineWidth=1.6;
+            for(const fx2 of [0.2,0.31,0.62,0.79]){
+              g.beginPath(); g.moveTo(W*fx2,H*0.52); g.lineTo(W*fx2,H*(0.62+(fx2*7%1)*0.1)); g.stroke();
+            }
             // Rundtürme mit Kegeldach
             towerRound(W*0.14,H*0.9,W*0.075,H*0.5,H*0.16,'cone');
             towerRound(W*0.86,H*0.9,W*0.075,H*0.5,H*0.16,'cone');
+            // Torhaus: zwei kleine Flankentürmchen
+            towerRound(W*0.375,H*0.9,W*0.045,H*0.32,H*0.09,'cone');
+            towerRound(W*0.625,H*0.9,W*0.045,H*0.32,H*0.09,'cone');
             // Torbogen mit Fallgitter
             door(W*0.44,H*0.66,W*0.12,H*0.22);
             g.strokeStyle='#4a4033'; g.lineWidth=1.2;
             for(let k=0;k<3;k++){ g.beginPath(); g.moveTo(W*(0.455+k*0.032),H*0.66); g.lineTo(W*(0.455+k*0.032),H*0.8); g.stroke(); }
             g.beginPath(); g.moveTo(W*0.445,H*0.72); g.lineTo(W*0.555,H*0.72); g.stroke();
-            heraldShield(W*0.5,H*0.58,1.25);
+            heraldShield(W*0.5,H*0.58,1.2);
             banner(W*0.5,H*0.02,14);
             break;
           }
@@ -653,9 +796,34 @@ export class Renderer {
             g.beginPath(); g.moveTo(W*0.05,H*0.93); g.lineTo(W*0.95,H*0.93); g.stroke();
             for(let k=0;k<8;k++){ g.beginPath(); g.moveTo(W*0.08+k*W*0.12,H*0.89); g.lineTo(W*0.08+k*W*0.12,H*0.97); g.stroke(); }
             if(type==='pigfarm'){
+              // Schweinchen in der Matschkuhle
+              g.fillStyle='rgba(120,90,60,0.5)';
+              g.beginPath(); g.ellipse(W*0.5,H*0.91,10,3.6,0,0,7); g.fill();
               g.fillStyle='#e3a2a2';
-              g.beginPath(); g.ellipse(W*0.5,H*0.9,6,4,0,0,7); g.fill();
-              g.fillStyle='#d98f8f'; g.beginPath(); g.arc(W*0.56,H*0.89,2,0,7); g.fill();
+              g.beginPath(); g.ellipse(W*0.5,H*0.89,6,4,0,0,7); g.fill();
+              g.fillStyle='#d98f8f'; g.beginPath(); g.arc(W*0.565,H*0.885,2.2,0,7); g.fill();
+              g.fillStyle='#b5716e'; g.beginPath(); g.ellipse(W*0.575,H*0.885,1,1.3,0,0,7); g.fill();
+              g.strokeStyle='#d98f8f'; g.lineWidth=1.2;   // Ringelschwanz
+              g.beginPath(); g.moveTo(W*0.44,H*0.88); g.quadraticCurveTo(W*0.42,H*0.86,W*0.435,H*0.85); g.stroke();
+            } else {
+              // Vogelscheuche im Hof (kleiner Spaß)
+              g.strokeStyle='#6d4f2e'; g.lineWidth=2;
+              g.beginPath(); g.moveTo(W*0.93,H*0.86); g.lineTo(W*0.93,H*0.62); g.stroke();
+              g.lineWidth=1.6;
+              g.beginPath(); g.moveTo(W*0.875,H*0.68); g.lineTo(W*0.985,H*0.68); g.stroke();
+              g.fillStyle='#c9a05a';   // ärmeliges Hemd
+              g.beginPath(); g.moveTo(W*0.9,H*0.68); g.lineTo(W*0.96,H*0.68); g.lineTo(W*0.945,H*0.8); g.lineTo(W*0.915,H*0.8); g.closePath(); g.fill();
+              g.fillStyle='#e8d9a8';   // Strohkopf
+              g.beginPath(); g.arc(W*0.93,H*0.63,3.2,0,7); g.fill();
+              g.fillStyle='#8a6b43';   // Schlapphut
+              g.beginPath(); g.ellipse(W*0.93,H*0.605,4.4,1.4,0,0,7); g.fill();
+              g.beginPath(); g.arc(W*0.93,H*0.6,2.2,Math.PI,0); g.fill();
+              // frecher Vogel sitzt trotzdem drauf
+              g.fillStyle='#3a3e46';
+              g.beginPath(); g.ellipse(W*0.975,H*0.665,2,1.5,0,0,7); g.fill();
+              g.beginPath(); g.arc(W*0.988,H*0.655,1.1,0,7); g.fill();
+              g.fillStyle='#e8b93c';
+              g.beginPath(); g.moveTo(W*0.995,H*0.655); g.lineTo(W*1.003,H*0.657); g.lineTo(W*0.995,H*0.661); g.fill();
             }
             break;
           }
@@ -673,6 +841,18 @@ export class Renderer {
           g.beginPath(); g.moveTo(W*0.62,H*0.2); g.lineTo(W*0.62,H*0.34); g.stroke();
           crate(W*0.585,H*0.34,7);
           crate(W*0.16,H*0.78,9); crate(W*0.26,H*0.8,7); barrel(W*0.86,H*0.8);
+          // Lagerkatze auf der Kiste (kleiner Spaß)
+          g.fillStyle='#2e2a26';
+          g.beginPath(); g.ellipse(W*0.185,H*0.755,3.4,2.6,0,0,7); g.fill();          // Körper
+          g.beginPath(); g.arc(W*0.215,H*0.735,2.2,0,7); g.fill();                     // Kopf
+          g.beginPath();                                                                // Ohren
+          g.moveTo(W*0.205,H*0.72); g.lineTo(W*0.21,H*0.7); g.lineTo(W*0.216,H*0.718);
+          g.moveTo(W*0.222,H*0.717); g.lineTo(W*0.228,H*0.7); g.lineTo(W*0.231,H*0.72);
+          g.fill();
+          g.strokeStyle='#2e2a26'; g.lineWidth=1.4;                                     // Schwanz
+          g.beginPath(); g.moveTo(W*0.155,H*0.76); g.quadraticCurveTo(W*0.135,H*0.74,W*0.145,H*0.72); g.stroke();
+          g.fillStyle='#7fd08a';                                                        // Augen
+          g.beginPath(); g.arc(W*0.211,H*0.733,0.5,0,7); g.arc(W*0.221,H*0.733,0.5,0,7); g.fill();
           banner(W*0.5,H*0.08,13);
           break;
         }
@@ -764,17 +944,75 @@ export class Renderer {
             banner(W*0.86,H*0.4,12);
             break;
           }
-          // generisches mittleres Haus
-          wallGrad(W*0.14,H*0.46,W*0.6,H*0.4);
-          timber(W*0.14,H*0.46,W*0.6,H*0.4);
-          roofGable(W*0.14,H*0.46,W*0.6,H*0.26,roofC);
+          if(type==='tithebarn'){
+            // Zehntscheune: mächtiges Strohdach, niedrige Wände, großes Tor, Säcke
+            wallGrad(W*0.1,H*0.6,W*0.72,H*0.26,'#dcc79a','#bda275');
+            timber(W*0.1,H*0.6,W*0.72,H*0.26);
+            thatch(W*0.1,H*0.6,W*0.72,H*0.4,7);
+            g.fillStyle='#5d4028'; rr(g,W*0.34,H*0.66,W*0.24,H*0.2,2); g.fill();
+            g.strokeStyle='#8a6b43'; g.lineWidth=1.4; g.stroke();
+            g.beginPath(); g.moveTo(W*0.34,H*0.66); g.lineTo(W*0.58,H*0.86);
+            g.moveTo(W*0.58,H*0.66); g.lineTo(W*0.34,H*0.86); g.stroke();
+            // Kornsäcke
+            for(const [sx2,sy2] of [[0.16,0.82],[0.24,0.84],[0.72,0.83]]){
+              g.fillStyle='#d9bb84';
+              g.beginPath(); g.ellipse(W*sx2,H*sy2,4.4,5.4,0,0,7); g.fill();
+              g.strokeStyle=OUT; g.lineWidth=1; g.stroke();
+              g.strokeStyle='#8a6b43'; g.lineWidth=1.2;
+              g.beginPath(); g.moveTo(W*sx2-2,H*sy2-5); g.lineTo(W*sx2+2,H*sy2-5); g.stroke();
+            }
+            banner(W*0.18,H*0.42,10);
+            break;
+          }
+          // mittlere Häuser: Wandstil + Dachfarbe je Handwerk (mehr Vielfalt)
+          const ROOFC={ sawmill:'#8f6a3f', bakery:'#c05a3a', butcher:'#a34a52',
+            brewery:'#8f6a3f', smelter:'#707a88', mint:'#606b7d', armory:'#5f6a78' };
+          const mRoof=ROOFC[type]||roofC;
+          if(type==='smelter'||type==='mint'||type==='armory'){
+            stoneGrad(W*0.14,H*0.46,W*0.6,H*0.4);
+          } else if(type==='bakery'||type==='butcher'){
+            plaster(W*0.14,H*0.46,W*0.6,H*0.4);
+          } else {
+            wallGrad(W*0.14,H*0.46,W*0.6,H*0.4);
+            timber(W*0.14,H*0.46,W*0.6,H*0.4);
+          }
+          roofGable(W*0.14,H*0.46,W*0.6,H*0.26,mRoof);
           window_(W*0.2,H*0.56); door(W*0.36,H*0.68,10,15);
+          banner(W*0.2,H*0.28,10);
           if(type==='smelter'||type==='mint'||type==='armory'||type==='bakery'){
             chimney(W*0.72,H*0.44,16);
             if(type==='smelter'){
               g.fillStyle='rgba(255,120,40,0.8)'; g.fillRect(W*0.2,H*0.79,8,6);
               g.fillStyle='rgba(255,160,60,0.3)'; g.fillRect(W*0.18,H*0.76,12,10);
             }
+          }
+          if(type==='bakery'){
+            // Kuppel-Backofen neben dem Haus
+            g.fillStyle='#b5a48c';
+            g.beginPath(); g.arc(W*0.85,H*0.82,8.6,Math.PI,0); g.fill();
+            g.strokeStyle=OUT; g.lineWidth=1.3; g.stroke();
+            g.fillStyle='#2c2018';
+            g.beginPath(); g.arc(W*0.85,H*0.82,4,Math.PI,0); g.fill();
+            g.fillStyle='rgba(255,150,60,0.7)';
+            g.beginPath(); g.arc(W*0.85,H*0.82,2.4,Math.PI,0); g.fill();
+          }
+          if(type==='butcher'){
+            // Wurstkette unter der Traufe (kleiner Spaß)
+            g.strokeStyle='rgba(70,50,35,0.8)'; g.lineWidth=1;
+            g.beginPath(); g.moveTo(W*0.4,H*0.5); g.quadraticCurveTo(W*0.55,H*0.56,W*0.7,H*0.5); g.stroke();
+            g.fillStyle='#a34a3f';
+            for(const fx4 of [0.45,0.52,0.59,0.66]){
+              g.beginPath(); g.ellipse(W*fx4,H*0.535,2.1,3.4,0.25,0,7); g.fill();
+              g.strokeStyle='rgba(60,25,18,0.5)'; g.lineWidth=0.7; g.stroke();
+            }
+          }
+          if(type==='sawmill'){
+            // Stämme-Rampe an der Seite
+            g.strokeStyle='#8a6238'; g.lineWidth=3.2;
+            g.beginPath(); g.moveTo(W*0.78,H*0.86); g.lineTo(W*0.95,H*0.6); g.stroke();
+            g.fillStyle='#8a5f33';
+            g.beginPath(); g.ellipse(W*0.88,H*0.71,7,3,-1,0,7); g.fill();
+            g.strokeStyle=OUT; g.lineWidth=1; g.stroke();
           }
           // Zunftzeichen
           const sign=(draw)=>{ g.save(); g.translate(W*0.62,H*0.56); draw(); g.restore(); };
@@ -858,9 +1096,75 @@ export class Renderer {
             g.strokeStyle=OUT; g.lineWidth=1; g.strokeRect(W*0.46,H*0.56,W*0.08,5);
             break;
           }
-          // generisches kleines Haus: Fachwerk mit Strohdach (Alltagsbau)
-          wallGrad(W*0.18,H*0.54,W*0.6,H*0.32);
-          timber(W*0.18,H*0.54,W*0.6,H*0.32);
+          if(type==='chapel'){
+            // kleine romanische Kapelle mit Apsis und Glockengiebel
+            stoneGrad(W*0.24,H*0.46,W*0.44,H*0.4);
+            // Apsis (halbrund, rechts)
+            g.fillStyle='#b5afa2';
+            g.beginPath();
+            g.moveTo(W*0.68,H*0.52); g.quadraticCurveTo(W*0.84,H*0.66,W*0.68,H*0.86);
+            g.closePath(); g.fill();
+            g.strokeStyle=OUT; g.lineWidth=1.3; g.stroke();
+            g.fillStyle='#8f897b';
+            g.beginPath();
+            g.moveTo(W*0.66,H*0.52); g.quadraticCurveTo(W*0.86,H*0.5,W*0.8,H*0.6);
+            g.quadraticCurveTo(W*0.74,H*0.54,W*0.66,H*0.55);
+            g.closePath(); g.fill();
+            // steiles Satteldach
+            roofGable(W*0.24,H*0.46,W*0.44,H*0.3,'#7d8896',4);
+            // Glockengiebel mit Glöckchen
+            stoneGrad(W*0.4,H*0.08,W*0.12,H*0.14);
+            g.fillStyle='#2c2620';
+            g.beginPath(); g.arc(W*0.46,H*0.14,3.4,0,7); g.fill();
+            g.fillStyle='#e8c258';
+            g.beginPath();
+            g.moveTo(W*0.44,H*0.115); g.quadraticCurveTo(W*0.46,H*0.09,W*0.48,H*0.115);
+            g.lineTo(W*0.485,H*0.155); g.lineTo(W*0.435,H*0.155);
+            g.closePath(); g.fill();
+            // Rundfenster (Rosette)
+            g.fillStyle='#ffd98a'; g.beginPath(); g.arc(W*0.46,H*0.36,3.6,0,7); g.fill();
+            g.strokeStyle='#8a6b43'; g.lineWidth=1.2; g.stroke();
+            g.beginPath(); g.moveTo(W*0.46-3.6,H*0.36); g.lineTo(W*0.46+3.6,H*0.36);
+            g.moveTo(W*0.46,H*0.36-3.6); g.lineTo(W*0.46,H*0.36+3.6); g.stroke();
+            door(W*0.41,H*0.7,9,14);
+            break;
+          }
+          if(type==='fisher'){
+            // Fischerhütte auf Stelzen mit Trockenleine
+            g.strokeStyle='#6d4f2e'; g.lineWidth=2.6;   // Stelzen
+            g.beginPath();
+            g.moveTo(W*0.24,H*0.86); g.lineTo(W*0.24,H*0.74);
+            g.moveTo(W*0.44,H*0.87); g.lineTo(W*0.44,H*0.74);
+            g.moveTo(W*0.64,H*0.86); g.lineTo(W*0.64,H*0.74);
+            g.stroke();
+            logWall(W*0.18,H*0.46,W*0.52,H*0.3);
+            thatch(W*0.18,H*0.46,W*0.52,H*0.24,5);
+            window_(W*0.28,H*0.53,6,7.5); door(W*0.48,H*0.6,8,13);
+            // Steg-Brettchen
+            g.fillStyle='#8a6b43'; g.fillRect(W*0.16,H*0.75,W*0.56,3.4);
+            g.strokeStyle=OUT; g.lineWidth=1; g.strokeRect(W*0.16,H*0.75,W*0.56,3.4);
+            // Trockenleine mit Fischen (kleiner Spaß)
+            g.strokeStyle='#5d452a'; g.lineWidth=1.6;
+            g.beginPath(); g.moveTo(W*0.72,H*0.84); g.lineTo(W*0.72,H*0.5); g.stroke();
+            g.strokeStyle='rgba(70,60,45,0.8)'; g.lineWidth=1;
+            g.beginPath(); g.moveTo(W*0.7,H*0.52); g.quadraticCurveTo(W*0.86,H*0.56,W*0.98,H*0.5); g.stroke();
+            g.fillStyle='#7db3cf';
+            for(const fx3 of [0.78,0.88]){
+              g.beginPath(); g.ellipse(W*fx3,H*0.585,3.6,1.7,1.35,0,7); g.fill();
+              g.beginPath(); g.moveTo(W*fx3-1,H*0.62); g.lineTo(W*fx3-2.6,H*0.655); g.lineTo(W*fx3+0.8,H*0.645); g.closePath(); g.fill();
+            }
+            banner(W*0.24,H*0.28,9);
+            break;
+          }
+          // kleine Häuser: Wandstil je nach Beruf
+          if(type==='woodcutter'||type==='forester'||type==='hunter'){
+            logWall(W*0.18,H*0.54,W*0.6,H*0.32);          // Blockhütte der Waldleute
+          } else if(type==='quarry'){
+            stoneGrad(W*0.18,H*0.54,W*0.6,H*0.32);        // Steinhütte des Steinmetz
+          } else {
+            wallGrad(W*0.18,H*0.54,W*0.6,H*0.32);
+            timber(W*0.18,H*0.54,W*0.6,H*0.32);
+          }
           thatch(W*0.18,H*0.54,W*0.6,H*0.26,5);
           window_(W*0.26,H*0.6,6.5,8); door(W*0.52,H*0.7,9,13);
           banner(W*0.24,H*0.34,9);   // kleiner Besitz-Wimpel am Giebel
@@ -1021,6 +1325,7 @@ export class Renderer {
   draw(cam, ui, dtMs){
     const g=this.ctx, game=this.game, m=game.map;
     this.time+=dtMs;
+    this._lastCam=cam;
     g.setTransform(this.dpr,0,0,this.dpr,0,0);
     // Hintergrund: Tiefwasser mit leichtem Verlauf
     const cols=TER_COL[this.theme]||TER_COL.gruen;
@@ -1106,9 +1411,18 @@ export class Renderer {
       g.strokeStyle=PLAYER_COLORS[e.pl]+'cc'; g.lineWidth=2;
       g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
     }
-    // Straßen (3 Lagen: Kontur, Belag, Mittelnaht)
+    // Straßen: gejitterte Zwischenpunkte + Kurvenglättung = natürliche Wege statt Gitterlinien
     for(const r of game.roads.values()){
-      const trace=()=>{ g.beginPath(); r.path.forEach((n,ix)=>{ const [x,y]=m.worldPos(n); if(ix===0) g.moveTo(x,y); else g.lineTo(x,y); }); };
+      const pts=this.roadPts(r);
+      const trace=()=>{
+        g.beginPath();
+        g.moveTo(pts[0][0],pts[0][1]);
+        for(let k=1;k<pts.length-1;k++){
+          const mx=(pts[k][0]+pts[k+1][0])/2, my=(pts[k][1]+pts[k+1][1])/2;
+          g.quadraticCurveTo(pts[k][0],pts[k][1],mx,my);
+        }
+        g.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
+      };
       trace(); g.strokeStyle='rgba(122,96,62,0.5)'; g.lineWidth=8.5; g.stroke();
       trace(); g.strokeStyle='#d9c096'; g.lineWidth=5.6; g.stroke();
       trace(); g.strokeStyle='rgba(248,236,206,0.55)'; g.lineWidth=1.6; g.setLineDash([4,10]); g.stroke(); g.setLineDash([]);
@@ -1144,6 +1458,30 @@ export class Renderer {
       else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier');
       else if(it.kind==='unit') this.drawUnit(g, it.u);
     }
+    // Wolkenschatten ziehen über das Land
+    const cw=m.w*TILE, chh=m.h*ROWH;
+    for(let k=0;k<4;k++){
+      const spd=7+k*2.6;
+      let cx2=((this.time/1000*spd + k*1637) % (cw+700)) - 350;
+      const cy2=((k*911)%chh) + Math.sin(this.time/8000+k*2.1)*90;
+      if(cx2+320<wx0||cx2-320>wx1||cy2+220<wy0||cy2-220>wy1) continue;
+      const rad=g.createRadialGradient(cx2,cy2,20,cx2,cy2,230+k*40);
+      rad.addColorStop(0,'rgba(25,35,25,0.11)');
+      rad.addColorStop(0.7,'rgba(25,35,25,0.07)');
+      rad.addColorStop(1,'rgba(25,35,25,0)');
+      g.fillStyle=rad;
+      g.save();
+      g.translate(cx2,cy2); g.scale(1.5,0.85);
+      g.beginPath(); g.arc(0,0,230+k*40,0,7);
+      g.arc(150,60,150,0,7);
+      g.fill();
+      g.restore();
+    }
+    // Vogelschwärme
+    this.drawBirds(g, cw, chh, wx0, wx1, wy0, wy1);
+    // Schafe (bewegte Deko)
+    this.updateSheep(dtMs);
+    for(const sh of this.sheep) this.drawSheep(g, sh);
     // Auswahl-Marker
     if(ui.sel>=0){
       const [x,y]=m.worldPos(ui.sel);
@@ -1196,12 +1534,20 @@ export class Renderer {
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
   }
-  roadPos(r, pos){
+  // Straßenpunkte mit deterministischem Versatz (Enden/Fahnen bleiben exakt)
+  roadPts(r){
     const m=this.game.map;
-    const i0=Math.floor(pos), f=pos-i0;
-    const a=r.path[Math.min(i0,r.path.length-1)], b=r.path[Math.min(i0+1,r.path.length-1)];
-    const [ax,ay]=m.worldPos(a), [bx,by]=m.worldPos(b);
-    return [ax+(bx-ax)*f, ay+(by-ay)*f];
+    return r.path.map((n,ix)=>{
+      const [x,y]=m.worldPos(n);
+      if(ix===0 || ix===r.path.length-1 || m.flag[n]) return [x,y];
+      return [x+(hash01(n*3+1)-0.5)*11, y+(hash01(n*5+2)-0.5)*9];
+    });
+  }
+  roadPos(r, pos){
+    const pts=this.roadPts(r);
+    const i0=Math.max(0,Math.min(pts.length-1,Math.floor(pos))), f=pos-Math.floor(pos);
+    const a=pts[i0], b=pts[Math.min(i0+1,pts.length-1)];
+    return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f];
   }
   drawObj(g, m, i, o){
     const [x,y]=m.worldPos(i);
@@ -1214,7 +1560,13 @@ export class Renderer {
         const s=this.treeSprite(st,this.theme,species);
         const w=50*sc, h=64*sc;
         this.shadow(g,x+4*sc,y+2, 12*sc*(st/3), 4*sc, 0.22);
-        g.drawImage(s, x-w/2, y-h+4, w, h);
+        // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
+        const sway=Math.sin(this.time/1150 + i*0.73)*0.05 + Math.sin(this.time/451 + i*1.7)*0.013;
+        g.save();
+        g.translate(x, y+4);
+        g.transform(1,0,sway,1,0,0);
+        g.drawImage(s, -w/2, -h, w, h);
+        g.restore();
         break;
       }
       case OBJ.STONE: {
@@ -1300,6 +1652,16 @@ export class Renderer {
         g.fillStyle=PLAYER_COLORS[b.player];
         g.beginPath(); g.arc(x-15+k*6.4, yy, 2.6, 0, 7); g.fill();
       }
+    }
+    // "Zzz" über Arbeitern ohne Aufgabe (schläft ein – und zeigt: hier fehlt Nachschub)
+    if(b.state==='done' && b.worker && b.worker.present && b.worker.state==='in'
+       && b.worker.timer > (BLD[b.type].time||100)*3){
+      const ph=(this.time/900+b.id)%1;
+      g.font='bold 10px Georgia,serif';
+      g.fillStyle=`rgba(240,245,255,${0.75-ph*0.4})`;
+      g.fillText('z', x+14, y-38-ph*8);
+      g.font='bold 13px Georgia,serif';
+      g.fillText('Z', x+19, y-44-ph*10);
     }
     // Rauch bei aktiver Produktion
     if(b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && (b.prodT>0)){

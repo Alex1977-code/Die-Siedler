@@ -945,7 +945,8 @@ export class Game {
           break;
       }
       if(u.state==='back' && (u.jobKind==='chop'||u.jobKind==='pick')) m.obj[u.target]&=127;
-      if(u.state==='act' && u.actT===1 && b.player===0) this.onWorkerAct && this.onWorkerAct(u);
+      // rhythmisches Arbeitsgeräusch (Hacken, Klopfen, ...) solange gearbeitet wird
+      if(u.state==='act' && u.actT%11===1 && b.player===0) this.onWorkerAct && this.onWorkerAct(u);
     } else if(u.state==='back'){
       if(this.moveToward(u,hx,hy,WALK_SPEED)){
         if(u.carry){ b.out=Math.min(6,(b.out||0)+1); }

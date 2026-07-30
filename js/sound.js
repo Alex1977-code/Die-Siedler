@@ -28,11 +28,12 @@ export const Sound = {
   },
 
   // ---------- Effekte ----------
+  _scale:1,
   env(dur, vol=0.5, attack=0.005){
     const g=this.ctx.createGain();
     const t=this.ctx.currentTime;
     g.gain.setValueAtTime(0.0001,t);
-    g.gain.linearRampToValueAtTime(vol,t+attack);
+    g.gain.linearRampToValueAtTime(vol*this._scale,t+attack);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
     g.connect(this.sfxGain);
     return g;
@@ -57,15 +58,33 @@ export const Sound = {
     src.connect(f); f.connect(this.env(dur,vol));
     src.start();
   },
-  sfx(name){
+  sfx(name, scale=1){
     if(!this.ctx||!this.sfxOn) return;
+    this._scale=Math.max(0,Math.min(1,scale));
     switch(name){
       case 'tap':    this.osc('sine', 660, 0.06, 0.15); break;
       case 'place':  this.noise(0.12,0.4,120,500); this.osc('sine',110,0.15,0.3,-40); break;
       case 'flag':   this.osc('triangle', 520, 0.1, 0.25); this.osc('triangle', 780, 0.12, 0.2); break;
       case 'road':   this.noise(0.08,0.25,300,900); break;
-      case 'chop':   this.noise(0.07,0.5,900,2400); this.osc('square',180,0.05,0.12); break;
-      case 'pick':   this.noise(0.05,0.4,1800,4000); this.osc('square',260,0.04,0.1); break;
+      case 'chop':   this.noise(0.06,0.55,700,2000); this.osc('square',160,0.06,0.14,-40); break;
+      case 'pick':   // Spitzhacke: metallischer Ping auf Stein
+        this.noise(0.035,0.45,2200,5200);
+        this.osc('triangle',1250,0.09,0.16,-500);
+        this.osc('sine',2400,0.05,0.08,-800); break;
+      case 'dig':    this.noise(0.09,0.4,150,600); break;
+      case 'rustle': this.noise(0.12,0.28,1000,3000); break;
+      case 'splash': this.noise(0.1,0.35,1600,5000); this.osc('sine',420,0.12,0.12,-180); break;
+      case 'saw':    this.noise(0.16,0.3,700,1600); break;
+      case 'bell':   // Kapellenglocke: zwei Teiltöne mit langem Ausklang
+        this.noise(0.02,0.2,2000,5000);
+        this.osc('triangle',784,1.1,0.3);
+        this.osc('sine',1175,0.9,0.14);
+        setTimeout(()=>{ this.osc('triangle',784,1.2,0.24); this.osc('sine',1175,1.0,0.11); },650);
+        break;
+      case 'sheep':  // freches Blöken
+        this.osc('sawtooth',430,0.12,0.14,-40);
+        setTimeout(()=>this.osc('sawtooth',360,0.2,0.16,-70),110);
+        break;
       case 'hammer': this.noise(0.05,0.35,1200,3200); break;
       case 'done':   [440,554,659].forEach((f,i)=> setTimeout(()=>this.osc('triangle',f,0.25,0.25),i*90)); break;
       case 'coin':   this.osc('sine',1200,0.1,0.2); setTimeout(()=>this.osc('sine',1600,0.15,0.18),60); break;
