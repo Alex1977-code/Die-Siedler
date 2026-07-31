@@ -27,21 +27,23 @@ h1{
   margin-bottom:4px;
 }
 h1::after{
-  content:'⚜'; display:block; font-size:22px; letter-spacing:0;
-  color:#c9a05a; text-shadow:none; margin-top:2px;
+  content:'⚜'; display:block; font-size:20px; letter-spacing:0;
+  color:#e3c78a; text-shadow:0 1px 3px rgba(0,0,0,0.6); margin:6px auto 0;
+  width:54px; height:54px; line-height:54px;
+  background:url('assets/ui_ring.png') center/contain no-repeat;
 }
 .subtitle{ opacity:0.85; margin-bottom:28px; letter-spacing:0.06em; }
 .credits{ margin-top:26px; font-size:12px; opacity:0.55; }
 .menu{ display:flex; flex-direction:column; gap:10px; }
 .mbtn{
-  font-size:17px; padding:13px 18px; border-radius:16px; border:1px solid #55688233;
-  background:linear-gradient(#36486180,#27374d80); color:#efe9da; cursor:pointer;
-  transition:transform 0.06s; box-shadow:0 3px 10px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.08);
-  backdrop-filter:blur(3px);
+  font-size:17px; padding:13px 18px; border-radius:16px; border:1px solid #3d2f1e;
+  background:linear-gradient(rgba(52,68,92,0.62),rgba(36,50,70,0.72)), url('assets/ui_wood.png') center/220px;
+  color:#f4ecda; cursor:pointer; text-shadow:0 1px 2px rgba(0,0,0,0.55);
+  transition:transform 0.06s; box-shadow:0 3px 10px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 .mbtn:active{ transform:scale(0.97); }
-.mbtn.primary{ background:linear-gradient(#48804a,#35603a); border-color:#6da070; }
-.mbtn.back{ background:linear-gradient(#45454f,#34343d); border-color:#5a5a66; }
+.mbtn.primary{ background:linear-gradient(rgba(66,120,68,0.6),rgba(47,88,52,0.72)), url('assets/ui_wood.png') center/220px; border-color:#4a5c34; }
+.mbtn.back{ background:linear-gradient(rgba(64,64,72,0.66),rgba(47,47,56,0.78)), url('assets/ui_wood.png') center/220px; border-color:#4a4438; }
 .panel{
   max-width:520px; margin:0 auto; padding:22px 18px calc(30px + env(safe-area-inset-bottom));
   display:flex; flex-direction:column; gap:12px; min-height:100%;
@@ -92,10 +94,20 @@ h1::after{
 }
 #hud-top>*{ pointer-events:auto; }
 .hbtn{
-  min-width:42px; height:42px; border-radius:14px; border:1px solid rgba(120,140,165,0.35);
-  background:rgba(34,51,74,0.88); color:#efe9da; font-size:18px; cursor:pointer;
-  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+  min-width:42px; height:42px; border-radius:14px; border:1px solid #3d2f1e;
+  background:linear-gradient(rgba(40,52,70,0.35),rgba(28,38,54,0.45)), url('assets/ui_wood.png') center/130px;
+  color:#f4ecda; font-size:18px; cursor:pointer; text-shadow:0 1px 3px rgba(0,0,0,0.7);
+  box-shadow:0 2px 8px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12);
 }
+#g-pause{
+  background:url('assets/ui_btn_pause.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:#fff; font-size:16px;
+}
+#g-menu{
+  background:url('assets/ui_btn_menu.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:#efe4cd; font-size:16px;
+}
+#g-speed{ font-weight:700; font-size:15px; }
 #res-bar{
   flex:1; display:flex; gap:10px; overflow-x:auto; padding:4px 8px;
   background:rgba(20,30,44,0.78); border-radius:12px; font-size:14.5px;
@@ -106,8 +118,10 @@ h1::after{
 .res-ic{ width:17px; height:17px; object-fit:contain; }
 #objectives{
   position:absolute; top:calc(58px + env(safe-area-inset-top)); left:8px;
-  background:rgba(20,30,44,0.92); border:1px solid #4a5a70; border-radius:12px;
+  background:url('assets/ui_parchment.png') center/cover, #d9c49a;
+  color:#3a2c16; border:1px solid #8a6f4a; border-radius:10px;
   padding:10px 14px; font-size:13.5px; line-height:1.55; max-width:75vw; z-index:5;
+  box-shadow:0 3px 10px rgba(0,0,0,0.35);
 }
 #msg-toast{
   position:absolute; top:calc(60px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
@@ -116,10 +130,11 @@ h1::after{
 }
 #minimap-wrap{
   position:absolute; right:8px; bottom:calc(8px + env(safe-area-inset-bottom));
-  border:1px solid rgba(120,140,165,0.4); border-radius:14px; overflow:hidden;
-  background:#0a0e16; opacity:0.94; z-index:4;
-  box-shadow:0 4px 14px rgba(0,0,0,0.35);
+  border:1px solid #3d2f1e; border-radius:14px; overflow:hidden;
+  background:url('assets/ui_wood.png') center/160px; padding:4px; opacity:0.96; z-index:4;
+  box-shadow:0 4px 14px rgba(0,0,0,0.4);
 }
+#minimap-wrap canvas{ border-radius:9px; }
 #minimap{ display:block; width:130px; height:130px; }
 
 /* Bottom-Sheet */

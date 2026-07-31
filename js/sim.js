@@ -475,6 +475,7 @@ export class Game {
         const ore=m.oreT[u.target]||0;
         this.signs.set(u.target, ore);
         u.probes--;
+        if(ore) this.onGeoFind && this.onGeoFind(u);   // Jubelruf des Geologen
         if(u.player===0 && ore){
           const name=['','Kohle','Eisenerz','Golderz','Granit'][ore];
           this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target);
@@ -1005,7 +1006,11 @@ export class Game {
         case 'fish':
           if(done(36)){ const wn=u.jobKindData??null; // gespeichert unten
             const w=m.nbs(u.target).find(n=>m.terr[n]===TER.WATER&&m.fish[n]>0);
-            if(w!==undefined){ m.fish[w]--; u.carry='fish'; }
+            if(w!==undefined){
+              m.fish[w]--; u.carry='fish';
+              const [wx,wy]=m.worldPos(w);
+              this.fx.push({type:'splash', x:wx, y:wy, t0:this.t});   // Platscher beim Fang
+            }
             u.state='back'; }
           break;
         case 'hunt':

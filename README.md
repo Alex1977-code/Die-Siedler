@@ -122,6 +122,11 @@ Sprite aktiv (beliebig mischbar).
 | `tree_leaf.png`, `tree_conifer.png`, `tree_autumn.png`, `tree_winter.png` | Bäume (Wachstum wird skaliert; Winterbaum nur im Winterthema) | ~512 px hoch |
 | `obj_stone.png`, `obj_ruin.png`, `obj_gate.png`, `deco_sheep.png` | Kartenobjekte: Steinvorkommen, Brandruine, Tor, Schaf | ~300 px |
 | `sign_none/coal/iron/gold/granite.png` | Geologen-Schilder | ~220 px hoch |
+| `good_<ware>.png` | getragene Waren (Träger, Fahnenstapel) – alle 20 Warenarten | ~96 px |
+| `ter_grass/sand/snow/swamp/rock/cobble.png` | nahtlose Terrain-/Pflastertexturen (werden weich eingewebt) | 256 px, kachelbar |
+| `fx_impact/sparks/smoke/splash/arrow/boulder.png` | Effekte (Leuchtdichte = Transparenz) | ~120–300 px |
+| `ui_wood.png`, `ui_parchment.png`, `ui_ring.png`, `ui_btn_pause/menu.png` | UI: Holz-Buttons, Pergament-Missionsbox, Zierring, HUD-Buttons | – |
+| `unit_<typ>_up.png` / `unit_<typ>_down.png` | optionale Rück-/Frontansicht laufender Figuren (sonst automatische Andeutung) | ~256 px |
 | `unit_carrier.png`, `unit_sword.png`, `unit_spear.png`, `unit_bow.png`, `unit_soldier.png` (Fallback), `unit_<beruf>.png` | Figuren (Truppentypen; Berufe: `woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
 | `icon_<ware>.png`, `icon_soldier.png` | HUD-Icons (`board`, `stone`, `bread`, `fish`, `coal`, `iron`, `coin`) | 64×64 px |
 

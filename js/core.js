@@ -61,6 +61,8 @@ export const BLD = {
   catapult:   { name:'Katapult', cat:'militaer', size:'M', cost:{board:4,stone:2}, cata:{radius:11, time:220}, desc:'Beschießt feindliche Militärgebäude mit Steinen.' },
   chapel:     { name:'Kapelle', cat:'schmuck', size:'S', cost:{board:1,stone:2}, desc:'Schmuckbau. Tippe sie an – die Glocke läutet!' },
   tithebarn:  { name:'Zehntscheune', cat:'schmuck', size:'M', cost:{board:3,stone:1}, store:true, desc:'Große Strohscheune, dient als kleines Zusatzlager.' },
+  market:     { name:'Marktstand', cat:'schmuck', size:'S', cost:{board:2}, desc:'Schmuckbau. Buntes Markttreiben – tippe ihn an!' },
+  cottage:    { name:'Wohnhaus', cat:'schmuck', size:'S', cost:{board:2,stone:1}, desc:'Schmuckes Wohnhaus – jede Bauweise sieht anders aus.' },
 };
 export const BLD_KEYS = Object.keys(BLD);
 

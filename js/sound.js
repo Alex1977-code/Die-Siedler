@@ -104,6 +104,22 @@ export const Sound = {
       case 'arrow':  // Pfeilsalve: kurzes Zischen mit fallendem Ton
         this.noise(0.14,0.28,2800,7000);
         this.osc('sine',900,0.12,0.08,-500); break;
+      case 'yay': {  // Jauchzer des Geologen: jubelnder Aufwärts-Doppelton mit Überschlag
+        this.osc('triangle',520,0.09,0.2,240);
+        setTimeout(()=>this.osc('triangle',760,0.1,0.22,320),90);
+        setTimeout(()=>{ this.osc('triangle',1180,0.22,0.24,-160); this.osc('sine',1560,0.16,0.1,-240); },190);
+        setTimeout(()=>this.osc('triangle',880,0.16,0.16,-120),400);
+        break;
+      }
+      case 'grunt':  // Kampfschrei/Anstrengung: kurzer kehliger Stoß
+        this.osc('sawtooth',150,0.13,0.2,-70);
+        this.noise(0.1,0.3,300,900); break;
+      case 'market': // Markttreiben: Stimmengewirr + Münzklimpern
+        this.noise(0.5,0.16,400,1400);
+        this.osc('triangle',660,0.08,0.1);
+        setTimeout(()=>{ this.osc('sine',1300,0.08,0.12); this.noise(0.25,0.12,500,1600); },180);
+        setTimeout(()=>this.osc('sine',1500,0.1,0.1),360);
+        break;
       case 'burn':   // Feuer: tiefes Rauschen + Knistern
         this.noise(0.8,0.4,90,400);
         this.noise(0.5,0.25,1400,4200);

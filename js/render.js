@@ -283,8 +283,21 @@ export class Renderer {
     if('filter' in g){ g.filter='blur(4px)'; }
     g.drawImage(this._tmpChunk,0,0);
     g.filter='none';
-    // 3) Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf
+    // 3) Foto-Textur der Kacheln als überlappende weiche Tupfer (nahtlos)
     g.save(); g.translate(-c.ox,-c.oy);
+    for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
+      for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+        const i=m.idx(x,y);
+        const spl=this.terrainSplat(m.terr[i]);
+        if(!spl) continue;
+        const [px,py]=m.worldPos(i);
+        const v=spl[(i*7+3)%4];
+        g.globalAlpha= m.terr[i]===TER.MOUNT?0.42:0.55;
+        g.drawImage(v, px-46, py-38, 92, 76);
+        g.globalAlpha=1;
+      }
+    }
+    // 4) gemalte Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf
     for(let y=Math.max(0,y0+2); y<Math.min(m.h-1,y1-2); y++){
       for(let x=Math.max(0,x0+2); x<Math.min(m.w-1,x1-2); x++){
         const i=m.idx(x,y);
@@ -487,11 +500,45 @@ export class Renderer {
         if(!Array.isArray(list)) return;
         for(const name of list){
           const img=new Image();
+          const key=name.replace(/\.png$/i,'');
+          // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
+          if(key.startsWith('ter_')) img.onload=()=>{ this._splat=null; this._cobPat=null; this.chunks.clear(); };
           img.src='assets/'+name;
-          this.assets.set(name.replace(/\.png$/i,''), img);
+          this.assets.set(key, img);
         }
       })
       .catch(()=>{});
+  }
+  // weiche Textur-Tupfer aus den Terrain-Kacheln (nahtlos, ohne sichtbares Raster)
+  terrainSplat(t){
+    const KEY={ [TER.GRASS]:'ter_grass', [TER.DESERT]:'ter_sand', [TER.SNOW]:'ter_snow',
+                [TER.SWAMP]:'ter_swamp', [TER.MOUNT]:'ter_rock' };
+    const name=KEY[t];
+    if(!name) return null;
+    if(!this._splat) this._splat={};
+    if(this._splat[t]) return this._splat[t];
+    const img=this.asset(name);
+    if(!img) return null;
+    const variants=[];
+    for(let v=0;v<4;v++){
+      const S=104;
+      const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+      const g=cv.getContext('2d');
+      g.save();
+      g.translate(S/2,S/2); g.rotate(v*Math.PI/2);
+      const off=(v*53)%80;
+      g.drawImage(img, off, (v*31)%80, img.naturalWidth-80, img.naturalHeight-80, -S*0.62, -S*0.62, S*1.24, S*1.24);
+      g.restore();
+      g.globalCompositeOperation='destination-in';
+      const rad=g.createRadialGradient(S/2,S/2,S*0.08,S/2,S/2,S*0.5);
+      rad.addColorStop(0,'rgba(0,0,0,1)');
+      rad.addColorStop(0.62,'rgba(0,0,0,0.8)');
+      rad.addColorStop(1,'rgba(0,0,0,0)');
+      g.fillStyle=rad; g.fillRect(0,0,S,S);
+      variants.push(cv);
+    }
+    this._splat[t]=variants;
+    return variants;
   }
   asset(key){
     const img=this.assets && this.assets.get(key);
@@ -1596,6 +1643,19 @@ export class Renderer {
         }
         g.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
       };
+      // Pflaster aus der Kachel-Textur (nahtlos), sonst prozedural
+      const cob=this.asset('ter_cobble');
+      if(cob){
+        if(!this._cobPat){
+          this._cobPat=g.createPattern(cob,'repeat');
+          if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12));
+        }
+        g.lineJoin='round'; g.lineCap='round';
+        trace(); g.strokeStyle='rgba(70,58,45,0.55)'; g.lineWidth=9.2; g.stroke();  // Bordkante
+        trace(); g.strokeStyle=this._cobPat; g.lineWidth=7.4; g.stroke();           // Pflaster
+        trace(); g.strokeStyle='rgba(94,80,62,0.22)'; g.lineWidth=2.6; g.stroke();  // Fahrspur
+        continue;
+      }
       trace(); g.strokeStyle='rgba(92,78,60,0.6)'; g.lineWidth=9.5; g.stroke();   // Bordkante
       trace(); g.strokeStyle='#b3a68c'; g.lineWidth=7; g.stroke();                // Pflasterbett
       // Pflastersteine entlang des Weges (zwei Farbtöne, versetzt)
@@ -1644,16 +1704,32 @@ export class Renderer {
     for(const r of game.roads.values()){
       const c=r.carrier;
       const pos=this.roadPos(r, c.pos);
-      items.push({kind:'carrier', pl:r.player, x:pos[0], y:pos[1], carrying:!!c.item, good:c.item?.good});
+      // Bewegungsrichtung aus der Bilddifferenz (fürs Spiegeln/Wippen der Figur)
+      let mov=false;
+      if(c._lx!==undefined){
+        const ddx=pos[0]-c._lx, ddy=pos[1]-c._ly;
+        if(Math.hypot(ddx,ddy)>0.12){ c._dx=ddx; c._dy=ddy; mov=true; }
+      }
+      c._lx=pos[0]; c._ly=pos[1];
+      items.push({kind:'carrier', pl:r.player, x:pos[0], y:pos[1], carrying:!!c.item, good:c.item?.good,
+        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov});
     }
-    for(const u of game.units) items.push({kind:'unit', u, y:u.y});
+    for(const u of game.units){
+      if(u._lx!==undefined){
+        const ddx=u.x-u._lx, ddy=u.y-u._ly;
+        u._mov=Math.hypot(ddx,ddy)>0.12;
+        if(u._mov){ u._dx=ddx; u._dy=ddy; }
+      }
+      u._lx=u.x; u._ly=u.y;
+      items.push({kind:'unit', u, y:u.y});
+    }
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
-      else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier');
+      else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov);
       else if(it.kind==='unit') this.drawUnit(g, it.u);
     }
     this.drawFx(g, game);
@@ -1927,7 +2003,13 @@ export class Renderer {
     // goldene Stunde: lange, weiche Schatten nach Südost
     this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
     // Asset-Überschreibung (Stilguide §14): bld_<typ>.png bzw. bld_<typ>_build.png
-    const ov=this.asset(b.state==='build' ? 'bld_'+b.type+'_build' : 'bld_'+b.type)
+    // Wohnhaus: drei Bauweisen, stabil je Gebäude gewählt
+    let typeKey='bld_'+b.type;
+    if(b.type==='cottage'){
+      const v=b.id%3;
+      if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
+    }
+    const ov=this.asset(b.state==='build' ? typeKey+'_build' : typeKey)
       || (b.state==='build' ? this.asset('bld_baustelle') : null);
     if(ov){
       const hh=big?96:def.size==='M'?80:64;
@@ -1969,9 +2051,17 @@ export class Renderer {
       g.font='bold 13px Georgia,serif';
       g.fillText('Z', x+19, y-44-ph*10);
     }
-    // Rauch bei aktiver Produktion
+    // Rauch bei aktiver Produktion (Bild-Rauchsäule, sonst Kreise)
     if(b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && (b.prodT>0)){
-      for(const off of [0,0.45]){
+      const smi=this.asset('fx_smoke');
+      if(smi){
+        const ph=(this.time/2600 + b.id*0.37)%1;
+        const hh=14+ph*20, ww=hh*(smi.naturalWidth/smi.naturalHeight);
+        const sway=Math.sin((this.time/900+b.id))*4;
+        g.globalAlpha=0.5*(1-ph);
+        g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*22-hh, ww, hh);
+        g.globalAlpha=1;
+      } else for(const off of [0,0.45]){
         const ph=(this.time/800 + b.id*0.7 + off)%1;
         const sway=Math.sin((this.time/600+b.id+off*4))*4;
         g.fillStyle=`rgba(215,215,218,${0.42*(1-ph)})`;
@@ -2006,15 +2096,12 @@ export class Renderer {
     g.moveTo(x,y-19); g.quadraticCurveTo(x+7,y-20+w1, x+14,y-17.6+w2);
     g.lineTo(x+13,y-16.6+w2); g.quadraticCurveTo(x+6.5,y-18.6+w1,x,y-17.4);
     g.closePath(); g.fill();
-    // wartende Waren als Kistenstapel
+    // wartende Waren als kleiner Stapel (Bild-Assets, sonst Kistchen)
     const items=game.flagItems.get(i);
     if(items && items.length){
       for(let k=0;k<Math.min(items.length,8);k++){
-        const bx=x-9+(k%4)*5.4, by=y+2+Math.floor(k/4)*5;
-        g.fillStyle=goodColor(items[k].good);
-        g.fillRect(bx,by,4.4,4.4);
-        g.fillStyle='rgba(255,255,255,0.3)'; g.fillRect(bx,by,4.4,1.4);
-        g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=0.8; g.strokeRect(bx,by,4.4,4.4);
+        const bx=x-7+(k%4)*5.6, by=y+4.4+Math.floor(k/4)*5;
+        this.drawGood(g, items[k].good, bx, by, 5.6);
       }
     }
   }
@@ -2040,27 +2127,54 @@ export class Renderer {
         g.save();
         g.translate(px,py); g.rotate(a);
         g.globalAlpha=fade;
-        g.strokeStyle='#6d4f2e'; g.lineWidth=1.1;
-        g.beginPath(); g.moveTo(-5,0); g.lineTo(3.6,0); g.stroke();
-        g.fillStyle='#b8bfc7';
-        g.beginPath(); g.moveTo(5.4,0); g.lineTo(3,-1.2); g.lineTo(3,1.2); g.closePath(); g.fill();
-        g.strokeStyle='#d8cfa8'; g.lineWidth=0.9;
-        g.beginPath(); g.moveTo(-5,0); g.lineTo(-6.6,-1.4); g.moveTo(-5,0); g.lineTo(-6.8,0.2); g.stroke();
+        const ai=this.asset('fx_arrow');
+        if(ai){
+          const hh=6, ww=hh*(ai.naturalWidth/ai.naturalHeight);
+          g.drawImage(ai, -ww/2, -hh/2, ww, hh);
+        } else {
+          g.strokeStyle='#6d4f2e'; g.lineWidth=1.1;
+          g.beginPath(); g.moveTo(-5,0); g.lineTo(3.6,0); g.stroke();
+          g.fillStyle='#b8bfc7';
+          g.beginPath(); g.moveTo(5.4,0); g.lineTo(3,-1.2); g.lineTo(3,1.2); g.closePath(); g.fill();
+          g.strokeStyle='#d8cfa8'; g.lineWidth=0.9;
+          g.beginPath(); g.moveTo(-5,0); g.lineTo(-6.6,-1.4); g.moveTo(-5,0); g.lineTo(-6.8,0.2); g.stroke();
+        }
         g.restore();
         g.globalAlpha=1;
       } else if(f.type==='impact'){
         if(age>18) continue;
         const t=age/18;
-        g.globalAlpha=(1-t)*0.5;
-        g.fillStyle='#b8a98e';
-        for(let k=0;k<7;k++){
-          const an=k*0.9+(f.t0%7);
-          const r=4+t*17;
-          g.beginPath();
-          g.arc(f.x+Math.cos(an)*r, f.y+Math.sin(an)*r*0.5, 2.4+t*3.4, 0, 7);
-          g.fill();
+        const di=this.asset('fx_impact');
+        if(di){
+          const hh=(16+t*30), ww=hh*(di.naturalWidth/di.naturalHeight);
+          g.globalAlpha=(1-t)*0.85;
+          g.drawImage(di, f.x-ww/2, f.y-hh*0.7, ww, hh);
+          g.globalAlpha=1;
+        } else {
+          g.globalAlpha=(1-t)*0.5;
+          g.fillStyle='#b8a98e';
+          for(let k=0;k<7;k++){
+            const an=k*0.9+(f.t0%7);
+            const r=4+t*17;
+            g.beginPath();
+            g.arc(f.x+Math.cos(an)*r, f.y+Math.sin(an)*r*0.5, 2.4+t*3.4, 0, 7);
+            g.fill();
+          }
+          g.globalAlpha=1;
         }
-        g.globalAlpha=1;
+      } else if(f.type==='splash'){
+        if(age>14) continue;
+        const t=age/14;
+        const si=this.asset('fx_splash');
+        if(si){
+          const hh=(9+t*13), ww=hh*(si.naturalWidth/si.naturalHeight);
+          g.globalAlpha=(1-t)*0.9;
+          g.drawImage(si, f.x-ww/2, f.y-hh, ww, hh);
+          g.globalAlpha=1;
+        } else {
+          g.strokeStyle=`rgba(220,240,255,${(1-t)*0.7})`; g.lineWidth=1.4;
+          g.beginPath(); g.ellipse(f.x,f.y,3+t*9,1.4+t*3.4,0,0,7); g.stroke();
+        }
       } else if(f.type==='burn'){
         if(age>300) continue;
         const [x,y]=m.worldPos(f.node);
@@ -2089,8 +2203,15 @@ export class Renderer {
             g.quadraticCurveTo(fx3+4,y-hh*0.45, fx3+3.4,y+2);
             g.closePath(); g.fill();
           }
-          // Funken
-          for(let k=0;k<4;k++){
+          // Funken: Bild-Effekt (Funkenschauer) oder Punkte
+          const sp2=this.asset('fx_sparks');
+          if(sp2){
+            const fl=0.6+0.4*Math.sin(this.time/120+f.node);
+            const hh=w*1.3, ww=hh*(sp2.naturalWidth/sp2.naturalHeight);
+            g.globalAlpha=heat*fl*0.85;
+            g.drawImage(sp2, x-ww/2, y-hh+2, ww, hh);
+            g.globalAlpha=1;
+          } else for(let k=0;k<4;k++){
             const ph=(this.time/700+k*0.31)%1;
             g.fillStyle=`rgba(255,190,90,${(1-ph)*heat})`;
             g.beginPath();
@@ -2098,8 +2219,18 @@ export class Renderer {
             g.fill();
           }
         }
-        // dunkler Qualm
-        for(let k=0;k<5;k++){
+        // dunkler Qualm: Bild-Rauchsäule (mehrfach, aufsteigend) oder Kreise
+        const smi=this.asset('fx_smoke');
+        if(smi){
+          for(let k=0;k<3;k++){
+            const ph=(this.time/2400 + k*0.33 + f.node%7*0.1)%1;
+            const hh=26+ph*44, ww=hh*(smi.naturalWidth/smi.naturalHeight);
+            const drift=Math.sin(this.time/1100+k*2.1)*8;
+            g.globalAlpha=0.5*(1-ph)*sm;
+            g.drawImage(smi, x-ww/2+drift*ph+(k-1)*4, y-10-ph*52-hh, ww, hh);
+          }
+          g.globalAlpha=1;
+        } else for(let k=0;k<5;k++){
           const ph=(this.time/1400 + k*0.23 + f.node%5*0.13)%1;
           const drift=Math.sin(this.time/900+k*2.2)*7;
           g.fillStyle=`rgba(52,48,44,${0.34*(1-ph)*sm})`;
@@ -2113,6 +2244,17 @@ export class Renderer {
   drawUnit(g,u){
     if(u.type==='boulder'){
       this.shadow(g,u.x,(u.sy??u.y)+40,6,2.4,0.25);
+      const bi=this.asset('fx_boulder');
+      if(bi){
+        // Geschoss mit Staubschweif, in Flugrichtung gedreht
+        const ang=Math.atan2((u.ty-u.sy), (u.tx-u.sx));
+        g.save();
+        g.translate(u.x,u.y); g.rotate(ang+Math.PI);
+        const hh=12, ww=hh*(bi.naturalWidth/bi.naturalHeight);
+        g.drawImage(bi, -ww*0.3, -hh/2, ww, hh);
+        g.restore();
+        return;
+      }
       // unregelmäßiger, rotierender Felsbrocken
       g.save();
       g.translate(u.x,u.y); g.rotate((u.prog||0)*9);
@@ -2127,19 +2269,18 @@ export class Renderer {
       g.restore();
       return;
     }
+    const udir=u._dx!==undefined?[u._dx,u._dy]:null;
     if(u.type==='attack'){
       const fighting=u.state==='fight';
       u.soldiers.forEach((r,k)=>{
-        // im Kampf: leichtes Vorstürmen Richtung Gebäude, jede Figur eigene Phase
-        const fx2= fighting ? Math.max(0,Math.sin(this.time/140 + k*1.9))*2.4 : 0;
-        this.drawFigure(g, u.x+(k%3)*9-9+fx2, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r,
-          null, fighting ? k*1.9 : null);
+        this.drawFigure(g, u.x+(k%3)*9-9, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r,
+          null, fighting ? k*1.9 : null, udir, !!u._mov);
       });
       return;
     }
-    if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword'); return; }
-    if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo'); return; }
-    this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype);
+    if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
+    if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo',null,udir,!!u._mov); return; }
+    this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype, null, udir, !!u._mov);
   }
   // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
   drawSign(g, m, i, ore){
@@ -2169,14 +2310,41 @@ export class Renderer {
       g.beginPath(); g.arc(x-0.9,y-15.3,1,0,7); g.fill();
     }
   }
+  // getragene Ware: Bild-Asset (good_<ware>) oder farbiges Kistchen
+  drawGood(g, good, x, y, h=6.8){
+    const gi=this.asset('good_'+good);
+    if(gi){
+      const ww=h*(gi.naturalWidth/gi.naturalHeight);
+      g.drawImage(gi, x-ww/2, y-h/2, ww, h);
+    } else {
+      g.fillStyle=goodColor(good);
+      g.fillRect(x-h/2,y-h/2,h,h*0.8);
+      g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-h/2,y-h/2,h,h*0.8);
+    }
+  }
   // kind 'soldier': rank trägt den Truppentyp ('sword'|'spear'|'bow'),
   // fight!==null aktiviert die Kampfpose (Wert = Phasenversatz der Figur)
-  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null){
+  // dir=[dx,dy] Bewegungsrichtung, mov=true wenn die Figur gerade läuft
+  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null, dir=null, mov=false){
     // Asset-Überschreibung (Stilguide §14): unit_<typ>.png / unit_carrier.png / unit_soldier.png
-    const ovU=(kind==='soldier'
-      ? (this.asset('unit_'+rank) || this.asset('unit_soldier'))
-      : this.asset(kind==='carrier'?'unit_carrier':'unit_'+(wtype||'worker')));
+    const baseKey= kind==='soldier'
+      ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
+      : kind==='carrier' ? 'unit_carrier' : 'unit_'+(wtype||'worker');
+    let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);
     if(ovU){
+      // Kampfpose des Schwertkämpfers: eigene Bild-Posen (Hieb, Sprung, Deckung)
+      if(kind==='soldier' && fight!=null && baseKey==='unit_sword'){
+        const pool=['unit_sword_atk','unit_sword_atk2','unit_sword_def'];
+        const pi=Math.abs(Math.round(fight*3.1))%3;
+        ovU=this.asset(pool[pi])||ovU;
+      }
+      // Richtungsvarianten (falls vorhanden): unit_<typ>_up / _down; sonst Andeutung
+      let vert=0;
+      if(dir && Math.abs(dir[1])>Math.abs(dir[0])*1.6){
+        const alt=this.asset(baseKey+(dir[1]<0?'_up':'_down'));
+        if(alt) ovU=alt; else vert=dir[1]<0?-1:1;
+      }
+      const flip=dir && dir[0]<-0.05;
       this.shadow(g,x,y+7.4,5.8,2.3,0.26);
       // Spielerfarb-Ring unter den Füßen (Bilder sind farbneutral)
       g.strokeStyle=PLAYER_COLORS[pl]||'#888';
@@ -2184,12 +2352,19 @@ export class Renderer {
       g.beginPath(); g.ellipse(x,y+6.8,6,2.4,0,0,7); g.stroke();
       g.globalAlpha=1;
       const hh=34, ww=hh*(ovU.naturalWidth/ovU.naturalHeight);
-      g.drawImage(ovU, x-ww/2, y+7-hh, ww, hh);
-      if(good){
-        g.fillStyle=goodColor(good);
-        g.fillRect(x-3.4,y-24,6.8,5.4);
-        g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-3.4,y-24,6.8,5.4);
-      }
+      // Laufanimation: Wippen + leichtes Pendeln; im Kampf: Ausfallschritt
+      const ph=this.time/95 + (x+y)*0.13;
+      const bob=mov? Math.abs(Math.sin(ph))*1.6 : 0;
+      const tilt=mov? Math.sin(ph)*0.055 : 0;
+      const lunge=fight!=null? Math.max(0,Math.sin(this.time/140+fight))*2.4 : 0;
+      g.save();
+      g.translate(x+(flip?-lunge:lunge), y+7-bob);
+      if(flip) g.scale(-1,1);
+      if(vert) g.scale(0.9,1);              // frontal/rückwärtig angedeutet: schmaler
+      g.rotate(tilt);
+      g.drawImage(ovU, -ww/2, -hh, ww, hh);
+      g.restore();
+      if(good) this.drawGood(g, good, x, y-24, 8.5);
       return;
     }
     const col=PLAYER_COLORS[pl]||'#888';
@@ -2211,6 +2386,7 @@ export class Renderer {
     // Figuren etwas größer und dadurch feiner lesbar
     g.save();
     g.translate(x,y); g.scale(1.16,1.24); g.translate(-x,-y);   // leicht gestreckt = natürlicher
+    if(dir && dir[0]<-0.05){ g.translate(x,y); g.scale(-1,1); g.translate(-x,-y); }  // Blick nach links
     y-=bob;
     // Beine mit Schuhen
     g.strokeStyle='#4a3b2c'; g.lineWidth=2.2;
@@ -2405,12 +2581,7 @@ export class Renderer {
       g.closePath(); g.fill();
       g.fillStyle='#fff'; g.beginPath(); g.arc(x+2.6,y-16.6,1.2,0,7); g.fill();
     }
-    if(good){
-      g.fillStyle=goodColor(good);
-      g.fillRect(x-3.4,y-20,6.8,5.4);
-      g.fillStyle='rgba(255,255,255,0.3)'; g.fillRect(x-3.4,y-20,6.8,1.6);
-      g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-3.4,y-20,6.8,5.4);
-    }
+    if(good) this.drawGood(g, good, x, y-17.5, 7);
     g.restore();
   }
   computeBorders(){

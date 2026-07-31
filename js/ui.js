@@ -166,7 +166,7 @@ export class UI {
         <button id="g-menu" class="hbtn">☰</button>
         <div id="res-bar"></div>
         <button id="g-speed" class="hbtn">1×</button>
-        <button id="g-pause" class="hbtn">⏸</button>
+        <button id="g-pause" class="hbtn"></button>
       </div>
       <div id="objectives" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
@@ -228,7 +228,7 @@ export class UI {
     $('#g-pause').onclick=()=>{
       Sound.sfx('tap');
       this.paused=!this.paused;
-      $('#g-pause').textContent=this.paused?'▶':'⏸';
+      $('#g-pause').textContent=this.paused?'▶':'';
     };
     $('#minimap').addEventListener('pointerdown',(e)=>{
       if(!this.game) return;
@@ -313,7 +313,7 @@ export class UI {
     const hq=game.buildings.get(game.players[0].hq);
     if(hq){ const [x,y]=game.map.worldPos(hq.node); this.cam.x=x; this.cam.y=y; this.cam.z=1.1; }
     $('#g-speed').textContent=this.opts.speed+'×';
-    $('#g-pause').textContent='⏸';
+    $('#g-pause').textContent='';
     this.closeSheet();
     this.showScreen('game');
     if(game.objectives.length) this.toggleObjectives(true, 4000);
@@ -341,7 +341,19 @@ export class UI {
       if(d>750) return;
       Sound.sfx('pick', Math.max(0.15, 1-d/750));
     };
-    g.onClash=()=>Sound.sfx('clash');
+    g.onClash=(b)=>{
+      const [x,y]=g.map.worldPos(b.node);
+      const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
+      if(d>900) return;
+      const s=Math.max(0.2, 1-d/900);
+      Sound.sfx('clash', s);
+      if(Math.random()<0.45) setTimeout(()=>Sound.sfx('grunt', s), 120+Math.random()*160);
+    };
+    g.onGeoFind=(u)=>{
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d>900) return;
+      Sound.sfx('yay', Math.max(0.25, 1-d/900));
+    };
     g.onRecruit=()=>Sound.sfx('recruit');
     g.onVolley=(x,y)=>{
       const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
@@ -589,6 +601,7 @@ export class UI {
       return;
     }
     if(b.type==='chapel' && b.state==='done') Sound.sfx('bell');
+    if(b.type==='market' && b.state==='done') Sound.sfx('market');
     let body='';
     if(b.state==='build'){
       const needB=def.cost.board||0, needS=def.cost.stone||0;
@@ -692,7 +705,7 @@ export class UI {
   pauseMenu(show){
     this.paused=show;
     $('#game-menu').classList.toggle('hidden',!show);
-    $('#g-pause').textContent=this.paused?'▶':'⏸';
+    $('#g-pause').textContent=this.paused?'▶':'';
   }
   toggleObjectives(show, autohide=0){
     const o=$('#objectives');
