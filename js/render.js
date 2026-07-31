@@ -1,5 +1,5 @@
 // Neuland – Renderer: komplett prozedural gezeichnete 2D-Grafik (Canvas), poliert.
-import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK, RANKS } from './core.js';
+import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK } from './core.js';
 import { TILE, ROWH, HSCALE } from './map.js';
 
 // Stilguide-Palette: erdige Töne, Moosgrün, Strohgelb, gedecktes Blau (keine Übersättigung)
@@ -1650,6 +1650,7 @@ export class Renderer {
       else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier');
       else if(it.kind==='unit') this.drawUnit(g, it.u);
     }
+    this.drawFx(g, game);
     // Wolkenschatten ziehen über das Land
     const cw=m.w*TILE, chh=m.h*ROWH;
     for(let k=0;k<4;k++){
@@ -1838,6 +1839,30 @@ export class Renderer {
         }
         break;
       }
+      case OBJ.RUIN: {
+        // verkohlte Brandruine: Aschehügel, geborstene Balken, Reststein
+        this.shadow(g,x,y+2,15,4.6,0.2);
+        g.fillStyle='rgba(46,42,38,0.85)';
+        g.beginPath(); g.ellipse(x,y+1,15,6,0,0,7); g.fill();
+        g.fillStyle='rgba(72,66,58,0.7)';
+        g.beginPath(); g.ellipse(x-3,y-0.5,9,4,0,0,7); g.fill();
+        const beam=(bx,by,a,len)=>{
+          g.save(); g.translate(bx,by); g.rotate(a);
+          g.fillStyle='#241f1a'; g.fillRect(-1.6,-len,3.2,len);
+          g.fillStyle='rgba(120,100,80,0.35)'; g.fillRect(-1.6,-len,1.1,len);
+          g.restore();
+        };
+        beam(x-7,y+1,-0.5,16); beam(x+5,y+2,0.4,13); beam(x-1,y+1,0.1,9);
+        g.fillStyle='#6d6860';
+        g.beginPath(); g.moveTo(x+8,y+1); g.lineTo(x+11,y-3); g.lineTo(x+14,y+1); g.closePath(); g.fill();
+        // feiner Restrauch
+        for(let k=0;k<2;k++){
+          const ph=(this.time/1600+k*0.5+(i%7)*0.1)%1;
+          g.fillStyle=`rgba(90,86,80,${0.2*(1-ph)})`;
+          g.beginPath(); g.arc(x-2+k*5+Math.sin(this.time/900+k)*4*ph, y-4-ph*22, 2.4+ph*4.4, 0, 7); g.fill();
+        }
+        break;
+      }
       case OBJ.GATE: {
         this.shadow(g,x,y+3,22,6,0.3);
         const pil=(px)=>{
@@ -1895,6 +1920,13 @@ export class Renderer {
         g.beginPath(); g.arc(x-15+k*6.4, yy+1, 3, 0, 7); g.fill();
         g.fillStyle=PLAYER_COLORS[b.player];
         g.beginPath(); g.arc(x-15+k*6.4, yy, 2.6, 0, 7); g.fill();
+      }
+      // Belagerung: Verteidiger treten kämpfend vor das Tor
+      if(this.game && this.game.battles.some(bt=>bt.bldId===b.id)){
+        b.soldiers.slice(0,3).forEach((st,k)=>{
+          const fx2=Math.max(0,Math.sin(this.time/140 + 2.6 + k*2.2))*2;
+          this.drawFigure(g, x-10+k*10-fx2, y+13, b.player, null, 'soldier', st, null, 2.6+k*2.2);
+        });
       }
     }
     // "Zzz" über Arbeitern ohne Aufgabe (schläft ein – und zeigt: hier fehlt Nachschub)
@@ -1956,22 +1988,126 @@ export class Renderer {
       }
     }
   }
+  // ---------- Kampf- und Zerstörungseffekte (game.fx, rein kosmetisch) ----------
+  drawFx(g, game){
+    if(!game.fx || !game.fx.length) return;
+    const m=game.map;
+    for(const f of game.fx){
+      const age=game.t - f.t0;
+      if(f.type==='arrow'){
+        const DUR=8;                       // Flugticks
+        if(age>DUR+30) continue;
+        const t=Math.min(1, age/DUR);
+        const dx=f.x1-f.x0, dy=f.y1-f.y0;
+        const dist=Math.hypot(dx,dy);
+        const arc=Math.min(26, dist*0.22+6);
+        const px=f.x0+dx*t, py=f.y0+dy*t - Math.sin(t*Math.PI)*arc;
+        // Flugrichtung inkl. Bogen
+        const vx=dx/Math.max(1,dist), vy=dy/Math.max(1,dist) - Math.cos(t*Math.PI)*arc*Math.PI/Math.max(1,dist);
+        const a=Math.atan2(vy,vx);
+        const fade= age<=DUR ? 1 : (f.hit ? 0 : Math.max(0, 1-(age-DUR)/30));
+        if(fade<=0) continue;
+        g.save();
+        g.translate(px,py); g.rotate(a);
+        g.globalAlpha=fade;
+        g.strokeStyle='#6d4f2e'; g.lineWidth=1.1;
+        g.beginPath(); g.moveTo(-5,0); g.lineTo(3.6,0); g.stroke();
+        g.fillStyle='#b8bfc7';
+        g.beginPath(); g.moveTo(5.4,0); g.lineTo(3,-1.2); g.lineTo(3,1.2); g.closePath(); g.fill();
+        g.strokeStyle='#d8cfa8'; g.lineWidth=0.9;
+        g.beginPath(); g.moveTo(-5,0); g.lineTo(-6.6,-1.4); g.moveTo(-5,0); g.lineTo(-6.8,0.2); g.stroke();
+        g.restore();
+        g.globalAlpha=1;
+      } else if(f.type==='impact'){
+        if(age>18) continue;
+        const t=age/18;
+        g.globalAlpha=(1-t)*0.5;
+        g.fillStyle='#b8a98e';
+        for(let k=0;k<7;k++){
+          const an=k*0.9+(f.t0%7);
+          const r=4+t*17;
+          g.beginPath();
+          g.arc(f.x+Math.cos(an)*r, f.y+Math.sin(an)*r*0.5, 2.4+t*3.4, 0, 7);
+          g.fill();
+        }
+        g.globalAlpha=1;
+      } else if(f.type==='burn'){
+        if(age>300) continue;
+        const [x,y]=m.worldPos(f.node);
+        const w=f.big?30:20;
+        const heat=Math.max(0, 1-age/160);          // Flammen klingen ab
+        const sm=Math.max(0, 1-age/300);            // Rauch hält länger
+        // Glutschein
+        if(heat>0){
+          const rad=g.createRadialGradient(x,y-6,2,x,y-6,w+16);
+          rad.addColorStop(0,`rgba(255,150,40,${0.26*heat})`);
+          rad.addColorStop(1,'rgba(255,120,30,0)');
+          g.fillStyle=rad;
+          g.beginPath(); g.arc(x,y-6,w+16,0,7); g.fill();
+          // Flammenzungen (flackern)
+          for(let k=0;k<6;k++){
+            const fx3=x+(k-2.5)*w*0.32 + Math.sin(this.time/90+k*2.4)*2.2;
+            const hh=(10+((k*37)%9)) * heat * (0.75+0.25*Math.sin(this.time/70+k));
+            const grd=g.createLinearGradient(fx3,y+2,fx3,y-hh-8);
+            grd.addColorStop(0,`rgba(255,196,80,${0.85*heat})`);
+            grd.addColorStop(0.55,`rgba(232,110,38,${0.7*heat})`);
+            grd.addColorStop(1,'rgba(160,40,20,0)');
+            g.fillStyle=grd;
+            g.beginPath();
+            g.moveTo(fx3-3.4,y+2);
+            g.quadraticCurveTo(fx3-4,y-hh*0.45, fx3+Math.sin(this.time/80+k)*3, y-hh-6);
+            g.quadraticCurveTo(fx3+4,y-hh*0.45, fx3+3.4,y+2);
+            g.closePath(); g.fill();
+          }
+          // Funken
+          for(let k=0;k<4;k++){
+            const ph=(this.time/700+k*0.31)%1;
+            g.fillStyle=`rgba(255,190,90,${(1-ph)*heat})`;
+            g.beginPath();
+            g.arc(x+Math.sin(this.time/210+k*5)*w*0.4, y-4-ph*30, 1.1, 0, 7);
+            g.fill();
+          }
+        }
+        // dunkler Qualm
+        for(let k=0;k<5;k++){
+          const ph=(this.time/1400 + k*0.23 + f.node%5*0.13)%1;
+          const drift=Math.sin(this.time/900+k*2.2)*7;
+          g.fillStyle=`rgba(52,48,44,${0.34*(1-ph)*sm})`;
+          g.beginPath();
+          g.arc(x+(k-2)*5+drift*ph, y-12-ph*46, 4+ph*10, 0, 7);
+          g.fill();
+        }
+      }
+    }
+  }
   drawUnit(g,u){
     if(u.type==='boulder'){
       this.shadow(g,u.x,(u.sy??u.y)+40,6,2.4,0.25);
+      // unregelmäßiger, rotierender Felsbrocken
+      g.save();
+      g.translate(u.x,u.y); g.rotate((u.prog||0)*9);
       g.fillStyle='#57534c';
-      g.beginPath(); g.arc(u.x,u.y,5,0,7); g.fill();
-      g.fillStyle='rgba(255,255,255,0.25)';
-      g.beginPath(); g.arc(u.x-1.6,u.y-1.6,2,0,7); g.fill();
+      g.beginPath();
+      g.moveTo(-5,-1.5); g.lineTo(-2.5,-4.6); g.lineTo(2.2,-4.2); g.lineTo(5.1,-0.8);
+      g.lineTo(3.6,3.8); g.lineTo(-1.8,4.9); g.lineTo(-4.6,2.2);
+      g.closePath(); g.fill();
+      g.strokeStyle='rgba(20,16,12,0.5)'; g.lineWidth=0.9; g.stroke();
+      g.fillStyle='rgba(255,255,255,0.22)';
+      g.beginPath(); g.moveTo(-3.6,-1.4); g.lineTo(-1.6,-3.6); g.lineTo(1.4,-3.2); g.lineTo(-0.6,-0.8); g.closePath(); g.fill();
+      g.restore();
       return;
     }
     if(u.type==='attack'){
+      const fighting=u.state==='fight';
       u.soldiers.forEach((r,k)=>{
-        this.drawFigure(g, u.x+(k%3)*9-9, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r);
+        // im Kampf: leichtes Vorstürmen Richtung Gebäude, jede Figur eigene Phase
+        const fx2= fighting ? Math.max(0,Math.sin(this.time/140 + k*1.9))*2.4 : 0;
+        this.drawFigure(g, u.x+(k%3)*9-9+fx2, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r,
+          null, fighting ? k*1.9 : null);
       });
       return;
     }
-    if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.rank); return; }
+    if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword'); return; }
     if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo'); return; }
     this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype);
   }
@@ -1995,9 +2131,13 @@ export class Renderer {
       g.beginPath(); g.arc(x-0.9,y-15.3,1,0,7); g.fill();
     }
   }
-  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null){
-    // Asset-Überschreibung (Stilguide §14): unit_<beruf>.png / unit_carrier.png / unit_soldier.png
-    const ovU=this.asset(kind==='soldier'?'unit_soldier': kind==='carrier'?'unit_carrier':'unit_'+(wtype||'worker'));
+  // kind 'soldier': rank trägt den Truppentyp ('sword'|'spear'|'bow'),
+  // fight!==null aktiviert die Kampfpose (Wert = Phasenversatz der Figur)
+  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null){
+    // Asset-Überschreibung (Stilguide §14): unit_<typ>.png / unit_carrier.png / unit_soldier.png
+    const ovU=(kind==='soldier'
+      ? (this.asset('unit_'+rank) || this.asset('unit_soldier'))
+      : this.asset(kind==='carrier'?'unit_carrier':'unit_'+(wtype||'worker')));
     if(ovU){
       this.shadow(g,x,y+7.4,5.8,2.3,0.26);
       const hh=34, ww=hh*(ovU.naturalWidth/ovU.naturalHeight);
@@ -2134,24 +2274,83 @@ export class Renderer {
       }
     }
     if(kind==='soldier'){
-      // Helm + Speer + Schild
-      g.fillStyle='#c2ccd6';
-      g.beginPath(); g.arc(x,y-12.4,4.3,Math.PI,0); g.fill();
-      rr(g,x-4.4,y-12.6,8.8,1.8,1); g.fill();
-      g.strokeStyle='rgba(60,40,25,0.35)'; g.lineWidth=0.8;
-      g.beginPath(); g.arc(x,y-12.4,4.3,Math.PI,0); g.stroke();
-      if(rank>0){
-        g.fillStyle=['#c9d2da','#8ad695','#6ab0e8','#eab35c','#e86a6a'][Math.min(rank,4)];
-        g.beginPath(); g.arc(x,y-17.2,2,0,7); g.fill();
+      const st= rank==='spear'||rank==='bow' ? rank : 'sword';
+      // Kampfpose: rhythmisches Ausholen/Zurückweichen
+      const fph= fight==null ? 0 : Math.sin(this.time/140 + fight);
+      if(st==='sword'){
+        // Nasalhelm
+        g.fillStyle='#c2ccd6';
+        g.beginPath(); g.arc(x,y-12.4,4.3,Math.PI,0); g.fill();
+        rr(g,x-4.4,y-12.6,8.8,1.8,1); g.fill();
+        g.strokeStyle='rgba(60,40,25,0.35)'; g.lineWidth=0.8;
+        g.beginPath(); g.arc(x,y-12.4,4.3,Math.PI,0); g.stroke();
+        g.strokeStyle='#9aa5b0'; g.lineWidth=1.1;
+        g.beginPath(); g.moveTo(x,y-12.4); g.lineTo(x,y-9.6); g.stroke();
+        // Schwert (schwingt im Kampf um die Schulter)
+        g.save();
+        g.translate(x+4.2,y-6.5);
+        g.rotate(fight==null ? 0.5 : 0.9+fph*0.85);
+        g.strokeStyle='#5d452a'; g.lineWidth=1.8;
+        g.beginPath(); g.moveTo(0,1.6); g.lineTo(0,-1); g.stroke();
+        g.strokeStyle='#3f3428'; g.lineWidth=1.2;
+        g.beginPath(); g.moveTo(-2,-1.2); g.lineTo(2,-1.2); g.stroke();
+        g.strokeStyle='#d8dde4'; g.lineWidth=1.7;
+        g.beginPath(); g.moveTo(0,-1.6); g.lineTo(0,-11.5); g.stroke();
+        g.strokeStyle='rgba(255,255,255,0.55)'; g.lineWidth=0.6;
+        g.beginPath(); g.moveTo(-0.4,-2); g.lineTo(-0.4,-11); g.stroke();
+        g.restore();
+        // Rundschild in Spielerfarbe
+        g.fillStyle=col;
+        g.beginPath(); g.ellipse(x-5.8,y-4+(fight!=null?fph*1.2:0),2.8,3.8,0,0,7); g.fill();
+        g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=1; g.stroke();
+        g.fillStyle='#c9a05a';
+        g.beginPath(); g.arc(x-5.8,y-4+(fight!=null?fph*1.2:0),1,0,7); g.fill();
+      } else if(st==='spear'){
+        // Eisenhut (breite Krempe)
+        g.fillStyle='#b5bfc9';
+        g.beginPath(); g.ellipse(x,y-13.2,5.6,1.7,0,0,7); g.fill();
+        g.beginPath(); g.arc(x,y-13.6,3.2,Math.PI,0); g.fill();
+        g.strokeStyle='rgba(60,40,25,0.35)'; g.lineWidth=0.8;
+        g.beginPath(); g.ellipse(x,y-13.2,5.6,1.7,0,0,7); g.stroke();
+        // Speer: aufrecht, im Kampf gesenkt und stoßend
+        g.save();
+        g.translate(x+4.6,y-4);
+        g.rotate(fight==null ? 0 : 1.05);
+        const thrust= fight==null ? 0 : Math.max(0,fph)*3.4;
+        g.strokeStyle='#8a6b43'; g.lineWidth=1.5;
+        g.beginPath(); g.moveTo(0,6-thrust); g.lineTo(0,-13.5-thrust); g.stroke();
+        g.fillStyle='#d5d5d5';
+        g.beginPath(); g.moveTo(0,-16.5-thrust); g.lineTo(1.5,-13.2-thrust); g.lineTo(-1.5,-13.2-thrust); g.closePath(); g.fill();
+        g.restore();
+        // kleiner Faustschild
+        g.fillStyle=col;
+        g.beginPath(); g.arc(x-5.4,y-4.6,2.2,0,7); g.fill();
+        g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=0.9; g.stroke();
+      } else {
+        // Bogenschütze: Kapuze in Spielerfarbe, Köcher, gespannter Bogen
+        g.fillStyle=mix(col,'#3a3228',0.35);
+        g.beginPath(); g.arc(x,y-12.6,4.1,Math.PI*0.92,Math.PI*2.08); g.fill();
+        g.beginPath(); g.moveTo(x-4,y-12); g.quadraticCurveTo(x,y-17.8,x+4,y-12); g.closePath(); g.fill();
+        // Köcher schräg auf dem Rücken
+        g.save();
+        g.translate(x-4.4,y-8); g.rotate(-0.5);
+        g.fillStyle='#6d4f2e'; rr(g,-1.5,-3.4,3,7,1.4); g.fill();
+        g.strokeStyle='#d8cfa8'; g.lineWidth=0.8;
+        g.beginPath(); g.moveTo(-0.7,-3.6); g.lineTo(-0.7,-5.4); g.moveTo(0.7,-3.6); g.lineTo(0.7,-5.6); g.stroke();
+        g.restore();
+        // Bogen (im Kampf gespannt, Sehne gezogen): schlanker Halbbogen, kein "Rad"
+        const draw= fight==null ? 0 : Math.max(0,fph)*2.2;
+        g.strokeStyle='#7a5b35'; g.lineWidth=1.3;
+        g.beginPath(); g.arc(x+2.6,y-7.5,4.6,-0.95,0.95); g.stroke();
+        g.strokeStyle='rgba(235,235,235,0.8)'; g.lineWidth=0.6;
+        g.beginPath();
+        g.moveTo(x+5.3,y-11.2); g.lineTo(x+3.4-draw,y-7.5); g.lineTo(x+5.3,y-3.8);
+        g.stroke();
+        if(fight!=null){
+          g.strokeStyle='#8a6b43'; g.lineWidth=0.9;
+          g.beginPath(); g.moveTo(x+3.4-draw,y-7.5); g.lineTo(x+8.6,y-7.5); g.stroke();
+        }
       }
-      g.strokeStyle='#8a6b43'; g.lineWidth=1.6;
-      g.beginPath(); g.moveTo(x+5.8,y-16.5); g.lineTo(x+5.8,y+2); g.stroke();
-      g.fillStyle='#d5d5d5';
-      g.beginPath(); g.moveTo(x+5.8,y-19.5); g.lineTo(x+7.4,y-16); g.lineTo(x+4.2,y-16); g.closePath(); g.fill();
-      g.fillStyle=col;
-      g.beginPath(); g.ellipse(x-5.8,y-4,2.8,3.8,0,0,7); g.fill();
-      g.strokeStyle='rgba(255,255,255,0.4)'; g.lineWidth=1;
-      g.beginPath(); g.ellipse(x-5.8,y-4,1.5,2.2,0,0,7); g.stroke();
     } else if(!pro){
       // runde Zipfelmütze in Spielerfarbe (Träger)
       g.fillStyle=mix(col,'#ffffff',0.12);
@@ -2217,6 +2416,6 @@ export function goodColor(good){
     trunk:'#8a5a2c', board:'#c9a05a', stone:'#9a958c', fish:'#6fa7c7', meat:'#c26a5a',
     grain:'#d9b74a', flour:'#efe6d2', bread:'#b8813f', water:'#5a8fc7', pig:'#d99a9a',
     coal:'#3a3a3a', ironore:'#8a6a5a', iron:'#b0b4ba', gold:'#e0b23a', coin:'#ffd54a',
-    sword:'#c0c8d2', shield:'#7d8896', beer:'#c78f3f',
+    sword:'#c0c8d2', shield:'#7d8896', spear:'#a3814e', bow:'#7a5b35', beer:'#c78f3f',
   }[good]||'#fff';
 }

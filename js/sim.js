@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, RANKS, START_GOODS, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -30,10 +30,13 @@ export class Game {
     this.flagItems = new Map();       // nodeIdx -> [{good,destB,reserved}]
     this.units = [];                  // sichtbare Figuren
     this.battles = [];                // laufende Kämpfe
+    this.fx = [];                     // kosmetische Effekte (Pfeile, Feuer, Staub) – nicht gespeichert
+    this.ruins = [];                  // niedergebrannte Plätze: [{node, t0}] – zerfallen nach einer Weile
     this.signs = new Map();           // nodeIdx -> Erztyp (0=nichts,1=Kohle,2=Eisen,3=Gold,4=Granit)
     this.players = setup.players.map((p,i)=>({
       id:i, name:p.name, ai:!!p.ai, aiLevel:p.aiLevel||1, defeated:false,
-      recruits: 4, aiState:{phase:0, lastAttack:0, wait:0},
+      recruits: {sword:2, spear:1, bow:1},   // Reserve im HQ, je Truppentyp
+      aiState:{phase:0, lastAttack:0, wait:0},
     }));
     this.level = setup.level || null;
     this.objectives = (setup.objectives||[]).map(o=>({...o, done:false, prog:0}));
@@ -67,8 +70,8 @@ export class Game {
       out: 0,                                   // fertige Ware wartet auf Abtransport (Anzahl)
       incoming: {},                             // unterwegs
       inv: def.store? {} : undefined,           // Lagerbestand
-      soldiers: def.mil? [] : undefined,        // Ränge stationierter Soldaten
-      coins: 0, promoT: 0,
+      soldiers: def.mil? [] : undefined,        // Truppentypen stationierter Soldaten ('sword'|'spear'|'bow')
+      coins: 0,
       worker: def.gather||def.mine||def.prod||def.cata ? { present: instant, state:'in', timer:0, target:-1, x:0,y:0 } : null,
       prodT: 0, foodT: 0, burnT: 0,
     };
@@ -129,6 +132,15 @@ export class Game {
     this.map.bld[b.node] = -1;
     this.buildings.delete(b.id);
     this.changedNodes.push(b.node);
+    // Kriegsschaden brennt sichtbar nieder und hinterlässt eine Ruine
+    if(byWar){
+      this.fx.push({type:'burn', node:b.node, t0:this.t, big:BLD[b.type].size==='L'});
+      if(this.map.obj[b.node]===OBJ.NONE){
+        this.map.obj[b.node]=OBJ.RUIN;
+        this.ruins.push({node:b.node, t0:this.t});
+      }
+      this.onBurn && this.onBurn(b);
+    }
     // verwaiste Türfahne aufräumen (wenn keine Straße und kein anderes Gebäude sie nutzt)
     if(b.door>=0 && this.map.flag[b.door]){
       const used=[...this.buildings.values()].some(o=>o.door===b.door)
@@ -350,15 +362,25 @@ export class Game {
   prodGood(b){
     const def=BLD[b.type];
     if(def.out) return def.out;
-    if(def.prod) return b.altOut && def.prod.out2 ? def.prod.out2 : def.prod.out;
+    if(def.prod) return def.prod.outs ? def.prod.outs[(b.altOut||0)%def.prod.outs.length] : def.prod.out;
     if(def.mine) return def.mine;
+    return null;
+  }
+  recruitTotal(pl){
+    const r=this.players[pl].recruits;
+    return (r.sword|0)+(r.spear|0)+(r.bow|0);
+  }
+  // stärksten verfügbaren Typ aus der HQ-Reserve nehmen (für Miliz/Verteilung)
+  takeRecruit(pl){
+    const r=this.players[pl].recruits;
+    for(const t of STYPE_LIST) if(r[t]>0){ r[t]--; return t; }
     return null;
   }
   soldierCount(pl){
     let n=0;
     for(const b of this.buildings.values()) if(b.player===pl && b.soldiers) n+=b.soldiers.length;
     for(const u of this.units) if(u.player===pl && u.type==='attack') n+=u.soldiers.length;
-    return n + this.players[pl].recruits;
+    return n + this.recruitTotal(pl);
   }
 
   // ---------- Territorium ----------
@@ -495,7 +517,8 @@ export class Game {
     const group=[];
     for(const {mb} of sources){
       while(group.length<count && mb.soldiers.length>1){
-        group.push(mb.soldiers.sort((a,b)=>b-a).shift()); // stärkste zuerst
+        mb.soldiers.sort((a,b)=>STYPES[b].str-STYPES[a].str);
+        group.push(mb.soldiers.shift()); // stärkste zuerst
       }
       if(group.length>=count) break;
     }
@@ -527,6 +550,7 @@ export class Game {
     this.tickUnits();
     this.tickBattles();
     this.tickMilitary();
+    this.tickRuins();
     if(this.t%10===0) this.tickGrowth();
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
@@ -574,8 +598,8 @@ export class Game {
           for(let k=0;k<need;k++) reqs.push({b, good:'stone', prio:2});
         }
         if(def.mil && b.soldiers){
-          // Münzen für Beförderung
-          if(b.coins + (b.incoming.coin||0) < 2 && b.soldiers.some(r=>r<RANKS.length-1))
+          // Münzen als Sold: bis zu 2 im Gebäude stärken die Verteidiger
+          if(b.coins + (b.incoming.coin||0) < 2 && b.soldiers.length)
             reqs.push({b, good:'coin', prio:3});
         }
         if(b.type==='hq'){
@@ -784,7 +808,7 @@ export class Game {
         if(b.prodT>=def.prod.time){
           b.prodT=0;
           for(const g in def.prod.inputs) b.stock[g]-=def.prod.inputs[g];
-          if(def.prod.out2){ b.altOut=!b.altOut; }
+          if(def.prod.outs){ b.altOut=((b.altOut||0)+1)%def.prod.outs.length; }
           b.out++;
           this.onProduce && this.onProduce(b);
         }
@@ -924,6 +948,7 @@ export class Game {
         u.y=u.sy+(u.ty-u.sy)*t2 - Math.sin(t2*Math.PI)*46;
         if(u.prog>=1){
           u.dead=true;
+          this.fx.push({type:'impact', x:u.tx, y:u.ty, t0:this.t});
           const b=this.buildings.get(u.targetB);
           if(b){
             if(b.soldiers && b.soldiers.length>0){ b.soldiers.pop(); if(b.player===0) this.msg('Katapultbeschuss auf unser Gebäude!', 'war', b.node); }
@@ -1007,22 +1032,26 @@ export class Game {
   tickSoldierMove(u){
     const m=this.map;
     const b=this.buildings.get(u.targetB);
-    if(!b || b.state!=='done' || !b.soldiers){ // Gebäude weg -> zurück ins HQ (Rekrut zurück)
-      u.dead=true; this.players[u.player].recruits++; return;
+    if(!b || b.state!=='done' || !b.soldiers){ // Gebäude weg -> zurück ins HQ (Reserve)
+      u.dead=true; this.players[u.player].recruits[u.stype]++; return;
     }
     const [tx,ty]=m.worldPos(b.node);
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
       const cap=BLD[b.type].mil.cap;
-      if(b.soldiers.length<cap) b.soldiers.push(u.rank);
-      else this.players[u.player].recruits++;
+      if(b.soldiers.length<cap) b.soldiers.push(u.stype);
+      else this.players[u.player].recruits[u.stype]++;
     }
+  }
+  returnSoldiers(pl, list){
+    const r=this.players[pl].recruits;
+    for(const t of list) r[t]=(r[t]||0)+1;
   }
   tickAttack(u){
     const m=this.map;
     const target=this.buildings.get(u.targetB);
     if(!target){ // Ziel weg -> Gruppe kehrt heim (löst sich auf, Soldaten zurück in Reserve)
-      u.dead=true; this.players[u.player].recruits+=u.soldiers.length; return;
+      u.dead=true; this.returnSoldiers(u.player, u.soldiers); return;
     }
     const [tx,ty]=m.worldPos(target.node);
     if(u.state==='walk'){
@@ -1034,35 +1063,79 @@ export class Game {
     }
     // 'fight' übernimmt tickBattles
   }
+  // Überlegenheits-Dreieck: Schwert > Speer > Bogen > Schwert
+  matchup(a,d){
+    return (a==='sword'&&d==='spear')||(a==='spear'&&d==='bow')||(a==='bow'&&d==='sword') ? 0.08 : 0;
+  }
+  strongest(list){
+    let best=null;
+    for(const t of list) if(!best || STYPES[t].str>STYPES[best].str) best=t;
+    return best;
+  }
+  // Pfeilsalve: jeder Bogenschütze trifft mit 18% einen zufälligen Gegner
+  volley(archersN, killFn, from, to){
+    let kills=0;
+    for(let k=0;k<archersN;k++){
+      const hit=this.rng()<0.18;
+      this.fx.push({type:'arrow', x0:from[0]+(this.rng()*18-9), y0:from[1]-14,
+        x1:to[0]+(this.rng()*16-8), y1:to[1]-6, t0:this.t, hit});
+      if(hit && killFn()) kills++;
+    }
+    if(archersN>0) this.onVolley && this.onVolley(from[0],from[1]);
+    return kills;
+  }
   tickBattles(){
     for(const bt of this.battles){
       if(bt.doneFlag) continue;
       const u=this.units.find(x=>x.id===bt.unitId && x.type==='attack');
       if(!u){ bt.doneFlag=true; continue; }
       const b=this.buildings.get(bt.bldId);
-      if(!b){ bt.doneFlag=true; u.dead=true; this.players[bt.attPlayer].recruits+=u.soldiers.length; continue; }
+      if(!b){ bt.doneFlag=true; u.dead=true; this.returnSoldiers(bt.attPlayer, u.soldiers); continue; }
       bt.roundT++;
       if(bt.roundT<10) continue;
       bt.roundT=0;
-      // Verteidiger: stationierte Soldaten, HQ nutzt Rekruten als Miliz
-      let defRank=-1;
-      if(b.soldiers && b.soldiers.length) defRank=b.soldiers[b.soldiers.length-1];
-      else if(b.type==='hq' && this.players[b.player].recruits>0) defRank=0;
-      if(defRank<0){
-        // erobert!
+      const pl=this.players[b.player];
+      const militia=()=> b.type==='hq' ? this.recruitTotal(b.player) : 0;
+      const defList=()=> (b.soldiers && b.soldiers.length) ? b.soldiers : null;
+      // --- Fernkampfphase: Bogenschützen beider Seiten schießen ---
+      const bPos=this.map.worldPos(b.node), uPos=[u.x,u.y];
+      const atkBows=u.soldiers.filter(t=>t==='bow').length;
+      this.volley(atkBows, ()=>{
+        const dl=defList();
+        if(dl){ dl.splice((this.rng()*dl.length)|0,1); return true; }
+        if(militia()>0){ this.takeRecruit(b.player); return true; }
+        return false;
+      }, uPos, bPos);
+      const defBows=(defList()||[]).filter(t=>t==='bow').length;
+      this.volley(defBows, ()=>{
+        if(u.soldiers.length){ u.soldiers.splice((this.rng()*u.soldiers.length)|0,1); return true; }
+        return false;
+      }, bPos, uPos);
+      // --- Sieg/Niederlage nach der Salve? ---
+      if(!u.soldiers.length){ bt.doneFlag=true; u.dead=true; continue; }
+      if(!defList() && militia()<=0){
         this.captureBuilding(b, bt.attPlayer, u.soldiers);
         bt.doneFlag=true; u.dead=true;
         continue;
       }
-      if(!u.soldiers.length){ bt.doneFlag=true; u.dead=true; continue; }
-      const atkRank=u.soldiers[u.soldiers.length-1];
-      const p=0.5+(atkRank-defRank)*0.12;
+      // --- Nahkampf: stärkster Angreifer gegen stärksten Verteidiger ---
+      const atkT=this.strongest(u.soldiers);
+      let defT, defMilitia=false;
+      const dl=defList();
+      if(dl) defT=this.strongest(dl);
+      else {
+        defT=STYPE_LIST.find(t=>pl.recruits[t]>0);
+        defMilitia=true;
+      }
+      let p=0.5 + (STYPES[atkT].str-STYPES[defT].str)*0.09
+            + this.matchup(atkT,defT) - this.matchup(defT,atkT)
+            - 0.06*Math.min(b.coins||0,2);   // Sold: Münzen stärken die Verteidiger
       this.onClash && this.onClash(b);
       if(this.rng()<clamp(p,0.12,0.88)){
-        if(b.soldiers && b.soldiers.length) b.soldiers.pop();
-        else this.players[b.player].recruits--;
+        if(defMilitia) pl.recruits[defT]--;
+        else dl.splice(dl.indexOf(defT),1);
       } else {
-        u.soldiers.pop();
+        u.soldiers.splice(u.soldiers.indexOf(atkT),1);
       }
     }
     this.battles=this.battles.filter(bt=>!bt.doneFlag);
@@ -1072,7 +1145,7 @@ export class Game {
     if(b.type==='hq'){
       // HQ wird niedergebrannt
       this.burnBuilding(b);
-      this.players[byPl].recruits+=attackers.length;
+      this.returnSoldiers(byPl, attackers);
       if(byPl===0) this.msg('Feindliches Hauptquartier gefallen!', 'ok');
       this.checkPlayerDefeat(oldPl);
       return;
@@ -1081,8 +1154,7 @@ export class Game {
     b.coins=0; b.incoming={};
     const cap=BLD[b.type].mil.cap;
     b.soldiers=attackers.slice(0,cap);
-    const extra=attackers.length-b.soldiers.length;
-    if(extra>0) this.players[byPl].recruits+=extra;
+    this.returnSoldiers(byPl, attackers.slice(cap));
     if(byPl===0) this.msg(`${BLD[b.type].name} erobert!`, 'ok', b.node);
     if(oldPl===0) this.msg(`${BLD[b.type].name} an den Feind verloren!`, 'war', b.node);
     this.recalcTerritory();
@@ -1094,42 +1166,56 @@ export class Game {
     if(this.t%25!==0) return;
     for(const p of this.players){
       if(p.defeated) continue;
-      // Rekrutierung im HQ: Bier+Schwert+Schild -> Rekrut
+      // Rekrutierung im HQ: Bier + Waffe(n) -> Soldat des jeweiligen Typs
+      // Schwertkämpfer: Schwert+Schild | Speerkämpfer: Speer | Bogenschütze: Bogen
       const hq=this.buildings.get(p.hq);
       if(hq && hq.inv){
-        while(p.recruits<10 && (hq.inv.beer||0)>0 && (hq.inv.sword||0)>0 && (hq.inv.shield||0)>0){
-          hq.inv.beer--; hq.inv.sword--; hq.inv.shield--;
-          p.recruits++;
+        let guard=30;
+        while(this.recruitTotal(p.id)<10 && (hq.inv.beer||0)>0 && guard-->0){
+          // ausgewogen rekrutieren: den Typ mit der kleinsten Reserve zuerst
+          const canDo=STYPE_LIST.filter(t=>{
+            for(const w in STYPES[t].weapons) if((hq.inv[w]||0)<STYPES[t].weapons[w]) return false;
+            return true;
+          });
+          if(!canDo.length) break;
+          canDo.sort((a,b)=>(p.recruits[a]||0)-(p.recruits[b]||0));
+          const t=canDo[0];
+          hq.inv.beer--;
+          for(const w in STYPES[t].weapons) hq.inv[w]-=STYPES[t].weapons[w];
+          p.recruits[t]=(p.recruits[t]||0)+1;
           this.onRecruit && p.id===0 && this.onRecruit();
         }
       }
-      // Besatzung auffüllen
-      if(p.recruits>0){
+      // Besatzung auffüllen (gemischte Trupps: stärkste Reserve zuerst)
+      if(this.recruitTotal(p.id)>0){
         const milB=[...this.buildings.values()].filter(b=>b.player===p.id && b.soldiers && b.state==='done' && b.type!=='hq');
         milB.sort((a,b)=> (a.soldiers.length/BLD[a.type].mil.cap) - (b.soldiers.length/BLD[b.type].mil.cap));
         for(const b of milB){
-          if(p.recruits<=0) break;
+          if(this.recruitTotal(p.id)<=0) break;
           const cap=BLD[b.type].mil.cap;
           const enroute=this.units.filter(u=>u.type==='soldierMove'&&u.targetB===b.id).length;
           if(b.soldiers.length+enroute<cap){
-            p.recruits--;
+            const t=this.takeRecruit(p.id);
+            if(!t) break;
             const src=hq||b;
             const [sx,sy]=this.map.worldPos(src.node);
-            this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, x:sx, y:sy, targetB:b.id, rank:0});
+            this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, x:sx, y:sy, targetB:b.id, stype:t});
           }
         }
       }
-      // Beförderungen
-      for(const b of this.buildings.values()){
-        if(b.player!==p.id || !b.soldiers || !b.coins) continue;
-        b.promoT=(b.promoT||0)+1;
-        if(b.promoT>=4){
-          b.promoT=0;
-          const ix=b.soldiers.findIndex(r=>r<RANKS.length-1);
-          if(ix>=0){ b.soldiers[ix]++; b.coins--; if(p.id===0) this.onPromote && this.onPromote(b); }
-        }
-      }
     }
+  }
+
+  // ---------- Ruinen zerfallen nach einer Weile, alte Effekte aufräumen ----------
+  tickRuins(){
+    if(this.t%50!==0) return;
+    if(this.fx.length) this.fx=this.fx.filter(f=>this.t-f.t0<300);
+    if(!this.ruins.length) return;
+    this.ruins=this.ruins.filter(r=>{
+      if(this.t-r.t0<1500) return true;
+      if(this.map.obj[r.node]===OBJ.RUIN){ this.map.obj[r.node]=OBJ.NONE; this.changedNodes.push(r.node); }
+      return false;
+    });
   }
 
   // ---------- Missionsziele ----------
@@ -1245,7 +1331,7 @@ export class Game {
         if(!(BLD[b.type].mil||b.type==='hq')) continue;
         const avail=this.attackable(p.id, b.id);
         if(avail<2) continue;
-        const defN=(b.soldiers?.length||0)+(b.type==='hq'?this.players[b.player].recruits:0);
+        const defN=(b.soldiers?.length||0)+(b.type==='hq'?this.recruitTotal(b.player):0);
         if(avail >= defN*1.3+1){
           const d=Math.hypot(m.X(b.node)-m.X(hq.node), m.Y(b.node)-m.Y(hq.node));
           if(d<bs){ bs=d; best={b, n:Math.min(avail, defN+3)}; }
@@ -1335,7 +1421,7 @@ export class Game {
       buildings:[...this.buildings.values()],
       roads:[...this.roads.values()],
       flagItems:[...this.flagItems.entries()],
-      units:this.units, battles:this.battles,
+      units:this.units, battles:this.battles, ruins:this.ruins,
       signs:[...this.signs.entries()],
       objectives:this.objectives, over:this.over, winner:this.winner,
       msgs:this.msgs.slice(-40),
@@ -1364,7 +1450,18 @@ export class Game {
     for(const r of data.roads) g.roads.set(r.id,r);
     g.flagItems=new Map(data.flagItems);
     g.units=data.units||[]; g.battles=data.battles||[];
+    g.fx=[]; g.ruins=data.ruins||[];
     g.signs=new Map(data.signs||[]);
+    // Alt-Spielstände (v2, Rang-System): Ränge -> Truppentypen, Rekrutenzahl -> Reserve-Objekt
+    for(const p of g.players){
+      if(typeof p.recruits==='number') p.recruits={sword:p.recruits, spear:0, bow:0};
+    }
+    const conv=(t)=> typeof t==='string' ? t : 'sword';
+    for(const b of g.buildings.values()) if(b.soldiers) b.soldiers=b.soldiers.map(conv);
+    for(const u of g.units){
+      if(u.type==='attack') u.soldiers=u.soldiers.map(conv);
+      if(u.type==='soldierMove' && !u.stype) u.stype='sword';
+    }
     // Reservierungen & halboffene Trägeraufträge nach dem Laden zurücksetzen
     for(const items of g.flagItems.values()) for(const it of items) it.reserved=false;
     for(const r of g.roads.values()){

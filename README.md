@@ -11,8 +11,11 @@ Original-Assets fremder Spiele verwendet.
 - **Klassisches Spielprinzip**: Straßen mit Fahnen bauen, Träger transportieren
   Waren, verkettete Wirtschaft (Holzfäller → Sägewerk, Bauernhof → Mühle →
   Bäckerei, Bergwerke → Eisenhütte → Waffenschmiede, Gold → Münzen …)
-- **Militär & Eroberung**: Militärgebäude erweitern das Gebiet, Soldaten mit
-  5 Rängen, Beförderung per Münzen, Angriffe auf Feindgebäude, Katapulte
+- **Militär & Eroberung**: Militärgebäude erweitern das Gebiet. Drei
+  Truppentypen – Schwertkämpfer, Speerkämpfer, Bogenschützen (Pfeilsalven
+  vor dem Nahkampf, Überlegenheits-Dreieck Schwert>Speer>Bogen>Schwert).
+  Münzen sind Sold und stärken Verteidiger. Eroberte Gebäude brennen
+  sichtbar nieder und hinterlassen Ruinen. Katapulte beschießen Feinde.
 - **Kampagne**: 10 Missionen mit eigener Story („Das zerbrochene Königreich"),
   verschiedene Landschaften (Grünland, Winter, Wüste, Moor, Vulkan, Inseln, Gebirge)
 - **Freies Spiel**: Zufallskarten mit einstellbarer Größe, Landschaft,
@@ -79,8 +82,10 @@ npx cap open android   # in Android Studio bauen & signieren
    mit dem Hauptquartier verbinden** (ohne Straße kein Warentransport!).
 2. **Nahrung**: Fischer/Jäger oder Bauernhof → Mühle → Bäckerei (+ Brunnen).
    Bergwerke arbeiten nur mit Essen.
-3. **Militär**: Brauerei + Waffenschmiede liefern Bier/Schwert/Schild → im HQ
-   entstehen Rekruten. Militärgebäude an der Grenze erweitern das Gebiet.
+3. **Militär**: Die Waffenschmiede schmiedet reihum Schwert, Schild, Speer und
+   Bogen. Im HQ entsteht aus Bier + Waffe ein Soldat: Schwert+Schild →
+   Schwertkämpfer, Speer → Speerkämpfer, Bogen → Bogenschütze.
+   Militärgebäude an der Grenze erweitern das Gebiet.
 4. **Angriff**: Feindliches Militärgebäude antippen, Truppenstärke wählen.
    Fällt das gegnerische Hauptquartier, ist der Feind besiegt.
 
@@ -114,7 +119,7 @@ Sprite aktiv (beliebig mischbar).
 | `bld_<typ>.png` | fertiges Gebäude (`woodcutter`, `sawmill`, `farm`, `hq`, `fortress`, `watchtower`, `mill`, `chapel`, …) | ~512 px hoch, transparent |
 | `bld_<typ>_build.png` / `bld_baustelle.png` | Baustelle (typspezifisch / generisch) | wie oben |
 | `tree_leaf.png`, `tree_conifer.png`, `tree_autumn.png` | Bäume (Wachstum wird skaliert) | ~512 px hoch |
-| `unit_carrier.png`, `unit_soldier.png`, `unit_<beruf>.png` | Figuren (`woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
+| `unit_carrier.png`, `unit_sword.png`, `unit_spear.png`, `unit_bow.png`, `unit_soldier.png` (Fallback), `unit_<beruf>.png` | Figuren (Truppentypen; Berufe: `woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
 | `icon_<ware>.png`, `icon_soldier.png` | HUD-Icons (`board`, `stone`, `bread`, `fish`, `coal`, `iron`, `coin`) | 64×64 px |
 
 Wichtig für einen stimmigen Look: alle Assets im selben Stil, gleicher

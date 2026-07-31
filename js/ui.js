@@ -1,5 +1,5 @@
 // Neuland – UI: Bildschirme, HUD, Baumenü, Dialoge, Spielschleife.
-import { BLD, GOODS, GOOD_LIST, RANKS, PLAYER_COLORS, OBJ, TER } from './core.js';
+import { BLD, GOODS, GOOD_LIST, STYPES, STYPE_LIST, PLAYER_COLORS, OBJ, TER } from './core.js';
 import { TILE, ROWH } from './map.js';
 import { Game, TICK_MS } from './sim.js';
 import { Renderer, goodColor } from './render.js';
@@ -137,10 +137,14 @@ export class UI {
         <h3>Wirtschaft</h3>
         <p>Bauernhof → Mühle → Bäckerei (+Brunnen) ergibt Brot. Bergwerke im Gebirge fördern Kohle,
         Eisen und Gold – aber nur mit Essen (Fisch, Brot, Fleisch). Eisenhütte macht Eisen,
-        die Waffenschmiede Schwerter und Schilde, die Brauerei Bier.</p>
-        <h3>Militär</h3>
-        <p>Bier + Schwert + Schild = neuer Soldat (im Hauptquartier). Militärgebäude erweitern dein
-        Gebiet. Münzen aus der Prägerei befördern Soldaten. Zum Angriff: feindliches Militärgebäude
+        die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.</p>
+        <h3>Militär – drei Truppentypen</h3>
+        <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
+        <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
+        <b>Speerkämpfer</b> (Speer) und <b>Bogenschützen</b> (Bogen – schießen vor jedem
+        Nahkampf eine Pfeilsalve). Es gilt: Schwert schlägt Speer, Speer schlägt Bogen,
+        Bogen schlägt Schwert. Münzen aus der Prägerei sind Sold: Sie stärken die Verteidiger
+        des Militärgebäudes, in dem sie lagern. Zum Angriff: feindliches Militärgebäude
         antippen, Truppenstärke wählen. Fällt das feindliche Hauptquartier, ist der Gegner besiegt.</p>
         <h3>Missionen</h3>
         <p>Die Kampagne erzählt in 10 Missionen die Geschichte von Königin Maras Volk – mit
@@ -339,7 +343,16 @@ export class UI {
     };
     g.onClash=()=>Sound.sfx('clash');
     g.onRecruit=()=>Sound.sfx('recruit');
-    g.onPromote=()=>Sound.sfx('coin');
+    g.onVolley=(x,y)=>{
+      const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
+      if(d>850) return;
+      Sound.sfx('arrow', Math.max(0.15, 1-d/850));
+    };
+    g.onBurn=(b)=>{
+      const [x,y]=g.map.worldPos(b.node);
+      const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
+      Sound.sfx('burn', Math.max(0.2, 1-d/900));
+    };
     g.onBoulder=()=>Sound.sfx('boulder');
     g.onBattleStart=(b)=>{ if(b.player===0) Sound.sfx('war'); };
     g.onCapture=()=>Sound.sfx('done');
@@ -554,7 +567,7 @@ export class UI {
       // Feindgebäude: Angriff?
       if(def.mil||b.type==='hq'){
         const avail=g.attackable(0,b.id);
-        const defN=(b.soldiers?.length||0)+(b.type==='hq'?g.players[b.player].recruits:0);
+        const defN=(b.soldiers?.length||0)+(b.type==='hq'?g.recruitTotal(b.player):0);
         this.sheet(`<div class="sh-head"><b style="color:${PLAYER_COLORS[b.player]}">${def.name} (${g.players[b.player].name})</b>
           <button class="hbtn" id="sh-x">✕</button></div>
           <p class="note">Verteidiger: ~${defN} · Deine verfügbaren Angreifer: ${avail}</p>
@@ -590,12 +603,21 @@ export class UI {
       if(def.mine){ rows.push(`Essen: ${['fish','bread','meat'].map(f=>b.stock[f]||0).reduce((a,c)=>a+c,0)}`, `Gefördert wartend: ${b.out||0}`, b.depleted?'⚠️ Vorkommen erschöpft':''); }
       if(def.gather){ rows.push(`Ware wartend: ${b.out||0}`); }
       if(def.cata){ rows.push(`Steine: ${b.stock.stone||0}`); }
-      if(b.soldiers){ rows.push(`Besatzung: ${b.soldiers.length}/${def.mil.cap} ${b.soldiers.map(r=>RANKS[r][0]).join(' ')}`,
-        `Münzen: ${b.coins||0}`); }
+      if(b.soldiers){
+        const byT=STYPE_LIST.map(t=>{
+          const n=b.soldiers.filter(s=>s===t).length;
+          return n? `${n}× ${STYPES[t].short}` : null;
+        }).filter(Boolean).join(' · ');
+        rows.push(`Besatzung: ${b.soldiers.length}/${def.mil.cap}${byT? ' ('+byT+')':''}`,
+          `Sold (Münzen): ${b.coins||0}`);
+      }
       if(b.inv){
         const inv=Object.entries(b.inv).filter(([,v])=>v>0).map(([k,v])=>`${GOODS[k].name} ${v}`).join(' · ')||'leer';
         rows.push('Lager: '+inv);
-        if(b.type==='hq') rows.push(`Rekruten: ${g.players[0].recruits}`);
+        if(b.type==='hq'){
+          const r=g.players[0].recruits;
+          rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}`);
+        }
       }
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
       ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;

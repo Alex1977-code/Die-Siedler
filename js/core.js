@@ -23,6 +23,8 @@ export const GOODS = {
   coin:   { name:'Münze' },
   sword:  { name:'Schwert' },
   shield: { name:'Schild' },
+  spear:  { name:'Speer' },
+  bow:    { name:'Bogen' },
   beer:   { name:'Bier' },
 };
 export const GOOD_LIST = Object.keys(GOODS);
@@ -50,8 +52,8 @@ export const BLD = {
   goldmine:   { name:'Goldbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'gold', time:100, desc:'Fördert Golderz. Bergleute brauchen Essen.' },
   granitemine:{ name:'Steinbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'stone', time:90, desc:'Fördert Steine aus dem Berg.' },
   smelter:    { name:'Eisenhütte', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'iron', inputs:{ironore:1,coal:1}, time:100}, desc:'Schmilzt Erz zu Eisen.' },
-  mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen zur Beförderung von Soldaten.' },
-  armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'sword', out2:'shield', inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter und Schilde.' },
+  mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Als Sold machen sie Verteidiger stärker.' },
+  armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
   barracks:   { name:'Baracke', cat:'militaer', size:'S', cost:{board:2,stone:1}, mil:{cap:2,radius:8}, desc:'Kleiner Posten. Erweitert dein Gebiet.' },
   guardhouse: { name:'Wachhaus', cat:'militaer', size:'S', cost:{board:2,stone:3}, mil:{cap:3,radius:9}, desc:'Fester Posten mit drei Soldaten.' },
   watchtower: { name:'Wachturm', cat:'militaer', size:'M', cost:{board:3,stone:5}, mil:{cap:6,radius:11}, desc:'Hoher Turm, weite Grenzen.' },
@@ -62,13 +64,21 @@ export const BLD = {
 };
 export const BLD_KEYS = Object.keys(BLD);
 
-export const RANKS = ['Rekrut','Gefreiter','Feldwebel','Offizier','General'];
+// Truppentypen (keine Ränge): Stärke im Nahkampf + Überlegenheits-Dreieck
+// Schwert schlägt Speer, Speer schlägt Bogen, Bogen schlägt Schwert (leicht).
+// Bogenschützen schießen vor jedem Nahkampf eine Pfeilsalve.
+export const STYPES = {
+  sword: { name:'Schwertkämpfer', short:'Schwert', str:3, weapons:{sword:1, shield:1} },
+  spear: { name:'Speerkämpfer',  short:'Speer',   str:2, weapons:{spear:1} },
+  bow:   { name:'Bogenschütze',  short:'Bogen',   str:1, weapons:{bow:1}, ranged:true },
+};
+export const STYPE_LIST = Object.keys(STYPES);
 
 // gedeckte, erdige Spielerfarben (Stilguide: keine Übersättigung)
 export const PLAYER_COLORS = ['#4a6d9c','#a84a38','#c2a24e','#7d5a8a'];
 export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
-export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:4, sword:4, shield:4, coal:4, iron:2, coin:2, grain:4, water:4 };
+export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:5, sword:3, shield:3, spear:2, bow:2, coal:4, iron:2, coin:2, grain:4, water:4 };
 
 // ---------- Hilfsfunktionen ----------
 export function mulberry32(seed){

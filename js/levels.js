@@ -39,8 +39,9 @@ export const CAMPAIGN = [
       {type:'soldiers', count:6, desc:'Stelle 6 Soldaten auf'},
       {type:'destroyEnemies', desc:'Besiege die Aschehand'},
     ],
-    tips:'Soldaten entstehen im Hauptquartier aus Bier, Schwert und Schild. Militärgebäude erweitern '
-      +'dein Gebiet. Tippe auf ein feindliches Militärgebäude, um anzugreifen.',
+    tips:'Soldaten entstehen im Hauptquartier aus Bier + Waffe: Schwert & Schild, Speer oder Bogen. '
+      +'Schwert schlägt Speer, Speer schlägt Bogen, Bogen schlägt Schwert – Bogenschützen schießen '
+      +'vor dem Nahkampf Pfeile. Tippe auf ein feindliches Militärgebäude, um anzugreifen.',
   },
   {
     id:4, title:'Frostiges Land', theme:'winter', size:'M', seed:44117, ais:[{name:'Salzwölfe', lvl:1}],
@@ -74,8 +75,8 @@ export const CAMPAIGN = [
     objectives:[
       {type:'destroyEnemies', desc:'Besiege beide Clans'},
     ],
-    tips:'Sichere deine Grenzen mit Wachtürmen, bevor du angreifst. Münzen befördern Soldaten – '
-      +'Veteranen kämpfen deutlich besser.',
+    tips:'Sichere deine Grenzen mit Wachtürmen, bevor du angreifst. Münzen sind Sold: In '
+      +'Militärgebäuden gelagert stärken sie deren Verteidiger spürbar.',
   },
   {
     id:7, title:'Das Goldtal', theme:'gebirge', size:'M', seed:77157, ais:[{name:'Eisenkrone', lvl:2}],

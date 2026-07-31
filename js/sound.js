@@ -101,6 +101,14 @@ export const Sound = {
       case 'msg':    this.osc('sine',880,0.09,0.15); break;
       case 'recruit':this.osc('triangle',330,0.15,0.2); setTimeout(()=>this.osc('triangle',440,0.18,0.2),110); break;
       case 'boulder':this.noise(0.3,0.5,80,300); break;
+      case 'arrow':  // Pfeilsalve: kurzes Zischen mit fallendem Ton
+        this.noise(0.14,0.28,2800,7000);
+        this.osc('sine',900,0.12,0.08,-500); break;
+      case 'burn':   // Feuer: tiefes Rauschen + Knistern
+        this.noise(0.8,0.4,90,400);
+        this.noise(0.5,0.25,1400,4200);
+        setTimeout(()=>this.noise(0.4,0.2,1200,3800),300);
+        setTimeout(()=>this.noise(0.35,0.16,1500,4400),650); break;
       case 'win':    [523,659,784,1047].forEach((f,i)=> setTimeout(()=>this.osc('triangle',f,0.4,0.3),i*160)); break;
       case 'lose':   [392,330,262,196].forEach((f,i)=> setTimeout(()=>this.osc('sawtooth',f,0.45,0.22),i*200)); break;
     }
