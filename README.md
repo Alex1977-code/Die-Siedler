@@ -84,13 +84,20 @@ npx cap open android   # in Android Studio bauen & signieren
 4. **Angriff**: Feindliches Militärgebäude antippen, Truppenstärke wählen.
    Fällt das gegnerische Hauptquartier, ist der Feind besiegt.
 
-## Eigene Grafik-Assets einbinden (Stilguide-Pipeline)
+## Grafik-Assets (Stilguide-Pipeline)
 
-Die gesamte Grafik wird prozedural vom Code gezeichnet – es gibt kein
-Sprite-Pack. Wer stattdessen echte (z. B. KI-generierte) Bilder im Stil
-des Grafik-Stilguides verwenden will, legt sie einfach als **freigestellte
-PNGs** in den Ordner `assets/` und listet die Dateinamen in
-`assets/manifest.json` auf, z. B.:
+Das Spiel liefert im Ordner `assets/` ein komplettes **HD-Sprite-Pack**
+mit (41 PNGs: alle Gebäude, Baustelle, Bäume, HUD-Icons). Die Bilder sind
+prozedural erzeugt – vom mitgelieferten **Asset-Studio**
+(`tools/asset-studio.html` im Browser öffnen: Vorschau aller Sprites;
+`tools/assets-gen.js` ist der Generator) – und folgen dem Grafik-Stilguide:
+malerischer Realismus, 3/4-Ansicht, Licht konsequent von links oben,
+sichtbare Materialien (Reet-Halme, einzelne Schindeln, unregelmäßiger
+Stein mit Patina, Holzmaserung), Moos und Alterungsspuren.
+
+Eigene Bilder (z. B. KI-generiert nach den Prompts im Stilguide) können
+jedes Sprite ersetzen: einfach als **freigestellte PNGs** in `assets/`
+legen und die Dateinamen in `assets/manifest.json` auflisten, z. B.:
 
 ```json
 ["bld_woodcutter.png", "tree_leaf.png", "unit_farmer.png", "icon_board.png"]

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Neuland – Asset-Studio</title>
+<style>
+  body{ background:#2b2f36; color:#e8e4d8; font-family:system-ui,sans-serif; margin:0; padding:16px; }
+  h1{ font-size:18px; margin:0 0 12px; }
+  #grid{ display:flex; flex-wrap:wrap; gap:14px; }
+  .cell{ background:repeating-conic-gradient(#3a3f47 0% 25%, #33373e 0% 50%) 0 0/24px 24px;
+         border:1px solid #555; border-radius:6px; padding:6px; text-align:center; }
+  .cell canvas, .cell img{ display:block; max-width:260px; max-height:260px; }
+  .cell small{ display:block; margin-top:4px; font-size:11px; opacity:.8; }
+</style>
+</head>
+<body>
+<h1>Neuland – Asset-Studio (prozedurale HD-Sprites nach Stilguide)</h1>
+<div id="grid"></div>
+<script type="module">
+  import { genAll, trim } from './assets-gen.js';
+  const grid = document.getElementById('grid');
+  let assets = null;
+  function build(){
+    assets = genAll();
+    grid.innerHTML = '';
+    for(const [name, cv] of assets){
+      const cell = document.createElement('div'); cell.className = 'cell';
+      const t = trim(cv, 6);
+      cell.appendChild(t);
+      const lab = document.createElement('small');
+      lab.textContent = `${name} (${t.width}×${t.height})`;
+      cell.appendChild(lab);
+      grid.appendChild(cell);
+    }
+  }
+  window.exportAll = function(){
+    const out = {};
+    for(const [name, cv] of genAll()){
+      out[name] = trim(cv, 6).toDataURL('image/png');
+    }
+    return out;
+  };
+  window.exportOne = function(name){
+    for(const [n, cv] of genAll()) if(n===name) return trim(cv,6).toDataURL('image/png');
+    return null;
+  };
+  try{ build(); window.__ready = true; }
+  catch(e){ window.__err = String(e && e.stack || e); document.body.innerHTML = '<pre>'+window.__err+'</pre>'; }
+</script>
+</body>
+</html>

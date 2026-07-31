@@ -1783,7 +1783,8 @@ export class Renderer {
         const species=hsh<0.5?0: (hsh<0.86||this.theme==='winter')?1:2;
         const sc=0.85+hash01(i*7+1)*0.3;
         // Asset-Überschreibung (Stilguide §14): tree_conifer/tree_leaf/tree_autumn.png
-        const ovT=this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        // Im Winter bleiben die prozeduralen (verschneiten) Bäume aktiv
+        const ovT=this.theme==='winter'?null:this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
         const grow=st===3?1:st===2?0.72:0.45;
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=74*sc*(ovT?grow:1);
