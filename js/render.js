@@ -21,6 +21,13 @@ COAST_COL.inseln=COAST_COL.gruen; COAST_COL.gebirge=COAST_COL.winter;
 
 const CHUNK = 12; // Knoten pro Chunk-Kante
 const OUT='rgba(88,58,34,0.5)';    // Standard-Kontur (warm, weich)
+// natürliche Blickrichtung der Figuren-Bilder: -1 = schaut nach links, 1 = nach rechts
+const UNIT_FACING={
+  unit_carrier:-1, unit_worker:-1, unit_sword:-1, unit_spear:-1, unit_bow:1,
+  unit_woodcutter:1, unit_fisher:-1, unit_hunter:1, unit_farm:-1, unit_forester:-1,
+  unit_quarry:-1, unit_geo:-1, unit_sword_atk:-1, unit_sword_atk2:-1, unit_sword_def:-1,
+  unit_soldier:-1,
+};
 
 function shade(hex, f){
   const n=parseInt(hex.slice(1),16);
@@ -133,7 +140,12 @@ export class Renderer {
     const ovSh=this.asset('deco_sheep');
     if(ovSh){
       const hh=15, ww=hh*(ovSh.naturalWidth/ovSh.naturalHeight);
-      g.drawImage(ovSh, x-ww/2, y+5-hh, ww, hh);
+      // Schaf-Bild schaut nach links -> spiegeln, wenn es nach rechts läuft
+      g.save();
+      g.translate(x, y+5);
+      if(walk && s.tx>s.x+0.5) g.scale(-1,1);
+      g.drawImage(ovSh, -ww/2, -hh, ww, hh);
+      g.restore();
       return;
     }
     // Beine
@@ -283,17 +295,51 @@ export class Renderer {
     if('filter' in g){ g.filter='blur(4px)'; }
     g.drawImage(this._tmpChunk,0,0);
     g.filter='none';
-    // 3) Foto-Textur der Kacheln als überlappende weiche Tupfer (nahtlos)
-    g.save(); g.translate(-c.ox,-c.oy);
-    for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
-      for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
-        const i=m.idx(x,y);
-        const spl=this.terrainSplat(m.terr[i]);
-        if(!spl) continue;
-        const [px,py]=m.worldPos(i);
-        const v=spl[(i*7+3)%4];
-        g.globalAlpha= m.terr[i]===TER.MOUNT?0.42:0.55;
-        g.drawImage(v, px-46, py-38, 92, 76);
+    // 3) Foto-Textur der Kacheln: flächiges Muster (weltverankert) durch weiche
+    //    Terrainart-Masken -> keine Tupfer-Flecken, keine Nähte, auch chunkübergreifend
+    {
+      const perT=new Map();
+      for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+        for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+          const i=m.idx(x,y);
+          const t=m.terr[i];
+          if(t===TER.WATER||t===TER.LAVA) continue;
+          if(!perT.has(t)) perT.set(t,[]);
+          perT.get(t).push(i);
+        }
+      if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
+        this._texTmp=document.createElement('canvas'); this._texTmp.width=w; this._texTmp.height=h;
+        this._maskTmp=document.createElement('canvas'); this._maskTmp.width=w; this._maskTmp.height=h;
+      }
+      for(const [t,nodes] of perT){
+        const tex=this._texTmp.getContext('2d');
+        const pat=this.terrainPattern(t, tex);
+        if(!pat) continue;
+        // Muster in Weltkoordinaten füllen (CTM verankert es weltweit einheitlich)
+        tex.clearRect(0,0,w,h);
+        tex.save(); tex.translate(-c.ox,-c.oy);
+        tex.fillStyle=pat;
+        tex.fillRect(c.ox,c.oy,w,h);
+        tex.restore();
+        // weiche Maske aus überlappenden Knoten-Kreisen
+        const mk=this._maskTmp.getContext('2d');
+        mk.clearRect(0,0,w,h);
+        mk.save(); mk.translate(-c.ox,-c.oy);
+        for(const i of nodes){
+          const [px,py]=m.worldPos(i);
+          const rad=mk.createRadialGradient(px,py,16,px,py,46);
+          rad.addColorStop(0,'rgba(255,255,255,0.88)');
+          rad.addColorStop(0.75,'rgba(255,255,255,0.82)');
+          rad.addColorStop(1,'rgba(255,255,255,0)');
+          mk.fillStyle=rad;
+          mk.beginPath(); mk.arc(px,py,44,0,7); mk.fill();
+        }
+        mk.restore();
+        tex.globalCompositeOperation='destination-in';
+        tex.drawImage(this._maskTmp,0,0);
+        tex.globalCompositeOperation='source-over';
+        g.globalAlpha= t===TER.MOUNT?0.62:0.5;
+        g.drawImage(this._texTmp,0,0);
         g.globalAlpha=1;
       }
     }
@@ -449,9 +495,9 @@ export class Renderer {
         const dh=m.hgt[n]-m.hgt[i];
         gx+=dh*ddx; gy+=dh*ddy;
       }
-      const k = t===TER.MOUNT? 0.30 : 0.11;
+      const k = t===TER.MOUNT? 0.4 : 0.11;
       let l=1-(gx*0.7+gy)*k;
-      l=Math.max(t===TER.MOUNT?0.72:0.86, Math.min(t===TER.MOUNT?1.32:1.14, l));
+      l=Math.max(t===TER.MOUNT?0.62:0.86, Math.min(t===TER.MOUNT?1.42:1.14, l));
       col=[col[0]*l, col[1]*l, col[2]*l];
     }
     ncache.set(i,col);
@@ -502,43 +548,27 @@ export class Renderer {
           const img=new Image();
           const key=name.replace(/\.png$/i,'');
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
-          if(key.startsWith('ter_')) img.onload=()=>{ this._splat=null; this._cobPat=null; this.chunks.clear(); };
+          if(key.startsWith('ter_')) img.onload=()=>{ this._terPat=null; this._cobPat=null; this.chunks.clear(); };
           img.src='assets/'+name;
           this.assets.set(key, img);
         }
       })
       .catch(()=>{});
   }
-  // weiche Textur-Tupfer aus den Terrain-Kacheln (nahtlos, ohne sichtbares Raster)
-  terrainSplat(t){
-    const KEY={ [TER.GRASS]:'ter_grass', [TER.DESERT]:'ter_sand', [TER.SNOW]:'ter_snow',
-                [TER.SWAMP]:'ter_swamp', [TER.MOUNT]:'ter_rock' };
-    const name=KEY[t];
-    if(!name) return null;
-    if(!this._splat) this._splat={};
-    if(this._splat[t]) return this._splat[t];
-    const img=this.asset(name);
+  // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
+  terrainPattern(t, g){
+    const KEY={ [TER.GRASS]:['ter_grass',0.55], [TER.DESERT]:['ter_sand',0.6], [TER.SNOW]:['ter_snow',0.6],
+                [TER.SWAMP]:['ter_swamp',0.6], [TER.MOUNT]:['ter_rock',0.85] };
+    const e=KEY[t];
+    if(!e) return null;
+    if(!this._terPat) this._terPat={};
+    if(this._terPat[t]) return this._terPat[t];
+    const img=this.asset(e[0]);
     if(!img) return null;
-    const variants=[];
-    for(let v=0;v<4;v++){
-      const S=104;
-      const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
-      const g=cv.getContext('2d');
-      g.save();
-      g.translate(S/2,S/2); g.rotate(v*Math.PI/2);
-      const off=(v*53)%80;
-      g.drawImage(img, off, (v*31)%80, img.naturalWidth-80, img.naturalHeight-80, -S*0.62, -S*0.62, S*1.24, S*1.24);
-      g.restore();
-      g.globalCompositeOperation='destination-in';
-      const rad=g.createRadialGradient(S/2,S/2,S*0.08,S/2,S/2,S*0.5);
-      rad.addColorStop(0,'rgba(0,0,0,1)');
-      rad.addColorStop(0.62,'rgba(0,0,0,0.8)');
-      rad.addColorStop(1,'rgba(0,0,0,0)');
-      g.fillStyle=rad; g.fillRect(0,0,S,S);
-      variants.push(cv);
-    }
-    this._splat[t]=variants;
-    return variants;
+    const pat=g.createPattern(img,'repeat');
+    if(pat.setTransform) pat.setTransform(new DOMMatrix().scale(e[1]));
+    this._terPat[t]=pat;
+    return pat;
   }
   asset(key){
     const img=this.assets && this.assets.get(key);
@@ -2012,9 +2042,27 @@ export class Renderer {
     const ov=this.asset(b.state==='build' ? typeKey+'_build' : typeKey)
       || (b.state==='build' ? this.asset('bld_baustelle') : null);
     if(ov){
-      const hh=big?96:def.size==='M'?80:64;
+      // Hauptburg deutlich größer als normale Gebäude (Wahrzeichen der Siedlung)
+      const hh= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
       const ww=hh*(ov.naturalWidth/ov.naturalHeight);
-      g.drawImage(ov, x-ww/2, y-hh+10, ww, hh);
+      // Bergwerke wachsen aus dem Hang: Felskragen hinter dem Stollenmund
+      if(def.size==='MINE'){
+        const rk=g.createRadialGradient(x,y-hh*0.45,4, x,y-hh*0.45, ww*0.75);
+        rk.addColorStop(0,'rgba(112,106,96,0.85)');
+        rk.addColorStop(0.65,'rgba(96,90,80,0.55)');
+        rk.addColorStop(1,'rgba(90,84,74,0)');
+        g.fillStyle=rk;
+        g.beginPath(); g.ellipse(x,y-hh*0.42, ww*0.72, hh*0.62, 0, 0, 7); g.fill();
+        g.drawImage(ov, x-ww/2, y-hh+6, ww, hh);   // leicht in den Berg gesenkt
+        // Geröll am Fuß verzahnt den Stollen mit dem Hang
+        g.fillStyle='rgba(96,90,80,0.5)';
+        for(let k=0;k<5;k++){
+          const rx=x-ww*0.4+k*ww*0.2, ry=y+4+((k*13)%5);
+          g.beginPath(); g.ellipse(rx,ry,4.5,2.4,0,0,7); g.fill();
+        }
+      } else {
+        g.drawImage(ov, x-ww/2, y-hh+10, ww, hh);
+      }
     } else {
       g.drawImage(s.cv, x-s.w/2, y-s.h+10, s.w, s.h);
     }
@@ -2033,11 +2081,13 @@ export class Renderer {
         g.fillStyle=PLAYER_COLORS[b.player];
         g.beginPath(); g.arc(x-15+k*6.4, yy, 2.6, 0, 7); g.fill();
       }
-      // Belagerung: Verteidiger treten kämpfend vor das Tor
-      if(this.game && this.game.battles.some(bt=>bt.bldId===b.id)){
+      // Belagerung: Verteidiger treten kämpfend vor das Tor (Blick zum Angreifer)
+      const bt=this.game && this.game.battles.find(bt=>bt.bldId===b.id);
+      if(bt){
+        const au=this.game.units.find(u2=>u2.id===bt.unitId);
+        const ddir=au? [au.x-x, au.y-y] : null;
         b.soldiers.slice(0,3).forEach((st,k)=>{
-          const fx2=Math.max(0,Math.sin(this.time/140 + 2.6 + k*2.2))*2;
-          this.drawFigure(g, x-10+k*10-fx2, y+13, b.player, null, 'soldier', st, null, 2.6+k*2.2);
+          this.drawFigure(g, x-10+k*10, y+13, b.player, null, 'soldier', st, null, 2.6+k*2.2, ddir, false);
         });
       }
     }
@@ -2331,20 +2381,25 @@ export class Renderer {
       ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
       : kind==='carrier' ? 'unit_carrier' : 'unit_'+(wtype||'worker');
     let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);
+    let imgKey=baseKey;
     if(ovU){
       // Kampfpose des Schwertkämpfers: eigene Bild-Posen (Hieb, Sprung, Deckung)
       if(kind==='soldier' && fight!=null && baseKey==='unit_sword'){
         const pool=['unit_sword_atk','unit_sword_atk2','unit_sword_def'];
         const pi=Math.abs(Math.round(fight*3.1))%3;
-        ovU=this.asset(pool[pi])||ovU;
+        const pimg=this.asset(pool[pi]);
+        if(pimg){ ovU=pimg; imgKey=pool[pi]; }
       }
       // Richtungsvarianten (falls vorhanden): unit_<typ>_up / _down; sonst Andeutung
       let vert=0;
       if(dir && Math.abs(dir[1])>Math.abs(dir[0])*1.6){
         const alt=this.asset(baseKey+(dir[1]<0?'_up':'_down'));
-        if(alt) ovU=alt; else vert=dir[1]<0?-1:1;
+        if(alt){ ovU=alt; imgKey=baseKey; } else vert=dir[1]<0?-1:1;
       }
-      const flip=dir && dir[0]<-0.05;
+      // natürliche Blickrichtung des Bildes (die meisten schauen nach links)
+      const face=UNIT_FACING[imgKey]??-1;
+      // gespiegelt, wenn Laufrichtung und Bildrichtung nicht übereinstimmen
+      const flip= dir && Math.abs(dir[0])>0.05 ? (dir[0]>0 ? face===-1 : face===1) : false;
       this.shadow(g,x,y+7.4,5.8,2.3,0.26);
       // Spielerfarb-Ring unter den Füßen (Bilder sind farbneutral)
       g.strokeStyle=PLAYER_COLORS[pl]||'#888';

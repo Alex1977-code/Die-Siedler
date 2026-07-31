@@ -158,10 +158,13 @@ h1::after{
 .tab.on{ background:#f2d98c; color:#4a3a18; border-color:#f2d98c; font-weight:600; }
 .bgrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
 .bitem{
-  display:flex; flex-direction:column; gap:2px; text-align:left;
-  padding:10px; border-radius:10px; border:1px solid #4a5a70;
+  display:flex; flex-direction:row; gap:9px; align-items:center; text-align:left;
+  padding:8px 10px; border-radius:10px; border:1px solid #4a5a70;
   background:#26364b; color:#e8e4d8; font-size:14px; cursor:pointer;
 }
+.bthumb{ width:52px; height:52px; object-fit:contain; flex-shrink:0;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4)); }
+.binfo{ display:flex; flex-direction:column; gap:2px; min-width:0; }
 .bitem small{ opacity:0.75; font-size:11.5px; }
 .bitem .desc{ opacity:0.6; }
 .bitem.off{ opacity:0.5; }

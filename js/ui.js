@@ -137,7 +137,10 @@ export class UI {
         <h3>Wirtschaft</h3>
         <p>Bauernhof → Mühle → Bäckerei (+Brunnen) ergibt Brot. Bergwerke im Gebirge fördern Kohle,
         Eisen und Gold – aber nur mit Essen (Fisch, Brot, Fleisch). Eisenhütte macht Eisen,
-        die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.</p>
+        die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.
+        Die <b>Werkzeugschmiede</b> (Eisen + Brett) schmiedet abwechselnd <b>Hämmer</b> und
+        <b>Spitzhacken</b> – mit Essen beliefert arbeitet sie doppelt so schnell. Jede Baustelle
+        braucht einen Hammer, jeder Geologe eine Spitzhacke.</p>
         <h3>Militär – drei Truppentypen</h3>
         <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
         <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
@@ -496,10 +499,13 @@ export class UI {
       if(def.cat!==cat || key==='hq') continue;
       const can=g.canBuild(0,key,i);
       const cost=Object.entries(def.cost).map(([k,v])=>`${v} ${GOODS[k].name}`).join(', ')||'–';
-      const afford=(inv.board||0)>=(def.cost.board||0)&&(inv.stone||0)>=(def.cost.stone||0);
+      const afford=(inv.board||0)>=(def.cost.board||0)&&(inv.stone||0)>=(def.cost.stone||0)&&(inv.hammer||0)>=1;
+      // Gebäudebild aus dem Asset-Pack (Baukarte)
+      const img=this.renderer.asset('bld_'+key)
+        ? `<img class="bthumb" src="assets/bld_${key}.png" alt="" loading="lazy">` : '';
       items+=`<button class="bitem ${can.ok?'':'off'}" data-bld="${key}">
-        <b>${def.name}</b><small>${cost}${afford?'':' ⚠️'}</small>
-        <small class="desc">${can.ok? def.desc : (can.r||'')}</small></button>`;
+        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} + 🔨${afford?'':' ⚠️'}</small>
+        <small class="desc">${can.ok? def.desc : (can.r||'')}</small></span></button>`;
     }
     this.sheet(`<div class="sh-head"><b>Bauen</b>
       <button class="hbtn" id="sh-flag" title="Fahne">🚩</button>
@@ -537,19 +543,26 @@ export class UI {
   openFlagSheet(i){
     const g=this.game;
     const isDoor=[...g.buildings.values()].some(b=>b.door===i);
-    const hasMount=g.nodesInRange(i,6).some(n=>g.map.terr[n]===TER.MOUNT && !g.signs.has(n));
+    const hasMount=g.nodesInRange(i,8).some(n=>g.map.terr[n]===TER.MOUNT && !g.signs.has(n));
+    const picks=(g.invTotal(0).pick||0);
+    const geoHint= !hasMount ? 'Kein unbeschildertes Gebirge in der Nähe dieser Fahne (Umkreis 8).'
+      : picks<1 ? '⚠️ Keine Spitzhacke im Lager – die Werkzeugschmiede stellt sie her.'
+      : 'Der Geologe untersucht das Gebirge in der Nähe und stellt Schilder auf, wo Erz liegt.';
     this.sheet(`<div class="sh-head"><b>Fahne</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="row">
       <button class="mbtn primary" id="fl-road">🛤️ Straße bauen</button>
-      ${hasMount?'<button class="mbtn" id="fl-geo">⛏️ Geologen rufen</button>':''}
+      <button class="mbtn ${hasMount&&picks>0?'':'off'}" id="fl-geo">⛏️ Geologen rufen (${picks}⛏)</button>
       ${isDoor?'':'<button class="mbtn back" id="fl-del">Fahne entfernen</button>'}
       </div>
-      ${hasMount?'<p class="note">Der Geologe untersucht das Gebirge in der Nähe und stellt Schilder auf, wo Erz liegt.</p>':''}`);
+      <p class="note">${geoHint}</p>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#fl-road').onclick=()=>this.startRoad(i);
     const geo=$('#fl-geo');
     if(geo) geo.onclick=()=>{
-      if(g.callGeologist(0,i)){ Sound.sfx('tap'); this.toast('Der Geologe macht sich auf den Weg'); this.state.sel=-1; this.closeSheet(); }
+      const r=g.callGeologist(0,i);
+      if(r===true){ Sound.sfx('tap'); this.toast('Der Geologe macht sich auf den Weg'); this.state.sel=-1; this.closeSheet(); }
+      else if(r==='nopick') this.toast('Keine Spitzhacke! Baue eine Werkzeugschmiede.');
+      else if(r==='nomount') this.toast('Kein unbeschildertes Gebirge in der Nähe.');
     };
     const del=$('#fl-del');
     if(del) del.onclick=()=>{ g.removeFlag(i); Sound.sfx('tap'); this.state.sel=-1; this.closeSheet(); };

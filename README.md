@@ -82,6 +82,10 @@ npx cap open android   # in Android Studio bauen & signieren
    mit dem Hauptquartier verbinden** (ohne Straße kein Warentransport!).
 2. **Nahrung**: Fischer/Jäger oder Bauernhof → Mühle → Bäckerei (+ Brunnen).
    Bergwerke arbeiten nur mit Essen.
+   **Werkzeuge**: Die Werkzeugschmiede (Eisen + Brett, schneller mit Essen)
+   schmiedet Hämmer (jede Baustelle braucht einen) und Spitzhacken
+   (jeder Geologen-Einsatz braucht eine). Geologen ruft man an einer Fahne
+   nahe dem Gebirge – bei Funden stellen sie Erzschilder auf.
 3. **Militär**: Die Waffenschmiede schmiedet reihum Schwert, Schild, Speer und
    Bogen. Im HQ entsteht aus Bier + Waffe ein Soldat: Schwert+Schild →
    Schwertkämpfer, Speer → Speerkämpfer, Bogen → Bogenschütze.

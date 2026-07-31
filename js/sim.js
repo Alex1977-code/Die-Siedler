@@ -442,10 +442,19 @@ export class Game {
   }
 
   // ---------- Geologe ----------
+  // eine Ware aus einem Lager des Spielers entnehmen (für Werkzeuge)
+  takeGood(pl, good){
+    for(const b of this.buildings.values()){
+      if(b.player!==pl || !b.inv || b.state!=='done') continue;
+      if((b.inv[good]||0)>0){ b.inv[good]--; return true; }
+    }
+    return false;
+  }
   callGeologist(pl, flagNode){
-    if(!this.map.flag[flagNode]) return false;
-    const near=this.nodesInRange(flagNode,6).some(n=>this.map.terr[n]===TER.MOUNT && !this.signs.has(n));
-    if(!near) return false;
+    if(!this.map.flag[flagNode]) return 'noflag';
+    const near=this.nodesInRange(flagNode,8).some(n=>this.map.terr[n]===TER.MOUNT && !this.signs.has(n));
+    if(!near) return 'nomount';
+    if(!this.takeGood(pl,'pick')) return 'nopick';   // Geologe braucht eine Spitzhacke
     const hq=this.buildings.get(this.players[pl].hq);
     const [sx,sy]=this.map.worldPos((hq||{node:flagNode}).node);
     this.units.push({ id:NEXT_ID++, type:'geo', player:pl, x:sx, y:sy,
@@ -459,7 +468,7 @@ export class Game {
       if(this.moveToward(u,tx,ty,WALK_SPEED)) u.state='seek';
     } else if(u.state==='seek'){
       let best=-1;
-      for(const n of this.nodesInRange(u.flag,6)){
+      for(const n of this.nodesInRange(u.flag,8)){
         if(m.terr[n]!==TER.MOUNT || this.signs.has(n) || m.bld[n]>=0) continue;
         best=n; break;
       }
@@ -578,10 +587,12 @@ export class Game {
       if(b.player<0) continue;
       const def=BLD[b.type];
       if(b.state==='build'){
+        // Baumaterial + 1 Hammer für die Bauarbeiter (aus der Werkzeugschmiede)
         for(const g of ['board','stone']){
           const need=(def.cost[g]||0) - (b.stock[g]||0) - (b.incoming[g]||0);
           for(let k=0;k<need;k++) reqs.push({b, good:g, prio:0});
         }
+        if((b.stock.hammer||0)+(b.incoming.hammer||0)<1) reqs.push({b, good:'hammer', prio:0});
       } else if(b.state==='done'){
         if(def.prod){
           for(const g in def.prod.inputs){
@@ -589,6 +600,10 @@ export class Game {
             const need=want-(b.stock[g]||0)-(b.incoming[g]||0);
             for(let k=0;k<need;k++) reqs.push({b, good:g, prio:1});
           }
+        }
+        if(def.foodBoost){
+          let have=0; for(const f of FOODS) have+=(b.stock[f]||0)+(b.incoming[f]||0);
+          if(have<2) reqs.push({b, good:'@food', prio:2});
         }
         if(def.mine){
           let have=0; for(const f of FOODS) have+=(b.stock[f]||0)+(b.incoming[f]||0);
@@ -778,7 +793,8 @@ export class Game {
       if(b.state!=='build') continue;
       const def=BLD[b.type];
       const needB=def.cost.board||0, needS=def.cost.stone||0;
-      const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS;
+      const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS
+        && (b.stock.hammer||0)>=1;   // ohne Hammer kein Baubeginn
       if(!haveAll) continue;
       b.progress += 1;
       const total = 80 + 30*((def.cost.board||0)+(def.cost.stone||0));
@@ -805,10 +821,13 @@ export class Game {
         let ok=true;
         for(const g in def.prod.inputs) if((b.stock[g]||0)<def.prod.inputs[g]) ok=false;
         if(!ok){ b.prodT=0; continue; }
-        b.prodT++;
+        // Werkzeugschmiede: mit Essen doppelt so schnell
+        const fed=def.foodBoost && FOODS.some(f=>(b.stock[f]||0)>0);
+        b.prodT += fed? 2 : 1;
         if(b.prodT>=def.prod.time){
           b.prodT=0;
           for(const g in def.prod.inputs) b.stock[g]-=def.prod.inputs[g];
+          if(fed){ const f=FOODS.find(k=>(b.stock[k]||0)>0); if(f) b.stock[f]--; }
           if(def.prod.outs){ b.altOut=((b.altOut||0)+1)%def.prod.outs.length; }
           b.out++;
           this.onProduce && this.onProduce(b);
@@ -1288,6 +1307,7 @@ export class Game {
       p.aiState.lastBonus=this.t;
       hq.inv.board=(hq.inv.board||0)+2*lvl;
       hq.inv.stone=(hq.inv.stone||0)+1*lvl;
+      hq.inv.hammer=(hq.inv.hammer||0)+3;   // Bauarbeiter-Hämmer
       if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1; }
     }
     const want=[];
@@ -1306,6 +1326,7 @@ export class Game {
     if(c('coalmine')<1) want.push('coalmine');
     if(c('ironmine')<1) want.push('ironmine');
     if(c('smelter')<1) want.push('smelter');
+    if(c('toolsmith')<1) want.push('toolsmith');
     if(c('armory')<1) want.push('armory');
     if(c('brewery')<1) want.push('brewery');
     if(lvl>=2 && c('goldmine')<1) want.push('goldmine');
@@ -1466,6 +1487,11 @@ export class Game {
     for(const u of g.units){
       if(u.type==='attack') u.soldiers=u.soldiers.map(conv);
       if(u.type==='soldierMove' && !u.stype) u.stype='sword';
+    }
+    // Alt-Spielstände ohne Werkzeug-Wirtschaft: Startwerkzeuge nachlegen
+    for(const p of g.players){
+      const hq=g.buildings.get(p.hq);
+      if(hq && hq.inv && hq.inv.hammer===undefined){ hq.inv.hammer=10; hq.inv.pick=2; }
     }
     // Reservierungen & halboffene Trägeraufträge nach dem Laden zurücksetzen
     for(const items of g.flagItems.values()) for(const it of items) it.reserved=false;

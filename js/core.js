@@ -26,6 +26,8 @@ export const GOODS = {
   spear:  { name:'Speer' },
   bow:    { name:'Bogen' },
   beer:   { name:'Bier' },
+  pick:   { name:'Spitzhacke' },
+  hammer: { name:'Hammer' },
 };
 export const GOOD_LIST = Object.keys(GOODS);
 export const FOODS = ['fish','bread','meat'];
@@ -54,6 +56,7 @@ export const BLD = {
   smelter:    { name:'Eisenhütte', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'iron', inputs:{ironore:1,coal:1}, time:100}, desc:'Schmilzt Erz zu Eisen.' },
   mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Als Sold machen sie Verteidiger stärker.' },
   armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
+  toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet Hämmer (Bauarbeiter) und Spitzhacken (Geologen). Mit Essen doppelt so schnell.' },
   barracks:   { name:'Baracke', cat:'militaer', size:'S', cost:{board:2,stone:1}, mil:{cap:2,radius:8}, desc:'Kleiner Posten. Erweitert dein Gebiet.' },
   guardhouse: { name:'Wachhaus', cat:'militaer', size:'S', cost:{board:2,stone:3}, mil:{cap:3,radius:9}, desc:'Fester Posten mit drei Soldaten.' },
   watchtower: { name:'Wachturm', cat:'militaer', size:'M', cost:{board:3,stone:5}, mil:{cap:6,radius:11}, desc:'Hoher Turm, weite Grenzen.' },
@@ -80,7 +83,7 @@ export const STYPE_LIST = Object.keys(STYPES);
 export const PLAYER_COLORS = ['#4a6d9c','#a84a38','#c2a24e','#7d5a8a'];
 export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
-export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:5, sword:3, shield:3, spear:2, bow:2, coal:4, iron:2, coin:2, grain:4, water:4 };
+export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:5, sword:3, shield:3, spear:2, bow:2, coal:4, iron:2, coin:2, grain:4, water:4, hammer:10, pick:2 };
 
 // ---------- Hilfsfunktionen ----------
 export function mulberry32(seed){
