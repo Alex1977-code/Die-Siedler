@@ -84,6 +84,37 @@ npx cap open android   # in Android Studio bauen & signieren
 4. **Angriff**: Feindliches Militärgebäude antippen, Truppenstärke wählen.
    Fällt das gegnerische Hauptquartier, ist der Feind besiegt.
 
+## Eigene Grafik-Assets einbinden (Stilguide-Pipeline)
+
+Die gesamte Grafik wird prozedural vom Code gezeichnet – es gibt kein
+Sprite-Pack. Wer stattdessen echte (z. B. KI-generierte) Bilder im Stil
+des Grafik-Stilguides verwenden will, legt sie einfach als **freigestellte
+PNGs** in den Ordner `assets/` und listet die Dateinamen in
+`assets/manifest.json` auf, z. B.:
+
+```json
+["bld_woodcutter.png", "tree_leaf.png", "unit_farmer.png", "icon_board.png"]
+```
+
+Das Spiel nutzt vorhandene Dateien automatisch statt der prozeduralen
+Sprites – ohne Codeänderung. Fehlt eine Datei, bleibt das prozedurale
+Sprite aktiv (beliebig mischbar).
+
+**Namensschema** (Auswahl; Prompts dazu liefert der Stilguide, Abschnitt 15):
+
+| Asset-Key | Ersetzt | Empfehlung |
+| --- | --- | --- |
+| `bld_<typ>.png` | fertiges Gebäude (`woodcutter`, `sawmill`, `farm`, `hq`, `fortress`, `watchtower`, `mill`, `chapel`, …) | ~512 px hoch, transparent |
+| `bld_<typ>_build.png` / `bld_baustelle.png` | Baustelle (typspezifisch / generisch) | wie oben |
+| `tree_leaf.png`, `tree_conifer.png`, `tree_autumn.png` | Bäume (Wachstum wird skaliert) | ~512 px hoch |
+| `unit_carrier.png`, `unit_soldier.png`, `unit_<beruf>.png` | Figuren (`woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
+| `icon_<ware>.png`, `icon_soldier.png` | HUD-Icons (`board`, `stone`, `bread`, `fish`, `coal`, `iron`, `coin`) | 64×64 px |
+
+Wichtig für einen stimmigen Look: alle Assets im selben Stil, gleicher
+Blickwinkel (ca. 40° isometrisch), Licht konsequent von links oben,
+weicher Kontaktschatten – genau wie im Sprite-Template des Stilguides
+(Abschnitt 14) beschrieben.
+
 ## Technik
 
 - Vanilla JS (ES-Module), kein Framework, kein Build-Schritt

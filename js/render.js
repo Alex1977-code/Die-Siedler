@@ -62,6 +62,7 @@ export class Renderer {
     this.chunkVer=new Map();
     this.sprites=new Map();
     this.time=0;
+    this.loadAssets();
   }
   setGame(game){
     this.game=game;
@@ -456,16 +457,39 @@ export class Renderer {
     }
   }
 
-  // ---------- Sprite-Werkzeuge ----------
+  // ---------- Sprite-Werkzeuge (2x Supersampling für scharfe Nahansicht) ----------
   sprite(key, w, h, draw){
     let s=this.sprites.get(key);
     if(s) return s;
-    const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    const SS=2;
+    const cv=document.createElement('canvas'); cv.width=w*SS; cv.height=h*SS;
     const g=cv.getContext('2d');
     g.lineJoin='round'; g.lineCap='round';
+    g.scale(SS,SS);
     draw(g, w, h);
-    this.sprites.set(key,cv);
-    return cv;
+    s={cv, w, h};
+    this.sprites.set(key,s);
+    return s;
+  }
+  // ---------- Asset-Überschreibungen (Stilguide §14): PNGs aus assets/ ersetzen Prozedural-Sprites ----------
+  loadAssets(){
+    if(this.assets) return;
+    this.assets=new Map();
+    fetch('assets/manifest.json')
+      .then(r=> r.ok? r.json() : null)
+      .then(list=>{
+        if(!Array.isArray(list)) return;
+        for(const name of list){
+          const img=new Image();
+          img.src='assets/'+name;
+          this.assets.set(name.replace(/\.png$/i,''), img);
+        }
+      })
+      .catch(()=>{});
+  }
+  asset(key){
+    const img=this.assets && this.assets.get(key);
+    return (img && img.complete && img.naturalWidth>0) ? img : null;
   }
   shadow(g,x,y,rx,ry,a=0.26){
     g.fillStyle=`rgba(12,18,10,${a})`;
@@ -1758,15 +1782,20 @@ export class Renderer {
         // Nadel / Laub grün / Laub herbstlich (Amber & Rost, nur außerhalb des Winters)
         const species=hsh<0.5?0: (hsh<0.86||this.theme==='winter')?1:2;
         const sc=0.85+hash01(i*7+1)*0.3;
-        const s=this.treeSprite(st,this.theme,species);
-        const w=56*sc, h=74*sc;
+        // Asset-Überschreibung (Stilguide §14): tree_conifer/tree_leaf/tree_autumn.png
+        const ovT=this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        const grow=st===3?1:st===2?0.72:0.45;
+        const s=ovT?null:this.treeSprite(st,this.theme,species);
+        const h=74*sc*(ovT?grow:1);
+        const w=ovT? h*(ovT.naturalWidth/ovT.naturalHeight) : 56*sc;
         this.shadow(g,x+8*sc,y+2, 16*sc*(st/3), 4.2*sc, 0.2);
         // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
         const sway=Math.sin(this.time/1150 + i*0.73)*0.05 + Math.sin(this.time/451 + i*1.7)*0.013;
         g.save();
         g.translate(x, y+4);
         g.transform(1,0,sway,1,0,0);
-        g.drawImage(s, -w/2, -h, w, h);
+        if(ovT) g.drawImage(ovT, -w/2, -h, w, h);
+        else g.drawImage(s.cv, -w/2, -h, w, h);
         g.restore();
         break;
       }
@@ -1841,7 +1870,16 @@ export class Renderer {
     g.beginPath(); g.ellipse(x,y+2, big?36:def.size==='M'?29:23, big?11:9, 0, 0, 7); g.fill();
     // goldene Stunde: lange, weiche Schatten nach Südost
     this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
-    g.drawImage(s, x-s.width/2, y-s.height+10);
+    // Asset-Überschreibung (Stilguide §14): bld_<typ>.png bzw. bld_<typ>_build.png
+    const ov=this.asset(b.state==='build' ? 'bld_'+b.type+'_build' : 'bld_'+b.type)
+      || (b.state==='build' ? this.asset('bld_baustelle') : null);
+    if(ov){
+      const hh=big?96:def.size==='M'?80:64;
+      const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      g.drawImage(ov, x-ww/2, y-hh+10, ww, hh);
+    } else {
+      g.drawImage(s.cv, x-s.w/2, y-s.h+10, s.w, s.h);
+    }
     if(b.state==='build'){
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
       g.fillStyle='rgba(15,20,12,0.55)'; g.fillRect(x-17,y+7,34,6);
@@ -1957,6 +1995,19 @@ export class Renderer {
     }
   }
   drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null){
+    // Asset-Überschreibung (Stilguide §14): unit_<beruf>.png / unit_carrier.png / unit_soldier.png
+    const ovU=this.asset(kind==='soldier'?'unit_soldier': kind==='carrier'?'unit_carrier':'unit_'+(wtype||'worker'));
+    if(ovU){
+      this.shadow(g,x,y+7.4,5.8,2.3,0.26);
+      const hh=34, ww=hh*(ovU.naturalWidth/ovU.naturalHeight);
+      g.drawImage(ovU, x-ww/2, y+7-hh, ww, hh);
+      if(good){
+        g.fillStyle=goodColor(good);
+        g.fillRect(x-3.4,y-24,6.8,5.4);
+        g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-3.4,y-24,6.8,5.4);
+      }
+      return;
+    }
     const col=PLAYER_COLORS[pl]||'#888';
     // Berufs-Ausstattung: Kleidung, Kopfbedeckung, Werkzeug
     const PRO={

@@ -717,8 +717,11 @@ export class UI {
     const g=this.game; if(!g) return;
     const inv=g.invTotal(0);
     const show=[['board','🪵'],['stone','🪨'],['bread','🍞'],['fish','🐟'],['coal','⬛'],['iron','⛓️'],['coin','🟡']];
-    $('#res-bar').innerHTML=show.map(([k,ic])=>`<span>${ic}${inv[k]||0}</span>`).join('')
-      +`<span>⚔️${g.soldierCount(0)}</span>`;
+    // Asset-Überschreibung (Stilguide §14/G): icon_<ware>.png ersetzt das Emoji
+    const ic=(k,fallback)=> this.renderer.asset('icon_'+k)
+      ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">` : fallback;
+    $('#res-bar').innerHTML=show.map(([k,em])=>`<span>${ic(k,em)}${inv[k]||0}</span>`).join('')
+      +`<span>${ic('soldier','⚔️')}${g.soldierCount(0)}</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }
   pollMsgs(){

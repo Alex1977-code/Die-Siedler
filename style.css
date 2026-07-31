@@ -103,6 +103,7 @@ h1::after{
   border:1px solid rgba(201,160,90,0.3);
 }
 #res-bar span{ display:inline-flex; gap:2px; align-items:center; }
+.res-ic{ width:17px; height:17px; object-fit:contain; }
 #objectives{
   position:absolute; top:calc(58px + env(safe-area-inset-top)); left:8px;
   background:rgba(20,30,44,0.92); border:1px solid #4a5a70; border-radius:12px;
