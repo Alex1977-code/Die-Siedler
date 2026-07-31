@@ -130,6 +130,12 @@ export class Renderer {
     const bob=walk? Math.abs(Math.sin(this.time/130+s.phase))*1.4 : 0;
     const x=s.x, y=s.y-bob;
     this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
+    const ovSh=this.asset('deco_sheep');
+    if(ovSh){
+      const hh=15, ww=hh*(ovSh.naturalWidth/ovSh.naturalHeight);
+      g.drawImage(ovSh, x-ww/2, y+5-hh, ww, hh);
+      return;
+    }
     // Beine
     g.strokeStyle='#5a5248'; g.lineWidth=1.8;
     const st=walk? Math.sin(this.time/130+s.phase)*1.6 : 0;
@@ -1784,8 +1790,10 @@ export class Renderer {
         const species=hsh<0.5?0: (hsh<0.86||this.theme==='winter')?1:2;
         const sc=0.85+hash01(i*7+1)*0.3;
         // Asset-Überschreibung (Stilguide §14): tree_conifer/tree_leaf/tree_autumn.png
-        // Im Winter bleiben die prozeduralen (verschneiten) Bäume aktiv
-        const ovT=this.theme==='winter'?null:this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        // Im Winter: eigenes tree_winter.png, sonst prozedural verschneit
+        const ovT=this.theme==='winter'
+          ? this.asset('tree_winter')
+          : this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
         const grow=st===3?1:st===2?0.72:0.45;
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=74*sc*(ovT?grow:1);
@@ -1803,6 +1811,12 @@ export class Renderer {
       }
       case OBJ.STONE: {
         this.shadow(g,x,y+2,14,4.6,0.22);
+        const ovO=this.asset('obj_stone');
+        if(ovO){
+          const hh=34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
+          g.drawImage(ovO, x-ww/2, y+8-hh, ww, hh);
+          break;
+        }
         const rock=(rx,ry,rr,c)=>{
           g.fillStyle=c;
           g.beginPath();
@@ -1842,6 +1856,12 @@ export class Renderer {
       case OBJ.RUIN: {
         // verkohlte Brandruine: Aschehügel, geborstene Balken, Reststein
         this.shadow(g,x,y+2,15,4.6,0.2);
+        const ovR=this.asset('obj_ruin');
+        if(ovR){
+          const hh=30, ww=hh*(ovR.naturalWidth/ovR.naturalHeight);
+          g.drawImage(ovR, x-ww/2, y+6-hh, ww, hh);
+          break;
+        }
         g.fillStyle='rgba(46,42,38,0.85)';
         g.beginPath(); g.ellipse(x,y+1,15,6,0,0,7); g.fill();
         g.fillStyle='rgba(72,66,58,0.7)';
@@ -1865,6 +1885,16 @@ export class Renderer {
       }
       case OBJ.GATE: {
         this.shadow(g,x,y+3,22,6,0.3);
+        const ovG=this.asset('obj_gate');
+        if(ovG){
+          const hh=54, ww=hh*(ovG.naturalWidth/ovG.naturalHeight);
+          g.drawImage(ovG, x-ww/2, y+4-hh, ww, hh);
+          // Portal-Schimmer bleibt als magischer Akzent
+          const pulse=0.3+0.15*Math.sin(this.time/400);
+          g.fillStyle=`rgba(160,225,255,${pulse})`;
+          g.beginPath(); g.ellipse(x,y-hh*0.4,ww*0.16,hh*0.3,0,0,7); g.fill();
+          break;
+        }
         const pil=(px)=>{
           const gr=g.createLinearGradient(px-5,0,px+5,0);
           gr.addColorStop(0,'#9a958c'); gr.addColorStop(0.5,'#c2bdb2'); gr.addColorStop(1,'#7d786e');
@@ -2114,6 +2144,14 @@ export class Renderer {
   // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
   drawSign(g, m, i, ore){
     const [x,y]=m.worldPos(i);
+    // Asset-Überschreibung: sign_none/coal/iron/gold/granite.png
+    const ovS=this.asset('sign_'+(['none','coal','iron','gold','granite'][ore]||'none'));
+    if(ovS){
+      this.shadow(g,x+1,y+1.4,5,1.8,0.25);
+      const hh=26, ww=hh*(ovS.naturalWidth/ovS.naturalHeight);
+      g.drawImage(ovS, x-ww/2, y+2-hh, ww, hh);
+      return;
+    }
     this.shadow(g,x+1,y+1.4,4,1.6,0.25);
     g.strokeStyle='#5d452a'; g.lineWidth=2.2;
     g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-12); g.stroke();
@@ -2140,6 +2178,11 @@ export class Renderer {
       : this.asset(kind==='carrier'?'unit_carrier':'unit_'+(wtype||'worker')));
     if(ovU){
       this.shadow(g,x,y+7.4,5.8,2.3,0.26);
+      // Spielerfarb-Ring unter den Füßen (Bilder sind farbneutral)
+      g.strokeStyle=PLAYER_COLORS[pl]||'#888';
+      g.lineWidth=1.5; g.globalAlpha=0.8;
+      g.beginPath(); g.ellipse(x,y+6.8,6,2.4,0,0,7); g.stroke();
+      g.globalAlpha=1;
       const hh=34, ww=hh*(ovU.naturalWidth/ovU.naturalHeight);
       g.drawImage(ovU, x-ww/2, y+7-hh, ww, hh);
       if(good){

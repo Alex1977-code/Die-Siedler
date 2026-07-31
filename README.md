@@ -92,17 +92,18 @@ npx cap open android   # in Android Studio bauen & signieren
 ## Grafik-Assets (Stilguide-Pipeline)
 
 Das Spiel liefert im Ordner `assets/` ein komplettes **HD-Sprite-Pack**
-mit (41 PNGs: alle Gebäude, Baustelle, Bäume, HUD-Icons). Die Bilder sind
-prozedural erzeugt – vom mitgelieferten **Asset-Studio**
-(`tools/asset-studio.html` im Browser öffnen: Vorschau aller Sprites;
-`tools/assets-gen.js` ist der Generator) – und folgen dem Grafik-Stilguide:
-malerischer Realismus, 3/4-Ansicht, Licht konsequent von links oben,
-sichtbare Materialien (Reet-Halme, einzelne Schindeln, unregelmäßiger
-Stein mit Patina, Holzmaserung), Moos und Alterungsspuren.
+(62 PNGs: alle Gebäude, Baustelle, Bäume inkl. Winterbaum, Figuren,
+HUD-Icons, Kartenobjekte, Geologen-Schilder, Schaf) im Stil des
+Grafik-Stilguides: malerischer Realismus, 3/4-Ansicht, Licht von links
+oben. Die Bilder wurden nach den Stilguide-Prompts erstellt, hier
+automatisch freigestellt (Weiß → Alpha mit Federkante) und zugeschnitten.
+Als Fallback und Alternative existiert weiterhin der prozedurale
+Generator (`tools/asset-studio.html` im Browser öffnen,
+`tools/assets-gen.js` ist der Generator).
 
-Eigene Bilder (z. B. KI-generiert nach den Prompts im Stilguide) können
-jedes Sprite ersetzen: einfach als **freigestellte PNGs** in `assets/`
-legen und die Dateinamen in `assets/manifest.json` auflisten, z. B.:
+Eigene Bilder können jedes Sprite ersetzen: einfach als **freigestellte
+PNGs** in `assets/` legen und die Dateinamen in `assets/manifest.json`
+auflisten, z. B.:
 
 ```json
 ["bld_woodcutter.png", "tree_leaf.png", "unit_farmer.png", "icon_board.png"]
@@ -118,7 +119,9 @@ Sprite aktiv (beliebig mischbar).
 | --- | --- | --- |
 | `bld_<typ>.png` | fertiges Gebäude (`woodcutter`, `sawmill`, `farm`, `hq`, `fortress`, `watchtower`, `mill`, `chapel`, …) | ~512 px hoch, transparent |
 | `bld_<typ>_build.png` / `bld_baustelle.png` | Baustelle (typspezifisch / generisch) | wie oben |
-| `tree_leaf.png`, `tree_conifer.png`, `tree_autumn.png` | Bäume (Wachstum wird skaliert) | ~512 px hoch |
+| `tree_leaf.png`, `tree_conifer.png`, `tree_autumn.png`, `tree_winter.png` | Bäume (Wachstum wird skaliert; Winterbaum nur im Winterthema) | ~512 px hoch |
+| `obj_stone.png`, `obj_ruin.png`, `obj_gate.png`, `deco_sheep.png` | Kartenobjekte: Steinvorkommen, Brandruine, Tor, Schaf | ~300 px |
+| `sign_none/coal/iron/gold/granite.png` | Geologen-Schilder | ~220 px hoch |
 | `unit_carrier.png`, `unit_sword.png`, `unit_spear.png`, `unit_bow.png`, `unit_soldier.png` (Fallback), `unit_<beruf>.png` | Figuren (Truppentypen; Berufe: `woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
 | `icon_<ware>.png`, `icon_soldier.png` | HUD-Icons (`board`, `stone`, `bread`, `fish`, `coal`, `iron`, `coin`) | 64×64 px |
 
