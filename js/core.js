@@ -64,8 +64,9 @@ export const BLD_KEYS = Object.keys(BLD);
 
 export const RANKS = ['Rekrut','Gefreiter','Feldwebel','Offizier','General'];
 
-export const PLAYER_COLORS = ['#3f7fdb','#d9483b','#e8b93c','#9b59d0'];
-export const PLAYER_COLORS_DARK = ['#26538f','#8f2c23','#9a7a1f','#663a8f'];
+// gedeckte, erdige Spielerfarben (Stilguide: keine Übersättigung)
+export const PLAYER_COLORS = ['#4a6d9c','#a84a38','#c2a24e','#7d5a8a'];
+export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
 export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:4, sword:4, shield:4, coal:4, iron:2, coin:2, grain:4, water:4 };
 

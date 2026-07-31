@@ -2,20 +2,20 @@
 import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK, RANKS } from './core.js';
 import { TILE, ROWH, HSCALE } from './map.js';
 
+// Stilguide-Palette: erdige Töne, Moosgrün, Strohgelb, gedecktes Blau (keine Übersättigung)
 const TER_COL = {
-  gruen:  { [TER.WATER]:'#3a86ba', [TER.GRASS]:'#6bb254', [TER.DESERT]:'#dbc17e', [TER.MOUNT]:'#a29a8c', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#568a5e', [TER.LAVA]:'#8d3a1e' },
-  winter: { [TER.WATER]:'#4f7d9c', [TER.GRASS]:'#93b184', [TER.DESERT]:'#d3bf84', [TER.MOUNT]:'#949aa6', [TER.SNOW]:'#eef2f8', [TER.SWAMP]:'#6d8573', [TER.LAVA]:'#8d3a1e' },
-  wueste: { [TER.WATER]:'#4693ba', [TER.GRASS]:'#a3b268', [TER.DESERT]:'#e3cd8c', [TER.MOUNT]:'#b3a184', [TER.SNOW]:'#f1ece0', [TER.SWAMP]:'#7d8c60', [TER.LAVA]:'#8d3a1e' },
-  vulkan: { [TER.WATER]:'#3f7899', [TER.GRASS]:'#7d9a5e', [TER.DESERT]:'#b3956e', [TER.MOUNT]:'#84766c', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#67785231', [TER.LAVA]:'#d05a20' },
-  sumpf:  { [TER.WATER]:'#457d85', [TER.GRASS]:'#6d9c5e', [TER.DESERT]:'#c1b27d', [TER.MOUNT]:'#918e82', [TER.SNOW]:'#eef1f6', [TER.SWAMP]:'#567b5c', [TER.LAVA]:'#8d3a1e' },
+  gruen:  { [TER.WATER]:'#4a83a6', [TER.GRASS]:'#7ba55e', [TER.DESERT]:'#d1ba82', [TER.MOUNT]:'#a1988a', [TER.SNOW]:'#eceff3', [TER.SWAMP]:'#5d8560', [TER.LAVA]:'#8d3a1e' },
+  winter: { [TER.WATER]:'#547e99', [TER.GRASS]:'#94ac88', [TER.DESERT]:'#cdba86', [TER.MOUNT]:'#949aa4', [TER.SNOW]:'#eceff5', [TER.SWAMP]:'#6d8573', [TER.LAVA]:'#8d3a1e' },
+  wueste: { [TER.WATER]:'#4f8dab', [TER.GRASS]:'#a3aa6c', [TER.DESERT]:'#dcc78f', [TER.MOUNT]:'#b09e82', [TER.SNOW]:'#efe9dc', [TER.SWAMP]:'#7d8c60', [TER.LAVA]:'#8d3a1e' },
+  vulkan: { [TER.WATER]:'#477693', [TER.GRASS]:'#7e9660', [TER.DESERT]:'#b0946e', [TER.MOUNT]:'#84766c', [TER.SNOW]:'#eceff3', [TER.SWAMP]:'#677852', [TER.LAVA]:'#c65a24' },
+  sumpf:  { [TER.WATER]:'#4d7b82', [TER.GRASS]:'#729660', [TER.DESERT]:'#bfae7f', [TER.MOUNT]:'#918e82', [TER.SNOW]:'#eceff3', [TER.SWAMP]:'#5a7a5e', [TER.LAVA]:'#8d3a1e' },
 };
-TER_COL.vulkan[TER.SWAMP]='#677852';
 TER_COL.inseln=TER_COL.gruen; TER_COL.gebirge=TER_COL.winter;
 
 // Küstenfarben je Thema: [Strand, Flachwasser]
 const COAST_COL = {
-  gruen:['#e2d3a0','#5da3c7'], winter:['#c6ccd2','#6a95ad'], wueste:['#ecd9a2','#62a7c6'],
-  vulkan:['#a3906c','#54879f'], sumpf:['#a0966e','#578f96'],
+  gruen:['#d8c896','#6b9cb8'], winter:['#c2c8cd','#6f92a6'], wueste:['#e4d19c','#6ba0bc'],
+  vulkan:['#9f8c6a','#578299'], sumpf:['#998f6a','#5a8a90'],
 };
 COAST_COL.inseln=COAST_COL.gruen; COAST_COL.gebirge=COAST_COL.winter;
 
@@ -504,6 +504,13 @@ export class Renderer {
         gr.addColorStop(0,light); gr.addColorStop(1,dark);
         g.fillStyle=gr; rr(g,x,y,w,h,2.5); g.fill();
         g.strokeStyle=OUT; g.lineWidth=1.4; g.stroke();
+        // Verwitterungsschlieren (Patina)
+        g.strokeStyle='rgba(96,74,48,0.12)'; g.lineWidth=2;
+        const sd=(w*7+h*3)|0;
+        for(let k=0;k<2;k++){
+          const wx2=x+w*(0.18+hash01(sd+k*5)*0.64);
+          g.beginPath(); g.moveTo(wx2,y+2); g.lineTo(wx2+1,y+h*0.5+hash01(sd+k)*h*0.3); g.stroke();
+        }
       };
       const stoneGrad=(x,y,w,h)=>{
         sideQuad(x+w,y+2,x+w,y+h,'#87816f'+'');
@@ -576,13 +583,29 @@ export class Renderer {
         g.strokeStyle=OUT; g.lineWidth=1.1; g.stroke();
       };
       const gableFront=(x,y,w,rh,over)=>{
+        // leichte handwerkliche Asymmetrie: Firstpunkt und Überstände variieren
+        const wk=(hash01(((w*31+rh*17)|0)+1)-0.5)*4;
+        const oL=over+wk*0.8, oR=over-wk*0.5, ax=x+w/2+wk;
         g.beginPath();
-        g.moveTo(x-over,y+1);
-        g.quadraticCurveTo(x+w*0.16,y-rh*0.62, x+w/2-3,y-rh+1.5);
-        g.quadraticCurveTo(x+w/2,y-rh-1.5, x+w/2+3,y-rh+1.5);
-        g.quadraticCurveTo(x+w*0.84,y-rh*0.62, x+w+over,y+1);
-        g.quadraticCurveTo(x+w/2,y+4, x-over,y+1);
+        g.moveTo(x-oL,y+1);
+        g.quadraticCurveTo(x+w*0.16,y-rh*0.62, ax-3,y-rh+1.5);
+        g.quadraticCurveTo(ax,y-rh-1.5, ax+3,y-rh+1.5);
+        g.quadraticCurveTo(x+w*0.84,y-rh*0.62, x+w+oR,y+1);
+        g.quadraticCurveTo(x+w/2,y+4, x-oL,y+1);
         g.closePath();
+      };
+      // Moosflecken auf Dachflächen (Verwitterung, deterministisch je Form)
+      const roofMoss=(x,y,w,rh)=>{
+        const seed=(w*13+rh*7)|0;
+        g.fillStyle='rgba(104,132,66,0.45)';
+        for(let k=0;k<3;k++){
+          if(hash01(seed+k*3)>0.75) continue;
+          const mx=x+w*(0.2+hash01(seed+k)*0.6);
+          const my=y-rh*(0.15+hash01(seed+k*7)*0.35);
+          g.beginPath(); g.ellipse(mx,my,3.4+hash01(seed+k*11)*3,2+hash01(seed+k*13)*1.5,hash01(seed+k)*3,0,7); g.fill();
+        }
+        g.fillStyle='rgba(140,166,90,0.35)';
+        g.beginPath(); g.ellipse(x+w*(0.3+hash01(seed+29)*0.4), y-rh*0.28, 2.2, 1.4, 0.5, 0, 7); g.fill();
       };
       const roofGable=(x,y,w,rh,color,over=6)=>{
         const base=mixArr(hex2arr(color),[255,255,255],0.16);
@@ -606,6 +629,7 @@ export class Renderer {
         }
         g.strokeStyle='rgba(255,255,255,0.4)'; g.lineWidth=1.4;
         g.beginPath(); g.moveTo(x-over+3,y-1); g.quadraticCurveTo(x+w*0.17,y-rh*0.6, x+w/2-2,y-rh+2.4); g.stroke();
+        roofMoss(x,y,w,rh);
         // Dachschatten fällt auf die Wand (verstärkt die Tiefe)
         const shE=g.createLinearGradient(0,y+1,0,y+9);
         shE.addColorStop(0,'rgba(30,20,10,0.24)'); shE.addColorStop(1,'rgba(30,20,10,0)');
@@ -638,6 +662,7 @@ export class Renderer {
         // Firstkappe
         g.strokeStyle='#8f7440'; g.lineWidth=3;
         g.beginPath(); g.moveTo(x+w/2-5,y-rh+2.6); g.quadraticCurveTo(x+w/2,y-rh-1, x+w/2+5,y-rh+2.6); g.stroke();
+        roofMoss(x,y,w,rh);
         // Dachschatten auf der Wand
         const shE2=g.createLinearGradient(0,y+2,0,y+10);
         shE2.addColorStop(0,'rgba(30,20,10,0.24)'); shE2.addColorStop(1,'rgba(30,20,10,0)');
@@ -1327,7 +1352,8 @@ export class Renderer {
           g.beginPath(); g.ellipse(7*s,-19*s,8*s,2.6*s,-0.2,0,7); g.fill();
         }
       } else {
-        // Laubbaum: kräftiger Stamm mit Astgabel, unregelmäßige Lappenkrone mit Blattbüscheln
+        // Laubbaum (species 1 = grün, 2 = Herbst in Amber/Rost)
+        const autumn=species===2;
         g.fillStyle='#7d5a38';
         g.beginPath();
         g.moveTo(-3.4*s,0);
@@ -1345,9 +1371,9 @@ export class Renderer {
         const lobes=[
           [0,-42,13],[ -11,-36,10],[11,-35,10],[ -6,-47,9],[7,-46,9],[0,-30,11],[-14,-28,7.5],[14,-27,7.5],
         ];
-        const leaf= winter? '#7fa072' : '#55a047';
-        const leafD= winter? '#617f58' : '#417f37';
-        const leafL= winter? '#a2bd92' : '#79c465';
+        const leaf= winter? '#7fa072' : autumn? '#c08a42' : '#5c9c4c';
+        const leafD= winter? '#617f58' : autumn? '#96622c' : '#47793a';
+        const leafL= winter? '#a2bd92' : autumn? '#dcab60' : '#7fb968';
         // dunkle Silhouette
         g.fillStyle=leafD;
         g.beginPath();
@@ -1359,7 +1385,7 @@ export class Renderer {
         for(const [lx,ly,lr] of lobes){ g.moveTo((lx+lr-0.6)*s,(ly-1)*s); g.arc((lx-0.8)*s,(ly-1.2)*s,(lr-0.6)*s,0,7); }
         g.fill();
         // Formschatten unten rechts
-        g.fillStyle='rgba(30,70,25,0.3)';
+        g.fillStyle=autumn?'rgba(90,50,15,0.3)':'rgba(30,70,25,0.3)';
         g.beginPath();
         g.arc(8*s,-28*s,9*s,0,7); g.arc(3*s,-33*s,8*s,0,7);
         g.fill();
@@ -1368,7 +1394,7 @@ export class Renderer {
         for(const [hx,hy,hr] of [[-8,-48,3.4],[-4,-51,2.8],[-13,-40,3],[-16,-33,2.6],[-2,-44,2.4],[4,-50,2.6],[-9,-31,2.2]]){
           g.beginPath(); g.arc(hx*s,hy*s,hr*s,0,7); g.fill();
         }
-        g.fillStyle='rgba(225,245,195,0.6)';
+        g.fillStyle=autumn?'rgba(245,215,150,0.6)':'rgba(225,245,195,0.6)';
         for(const [hx,hy,hr] of [[-9,-49,1.6],[-14,-41,1.4],[-3,-52,1.3]]){
           g.beginPath(); g.arc(hx*s,hy*s,hr*s,0,7); g.fill();
         }
@@ -1540,8 +1566,8 @@ export class Renderer {
         }
         g.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
       };
-      trace(); g.strokeStyle='rgba(84,76,64,0.6)'; g.lineWidth=9.5; g.stroke();   // Bordkante
-      trace(); g.strokeStyle='#b0a795'; g.lineWidth=7; g.stroke();                // Pflasterbett
+      trace(); g.strokeStyle='rgba(92,78,60,0.6)'; g.lineWidth=9.5; g.stroke();   // Bordkante
+      trace(); g.strokeStyle='#b3a68c'; g.lineWidth=7; g.stroke();                // Pflasterbett
       // Pflastersteine entlang des Weges (zwei Farbtöne, versetzt)
       if(cam.z>0.55){
         const dark=new Path2D(), light=new Path2D();
@@ -1561,9 +1587,11 @@ export class Renderer {
           }
           acc=(acc-L)%5.6; if(acc<0) acc+=5.6;
         }
-        g.fillStyle='rgba(126,118,104,0.55)'; g.fill(dark);
-        g.fillStyle='rgba(206,198,183,0.6)'; g.fill(light);
+        g.fillStyle='rgba(122,106,86,0.55)'; g.fill(dark);
+        g.fillStyle='rgba(199,186,164,0.6)'; g.fill(light);
       }
+      // ausgetretene Wegmitte
+      trace(); g.strokeStyle='rgba(94,80,62,0.22)'; g.lineWidth=2.6; g.stroke();
     }
     // Straßen-Vorschau
     if(ui.roadPreview && ui.roadPreview.length>1){
@@ -1617,6 +1645,20 @@ export class Renderer {
       g.fill();
       g.restore();
     }
+    // ziehende Nebelschwaden (Morgennebel, sehr dezent)
+    for(let k=0;k<3;k++){
+      const mx=((this.time/1000*(3.5+k*1.2) + k*2311) % (cw+900)) - 450;
+      const my=((k*1481)%chh) + Math.sin(this.time/7000+k*1.9)*70;
+      if(mx+400<wx0||mx-400>wx1||my+200<wy0||my-200>wy1) continue;
+      const rad=g.createRadialGradient(mx,my,30,mx,my,300);
+      rad.addColorStop(0,'rgba(238,242,246,0.055)');
+      rad.addColorStop(0.6,'rgba(238,242,246,0.03)');
+      rad.addColorStop(1,'rgba(238,242,246,0)');
+      g.fillStyle=rad;
+      g.save(); g.translate(mx,my); g.scale(1.8,0.7);
+      g.beginPath(); g.arc(0,0,300,0,7); g.fill();
+      g.restore();
+    }
     // Vogelschwärme
     this.drawBirds(g, cw, chh, wx0, wx1, wy0, wy1);
     // Schafe (bewegte Deko)
@@ -1664,13 +1706,31 @@ export class Renderer {
       g.globalAlpha=1;
     }
     g.restore();
-    // warme Sonnenstimmung: Licht von Nordwest, kühle Schatten im Südosten
+    // goldene Stunde: warmes Streiflicht von Nordwest, kühle Schatten im Südosten
     const sun=g.createLinearGradient(0,0,this.vw,this.vh);
-    sun.addColorStop(0,'rgba(255,214,150,0.07)');
-    sun.addColorStop(0.5,'rgba(255,214,150,0)');
-    sun.addColorStop(1,'rgba(40,60,110,0.08)');
+    sun.addColorStop(0,'rgba(255,206,140,0.12)');
+    sun.addColorStop(0.55,'rgba(255,206,140,0.02)');
+    sun.addColorStop(1,'rgba(38,52,92,0.1)');
     g.fillStyle=sun;
     g.fillRect(0,0,this.vw,this.vh);
+    // warmer Gesamtfarbton (painterly, keine Sterilität)
+    g.globalCompositeOperation='soft-light';
+    g.fillStyle='rgba(255,190,120,0.16)';
+    g.fillRect(0,0,this.vw,this.vh);
+    g.globalCompositeOperation='source-over';
+    // Tilt-Shift: weiche Unschärfebänder oben/unten -> Diorama-Gefühl
+    if('filter' in g){
+      const dpr=this.dpr, band=Math.round(this.vh*0.14);
+      g.save();
+      g.filter='blur(2.4px)';
+      g.drawImage(this.cv, 0,0,this.cv.width,band*dpr, 0,0,this.vw,band);
+      g.drawImage(this.cv, 0,this.cv.height-band*dpr,this.cv.width,band*dpr, 0,this.vh-band,this.vw,band);
+      g.filter='blur(1.2px)';
+      const b2=Math.round(band*0.55);
+      g.drawImage(this.cv, 0,band*dpr,this.cv.width,b2*dpr, 0,band,this.vw,b2);
+      g.drawImage(this.cv, 0,this.cv.height-(band+b2)*dpr,this.cv.width,b2*dpr, 0,this.vh-band-b2,this.vw,b2);
+      g.restore();
+    }
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
   }
@@ -1695,11 +1755,12 @@ export class Renderer {
       case OBJ.SAPLING: case OBJ.TREE2: case OBJ.TREE: {
         const st=o===OBJ.SAPLING?1:o===OBJ.TREE2?2:3;
         const hsh=hash01(i);
-        const species=hsh<0.55?0:1;
+        // Nadel / Laub grün / Laub herbstlich (Amber & Rost, nur außerhalb des Winters)
+        const species=hsh<0.5?0: (hsh<0.86||this.theme==='winter')?1:2;
         const sc=0.85+hash01(i*7+1)*0.3;
         const s=this.treeSprite(st,this.theme,species);
         const w=56*sc, h=74*sc;
-        this.shadow(g,x+5*sc,y+2, 13*sc*(st/3), 4.4*sc, 0.22);
+        this.shadow(g,x+8*sc,y+2, 16*sc*(st/3), 4.2*sc, 0.2);
         // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
         const sway=Math.sin(this.time/1150 + i*0.73)*0.05 + Math.sin(this.time/451 + i*1.7)*0.013;
         g.save();
@@ -1778,7 +1839,8 @@ export class Renderer {
     // festgetretener Boden unter dem Gebäude (verankert es in der Welt)
     g.fillStyle='rgba(128,104,70,0.2)';
     g.beginPath(); g.ellipse(x,y+2, big?36:def.size==='M'?29:23, big?11:9, 0, 0, 7); g.fill();
-    this.shadow(g,x+6,y+4, big?34:def.size==='M'?27:21, big?9:7, 0.28);
+    // goldene Stunde: lange, weiche Schatten nach Südost
+    this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
     g.drawImage(s, x-s.width/2, y-s.height+10);
     if(b.state==='build'){
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
@@ -1913,7 +1975,7 @@ export class Renderer {
     this.shadow(g,x,y+7.4,5.8,2.3,0.26);
     // Figuren etwas größer und dadurch feiner lesbar
     g.save();
-    g.translate(x,y); g.scale(1.22,1.22); g.translate(-x,-y);
+    g.translate(x,y); g.scale(1.16,1.24); g.translate(-x,-y);   // leicht gestreckt = natürlicher
     y-=bob;
     // Beine mit Schuhen
     g.strokeStyle='#4a3b2c'; g.lineWidth=2.2;
@@ -1951,15 +2013,15 @@ export class Renderer {
     g.stroke();
     g.fillStyle='#f2cfa0';   // Hand
     g.beginPath(); g.arc(good? x+2.6 : x+3.2+step*2, good? y-14.5 : y-1.3, 1.2, 0, 7); g.fill();
-    // Kopf (groß & rund = putzig)
-    g.fillStyle='#f2cfa0';
-    g.beginPath(); g.arc(x,y-11.6,4.2,0,7); g.fill();
+    // Kopf: natürliche Proportion (Stilguide: leicht stilisiert, kein Chibi)
+    g.fillStyle='#e0b98c';
+    g.beginPath(); g.ellipse(x,y-11.9,3.1,3.4,0,0,7); g.fill();
     g.strokeStyle='rgba(60,40,25,0.3)'; g.lineWidth=0.8; g.stroke();
-    // Gesicht: Augen + Wangen
+    // dezentes Gesicht
     g.fillStyle='#3a3028';
-    g.beginPath(); g.arc(x-1.5,y-11.8,0.55,0,7); g.arc(x+1.5,y-11.8,0.55,0,7); g.fill();
-    g.fillStyle='rgba(240,140,120,0.35)';
-    g.beginPath(); g.arc(x-2.6,y-10.6,0.9,0,7); g.arc(x+2.6,y-10.6,0.9,0,7); g.fill();
+    g.beginPath(); g.arc(x-1.1,y-12,0.4,0,7); g.arc(x+1.1,y-12,0.4,0,7); g.fill();
+    g.strokeStyle='rgba(120,80,55,0.4)'; g.lineWidth=0.7;
+    g.beginPath(); g.moveTo(x-0.8,y-10.6); g.lineTo(x+0.8,y-10.6); g.stroke();
     // Berufswerkzeug + Kopfbedeckung
     if(pro){
       switch(pro.tool){
