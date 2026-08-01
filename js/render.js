@@ -176,6 +176,19 @@ export class Renderer {
     const n=m.nearestNode(p.x,p.y);
     if(n<0 || !m.explored[n]) return;
     const walk=p.state==='walk';
+    // gebackene GLB-Animation (Spritesheet) zuerst
+    this._animSeed=(p.phase||0)*2.2;
+    const panim=this.animFrame('unit_pig', walk?[p.tx-p.x,p.ty-p.y]:null, walk);
+    if(panim){
+      this.shadow(g,p.x+1,p.y+3.6,5.4,2,0.22);
+      const hh=13, ww=hh*(panim.sw/panim.sh);
+      g.save();
+      g.translate(p.x, p.y+3.6);
+      if(panim.flip) g.scale(-1,1);
+      g.drawImage(panim.img, panim.sx, panim.sy, panim.sw, panim.sh, -ww/2, -hh, ww, hh);
+      g.restore();
+      return;
+    }
     const bob=walk? Math.abs(Math.sin(this.time/120+p.phase))*1.1 : 0;
     this.shadow(g,p.x+1,p.y+3.6,5.4,2,0.22);
     const ov=this.asset('good_pig');
@@ -211,6 +224,21 @@ export class Renderer {
     const walk=a.state==='walk';
     const ph=this.time/110 + (a.id||0)*1.7;
     const bob=walk? Math.abs(Math.sin(ph))*1.3 : 0;
+    // gebackene GLB-Animation (Spritesheet) zuerst
+    const adir=walk? [a.tx-a.x, a.ty-a.y] : null;
+    this._animSeed=(a.id||0)*1.3;
+    const anim=this.animFrame('unit_'+a.kind, adir, walk);
+    if(anim){
+      const hh=a.kind==='hare'?14: a.kind==='boar'?18:24;
+      const ww=hh*(anim.sw/anim.sh);
+      this.shadow(g,a.x,a.y+3.9,hh*0.36,2.2,0.2);
+      g.save();
+      g.translate(a.x, a.y+4);
+      if(anim.flip) g.scale(-1,1);
+      g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      g.restore();
+      return;
+    }
     const ov=this.asset('unit_'+({deer:'deer',hare:'hare',boar:'boar'}[a.kind]));
     g.save();
     g.translate(a.x, a.y+3.4-bob);
@@ -280,6 +308,19 @@ export class Renderer {
     const n=m.nearestNode(s.x,s.y);
     if(n<0 || !m.explored[n]) return;
     const walk=s.state==='walk';
+    // gebackene GLB-Animation (Spritesheet) zuerst
+    this._animSeed=(s.phase||0)*1.8;
+    const sanim=this.animFrame('unit_sheep', walk?[s.tx-s.x,s.ty-s.y]:null, walk);
+    if(sanim){
+      this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
+      const hh=17, ww=hh*(sanim.sw/sanim.sh);
+      g.save();
+      g.translate(s.x, s.y+5);
+      if(sanim.flip) g.scale(-1,1);
+      g.drawImage(sanim.img, sanim.sx, sanim.sy, sanim.sw, sanim.sh, -ww/2, -hh, ww, hh);
+      g.restore();
+      return;
+    }
     const bob=walk? Math.abs(Math.sin(this.time/130+s.phase))*1.4 : 0;
     const x=s.x, y=s.y-bob;
     this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
@@ -2786,33 +2827,41 @@ export class Renderer {
     if(u.type==='scout'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'scout',null,udir,!!u._mov); return; }
     if(u.type==='leveler'){
       this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'leveler',null,udir,!!u._mov);
-      // Schaufel in der Hand
-      const dig= u.state==='work' ? Math.sin(this.time/160+u.id)*0.5 : 0.2;
-      g.save();
-      g.translate(u.x+6,u.y-5); g.rotate(dig);
-      g.strokeStyle='#8a6b43'; g.lineWidth=1.5;
-      g.beginPath(); g.moveTo(0,4); g.lineTo(0,-6); g.stroke();
-      g.fillStyle='#9aa0a8';
-      g.beginPath(); g.moveTo(-2.2,4); g.lineTo(2.2,4); g.lineTo(1.6,8.4); g.lineTo(-1.6,8.4); g.closePath(); g.fill();
-      g.restore();
+      // Schaufel-Overlay nur für die Prozeduralfigur (GLB-Modell bringt sie mit)
+      if(!this.asset('unit_leveler_walk')){
+        const dig= u.state==='work' ? Math.sin(this.time/160+u.id)*0.5 : 0.2;
+        g.save();
+        g.translate(u.x+6,u.y-5); g.rotate(dig);
+        g.strokeStyle='#8a6b43'; g.lineWidth=1.5;
+        g.beginPath(); g.moveTo(0,4); g.lineTo(0,-6); g.stroke();
+        g.fillStyle='#9aa0a8';
+        g.beginPath(); g.moveTo(-2.2,4); g.lineTo(2.2,4); g.lineTo(1.6,8.4); g.lineTo(-1.6,8.4); g.closePath(); g.fill();
+        g.restore();
+      }
       return;
     }
     if(u.type==='donkey'){ this.drawDonkey(g,u.x,u.y,udir,!!u._mov); return; }
     if(u.type==='builder'){
-      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'builder',null,udir,!!u._mov);
-      // Hammer sichtbar in der Hand, beim Arbeiten schwingend
-      const swing= u.state==='work' ? Math.sin(this.time/110+u.id)*0.9 : 0.35;
-      g.save();
-      g.translate(u.x+6,u.y-7);
-      g.rotate(swing);
-      g.strokeStyle='#7a5b35'; g.lineWidth=1.6;
-      g.beginPath(); g.moveTo(0,4); g.lineTo(0,-5); g.stroke();
-      g.fillStyle='#8a8f96';
-      g.fillRect(-3,-8,6,3.4);
-      g.restore();
+      // beim Hämmern die gebackene Arbeitsgeste nutzen (fight-Kanal = Arbeitszyklus)
+      const working=u.state==='work' && !u._mov && this.asset('unit_builder_atk');
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'builder', working? (u.id%5):null, udir,!!u._mov);
+      // Hammer-Overlay nur für die Prozeduralfigur (GLB-Modell bringt ihn mit)
+      if(!this.asset('unit_builder_walk')){
+        const swing= u.state==='work' ? Math.sin(this.time/110+u.id)*0.9 : 0.35;
+        g.save();
+        g.translate(u.x+6,u.y-7);
+        g.rotate(swing);
+        g.strokeStyle='#7a5b35'; g.lineWidth=1.6;
+        g.beginPath(); g.moveTo(0,4); g.lineTo(0,-5); g.stroke();
+        g.fillStyle='#8a8f96';
+        g.fillRect(-3,-8,6,3.4);
+        g.restore();
+      }
       return;
     }
-    this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype, null, udir, !!u._mov);
+    // Sammel-Arbeiter: am Ziel die gebackene Arbeitsgeste spielen (Hacken, Netz, Sense ...)
+    const acting=u.type==='worker' && u.state==='act' && this.asset('unit_'+u.wtype+'_atk');
+    this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype, acting?(u.id%5):null, udir, !!u._mov);
   }
   // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
   drawSign(g, m, i, ore){
@@ -2842,10 +2891,9 @@ export class Renderer {
       g.beginPath(); g.arc(x-0.9,y-15.3,1,0,7); g.fill();
     }
   }
-  // Frame einer gebackenen 3D-Animation wählen (oder null, wenn keine existiert)
-  animFrame(baseKey, dir, mov){
-    if(!this.asset(baseKey+'_walk_r_0')) return null;
-    if(!this._animN) this._animN={};
+  // Frame einer gebackenen 3D-Animation wählen (oder null, wenn keine existiert).
+  // Frames liegen als Spritesheet: Spalten = Frames, Zeilen = Richtungen (r,fr,f,br,b).
+  animFrame(baseKey, dir, mov, fight=null){
     // Blickrichtung in 8 Sektoren; linke Hälfte wird gespiegelt
     let dirKey='r', flip=false;
     if(dir && (Math.abs(dir[0])>0.01 || Math.abs(dir[1])>0.01)){
@@ -2855,23 +2903,19 @@ export class Renderer {
       dirKey= ang>67.5?'f' : ang>22.5?'fr' : ang>-22.5?'r' : ang>-67.5?'br' : 'b';
       if(dirKey==='f'||dirKey==='b') flip=false;      // frontal/Rücken sind symmetrisch
     }
-    const set= mov? 'walk' : (this.asset(baseKey+'_idle_r_0')? 'idle':'walk');
-    // Fallback-Kette für ältere Sets ohne Diagonalen
-    const CAND={ r:['r'], fr:['fr','r'], br:['br','r'], f:['f','r'], b:['b','r'] };
-    let prefix=null, n=0;
-    for(const dk of CAND[dirKey]){
-      const p=`${baseKey}_${set}_${dk}_`;
-      let c=this._animN[p];
-      if(c===undefined){
-        c=0; while(this.asset(p+c) && c<32) c++;
-        this._animN[p]=c;
-      }
-      if(c>0){ prefix=p; n=c; break; }
-    }
-    if(!prefix) return null;
+    const COLS={ walk:8, idle:10, atk:6 };
+    let set= fight!=null && this.asset(baseKey+'_atk') ? 'atk'
+      : mov? 'walk' : (this.asset(baseKey+'_idle')? 'idle':'walk');
+    let img=this.asset(baseKey+'_'+set);
+    if(!img && set!=='walk'){ set='walk'; img=this.asset(baseKey+'_walk'); }
+    if(!img) return null;
+    const n=COLS[set];
+    const row={r:0, fr:1, f:2, br:3, b:4}[dirKey]||0;
     let k;
     if(set==='walk'){
       k=Math.floor(this.time/85 + (this._animSeed||0))%n;
+    } else if(set==='atk'){
+      k=Math.floor(this.time/95 + (fight||0)*2.1)%n;
     } else {
       // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine
       // Geste (Fußtippen, Umschauen, Recken – aus dem Warte-Clip)
@@ -2880,12 +2924,23 @@ export class Renderer {
       if(cyc<3.0) k=Math.floor(cyc/3.0*n)%n;   // Geste: Clip einmal durchspielen
       else k=0;                                 // ruhig stehen
     }
-    const img=this.asset(prefix+k);
-    if(!img) return null;
-    return {img, flip};
+    const sw=img.naturalWidth/n, sh=img.naturalHeight/5;
+    return {img, sx:k*sw, sy:row*sh, sw, sh, flip};
   }
   // Esel: kleines Packtier (Bild-Asset unit_donkey oder prozedural)
   drawDonkey(g,x,y,dir,mov){
+    // gebackene GLB-Animation zuerst (Spritesheet), sonst Bild/prozedural
+    const anim=this.animFrame('unit_donkey', dir, mov);
+    if(anim){
+      this.shadow(g,x+1,y+5.4,7,2.4,0.24);
+      const hh=22, ww=hh*(anim.sw/anim.sh);
+      g.save();
+      g.translate(x,y+5);
+      if(anim.flip) g.scale(-1,1);
+      g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      g.restore();
+      return;
+    }
     const ov=this.asset('unit_donkey');
     this.shadow(g,x+1,y+5.4,7,2.4,0.24);
     const flip=dir && dir[0]<-0.05;
@@ -2997,18 +3052,18 @@ export class Renderer {
     if(kind==='worker' && !this.asset(baseKey) && !this.asset(baseKey+'_walk_r_0') && this.asset('unit_worker'))
       baseKey='unit_worker';
     // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
-    const anim=this.animFrame(baseKey, dir, mov);
+    const anim=this.animFrame(baseKey, dir, mov, fight);
     if(anim){
       this.shadow(g,x,y+7.4,5.8,2.3,0.26);
       g.strokeStyle=PLAYER_COLORS[pl]||'#888';
       g.lineWidth=1.5; g.globalAlpha=0.8;
       g.beginPath(); g.ellipse(x,y+6.8,6,2.4,0,0,7); g.stroke();
       g.globalAlpha=1;
-      const hh=40, ww=hh*(anim.img.naturalWidth/anim.img.naturalHeight);
+      const hh=40, ww=hh*(anim.sw/anim.sh);
       g.save();
       g.translate(x,y+8);
       if(anim.flip) g.scale(-1,1);
-      g.drawImage(anim.img, -ww/2, -hh, ww, hh);
+      g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
       g.restore();
       if(good) this.drawGood(g, good, x, y-26, 8.5);
       return;
