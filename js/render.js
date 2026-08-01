@@ -129,6 +129,80 @@ export class Renderer {
       }
     }
   }
+  // ---------- Schweine wuseln im Gehege der Schweinezucht ----------
+  updatePigs(dt){
+    if(!this.pigs) this.pigs=new Map();
+    const g=this.game;
+    // Bestände mit den vorhandenen Schweinezuchten abgleichen
+    for(const id of [...this.pigs.keys()])
+      if(!g.buildings.has(id) || g.buildings.get(id).state!=='done') this.pigs.delete(id);
+    for(const b of g.buildings.values()){
+      if(b.type!=='pigfarm' || b.state!=='done' || this.pigs.has(b.id)) continue;
+      const [bx,by]=g.map.worldPos(b.node);
+      const herd=[];
+      for(let k=0;k<3;k++){
+        herd.push({ bx, by, x:bx+(hash01(b.id*7+k)-0.5)*30, y:by+6+(hash01(b.id*13+k)-0.5)*14,
+          tx:bx, ty:by+8, state:'graze', t:800+hash01(b.id+k)*2600, phase:hash01(b.id*31+k)*6.28 });
+      }
+      this.pigs.set(b.id, herd);
+    }
+    for(const herd of this.pigs.values()){
+      for(const p of herd){
+        p.t-=dt;
+        if(p.state==='walk'){
+          const dx=p.tx-p.x, dy=p.ty-p.y;
+          const d=Math.hypot(dx,dy);
+          const sp=dt*0.014;
+          if(d<sp||d<0.5){ p.state='graze'; p.t=1200+Math.random()*3200; }
+          else { p.x+=dx/d*sp; p.y+=dy/d*sp; }
+        } else if(p.t<=0){
+          // neues Ziel im Gehege (kleiner Radius ums Gebäude)
+          p.tx=p.bx+(Math.random()-0.5)*46;
+          p.ty=p.by+7+(Math.random()-0.5)*18;
+          p.state='walk'; p.t=1500;
+          if(this.onAmbient && Math.random()<0.25){
+            const cam=this._lastCam;
+            if(cam){
+              const d=Math.hypot(p.x-cam.x,p.y-cam.y)*cam.z;
+              if(d<520) this.onAmbient('oink', Math.max(0.15,1-d/520));
+            }
+          }
+        }
+      }
+    }
+  }
+  drawPig(g,p){
+    const m=this.game.map;
+    const n=m.nearestNode(p.x,p.y);
+    if(n<0 || !m.explored[n]) return;
+    const walk=p.state==='walk';
+    const bob=walk? Math.abs(Math.sin(this.time/120+p.phase))*1.1 : 0;
+    this.shadow(g,p.x+1,p.y+3.6,5.4,2,0.22);
+    const ov=this.asset('good_pig');
+    g.save();
+    g.translate(p.x, p.y+3.4-bob);
+    if(walk && p.tx<p.x-0.5) g.scale(-1,1);
+    if(ov){
+      const hh=11, ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      g.drawImage(ov,-ww/2,-hh,ww,hh);
+    } else {
+      g.fillStyle='#d9a08e';
+      g.beginPath(); g.ellipse(0,-3.6,5,3,0,0,7); g.fill();
+      g.strokeStyle='rgba(120,70,55,0.5)'; g.lineWidth=0.8; g.stroke();
+      g.beginPath(); g.ellipse(4.6,-4.6,2,1.6,0.2,0,7); g.fill();   // Kopf
+      g.fillStyle='#c78a78';
+      g.beginPath(); g.arc(6.2,-4.4,0.9,0,7); g.fill();             // Rüssel
+      g.strokeStyle='#b57a68'; g.lineWidth=1.2;
+      const st=walk? Math.sin(this.time/120+p.phase)*1.2 : 0;
+      g.beginPath();
+      g.moveTo(-2.6,-1.4); g.lineTo(-2.6+st,1.4);
+      g.moveTo(2.6,-1.4); g.lineTo(2.6-st,1.4);
+      g.stroke();
+      g.strokeStyle='#c78a78';
+      g.beginPath(); g.moveTo(-4.8,-4.6); g.quadraticCurveTo(-6.2,-5.4,-5.6,-3.8); g.stroke(); // Ringelschwanz
+    }
+    g.restore();
+  }
   drawSheep(g, s){
     const m=this.game.map;
     const n=m.nearestNode(s.x,s.y);
@@ -1853,8 +1927,9 @@ export class Renderer {
       u._lx=u.x; u._ly=u.y;
       items.push({kind:'unit', u, y:u.y});
     }
-    // Schafe in die Tiefensortierung einreihen (sonst stehen sie VOR Bäumen)
+    // Schafe & Schweine in die Tiefensortierung einreihen
     if(this.sheep) for(const sh of this.sheep) items.push({kind:'sheep', sh, y:sh.y+4});
+    if(this.pigs) for(const herd of this.pigs.values()) for(const p of herd) items.push({kind:'pig', p, y:p.y+3});
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
@@ -1870,6 +1945,7 @@ export class Renderer {
       }
       else if(it.kind==='unit'){ this._animSeed=(it.u.id||0)*1.9; this.drawUnit(g, it.u); }
       else if(it.kind==='sheep') this.drawSheep(g, it.sh);
+      else if(it.kind==='pig') this.drawPig(g, it.p);
     }
     this.drawFx(g, game);
     // Wolkenschatten ziehen über das Land
@@ -1907,8 +1983,9 @@ export class Renderer {
     }
     // Vogelschwärme
     this.drawBirds(g, cw, chh, wx0, wx1, wy0, wy1);
-    // Schafe: Position aktualisieren (gezeichnet werden sie tiefensortiert oben)
+    // Schafe & Schweine: Positionen aktualisieren (gezeichnet tiefensortiert oben)
     this.updateSheep(dtMs);
+    this.updatePigs(dtMs);
     // Auswahl-Marker
     if(ui.sel>=0){
       const [x,y]=m.worldPos(ui.sel);
@@ -2858,6 +2935,7 @@ export class Renderer {
       smelter:   {tunic:'#6d5a52', hat:'band',    hatC:'#4f403a', tool:null},
       miner:     {tunic:'#6d665c', hat:'cap',     hatC:'#4f4a42', tool:'pick'},
       pigfarmer: {tunic:'#96805c', hat:'straw',   hatC:'#d9bb7d', tool:null},
+      donkeyherder:{tunic:'#8a7a5c', hat:'straw', hatC:'#cfa96a', tool:null},
       shipwright:{tunic:'#4e6d8a', hat:'cap',     hatC:'#3a5268', tool:null},
     };
     const pro=kind==='worker' ? (PRO[wtype]||null) : null;

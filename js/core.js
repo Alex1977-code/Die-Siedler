@@ -76,7 +76,7 @@ export const BLD_KEYS = Object.keys(BLD);
 export const PROF_OF = {
   armory:'smith', toolsmith:'toolsmith', mint:'minter', bakery:'baker',
   butcher:'butcher', mill:'miller', brewery:'brewer', smelter:'smelter',
-  pigfarm:'pigfarmer', donkeyfarm:'pigfarmer', shipyard:'shipwright',
+  pigfarm:'pigfarmer', donkeyfarm:'donkeyherder', shipyard:'shipwright',
   coalmine:'miner', ironmine:'miner', goldmine:'miner', granitemine:'miner',
   woodcutter:'woodcutter', forester:'forester', quarry:'quarry',
   fisher:'fisher', hunter:'hunter', farm:'farm',

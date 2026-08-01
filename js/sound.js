@@ -93,6 +93,11 @@ export const Sound = {
         this.osc('sawtooth',430,0.12,0.14,-40);
         setTimeout(()=>this.osc('sawtooth',360,0.2,0.16,-70),110);
         break;
+      case 'oink':   // zufriedenes Grunzen
+        this.osc('sawtooth',120,0.09,0.16,60);
+        this.noise(0.07,0.2,200,700);
+        setTimeout(()=>{ this.osc('sawtooth',95,0.11,0.14,40); this.noise(0.08,0.16,180,600); },140);
+        break;
       case 'hammer': this.noise(0.05,0.35,1200,3200); break;
       case 'done':   [440,554,659].forEach((f,i)=> setTimeout(()=>this.osc('triangle',f,0.25,0.25),i*90)); break;
       case 'coin':   this.osc('sine',1200,0.1,0.2); setTimeout(()=>this.osc('sine',1600,0.15,0.18),60); break;
