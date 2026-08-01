@@ -1681,9 +1681,33 @@ export class Renderer {
           if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12));
         }
         g.lineJoin='round'; g.lineCap='round';
-        trace(); g.strokeStyle='rgba(70,58,45,0.55)'; g.lineWidth=9.2; g.stroke();  // Bordkante
-        trace(); g.strokeStyle=this._cobPat; g.lineWidth=7.4; g.stroke();           // Pflaster
-        trace(); g.strokeStyle='rgba(94,80,62,0.22)'; g.lineWidth=2.6; g.stroke();  // Fahrspur
+        // weicher Erdsaum -> der Weg wächst aus der Wiese statt darauf zu liegen
+        trace(); g.strokeStyle='rgba(74,62,46,0.14)'; g.lineWidth=13.5; g.stroke();
+        trace(); g.strokeStyle='rgba(80,66,50,0.3)'; g.lineWidth=9.6; g.stroke();
+        g.globalAlpha=0.8;                            // Untergrund schimmert leicht durch
+        trace(); g.strokeStyle=this._cobPat; g.lineWidth=6.8; g.stroke();
+        g.globalAlpha=1;
+        trace(); g.strokeStyle='rgba(94,80,62,0.18)'; g.lineWidth=2.4; g.stroke();  // Fahrspur
+        // Grasbüschel verzahnen die Ränder mit der Wiese
+        if(cam.z>0.7 && this.theme!=='winter' && this.theme!=='wueste'){
+          for(let k=0;k<pts.length-1;k++){
+            const hsh=hash01(r.id*31+k*7);
+            if(hsh<0.5) continue;
+            const [x1,y1]=pts[k], [x2,y2]=pts[k+1];
+            const dx=x2-x1, dy=y2-y1;
+            const L=Math.hypot(dx,dy)||1;
+            const t=0.25+hsh*0.5;
+            const side=(k%2?1:-1)*(4+hsh*1.6);
+            const gx=x1+dx*t+(-dy/L)*side, gy=y1+dy*t+(dx/L)*side;
+            g.strokeStyle= hsh>0.78?'rgba(88,120,54,0.55)':'rgba(112,140,66,0.45)';
+            g.lineWidth=1.1;
+            g.beginPath();
+            g.moveTo(gx-1.5,gy+1); g.quadraticCurveTo(gx-1.3,gy-2.2,gx-0.5,gy-3);
+            g.moveTo(gx,gy+1.2); g.quadraticCurveTo(gx+0.3,gy-2.6,gx+1.1,gy-3.4);
+            g.moveTo(gx+1.4,gy+1); g.quadraticCurveTo(gx+1.8,gy-1.8,gx+2.5,gy-2.4);
+            g.stroke();
+          }
+        }
         continue;
       }
       trace(); g.strokeStyle='rgba(92,78,60,0.6)'; g.lineWidth=9.5; g.stroke();   // Bordkante

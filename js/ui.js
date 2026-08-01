@@ -425,14 +425,18 @@ export class UI {
     this.state.roadFrom=fromFlag;
     this.state.roadNodes=[fromFlag];
     this.closeSheet();
-    this.sheet(`<div class="sh-head"><b>Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">Tippe Wegpunkte. Abschluss: andere Fahne, bestehender Weg (Fahne wird gesetzt)
-      oder unten „Fahne setzen &amp; fertig".
-      ${autoHint?'<br><b>Dieses Gebäude braucht eine Verbindung zum Hauptquartier!</b>':''}</p>
+    this.sheet(`<div class="sh-head"><b>🛤️ Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
+      ${autoHint?'<p class="note"><b>Verbinde das Gebäude mit deinem Wegenetz!</b></p>':''}
+      <div class="road-help">
+        <span>👆 Wegpunkte antippen</span>
+        <span>🏠 Zielgebäude oder 🚩 Fahne antippen = anschließen</span>
+        <span>👆👆 Doppeltipp aufs Ende = Fahne + fertig</span>
+      </div>
       <div class="row">
       <button class="mbtn primary" id="road-done">🚩 Fahne setzen &amp; fertig</button>
       <button class="mbtn" id="road-undo">↩ Zurück</button>
-      <button class="mbtn back" id="road-cancel">Abbrechen</button></div>`);
+      <button class="mbtn back" id="road-cancel">✕ Abbrechen</button></div>
+      <p class="note" id="road-status">Noch keine Wegpunkte.</p>`);
     $('#sh-x').onclick=()=>this.cancelRoad();
     $('#road-cancel').onclick=()=>this.cancelRoad();
     $('#road-undo').onclick=()=>{
@@ -448,6 +452,11 @@ export class UI {
   cancelRoad(){ this.state.mode='view'; this.state.roadNodes=null; this.closeSheet(); }
   roadTap(i){
     const g=this.game;
+    // Zielgebäude angetippt? -> automatisch dessen Türfahne anpeilen
+    if(g.map.bld[i]>=0){
+      const tb=g.buildings.get(g.map.bld[i]);
+      if(tb && tb.player===0 && tb.door>=0 && g.map.flag[tb.door]) i=tb.door;
+    }
     const cur=this.state.roadNodes[this.state.roadNodes.length-1];
     if(i===cur) return;
     const seg=g.roadPath(0, cur, i);
@@ -468,6 +477,8 @@ export class UI {
       return;
     }
     this.state.roadNodes=newPath;
+    const st=$('#road-status');
+    if(st) st.textContent=`${newPath.length-1} Wegstück${newPath.length>2?'e':''} geplant.`;
     // Endpunkt könnte Fahne werden: Doppeltipp = abschließen
     if(g.canPlaceFlag(i,0)){
       if(this.lastRoadEnd===i){
@@ -476,7 +487,7 @@ export class UI {
         return;
       }
       this.lastRoadEnd=i;
-      this.toast('Nochmal tippen oder „Fahne setzen & fertig"');
+      if(st) st.textContent=`${newPath.length-1} Wegstücke – nochmal tippen für Fahne + fertig.`;
     }
   }
 
@@ -668,10 +679,17 @@ export class UI {
     const tn={[TER.WATER]:'Wasser',[TER.GRASS]:'Wiese',[TER.DESERT]:'Trockenland',[TER.MOUNT]:'Gebirge',[TER.SNOW]:'Schnee',[TER.SWAMP]:'Moor',[TER.LAVA]:'Lava'}[m.terr[i]];
     const o=m.obj[i]&127;
     const on={[OBJ.TREE]:'Ausgewachsener Baum',[OBJ.TREE2]:'Junger Baum',[OBJ.SAPLING]:'Setzling',[OBJ.STONE]:`Felsbrocken (${m.amt[i]})`,[OBJ.FIELD0]:'Feld (gesät)',[OBJ.FIELD1]:'Feld (wächst)',[OBJ.FIELD2]:'Feld (reif)',[OBJ.GATE]:'⭐ Das Tor der Ahnen'}[o]||'';
-    const ore=m.oreT[i]?['','Kohle','Eisenerz','Golderz','Granit'][m.oreT[i]]+` (${m.oreA[i]})`:'';
+    // Erz zeigt nur ein Geologen-Schild – nicht das bloße Antippen des Berges
+    let ore='';
+    if(g.signs.has(i)){
+      const s=g.signs.get(i);
+      ore= s? 'Vorkommen: '+['','Kohle','Eisenerz','Golderz','Granit'][s]+' ⛏' : 'Geologe: hier kein Erz';
+    } else if(m.terr[i]===TER.MOUNT){
+      ore='Erzvorkommen unbekannt – schicke einen Geologen!';
+    }
     const owner=m.owner[i]>=0? g.players[m.owner[i]].name : 'Niemandsland';
     this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>Vorkommen: '+ore:''}</p>`);
+      <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>`);
     $('#sh-x').onclick=()=>this.closeSheet();
   }
   confirm(txt, cb){
