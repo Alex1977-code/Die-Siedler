@@ -184,6 +184,7 @@ export class UI {
     <div id="scr-story" class="screen hidden">
       <div class="panel story">
         <h2 id="story-title"></h2>
+        <img id="story-img" alt="" hidden>
         <p id="story-text"></p>
         <p id="story-tips" class="tips"></p>
         <button id="story-go" class="mbtn primary">Auf geht's!</button>
@@ -199,7 +200,7 @@ export class UI {
       </div>
       <div id="objectives" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
-      <div id="minimap-wrap"><canvas id="minimap" width="140" height="140"></canvas></div>
+      <div id="minimap-wrap"><canvas id="minimap" width="140" height="140"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
       <div id="sheet" class="hidden"></div>
       <div id="game-menu" class="hidden">
         <div class="panel">
@@ -312,6 +313,12 @@ export class UI {
       objectives:mi.objectives,
     };
     $('#story-title').textContent=`Mission ${mi.id}: ${mi.title}`;
+    // Missions-Tafel (Landschaftsbild der Karte)
+    const simg=$('#story-img');
+    simg.hidden=true;
+    simg.onload=()=>{ simg.hidden=false; };
+    simg.onerror=()=>{ simg.hidden=true; };
+    simg.src=`assets/story_${mi.id}.jpg`;
     $('#story-text').textContent=mi.story;
     $('#story-tips').textContent='Tipp: '+mi.tips;
     this.showScreen('story');

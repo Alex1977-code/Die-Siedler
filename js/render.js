@@ -449,7 +449,6 @@ export class Renderer {
         for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
           const i=m.idx(x,y);
           const t=m.terr[i];
-          if(t===TER.WATER||t===TER.LAVA) continue;
           if(!perT.has(t)) perT.set(t,[]);
           perT.get(t).push(i);
         }
@@ -505,8 +504,18 @@ export class Renderer {
     const [px,py]=m.worldPos(i);
     const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
     if(t===TER.GRASS){
+      // Wiesen-Deko aus dem Asset-Paket (Blumen, Pilze, Distel ...), sparsam gestreut
+      if(h>0.955){
+        const dk=['deco_flowers','deco_grass','deco_mushroom','deco_rock','deco_thistle'][(hash01(i*31+5)*5)|0];
+        const dimg=this.asset(dk);
+        if(dimg){
+          const dh=this.scaleOf(dk,20)*(0.8+hash01(i*37)*0.4);
+          const dw=dh*(dimg.naturalWidth/dimg.naturalHeight);
+          g.drawImage(dimg, px+o1-dw/2, py+o2-dh+3, dw, dh);
+        }
+      }
       // weiche Farbtupfer (Wiesen-Sprenkelung)
-      if(h>0.82){
+      if(h>0.82 && h<=0.955){
         g.fillStyle=h>0.91?'rgba(190,230,140,0.1)':'rgba(40,95,40,0.09)';
         g.beginPath(); g.ellipse(px+o1,py+o2,15,9,h*3,0,7); g.fill();
       }
@@ -686,25 +695,36 @@ export class Renderer {
   loadAssets(){
     if(this.assets) return;
     this.assets=new Map();
+    this._scales=null;
+    fetch('assets/scales.json')
+      .then(r=> r.ok? r.json() : null)
+      .then(s=>{ if(s) this._scales=s; })
+      .catch(()=>{});
     fetch('assets/manifest.json')
       .then(r=> r.ok? r.json() : null)
       .then(list=>{
         if(!Array.isArray(list)) return;
         for(const name of list){
+          if(!/\.png$/i.test(name)) continue;      // JPEGs (Story-Tafeln) laufen direkt über <img src>
           const img=new Image();
           const key=name.replace(/\.png$/i,'');
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
-          if(key.startsWith('ter_')) img.onload=()=>{ this._terPat=null; this._cobPat=null; this.chunks.clear(); };
+          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{ this._terPat=null; this._cobPat=null; this.chunks.clear(); };
           img.src='assets/'+name;
           this.assets.set(key, img);
         }
       })
       .catch(()=>{});
   }
+  // Anzeigehöhe aus dem Asset-Paket (Sheet-Proportionen, Wohnhaus=Anker)
+  scaleOf(key, fb){
+    return (this._scales && this._scales[key]) || fb;
+  }
   // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
   terrainPattern(t, g){
     const KEY={ [TER.GRASS]:['ter_grass',0.32], [TER.DESERT]:['ter_sand',0.45], [TER.SNOW]:['ter_snow',0.45],
-                [TER.SWAMP]:['ter_swamp',0.45], [TER.MOUNT]:['ter_rock',0.85] };
+                [TER.SWAMP]:['ter_swamp',0.45], [TER.MOUNT]:['ter_rock',0.85],
+                [TER.WATER]:['ter_water',0.4], [TER.LAVA]:['ter_lava',0.45] };
     const e=KEY[t];
     if(!e) return null;
     if(!this._terPat) this._terPat={};
@@ -2114,7 +2134,8 @@ export class Renderer {
       const ov=this.asset('bld_'+ui.placeType);
       g.globalAlpha=0.55;
       if(ov){
-        const hh= ui.placeType==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+        const legacy= ui.placeType==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+        const hh=this.scaleOf('bld_'+ui.placeType, legacy);
         const ww=hh*(ov.naturalWidth/ov.naturalHeight);
         g.drawImage(ov, px-ww/2, py-hh+10, ww, hh);
       } else {
@@ -2207,7 +2228,7 @@ export class Renderer {
         const ovT=this.tintedTree(treeKey);
         const grow=st===3?1:st===2?0.72:0.45;
         const s=ovT?null:this.treeSprite(st,this.theme,species);
-        const h=74*sc*(ovT?grow:1);
+        const h=this.scaleOf(treeKey,74)*sc*(ovT?grow:1);
         const w=ovT? h*(ovT.width/ovT.height) : 56*sc;
         // kühler Wiesenschatten unter der Krone statt grauem Fleck
         const shR=20*sc*(st/3)+7;
@@ -2270,9 +2291,10 @@ export class Renderer {
       }
       case OBJ.FIELD0: case OBJ.FIELD1: case OBJ.FIELD2: {
         // Ackerfläche – Wachstumsstufen aus dem Asset-Pack (gepflügt/grün/reif)
-        const ovF=this.asset(o===OBJ.FIELD0?'obj_field0':o===OBJ.FIELD1?'obj_field1':'obj_field2');
+        const fkey=o===OBJ.FIELD0?'obj_field0':o===OBJ.FIELD1?'obj_field1':'obj_field2';
+        const ovF=this.asset(fkey);
         if(ovF){
-          const ww=54, hh=ww*(ovF.naturalHeight/ovF.naturalWidth);
+          const hh=this.scaleOf(fkey,40), ww=hh*(ovF.naturalWidth/ovF.naturalHeight);
           g.drawImage(ovF, x-ww/2, y+13-hh, ww, hh);
           break;
         }
@@ -2296,7 +2318,7 @@ export class Renderer {
         this.shadow(g,x,y+2,15,4.6,0.2);
         const ovR=this.asset('obj_ruin');
         if(ovR){
-          const hh=30, ww=hh*(ovR.naturalWidth/ovR.naturalHeight);
+          const hh=this.scaleOf('obj_ruin',30), ww=hh*(ovR.naturalWidth/ovR.naturalHeight);
           g.drawImage(ovR, x-ww/2, y+6-hh, ww, hh);
           break;
         }
@@ -2325,7 +2347,7 @@ export class Renderer {
         this.shadow(g,x,y+3,22,6,0.3);
         const ovG=this.asset('obj_gate');
         if(ovG){
-          const hh=54, ww=hh*(ovG.naturalWidth/ovG.naturalHeight);
+          const hh=this.scaleOf('obj_gate',54), ww=hh*(ovG.naturalWidth/ovG.naturalHeight);
           g.drawImage(ovG, x-ww/2, y+4-hh, ww, hh);
           // Portal-Schimmer bleibt als magischer Akzent
           const pulse=0.3+0.15*Math.sin(this.time/400);
@@ -2371,8 +2393,20 @@ export class Renderer {
       const v=b.id%3;
       if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
     }
+    // Baustellen-Phasen aus dem Asset-Paket: Planierung + 3 Baufortschritte je Größe
+    const sizeKey= (def.size==='L'||b.type==='hq') ? 'l' : def.size==='S' ? 's' : 'm';
     // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
     if(b.state==='build' && !b.leveled){
+      const p0=this.asset(`bld_build_${sizeKey}_0`);
+      if(p0){
+        const t=Math.min(1,(b.levelT||0)/70);
+        const hh=this.scaleOf(`bld_build_${sizeKey}_0`, 40);
+        const ww=hh*(p0.naturalWidth/p0.naturalHeight);
+        g.globalAlpha=0.45+t*0.55;
+        g.drawImage(p0, x-ww/2, y+12-hh, ww, hh);
+        g.globalAlpha=1;
+        return;
+      }
       const t=Math.min(1,(b.levelT||0)/70);
       g.fillStyle=`rgba(122,95,61,${0.2+t*0.35})`;
       g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.fill();
@@ -2389,29 +2423,38 @@ export class Renderer {
       g.stroke();
       return;
     }
-    const ov=this.asset(b.state==='build' ? typeKey+'_build' : typeKey)
-      || (b.state==='build' ? this.asset('bld_baustelle') : null);
+    let ov, ovKey=typeKey;
+    if(b.state==='build'){
+      // Baufortschritt in 3 sichtbaren Stufen
+      const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
+      const ph=1+Math.min(2, Math.floor((b.progress/total)*3));
+      ovKey=`bld_build_${sizeKey}_${ph}`;
+      ov=this.asset(ovKey) || this.asset(typeKey+'_build') || this.asset('bld_baustelle');
+      if(!this.asset(ovKey)) ovKey=null;
+    } else {
+      ov=this.asset(typeKey);
+    }
     if(ov){
-      // Hauptburg deutlich größer als normale Gebäude (Wahrzeichen der Siedlung)
-      const hh= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+      // Höhen aus dem Sheet-Maßstab (Wohnhaus=Anker); Rückfall: alte Festwerte
+      const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+      const hh=this.scaleOf(ovKey||typeKey, legacy);
       const ww=hh*(ov.naturalWidth/ov.naturalHeight);
-      // Bergwerke wachsen aus dem Hang: Felskragen hinter dem Stollenmund
-      if(def.size==='MINE'){
+      // Bergwerke: neue Bilder bringen ihren Felshügel mit, alte brauchen den Felskragen
+      if(def.size==='MINE' && !this.scaleOf(typeKey, null)){
         const rk=g.createRadialGradient(x,y-hh*0.45,4, x,y-hh*0.45, ww*0.75);
         rk.addColorStop(0,'rgba(112,106,96,0.85)');
         rk.addColorStop(0.65,'rgba(96,90,80,0.55)');
         rk.addColorStop(1,'rgba(90,84,74,0)');
         g.fillStyle=rk;
         g.beginPath(); g.ellipse(x,y-hh*0.42, ww*0.72, hh*0.62, 0, 0, 7); g.fill();
-        g.drawImage(ov, x-ww/2, y-hh+6, ww, hh);   // leicht in den Berg gesenkt
-        // Geröll am Fuß verzahnt den Stollen mit dem Hang
+        g.drawImage(ov, x-ww/2, y-hh+6, ww, hh);
         g.fillStyle='rgba(96,90,80,0.5)';
         for(let k=0;k<5;k++){
           const rx=x-ww*0.4+k*ww*0.2, ry=y+4+((k*13)%5);
           g.beginPath(); g.ellipse(rx,ry,4.5,2.4,0,0,7); g.fill();
         }
       } else {
-        g.drawImage(ov, x-ww/2, y-hh+10, ww, hh);
+        g.drawImage(ov, x-ww/2, y-hh+(def.size==='MINE'?8:10), ww, hh);
       }
     } else {
       g.drawImage(s.cv, x-s.w/2, y-s.h+10, s.w, s.h);
@@ -2453,8 +2496,9 @@ export class Renderer {
     }
     // ---------- deutliche Arbeits-Effekte ----------
     const working=b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
-    // Windmühle: rotierende Flügel (Bild ist ohne Flügel); stehen still ohne Arbeit
-    if(b.type==='mill' && b.state==='done'){
+    // Windmühle: rotierende Flügel (nur fürs alte Bild ohne Flügel – das neue
+    // Cartoon-Sheet bringt die Flügel im Bild mit)
+    if(b.type==='mill' && b.state==='done' && !this.scaleOf('bld_mill', null)){
       const hubX=x+1, hubY=y-58;
       const ang= working? this.time/650 : (b.id%6.28);
       g.save();
@@ -2777,8 +2821,8 @@ export class Renderer {
     const ovS=this.asset('sign_'+(['none','coal','iron','gold','granite'][ore]||'none'));
     if(ovS){
       this.shadow(g,x+1,y+1.4,5,1.8,0.25);
-      const hh=26, ww=hh*(ovS.naturalWidth/ovS.naturalHeight);
-      g.drawImage(ovS, x-ww/2, y+2-hh, ww, hh);
+      const hh=30, ww=hh*(ovS.naturalWidth/ovS.naturalHeight);
+      g.drawImage(ovS, x-ww/2, y+3-hh, ww, hh);
       return;
     }
     this.shadow(g,x+1,y+1.4,4,1.6,0.25);
@@ -2876,6 +2920,24 @@ export class Renderer {
   // Handelsschiff auf dem Seeweg
   drawShip(g,x,y,pl,dir,carrying){
     const bob=Math.sin(this.time/700+x*0.05)*1.2;
+    const ovShip=this.asset('unit_ship');
+    if(ovShip){
+      // neues Cartoon-Handelsschiff (Bild blickt nach links) + Spielerwimpel am Mast
+      const flip=dir && dir[0]>0.05;
+      this.shadow(g,x,y+6,13,3.4,0.22);
+      g.save();
+      g.translate(x,y+bob);
+      g.strokeStyle='rgba(235,245,250,0.4)'; g.lineWidth=1.2;
+      g.beginPath(); g.moveTo(-14,5); g.quadraticCurveTo(-9,6.6,-5,5.6); g.stroke();
+      if(flip) g.scale(-1,1);
+      const hh=38, ww=hh*(ovShip.naturalWidth/ovShip.naturalHeight);
+      g.drawImage(ovShip, -ww/2, 6-hh, ww, hh);
+      const col=PLAYER_COLORS[pl]||'#888';
+      g.fillStyle=col;
+      g.beginPath(); g.moveTo(0.5,-hh+7); g.lineTo(7.5,-hh+9.4); g.lineTo(0.5,-hh+11.6); g.closePath(); g.fill();
+      g.restore();
+      return;
+    }
     const flip=dir && dir[0]<-0.05;
     this.shadow(g,x,y+6,11,3,0.2);
     g.save();
