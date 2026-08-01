@@ -203,6 +203,78 @@ export class Renderer {
     }
     g.restore();
   }
+  // ---------- Wild: Reh, Hase, Wildschwein (Beute des Jägers) ----------
+  drawAnimal(g, a){
+    const m=this.game.map;
+    const n=m.nearestNode(a.x,a.y);
+    if(n<0 || !m.explored[n]) return;
+    const walk=a.state==='walk';
+    const ph=this.time/110 + (a.id||0)*1.7;
+    const bob=walk? Math.abs(Math.sin(ph))*1.3 : 0;
+    const ov=this.asset('unit_'+({deer:'deer',hare:'hare',boar:'boar'}[a.kind]));
+    g.save();
+    g.translate(a.x, a.y+3.4-bob);
+    // Bilder schauen nach links – spiegeln bei Lauf nach rechts
+    if(walk && a.tx>a.x+0.5) g.scale(-1,1);
+    if(ov){
+      const hh=a.kind==='hare'?10: a.kind==='boar'?13:17;
+      const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      this.shadow(g,0,0.5,hh*0.42,2.2,0.2);
+      g.drawImage(ov,-ww/2,-hh,ww,hh);
+      g.restore();
+      return;
+    }
+    const st=walk? Math.sin(ph)*1.5 : 0;
+    if(a.kind==='deer'){
+      this.shadow(g,0,0.6,6.4,2.3,0.2);
+      g.strokeStyle='#6d5136'; g.lineWidth=1.4;
+      g.beginPath();                                       // schlanke Läufe
+      g.moveTo(-3.4,-4.2); g.lineTo(-3.4+st,0.6);
+      g.moveTo(3.2,-4.2); g.lineTo(3.2-st,0.6);
+      g.stroke();
+      g.fillStyle='#8a6a44';
+      g.beginPath(); g.ellipse(0,-6.4,5.4,3.1,0,0,7); g.fill();      // Rumpf
+      g.beginPath(); g.ellipse(4.8,-9.6,1.8,2.6,0.5,0,7); g.fill();  // Hals
+      g.beginPath(); g.ellipse(6.2,-12,2.1,1.5,0.2,0,7); g.fill();   // Kopf
+      g.fillStyle='#f4efe2';
+      g.beginPath(); g.ellipse(-4.6,-5.6,1.4,1.9,0,0,7); g.fill();   // Spiegel
+      g.strokeStyle='#5d4530'; g.lineWidth=0.8;                       // kurzes Lauscher-Paar
+      g.beginPath(); g.moveTo(5.2,-13.1); g.lineTo(4.5,-14.2); g.stroke();
+      g.strokeStyle='#4a3826'; g.lineWidth=0.9;                       // kleines Geweih
+      g.beginPath();
+      g.moveTo(6.4,-13.3); g.lineTo(6.9,-15.6); g.lineTo(7.8,-16.6);
+      g.moveTo(6.9,-15.6); g.lineTo(6.2,-16.8);
+      g.stroke();
+    } else if(a.kind==='hare'){
+      this.shadow(g,0,0.4,4,1.6,0.2);
+      g.fillStyle='#9a8668';
+      const hop=walk? Math.abs(Math.sin(ph*1.6))*1.6 : 0;
+      g.beginPath(); g.ellipse(0,-2.8-hop,3.4,2.4,0,0,7); g.fill();  // Körper
+      g.beginPath(); g.arc(2.9,-4.4-hop,1.7,0,7); g.fill();          // Kopf
+      g.strokeStyle='#8a755a'; g.lineWidth=1;                         // Löffel
+      g.beginPath(); g.moveTo(2.9,-6-hop); g.lineTo(2.4,-8.4-hop);
+      g.moveTo(3.6,-6-hop); g.lineTo(3.9,-8.2-hop); g.stroke();
+      g.fillStyle='#f4efe2';
+      g.beginPath(); g.arc(-3.1,-2.4-hop,1,0,7); g.fill();           // Blume
+    } else { // Wildschwein
+      this.shadow(g,0,0.6,5.6,2.1,0.22);
+      g.strokeStyle='#4a3b2c'; g.lineWidth=1.5;
+      g.beginPath();
+      g.moveTo(-2.8,-2.2); g.lineTo(-2.8+st,1);
+      g.moveTo(2.8,-2.2); g.lineTo(2.8-st,1);
+      g.stroke();
+      g.fillStyle='#5d4a38';
+      g.beginPath(); g.ellipse(0,-4.4,5.2,3.2,0,0,7); g.fill();      // massiger Rumpf
+      g.beginPath(); g.ellipse(4.9,-4.9,2.2,1.8,0.15,0,7); g.fill(); // Kopf
+      g.fillStyle='#3f332a';
+      g.beginPath(); g.arc(6.8,-4.5,1,0,7); g.fill();                // Rüssel
+      g.strokeStyle='#8a7a68'; g.lineWidth=0.8;                       // Borstenkamm
+      g.beginPath(); g.moveTo(-3.4,-7.2); g.quadraticCurveTo(0,-8.4,3.2,-7.4); g.stroke();
+      g.fillStyle='#e8e2d4';
+      g.beginPath(); g.moveTo(5.9,-3.4); g.lineTo(6.7,-2.6); g.lineTo(6.1,-3); g.fill(); // Hauer
+    }
+    g.restore();
+  }
   drawSheep(g, s){
     const m=this.game.map;
     const n=m.nearestNode(s.x,s.y);
@@ -1930,6 +2002,8 @@ export class Renderer {
     // Schafe & Schweine in die Tiefensortierung einreihen
     if(this.sheep) for(const sh of this.sheep) items.push({kind:'sheep', sh, y:sh.y+4});
     if(this.pigs) for(const herd of this.pigs.values()) for(const p of herd) items.push({kind:'pig', p, y:p.y+3});
+    // Wild (Rehe, Hasen, Wildschweine) aus der Simulation
+    if(game.animals) for(const a of game.animals) items.push({kind:'animal', a, y:a.y+3});
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
@@ -1946,6 +2020,7 @@ export class Renderer {
       else if(it.kind==='unit'){ this._animSeed=(it.u.id||0)*1.9; this.drawUnit(g, it.u); }
       else if(it.kind==='sheep') this.drawSheep(g, it.sh);
       else if(it.kind==='pig') this.drawPig(g, it.p);
+      else if(it.kind==='animal') this.drawAnimal(g, it.a);
     }
     this.drawFx(g, game);
     // Wolkenschatten ziehen über das Land
@@ -2937,6 +3012,8 @@ export class Renderer {
       pigfarmer: {tunic:'#96805c', hat:'straw',   hatC:'#d9bb7d', tool:null},
       donkeyherder:{tunic:'#8a7a5c', hat:'straw', hatC:'#cfa96a', tool:null},
       shipwright:{tunic:'#4e6d8a', hat:'cap',     hatC:'#3a5268', tool:null},
+      carpenter: {tunic:'#a3905a', hat:'cap',     hatC:'#8a744a', tool:null},
+      welldigger:{tunic:'#5a7d8a', hat:'band',    hatC:'#44606b', tool:null},
     };
     const pro=kind==='worker' ? (PRO[wtype]||null) : null;
     const tunic= kind==='soldier' ? '#8a95a0' : pro? pro.tunic : '#6d5a44';
@@ -3191,5 +3268,7 @@ export function goodColor(good){
     grain:'#d9b74a', flour:'#efe6d2', bread:'#b8813f', water:'#5a8fc7', pig:'#d99a9a',
     coal:'#3a3a3a', ironore:'#8a6a5a', iron:'#b0b4ba', gold:'#e0b23a', coin:'#ffd54a',
     sword:'#c0c8d2', shield:'#7d8896', spear:'#a3814e', bow:'#7a5b35', beer:'#c78f3f',
+    hammer:'#8a7355', pick:'#7d7a72', axe:'#96703f', saw:'#aab0b8', scythe:'#c2b26a',
+    rod:'#6d8a9c', cleaver:'#b0685a', shovel:'#8a7a5c',
   }[good]||'#fff';
 }

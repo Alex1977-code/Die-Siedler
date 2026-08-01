@@ -28,7 +28,15 @@ export const GOODS = {
   beer:   { name:'Bier' },
   pick:   { name:'Spitzhacke' },
   hammer: { name:'Hammer' },
+  axe:    { name:'Axt' },
+  saw:    { name:'Säge' },
+  scythe: { name:'Sense' },
+  rod:    { name:'Angel' },
+  cleaver:{ name:'Beil' },
+  shovel: { name:'Schaufel' },
 };
+// Werkzeuge (Werkzeugschmiede); Bogen des Jägers kommt aus der Waffenschmiede
+export const TOOLS = ['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'];
 export const GOOD_LIST = Object.keys(GOODS);
 export const FOODS = ['fish','bread','meat'];
 
@@ -56,7 +64,7 @@ export const BLD = {
   smelter:    { name:'Eisenhütte', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'iron', inputs:{ironore:1,coal:1}, time:100}, desc:'Schmilzt Erz zu Eisen.' },
   mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Als Sold machen sie Verteidiger stärker.' },
   armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
-  toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet Hämmer (Bauarbeiter) und Spitzhacken (Geologen). Mit Essen doppelt so schnell.' },
+  toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet alle Werkzeuge (Hammer, Spitzhacke, Axt, Säge, Sense, Angel, Beil, Schaufel) – bevorzugt das, was gerade fehlt. Mit Essen doppelt so schnell.' },
   donkeyfarm: { name:'Eselzucht', cat:'industrie', size:'M', cost:{board:3,stone:1}, prod:{out:'@donkey', inputs:{grain:1,water:1}, time:200}, desc:'Züchtet Esel. Sie verstärken stark befahrene Straßen – der Transport wird schneller.' },
   harbor:     { name:'Hafen', cat:'lager', size:'M', cost:{board:3,stone:3}, store:true, coastal:true, desc:'Küstenlager. Zwei Häfen und ein Schiff eröffnen einen Seeweg für Waren.' },
   shipyard:   { name:'Werft', cat:'industrie', size:'M', cost:{board:4,stone:2}, coastal:true, prod:{out:'@ship', inputs:{board:2}, time:240}, desc:'Der Werftarbeiter baut Schiffe, die Waren zwischen Häfen befördern.' },
@@ -80,6 +88,15 @@ export const PROF_OF = {
   coalmine:'miner', ironmine:'miner', goldmine:'miner', granitemine:'miner',
   woodcutter:'woodcutter', forester:'forester', quarry:'quarry',
   fisher:'fisher', hunter:'hunter', farm:'farm',
+  sawmill:'carpenter', well:'welldigger',
+};
+
+// Werkzeug, das die Fachkraft beim Einzug mitbringen muss (bleibt im Gebäude,
+// kehrt bei Flucht/Abriss ins Lager zurück). Innenberufe brauchen keins.
+export const TOOL_OF = {
+  woodcutter:'axe', sawmill:'saw', quarry:'pick', forester:'shovel',
+  farm:'scythe', fisher:'rod', hunter:'bow', butcher:'cleaver',
+  coalmine:'pick', ironmine:'pick', goldmine:'pick', granitemine:'pick',
 };
 
 // Truppentypen (keine Ränge): Stärke im Nahkampf + Überlegenheits-Dreieck
@@ -96,7 +113,7 @@ export const STYPE_LIST = Object.keys(STYPES);
 export const PLAYER_COLORS = ['#4a6d9c','#a84a38','#c2a24e','#7d5a8a'];
 export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
-export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:5, sword:3, shield:3, spear:2, bow:2, coal:4, iron:2, coin:2, grain:4, water:4, hammer:10, pick:2 };
+export const START_GOODS = { board:24, stone:16, trunk:6, fish:8, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, water:4, hammer:10, pick:3, axe:3, saw:2, scythe:2, rod:2, cleaver:1, shovel:3 };
 
 // ---------- Hilfsfunktionen ----------
 export function mulberry32(seed){

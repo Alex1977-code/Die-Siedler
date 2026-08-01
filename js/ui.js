@@ -59,6 +59,10 @@ export class UI {
     <div id="scr-campaign" class="screen hidden">
       <div class="panel">
         <h2>Kampagne: Das zerbrochene Königreich</h2>
+        <div class="form" style="margin-bottom:10px">
+          <label>Schwierigkeitsgrad
+            <select id="c-diff"><option value="leicht">Leicht</option><option value="normal" selected>Normal</option><option value="schwer">Schwer</option></select></label>
+        </div>
         <div id="mission-list" class="mission-list"></div>
         <button class="mbtn back" data-back>Zurück</button>
       </div>
@@ -80,6 +84,8 @@ export class UI {
             <select id="f-ais"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="0">Keine (Friedlich)</option></select></label>
           <label>Stärke der Gegner
             <select id="f-lvl"><option value="1">Leicht</option><option value="2" selected>Mittel</option><option value="3">Schwer</option></select></label>
+          <label>Schwierigkeitsgrad
+            <select id="f-diff"><option value="leicht">Leicht (mehr Startwaren, zahme Gegner)</option><option value="normal" selected>Normal</option><option value="schwer">Schwer (knapper Start, aggressive Gegner)</option></select></label>
           <label>Rohstoffe
             <select id="f-res"><option value="0.7">Knapp</option><option value="1" selected>Normal</option><option value="1.5">Üppig</option></select></label>
           <label>Startkapital
@@ -137,16 +143,30 @@ export class UI {
         <h3>Wirtschaft</h3>
         <p>Bauernhof → Mühle → Bäckerei (+Brunnen) ergibt Brot. Bergwerke im Gebirge fördern Kohle,
         Eisen und Gold – aber nur mit Essen (Fisch, Brot, Fleisch). Eisenhütte macht Eisen,
-        die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.
-        Die <b>Werkzeugschmiede</b> (Eisen + Brett) schmiedet abwechselnd <b>Hämmer</b> und
-        <b>Spitzhacken</b> – mit Essen beliefert arbeitet sie doppelt so schnell. Jede Baustelle
-        braucht einen <b>Bauarbeiter</b>: eine freie Figur mit Hammer, die zur Baustelle geht und
-        dort hämmert (ohne verfügbaren Hammer ruht der Bau). Zuvor ebnet ein <b>Planierer</b> den
-        Platz. Nach Fertigstellung zieht die <b>Fachkraft sichtbar ein</b> – erst dann arbeitet das
-        Gebäude. Jeder Geologen-Einsatz verbraucht eine Spitzhacke; der <b>Späher</b> (an jeder
+        die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.</p>
+        <h3>Werkzeuge</h3>
+        <p>Die <b>Werkzeugschmiede</b> (Eisen + Brett) schmiedet <b>alle Werkzeuge</b> – und zwar
+        bevorzugt das, was gerade fehlt: Hammer (Bauarbeiter), Spitzhacke (Geologe, Steinmetz,
+        Bergleute), Axt (Holzfäller), Säge (Schreiner im Sägewerk), Sense (Bauer), Angel (Fischer),
+        Beil (Metzger) und Schaufel (Planierer, Förster). Mit Essen beliefert arbeitet sie doppelt
+        so schnell. <b>Jede Fachkraft mit Werkzeugberuf zieht nur ein, wenn ihr Werkzeug im Lager
+        liegt</b> – der Jäger braucht einen Bogen aus der Waffenschmiede. Fehlt es, wartet das
+        Gebäude sichtbar (Hinweis im Gebäudemenü). Bei Zerstörung oder Abriss rettet die Fachkraft
+        ihr Werkzeug zurück ins Lager. Jede Baustelle braucht erst einen <b>Planierer mit
+        Schaufel</b>, dann einen <b>Bauarbeiter mit Hammer</b> (beide bringen ihr Werkzeug danach
+        zurück). Jeder Geologen-Einsatz verbraucht seine Spitzhacke.</p>
+        <h3>Jagd & Tiere</h3>
+        <p>In den Wäldern streift <b>Wild</b> umher: Rehe, Hasen und Wildschweine. Der <b>Jäger</b>
+        pirscht sich an ein echtes Tier heran und erlegt es mit dem Bogen – ohne Wild in Reichweite
+        gibt es kein Fleisch. In unbesiedelten Wäldern vermehrt sich das Wild langsam. Auch
+        <b>Fischgründe</b> erholen sich mit der Zeit ein wenig. Der <b>Späher</b> (an jeder
         Fahne) erkundet den Nebel. Die <b>Eselzucht</b> schickt Esel auf stark befahrene Straßen –
         der Transport dort wird schneller. <b>Seehandel</b>: Baue zwei Häfen an der Küste und eine
         Werft – ihr Schiff eröffnet einen Seeweg, über den Waren automatisch verschifft werden.</p>
+        <h3>Schwierigkeitsgrad</h3>
+        <p><b>Leicht</b>: mehr Startwaren, zurückhaltende Gegner. <b>Normal</b>: ausgewogen.
+        <b>Schwer</b>: knapper Start, stärkere und aggressivere Gegner. Einstellbar vor jeder
+        Partie – in der Kampagne über der Missionsliste, im freien Spiel im Formular.</p>
         <h3>Militär – drei Truppentypen</h3>
         <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
         <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
@@ -209,6 +229,14 @@ export class UI {
     $('#o-music').checked=this.opts.music;
     $('#o-sfx').onchange=(e)=>{ this.opts.sfx=e.target.checked; Sound.setSfx(this.opts.sfx); SAVE.setOptions(this.opts); };
     $('#o-music').onchange=(e)=>{ this.opts.music=e.target.checked; Sound.setMusic(this.opts.music); SAVE.setOptions(this.opts); };
+    // Schwierigkeitsgrad (gemerkt für Kampagne und freies Spiel)
+    const diffInit=this.opts.diff||'normal';
+    for(const id of ['#c-diff','#f-diff']){
+      const s=$(id); if(!s) continue;
+      s.value=diffInit;
+      s.onchange=(e)=>{ this.opts.diff=e.target.value; SAVE.setOptions(this.opts);
+        const o=$(id==='#c-diff'?'#f-diff':'#c-diff'); if(o) o.value=e.target.value; };
+    }
     $('#bt-import').onclick=()=>$('#import-file').click();
     $('#import-file').onchange=async (e)=>{
       const f=e.target.files[0]; if(!f) return;
@@ -276,6 +304,7 @@ export class UI {
   startMission(mi){
     const setup={
       mode:'kampagne', seed:mi.seed, size:mi.size, theme:mi.theme, resources:1,
+      difficulty:this.opts.diff||'normal',
       gate:!!mi.gate,
       players:[{name:'Königin Mara', ai:false},
         ...mi.ais.map(a=>({name:a.name, ai:true, aiLevel:a.lvl}))],
@@ -297,6 +326,7 @@ export class UI {
       seed: seedIn? (+seedIn>>>0) : ((Math.random()*1e9)|0),
       size:$('#f-size').value, theme:$('#f-theme').value,
       resources:+$('#f-res').value, startBoost:+$('#f-boost').value,
+      difficulty:$('#f-diff')?.value || this.opts.diff || 'normal',
       players:[{name:'Du', ai:false},
         ...Array.from({length:ais},(_,i)=>({name:['Fürst Corvin','Fürstin Isra','Fürst Halvar'][i], ai:true, aiLevel:lvl}))],
       objectives: ais>0? [{type:'destroyEnemies', desc:'Besiege alle Gegner'}]:[],
@@ -692,6 +722,16 @@ export class UI {
       ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;
     } else {
       const rows=[];
+      if(b.worker && !b.worker.present){
+        rows.push(b.needTool
+          ? `⚠️ Wartet auf Werkzeug: <b>${GOODS[b.needTool].name}</b> (Werkzeugschmiede!)`
+          : '🚶 Fachkraft ist auf dem Weg …');
+      }
+      if(b.type==='hunter' && b.state==='done'){
+        const [bx,by]=g.map.worldPos(b.node);
+        const wild=g.animals.filter(a=>Math.hypot(a.x-bx,a.y-by)<(def.range||9)*40).length;
+        rows.push(wild? `Wild in Reichweite: ${wild}` : '⚠️ Kein Wild in Reichweite – Wälder ziehen Tiere an.');
+      }
       if(def.prod){
         for(const k in def.prod.inputs) rows.push(`${GOODS[k].name}: ${b.stock[k]||0}`);
         rows.push(`Fertig: ${b.out||0}`);

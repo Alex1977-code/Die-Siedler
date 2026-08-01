@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -33,8 +33,13 @@ export class Game {
     this.fx = [];                     // kosmetische Effekte (Pfeile, Feuer, Staub) – nicht gespeichert
     this.ruins = [];                  // niedergebrannte Plätze: [{node, t0}] – zerfallen nach einer Weile
     this.signs = new Map();           // nodeIdx -> Erztyp (0=nichts,1=Kohle,2=Eisen,3=Gold,4=Granit)
+    this.animals = [];                // Wild (Reh/Hase/Wildschwein) – Beute des Jägers
+    this.difficulty = setup.difficulty || 'normal';
+    const dm = Game.diffMods(this.difficulty);
     this.players = setup.players.map((p,i)=>({
-      id:i, name:p.name, ai:!!p.ai, aiLevel:p.aiLevel||1, defeated:false,
+      id:i, name:p.name, ai:!!p.ai,
+      aiLevel: p.ai ? clamp((p.aiLevel||1)+dm.aiLvl, 1, 3) : (p.aiLevel||1),
+      defeated:false,
       recruits: {sword:2, spear:1, bow:1},   // Reserve im HQ, je Truppentyp
       aiState:{phase:0, lastAttack:0, wait:0},
     }));
@@ -45,11 +50,21 @@ export class Game {
       if(i>=this.players.length) return;
       const hq = this.spawnBuilding(i,'hq',node,true);
       hq.inv = {...START_GOODS};
-      if(setup.startBoost) for(const k in hq.inv) hq.inv[k] = Math.ceil(hq.inv[k]*setup.startBoost);
+      const mul = (setup.startBoost||1) * (i===0 ? dm.startMul : 1);
+      if(mul!==1) for(const k in hq.inv) hq.inv[k] = Math.ceil(hq.inv[k]*mul);
       this.players[i].hq = hq.id;
     });
     this.recalcTerritory();
     this.exploreAll(0);
+    this.spawnAnimals();
+  }
+  // Schwierigkeitsgrad: Startwaren des Spielers, KI-Stärke, Angriffstakt, KI-Materialhilfe
+  static diffMods(diff){
+    switch(diff){
+      case 'leicht': return { startMul:1.35, aiLvl:-1, atkMul:1.6, bonusMul:0.5 };
+      case 'schwer': return { startMul:0.8,  aiLvl:+1, atkMul:0.75, bonusMul:1.3 };
+      default:       return { startMul:1,    aiLvl:0,  atkMul:1,    bonusMul:1 };
+    }
   }
 
   // ---------- Nachrichten ----------
@@ -152,12 +167,15 @@ export class Game {
     this.map.bld[b.node] = -1;
     this.buildings.delete(b.id);
     this.changedNodes.push(b.node);
-    // eingezogene Fachkraft flieht sichtbar zurück ins Hauptquartier
+    // eingezogene Fachkraft flieht sichtbar zurück ins Hauptquartier (rettet ihr Werkzeug)
     if(b.worker && b.worker.present && b.type!=='hq'){
       const [sx,sy]=this.map.worldPos(b.node);
       this.units.push({ id:NEXT_ID++, type:'flee', player:b.player, x:sx, y:sy,
-        wtype:PROF_OF[b.type]||'worker' });
+        wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null });
     }
+    // Fachkraft noch auf dem Anmarsch? -> umkehren statt verschwinden (Werkzeug!)
+    for(const u of this.units)
+      if(u.type==='settle' && u.bld===b.id){ u.type='flee'; u.bld=undefined; }
     // Seewege dieses Hafens/dieser Werft kappen
     if(b.type==='harbor'){
       for(const [rid,r] of [...this.roads])
@@ -178,8 +196,9 @@ export class Game {
         || [...this.roads.values()].some(r=>r.path[0]===b.door||r.path[r.path.length-1]===b.door);
       if(!used){ this.map.flag[b.door]=0; this.flagItems.delete(b.door); this.routeVer++; this.changedNodes.push(b.door); }
     }
-    // Träger/Einheiten dieses Gebäudes entfernen
-    this.units = this.units.filter(u=> u.bld!==b.id);
+    // Träger/Einheiten dieses Gebäudes entfernen – Bauarbeiter und Planierer
+    // bleiben und kehren mit ihrem Werkzeug heim (eigene Heim-Logik)
+    this.units = this.units.filter(u=> u.bld!==b.id || u.type==='builder' || u.type==='leveler');
     for(const bt of this.battles) if(bt.bldId===b.id) bt.doneFlag=true;
     if(BLD[b.type].mil || b.type==='hq') this.recalcTerritory();
     if(b.type==='hq') this.checkPlayerDefeat(b.player);
@@ -593,6 +612,7 @@ export class Game {
     this.tickMilitary();
     if(this.t%25===11) this.tickBuilderSpawn();
     this.tickRuins();
+    if(this.t%2===0) this.tickAnimals();
     if(this.t%10===0) this.tickGrowth();
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
@@ -609,8 +629,82 @@ export class Game {
       else if(o===OBJ.TREE2 && this.rng()<0.15){ m.obj[i]=OBJ.TREE; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD0 && this.rng()<0.25){ m.obj[i]=OBJ.FIELD1; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD1 && this.rng()<0.2){ m.obj[i]=OBJ.FIELD2; this.changedNodes.push(i); }
+      else if(m.terr[i]===TER.WATER){
+        // Fischgründe erholen sich sehr langsam; leere Gewässer werden von
+        // benachbarten Beständen wiederbesiedelt
+        if(m.fish[i]>0 && m.fish[i]<8 && this.rng()<0.05) m.fish[i]++;
+        else if(m.fish[i]===0 && this.rng()<0.02 && m.nbs(i).some(n=>m.fish[n]>=3)) m.fish[i]=1;
+      }
     }
   }
+
+  // ---------- Wild: Rehe, Hasen und Wildschweine streifen durch die Wälder ----------
+  spawnAnimals(){
+    const m=this.map, un=(o)=>o&127;
+    const forest=[];
+    for(let i=0;i<m.terr.length;i++) if(un(m.obj[i])===OBJ.TREE) forest.push(i);
+    const target=clamp(Math.round(forest.length/9), 8, 46);
+    let guard=target*30;
+    while(this.animals.length<target && guard-->0){
+      const node=forest[(this.rng()*forest.length)|0];
+      // auf einem freien Nachbarknoten neben dem Baum absetzen
+      const spot=[node,...m.nbs(node)].find(n=> m.bld[n]<0 && un(m.obj[n])!==OBJ.STONE
+        && m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA && m.terr[n]!==TER.MOUNT);
+      if(spot===undefined) continue;
+      const r=this.rng();
+      const kind = r<0.45? 'deer' : r<0.8? 'hare' : 'boar';
+      const [x,y]=m.worldPos(spot);
+      this.animals.push({ id:NEXT_ID++, kind, home:node, node:spot, x, y, tx:x, ty:y,
+        state:'graze', wait:(20+this.rng()*60)|0 });
+    }
+  }
+  tickAnimals(){
+    const m=this.map, un=(o)=>o&127;
+    const SPD={deer:2.4, hare:3.2, boar:1.8};
+    for(const a of this.animals){
+      if(a.state==='walk'){
+        const dx=a.tx-a.x, dy=a.ty-a.y, d=Math.hypot(dx,dy), sp=SPD[a.kind];
+        if(d<=sp){ a.x=a.tx; a.y=a.ty; a.state='graze'; a.wait=(25+this.rng()*90)|0; a.node=m.nearestNode(a.x,a.y); }
+        else { a.x+=dx/d*sp; a.y+=dy/d*sp; }
+      } else if(--a.wait<=0){
+        // Heimatbaum weg (abgeholzt)? -> neuen Wald in der Nähe suchen
+        if(un(m.obj[a.home])!==OBJ.TREE){
+          const near=this.nodesInRange(a.node,5).find(n=>un(m.obj[n])===OBJ.TREE);
+          if(near!==undefined) a.home=near;
+        }
+        const [hx,hy]=m.worldPos(a.home);
+        for(let k=0;k<6;k++){
+          const nx=hx+(this.rng()-0.5)*170, ny=hy+(this.rng()-0.5)*130;
+          const n=m.nearestNode(nx,ny);
+          if(n>=0 && m.bld[n]<0 && un(m.obj[n])!==OBJ.STONE
+             && m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA && m.terr[n]!==TER.MOUNT){
+            a.tx=nx; a.ty=ny; a.state='walk';
+            break;
+          }
+        }
+        a.wait=30;
+      }
+    }
+    // verwaiste Jagd-Markierungen lösen (z.B. Jägerhütte zerstört)
+    if(this.t%20===8){
+      for(const a of this.animals){
+        if(a.hunted && !this.units.some(u=>u.animalId===a.id)) a.hunted=false;
+      }
+    }
+    // langsame Vermehrung in unbesiedelten Wäldern (Kartengröße begrenzt den Bestand)
+    if(this.t%600===0 && this.animals.length){
+      const cap=clamp(Math.round(m.terr.length/240), 10, 60);
+      if(this.animals.length<cap){
+        const a=this.animals[(this.rng()*this.animals.length)|0];
+        const trees=this.nodesInRange(a.node,3).filter(n=>un(m.obj[n])===OBJ.TREE).length;
+        if(trees>=3 && m.owner[a.node]<0 && this.rng()<0.5){
+          this.animals.push({ id:NEXT_ID++, kind:a.kind, home:a.home, node:a.node,
+            x:a.x+8, y:a.y+4, tx:a.x, ty:a.y, state:'graze', wait:(30+this.rng()*80)|0 });
+        }
+      }
+    }
+  }
+  animalById(id){ return this.animals.find(a=>a.id===id); }
 
   // ---------- Logistik: Anfragen & Zuteilung ----------
   requestsOf(){
@@ -838,14 +932,8 @@ export class Game {
         this.changedNodes.push(b.node);
         if(def.mil){ this.recalcTerritory(); }
         // Einzugswanderung: die Fachkraft läuft sichtbar vom Hauptquartier her
-        if(b.worker){
-          const hq=this.buildings.get(this.players[b.player].hq);
-          if(hq){
-            const [sx,sy]=this.map.worldPos(hq.node);
-            this.units.push({ id:NEXT_ID++, type:'settle', player:b.player,
-              x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker' });
-          } else b.worker.present=true;
-        }
+        // (mit Werkzeug, sofern der Beruf eines braucht – sonst wartet das Gebäude)
+        if(b.worker) this.trySettle(b);
         if(b.player===0) this.msg(`${def.name} fertiggestellt.`, 'ok', b.node);
         this.onBuilt && this.onBuilt(b);
       }
@@ -870,6 +958,12 @@ export class Game {
         let ok=true;
         for(const g in def.prod.inputs) if((b.stock[g]||0)<def.prod.inputs[g]) ok=false;
         if(!ok){ b.prodT=0; continue; }
+        // Werkzeugschmiede: schmiedet bedarfsgesteuert – ist alles ausreichend
+        // vorhanden, ruht sie (spart Eisen)
+        if(b.type==='toolsmith' && b.prodT===0){
+          b.chosenTool=this.toolsmithChoose(b.player);
+          if(!b.chosenTool) continue;
+        }
         // Werkzeugschmiede: mit Essen doppelt so schnell
         const fed=def.foodBoost && FOODS.some(f=>(b.stock[f]||0)>0);
         b.prodT += fed? 2 : 1;
@@ -877,7 +971,10 @@ export class Game {
           b.prodT=0;
           for(const g in def.prod.inputs) b.stock[g]-=def.prod.inputs[g];
           if(fed){ const f=FOODS.find(k=>(b.stock[k]||0)>0); if(f) b.stock[f]--; }
-          if(def.prod.outs){ b.altOut=((b.altOut||0)+1)%def.prod.outs.length; }
+          if(def.prod.outs){
+            const ix=b.chosenTool? def.prod.outs.indexOf(b.chosenTool) : -1;
+            b.altOut = ix>=0? ix : ((b.altOut||0)+1)%def.prod.outs.length;
+          }
           if(def.prod.out==='@donkey') this.spawnDonkey(b);
           else if(def.prod.out==='@ship') this.launchShip(b);
           else { b.out++; this.onProduce && this.onProduce(b); }
@@ -934,7 +1031,7 @@ export class Game {
             b.worker.timer=0;
             const [bx,by]=m.worldPos(b.node);
             const u={ id:NEXT_ID++, type:'worker', wtype:b.type, player:b.player, bld:b.id,
-              x:bx, y:by, target:job.node, jobKind:job.kind, state:'go', actT:0 };
+              x:bx, y:by, target:job.node, jobKind:job.kind, animalId:job.animalId, state:'go', actT:0 };
             this.units.push(u);
             b.worker.state='out';
             if(job.reserve) m.obj[job.node]|=128; // reserviert-Bit
@@ -971,10 +1068,16 @@ export class Game {
         return null;
       }
       case 'hunt': {
-        const forest=nodes.filter(i=> un(m.obj[i])===OBJ.TREE);
-        if(forest.length>=4 && this.rng()<0.8){
-          return {node:forest[(this.rng()*forest.length)|0], kind:'hunt', reserve:false};
+        // echtes Wild in Reichweite suchen (nächstes, noch nicht bejagtes Tier)
+        const [bx,by]=m.worldPos(b.node);
+        const maxD=R*40;
+        let best=null, bd=1e9;
+        for(const a of this.animals){
+          if(a.hunted) continue;
+          const d=Math.hypot(a.x-bx, a.y-by);
+          if(d<maxD && d<bd){ bd=d; best=a; }
         }
+        if(best){ best.hunted=true; return {node:best.node, kind:'hunt', animalId:best.id, reserve:false}; }
         return null;
       }
       case 'farm': {
@@ -1053,7 +1156,15 @@ export class Game {
     const [tx,ty]=m.worldPos(u.target);
     const [hx,hy]=m.worldPos(b.node);
     if(u.state==='go'){
-      if(this.moveToward(u,tx,ty,WALK_SPEED)) { u.state='act'; u.actT=0; }
+      if(u.jobKind==='hunt'){
+        // dem lebenden Tier nachpirschen, auf Schussweite herangehen
+        const a=this.animalById(u.animalId);
+        if(!a){ u.state='back'; return; }
+        const d=Math.hypot(a.x-u.x, a.y-u.y);
+        if(d<=55){ u.state='act'; u.actT=0; }
+        else this.moveToward(u, a.x, a.y, WALK_SPEED);
+      }
+      else if(this.moveToward(u,tx,ty,WALK_SPEED)) { u.state='act'; u.actT=0; }
     } else if(u.state==='act'){
       u.actT++;
       const done=(need)=>u.actT>=need;
@@ -1089,7 +1200,17 @@ export class Game {
             u.state='back'; }
           break;
         case 'hunt':
-          if(done(40)){ if(this.rng()<0.75) u.carry='meat'; u.state='back'; }
+          if(done(24)){
+            const a=this.animalById(u.animalId);
+            if(a && Math.hypot(a.x-u.x,a.y-u.y)<=80){
+              // Pfeilschuss aufs Wild – Treffer bringt Fleisch
+              this.fx.push({type:'arrow', x0:u.x, y0:u.y-10, x1:a.x, y1:a.y-3, t0:this.t, hit:true});
+              this.animals=this.animals.filter(q=>q.id!==a.id);
+              u.carry='meat';
+              this.onVolley && u.player===0 && this.onVolley(1);
+            } else if(a) a.hunted=false;   // entwischt -> wieder freigeben
+            u.state='back';
+          }
           break;
         case 'sow':
           if(done(20)){ if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.FIELD0; this.changedNodes.push(u.target);} u.state='back'; }
@@ -1298,7 +1419,11 @@ export class Game {
   // ---------- Einzug & Flucht der Fachkräfte ----------
   tickSettle(u){
     const b=this.buildings.get(u.bld);
-    if(!b || b.state!=='done' || !b.worker){ u.dead=true; return; }
+    if(!b || b.state!=='done' || !b.worker){
+      // Ziel weg -> Fachkraft kehrt um und bringt ihr Werkzeug zurück
+      u.type='flee'; u.bld=undefined;
+      return;
+    }
     const [tx,ty]=this.map.worldPos(b.node);
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
@@ -1309,7 +1434,10 @@ export class Game {
     const hq=this.buildings.get(this.players[u.player].hq);
     if(!hq){ u.dead=true; return; }
     const [tx,ty]=this.map.worldPos(hq.node);
-    if(this.moveToward(u,tx,ty,WALK_SPEED*1.15)) u.dead=true;
+    if(this.moveToward(u,tx,ty,WALK_SPEED*1.15)){
+      u.dead=true;
+      if(u.tool && hq.inv) hq.inv[u.tool]=(hq.inv[u.tool]||0)+1;   // Werkzeug gerettet
+    }
   }
 
   // ---------- Späher: erkundet den Nebel rund um eine Fahne ----------
@@ -1447,21 +1575,84 @@ export class Game {
     this.onShip && this.onShip(sy);
   }
 
-  // ---------- Bauarbeiter: freie Figur + Hammer errichtet die Baustelle ----------
+  // ---------- Werkzeuge: aus Lagern oder direkt vom Ausstoß der Werkzeugschmiede ----------
   findToolStore(pl, good){
-    for(const b of this.buildings.values())
-      if(b.player===pl && b.inv && b.state==='done' && (b.inv[good]||0)>0) return b;
+    for(const b of this.buildings.values()){
+      if(b.player!==pl || b.state!=='done') continue;
+      if(b.inv && (b.inv[good]||0)>0) return b;
+      if(b.out>0 && this.prodGood(b)===good) return b;
+    }
     return null;
+  }
+  takeTool(store, good){
+    if(store.inv && (store.inv[good]||0)>0) store.inv[good]--;
+    else if(store.out>0) store.out--;
+  }
+  // Welches Werkzeug fehlt am dringendsten? (null = alles ausreichend vorhanden)
+  toolsmithChoose(pl){
+    const need={ hammer:2, shovel:2, pick:2 };            // Grundreserve; Rest 1
+    for(const t of TOOLS) need[t]=need[t]||1;
+    for(const b of this.buildings.values()){
+      if(b.player!==pl) continue;
+      if(b.state==='build') need[b.leveled?'hammer':'shovel']+=1;
+      else if(b.state==='done' && b.worker && !b.worker.present && !b.toolGood){
+        const t=TOOL_OF[b.type];
+        if(t && need[t]!==undefined) need[t]+=2;          // wartendes Gebäude drängt
+      }
+    }
+    const inv=this.invTotal(pl);
+    let best=null, bs=0;
+    for(const t of TOOLS){
+      const short=need[t]-(inv[t]||0);
+      if(short>bs){ bs=short; best=t; }
+    }
+    return best;
+  }
+  // Einzug der Fachkraft anstoßen: ggf. Werkzeug aus einem Lager mitnehmen.
+  // Liefert false, wenn das nötige Werkzeug fehlt (Gebäude wartet dann sichtbar).
+  trySettle(b){
+    if(!b.worker || b.worker.present) return true;
+    if(b.settlerId!=null && this.units.some(u=>u.id===b.settlerId)) return true;
+    b.settlerId=null;
+    const hq=this.buildings.get(this.players[b.player].hq);
+    if(!hq){ b.worker.present=true; return true; }
+    const tool=TOOL_OF[b.type];
+    if(tool && !b.toolGood){
+      const src=this.findToolStore(b.player, tool);
+      if(!src){
+        if(!b.needTool && b.player===0)
+          this.msg(`${BLD[b.type].name}: wartet auf Werkzeug (${GOODS[tool].name})!`, 'warn', b.node);
+        b.needTool=tool;
+        return false;
+      }
+      this.takeTool(src, tool);
+      b.toolGood=tool;                       // Werkzeug gehört jetzt zum Gebäude
+      b.needTool=null;
+    }
+    const [sx,sy]=this.map.worldPos(hq.node);
+    const u={ id:NEXT_ID++, type:'settle', player:b.player,
+      x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null };
+    this.units.push(u);
+    b.settlerId=u.id;
+    return true;
   }
   tickBuilderSpawn(){
     for(const b of this.buildings.values()){
+      // fertige Gebäude, die noch auf Werkzeug für ihre Fachkraft warten
+      if(b.state==='done' && b.worker && !b.worker.present){ this.trySettle(b); continue; }
       if(b.state!=='build') continue;
-      // Phase 1: Planierer ebnet den Bauplatz
+      // Phase 1: Planierer (freie Figur + Schaufel) ebnet den Bauplatz
       if(!b.leveled){
         if(b.levelerId!=null && this.units.some(u=>u.id===b.levelerId)) continue;
         b.levelerId=null;
         const hq=this.buildings.get(this.players[b.player].hq);
         if(!hq) continue;
+        const src=this.findToolStore(b.player,'shovel');
+        if(!src){
+          if(!b.noShovelMsg && b.player===0){ b.noShovelMsg=true; this.msg('Baustelle wartet: keine Schaufel für den Planierer!', 'warn', b.node); }
+          continue;
+        }
+        this.takeTool(src,'shovel');
         const [sx,sy]=this.map.worldPos(hq.node);
         const u={ id:NEXT_ID++, type:'leveler', player:b.player, x:sx, y:sy,
           bld:b.id, state:'toSite', pt:0 };
@@ -1473,8 +1664,11 @@ export class Game {
       if(b.builderId!=null && this.units.some(u=>u.id===b.builderId)) continue;
       b.builderId=null;
       const src=this.findToolStore(b.player,'hammer');
-      if(!src) continue;                       // kein Hammer -> kein Bauarbeiter
-      src.inv.hammer--;
+      if(!src){
+        if(!b.noHammerMsg && b.player===0){ b.noHammerMsg=true; this.msg('Baustelle wartet: kein Hammer für den Bauarbeiter!', 'warn', b.node); }
+        continue;                              // kein Hammer -> kein Bauarbeiter
+      }
+      this.takeTool(src,'hammer');
       const [sx,sy]=this.map.worldPos(src.node);
       const u={ id:NEXT_ID++, type:'builder', player:b.player, x:sx, y:sy,
         bld:b.id, state:'toSite', pt:0, swing:0 };
@@ -1501,7 +1695,10 @@ export class Game {
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }
       const [tx,ty]=m.worldPos(hq.node);
-      if(this.moveToward(u,tx,ty,WALK_SPEED)) u.dead=true;
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+        u.dead=true;
+        if(hq.inv) hq.inv.shovel=(hq.inv.shovel||0)+1;   // Schaufel zurück ins Lager
+      }
     }
   }
   tickBuilder(u){
@@ -1609,11 +1806,15 @@ export class Game {
     const inv=this.invTotal(p.id);
     const lvl=p.aiLevel;
     // KI-Bonus: leichte Materialhilfe je Level (hält das Spiel spannend, KI "mogelt" milde)
-    if(this.t-(p.aiState.lastBonus||0)>=600 && hq.inv){
+    const dm=Game.diffMods(this.difficulty);
+    if(this.t-(p.aiState.lastBonus||0)>=600/dm.bonusMul && hq.inv){
       p.aiState.lastBonus=this.t;
       hq.inv.board=(hq.inv.board||0)+2*lvl;
       hq.inv.stone=(hq.inv.stone||0)+1*lvl;
       hq.inv.hammer=(hq.inv.hammer||0)+3;   // Bauarbeiter-Hämmer
+      // Werkzeuge für die KI-Wirtschaft (Axt, Säge, Sense, Angel, Schaufel, Spitzhacke, Beil)
+      for(const t of ['axe','saw','scythe','rod','shovel','cleaver']) hq.inv[t]=(hq.inv[t]||0)+1;
+      hq.inv.pick=(hq.inv.pick||0)+2;
       if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1; }
     }
     const want=[];
@@ -1654,7 +1855,7 @@ export class Game {
       }
     }
     // Angreifen?
-    if(this.t-p.aiState.lastAttack > 1200/lvl){
+    if(this.t-p.aiState.lastAttack > 1200*dm.atkMul/lvl){
       const myS=this.soldierCount(p.id);
       let best=null, bs=1e9;
       for(const b of this.buildings.values()){
@@ -1692,7 +1893,10 @@ export class Game {
       if(def.gather==='tree') s+=nearNodes.filter(n=>un(m.obj[n])===OBJ.TREE).length*1.2;
       else if(def.gather==='stone') s+=nearNodes.filter(n=>un(m.obj[n])===OBJ.STONE).length*3;
       else if(def.gather==='fish') s+=nearNodes.filter(n=>m.terr[n]===TER.WATER&&m.fish[n]>0).length*1.4;
-      else if(def.gather==='hunt') s+=nearNodes.filter(n=>un(m.obj[n])===OBJ.TREE).length*0.6;
+      else if(def.gather==='hunt'){
+        const [wx,wy]=m.worldPos(i);
+        s+=this.animals.filter(a=>Math.hypot(a.x-wx,a.y-wy)<(def.range||9)*40).length*2.5;
+      }
       else if(def.gather==='farm'||type==='pigfarm') s+=nearNodes.filter(n=>m.obj[n]===OBJ.NONE&&m.terr[n]===TER.GRASS).length*0.35;
       else if(def.mine){
         const targetT={coalmine:1,ironmine:2,goldmine:3,granitemine:4}[type];
@@ -1755,6 +1959,7 @@ export class Game {
       flagItems:[...this.flagItems.entries()],
       units:this.units, battles:this.battles, ruins:this.ruins,
       signs:[...this.signs.entries()],
+      animals:this.animals,
       objectives:this.objectives, over:this.over, winner:this.winner,
       msgs:this.msgs.slice(-40),
     };
@@ -1784,6 +1989,8 @@ export class Game {
     g.units=data.units||[]; g.battles=data.battles||[];
     g.fx=[]; g.ruins=data.ruins||[];
     g.signs=new Map(data.signs||[]);
+    g.difficulty=data.setup.difficulty||'normal';
+    g.animals=data.animals||[];
     // Alt-Spielstände (v2, Rang-System): Ränge -> Truppentypen, Rekrutenzahl -> Reserve-Objekt
     for(const p of g.players){
       if(typeof p.recruits==='number') p.recruits={sword:p.recruits, spear:0, bow:0};
@@ -1798,11 +2005,18 @@ export class Game {
     for(const p of g.players){
       const hq=g.buildings.get(p.hq);
       if(hq && hq.inv && hq.inv.hammer===undefined){ hq.inv.hammer=10; hq.inv.pick=2; }
+      if(hq && hq.inv && hq.inv.axe===undefined){
+        Object.assign(hq.inv, {axe:3, saw:2, scythe:2, rod:2, cleaver:1, shovel:3});
+        hq.inv.pick=(hq.inv.pick||0)+1; hq.inv.bow=(hq.inv.bow||0)+1;
+      }
     }
-    // Alt-Spielstände: fertige Gebäude gelten als besetzt, Baustellen als planiert
+    // Alt-Spielstände: fertige Gebäude gelten als besetzt, Baustellen als planiert;
+    // besetzte Gebäude mit Werkzeugberuf gelten als ausgerüstet
     for(const b of g.buildings.values()){
       if(b.leveled===undefined) b.leveled=true;
       if(b.state==='done' && b.worker && b.worker.present===undefined) b.worker.present=true;
+      if(b.state==='done' && b.worker && b.worker.present && b.toolGood===undefined && TOOL_OF[b.type])
+        b.toolGood=TOOL_OF[b.type];
     }
     // Reservierungen & halboffene Trägeraufträge nach dem Laden zurücksetzen
     for(const items of g.flagItems.values()) for(const it of items) it.reserved=false;
@@ -1812,6 +2026,8 @@ export class Game {
     }
     g.objectives=data.objectives||[]; g.level=data.setup.level||null;
     NEXT_ID=Math.max(NEXT_ID, data.nextId||1);
+    // Alt-Spielstände ohne Wild: Bestand neu ansiedeln (Jagd bleibt möglich)
+    if(!g.animals.length) g.spawnAnimals();
     return g;
   }
 }
