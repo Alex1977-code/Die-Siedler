@@ -1080,6 +1080,15 @@ export class Game {
     const [tx,ty]=m.worldPos(target.node);
     if(u.state==='walk'){
       if(this.moveToward(u,tx,ty,WALK_SPEED*0.9)){
+        // Baustellen werden niedergerissen, nicht erobert
+        if(target.state==='build'){
+          if(target.player===0) this.msg(`${BLD[target.type].name}-Baustelle vom Feind zerstört!`, 'war', target.node);
+          if(u.player===0) this.msg('Feindliche Baustelle zerstört!', 'ok', target.node);
+          this.burnBuilding(target);
+          this.returnSoldiers(u.player, u.soldiers);
+          u.dead=true;
+          return;
+        }
         u.state='fight';
         this.battles.push({ bldId:target.id, attPlayer:u.player, roundT:0, unitId:u.id });
         this.onBattleStart && this.onBattleStart(target);

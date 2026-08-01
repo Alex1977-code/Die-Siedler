@@ -638,13 +638,14 @@ export class UI {
       // Feindgebäude: Angriff?
       if(def.mil||b.type==='hq'){
         const avail=g.attackable(0,b.id);
+        const isSite=b.state==='build';
         const defN=(b.soldiers?.length||0)+(b.type==='hq'?g.recruitTotal(b.player):0);
         this.sheet(`<div class="sh-head"><b style="color:${PLAYER_COLORS[b.player]}">${def.name} (${g.players[b.player].name})</b>
           <button class="hbtn" id="sh-x">✕</button></div>
-          <p class="note">Verteidiger: ~${defN} · Deine verfügbaren Angreifer: ${avail}</p>
-          ${avail>0?`<div class="row"><input type="range" id="atk-n" min="1" max="${avail}" value="${Math.min(avail,Math.max(1,defN+1))}">
-          <span id="atk-nv">${Math.min(avail,Math.max(1,defN+1))}</span></div>
-          <button class="mbtn primary" id="atk-go">⚔️ Angriff!</button>`:'<p class="note">Keine Soldaten in Reichweite. Baue Militärgebäude näher an den Feind!</p>'}`);
+          <p class="note">${isSite?'⚠️ Baustelle – ein Angriff reißt sie nieder (keine Eroberung).':`Verteidiger: ~${defN}`} · Deine verfügbaren Angreifer: ${avail}</p>
+          ${avail>0?`<div class="row"><input type="range" id="atk-n" min="1" max="${avail}" value="${isSite?1:Math.min(avail,Math.max(1,defN+1))}">
+          <span id="atk-nv">${isSite?1:Math.min(avail,Math.max(1,defN+1))}</span></div>
+          <button class="mbtn primary" id="atk-go">${isSite?'🔥 Baustelle zerstören':'⚔️ Angriff!'}</button>`:'<p class="note">Keine Soldaten in Reichweite. Baue Militärgebäude näher an den Feind!</p>'}`);
         $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
         const rng=$('#atk-n');
         if(rng){ rng.oninput=()=>$('#atk-nv').textContent=rng.value;

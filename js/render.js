@@ -557,8 +557,8 @@ export class Renderer {
   }
   // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
   terrainPattern(t, g){
-    const KEY={ [TER.GRASS]:['ter_grass',0.55], [TER.DESERT]:['ter_sand',0.6], [TER.SNOW]:['ter_snow',0.6],
-                [TER.SWAMP]:['ter_swamp',0.6], [TER.MOUNT]:['ter_rock',0.85] };
+    const KEY={ [TER.GRASS]:['ter_grass',0.32], [TER.DESERT]:['ter_sand',0.45], [TER.SNOW]:['ter_snow',0.45],
+                [TER.SWAMP]:['ter_swamp',0.45], [TER.MOUNT]:['ter_rock',0.85] };
     const e=KEY[t];
     if(!e) return null;
     if(!this._terPat) this._terPat={};
