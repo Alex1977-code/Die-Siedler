@@ -547,7 +547,11 @@ export class UI {
     this.state.showBuildDots=true;
     const cat=this.state.buildCat;
     const inv=g.invTotal(0);
-    let tabs=CATS.map(([k,label])=>`<button class="tab ${k===cat?'on':''}" data-cat="${k}">${label}</button>`).join('');
+    let tabs=CATS.map(([k,label])=>{
+      const ic=this.renderer.asset('ui_tab_'+k)
+        ? `<img class="tabicon" src="assets/ui_tab_${k}.png" alt="">` : '';
+      return `<button class="tab ${k===cat?'on':''}" data-cat="${k}">${ic}${label}</button>`;
+    }).join('');
     let items='';
     for(const key in BLD){
       const def=BLD[key];

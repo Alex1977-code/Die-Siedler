@@ -2269,7 +2269,13 @@ export class Renderer {
         break;
       }
       case OBJ.FIELD0: case OBJ.FIELD1: case OBJ.FIELD2: {
-        // Ackerfläche
+        // Ackerfläche – Wachstumsstufen aus dem Asset-Pack (gepflügt/grün/reif)
+        const ovF=this.asset(o===OBJ.FIELD0?'obj_field0':o===OBJ.FIELD1?'obj_field1':'obj_field2');
+        if(ovF){
+          const ww=54, hh=ww*(ovF.naturalHeight/ovF.naturalWidth);
+          g.drawImage(ovF, x-ww/2, y+13-hh, ww, hh);
+          break;
+        }
         g.fillStyle='rgba(122,95,61,0.55)';
         g.beginPath(); g.ellipse(x,y,19,10,0,0,7); g.fill();
         g.strokeStyle='rgba(90,66,40,0.35)'; g.lineWidth=1; g.stroke();

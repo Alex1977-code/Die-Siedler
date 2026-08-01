@@ -158,10 +158,14 @@ h1::after{
 }
 .tabs{ display:flex; gap:6px; overflow-x:auto; margin-bottom:8px; padding-bottom:2px; }
 .tab{
-  padding:8px 12px; border-radius:16px; border:1px solid #4a5a70; white-space:nowrap;
+  padding:6px 12px 6px 8px; border-radius:16px; border:1px solid #4a5a70; white-space:nowrap;
   background:#22334a; color:#cfd6df; font-size:13.5px;
+  display:inline-flex; align-items:center; gap:6px;
 }
 .tab.on{ background:#f2d98c; color:#4a3a18; border-color:#f2d98c; font-weight:600; }
+.tabicon{ width:22px; height:22px; object-fit:contain;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45)); }
+.tab.on .tabicon{ filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3)) brightness(1.08); }
 .bgrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(172px,1fr)); gap:8px; }
 .bitem{
   display:flex; flex-direction:row; gap:9px; align-items:center; text-align:left;
