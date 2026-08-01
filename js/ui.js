@@ -141,8 +141,12 @@ export class UI {
         Die <b>Werkzeugschmiede</b> (Eisen + Brett) schmiedet abwechselnd <b>Hämmer</b> und
         <b>Spitzhacken</b> – mit Essen beliefert arbeitet sie doppelt so schnell. Jede Baustelle
         braucht einen <b>Bauarbeiter</b>: eine freie Figur mit Hammer, die zur Baustelle geht und
-        dort hämmert (ohne verfügbaren Hammer ruht der Bau). Nach Fertigstellung kehrt er samt
-        Hammer ins Lager zurück. Jeder Geologen-Einsatz verbraucht eine Spitzhacke.</p>
+        dort hämmert (ohne verfügbaren Hammer ruht der Bau). Zuvor ebnet ein <b>Planierer</b> den
+        Platz. Nach Fertigstellung zieht die <b>Fachkraft sichtbar ein</b> – erst dann arbeitet das
+        Gebäude. Jeder Geologen-Einsatz verbraucht eine Spitzhacke; der <b>Späher</b> (an jeder
+        Fahne) erkundet den Nebel. Die <b>Eselzucht</b> schickt Esel auf stark befahrene Straßen –
+        der Transport dort wird schneller. <b>Seehandel</b>: Baue zwei Häfen an der Küste und eine
+        Werft – ihr Schiff eröffnet einen Seeweg, über den Waren automatisch verschifft werden.</p>
         <h3>Militär – drei Truppentypen</h3>
         <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
         <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
@@ -376,6 +380,12 @@ export class UI {
       if(d>750) return;
       Sound.sfx('hammer', Math.max(0.15, 1-d/750));
     };
+    g.onLevel=(u)=>{
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d>750) return;
+      Sound.sfx('dig', Math.max(0.15, 1-d/750));
+    };
+    g.onShip=()=>Sound.sfx('splash');
     g.onBattleStart=(b)=>{ if(b.player===0) Sound.sfx('war'); };
     g.onCapture=()=>Sound.sfx('done');
   }
@@ -605,7 +615,8 @@ export class UI {
     this.sheet(`<div class="sh-head"><b>Fahne</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="row">
       <button class="mbtn primary" id="fl-road">🛤️ Straße bauen</button>
-      <button class="mbtn ${hasMount&&picks>0?'':'off'}" id="fl-geo">⛏️ Geologen rufen (${picks}⛏)</button>
+      <button class="mbtn ${hasMount&&picks>0?'':'off'}" id="fl-geo">⛏️ Geologe (${picks}⛏)</button>
+      <button class="mbtn" id="fl-scout">🔭 Späher</button>
       ${isDoor?'':'<button class="mbtn back" id="fl-del">Fahne entfernen</button>'}
       </div>
       <p class="note">${geoHint}</p>`);
@@ -617,6 +628,10 @@ export class UI {
       if(r===true){ Sound.sfx('tap'); this.toast('Der Geologe macht sich auf den Weg'); this.state.sel=-1; this.closeSheet(); }
       else if(r==='nopick') this.toast('Keine Spitzhacke! Baue eine Werkzeugschmiede.');
       else if(r==='nomount') this.toast('Kein unbeschildertes Gebirge in der Nähe.');
+    };
+    const sc=$('#fl-scout');
+    if(sc) sc.onclick=()=>{
+      if(g.callScout(0,i)){ Sound.sfx('tap'); this.toast('Der Späher erkundet die Umgebung'); this.state.sel=-1; this.closeSheet(); }
     };
     const del=$('#fl-del');
     if(del) del.onclick=()=>{ g.removeFlag(i); Sound.sfx('tap'); this.state.sel=-1; this.closeSheet(); };

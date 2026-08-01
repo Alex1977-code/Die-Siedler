@@ -1703,6 +1703,15 @@ export class Renderer {
         }
         g.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
       };
+      // Seeweg: gestrichelte Route übers Wasser statt Pflaster
+      if(r.isSea){
+        g.save();
+        g.setLineDash([7,9]);
+        g.lineDashOffset=-this.time/140;
+        trace(); g.strokeStyle='rgba(240,248,252,0.35)'; g.lineWidth=2.2; g.stroke();
+        g.restore();
+        continue;
+      }
       // Pflaster aus der Kachel-Textur (nahtlos), sonst prozedural
       const cob=this.asset('ter_cobble');
       if(cob){
@@ -1828,8 +1837,9 @@ export class Renderer {
         }
       }
       c._lx=pos[0]; c._ly=pos[1];
-      items.push({kind:'carrier', pl:r.player, x:pos[0], y:pos[1], carrying:!!c.item, good:c.item?.good,
-        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov, seed:r.id*2.7});
+      items.push({kind:r.isSea?'ship':'carrier', pl:r.player, x:pos[0], y:pos[1],
+        carrying:!!c.item, good:c.item?.good,
+        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov, seed:r.id*2.7, road:r});
     }
     for(const u of game.units){
       if(u._lx!==undefined){
@@ -1851,7 +1861,13 @@ export class Renderer {
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
-      else if(it.kind==='carrier'){ this._animSeed=it.seed; this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov); }
+      else if(it.kind==='ship') this.drawShip(g, it.x, it.y, it.pl, it.dir, it.carrying);
+      else if(it.kind==='carrier'){
+        this._animSeed=it.seed;
+        this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov);
+        // Esel trottet neben dem Träger der verstärkten Straße
+        if(it.road && it.road.hasDonkey) this.drawDonkey(g, it.x-11, it.y+3, it.dir, it.mov);
+      }
       else if(it.kind==='unit'){ this._animSeed=(it.u.id||0)*1.9; this.drawUnit(g, it.u); }
       else if(it.kind==='sheep') this.drawSheep(g, it.sh);
     }
@@ -2196,6 +2212,24 @@ export class Renderer {
     if(b.type==='cottage'){
       const v=b.id%3;
       if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
+    }
+    // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
+    if(b.state==='build' && !b.leveled){
+      const t=Math.min(1,(b.levelT||0)/70);
+      g.fillStyle=`rgba(122,95,61,${0.2+t*0.35})`;
+      g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.fill();
+      g.strokeStyle='rgba(90,66,40,0.4)'; g.lineWidth=1;
+      g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.stroke();
+      // Absteckpfähle mit Schnur
+      g.strokeStyle='#6d4f2e'; g.lineWidth=1.6;
+      for(const [px2,py2] of [[x-16,y-4],[x+16,y-4],[x-14,y+8],[x+14,y+8]]){
+        g.beginPath(); g.moveTo(px2,py2); g.lineTo(px2,py2-8); g.stroke();
+      }
+      g.strokeStyle='rgba(233,222,193,0.6)'; g.lineWidth=0.8;
+      g.beginPath();
+      g.moveTo(x-16,y-10); g.lineTo(x+16,y-10); g.lineTo(x+14,y+2); g.lineTo(x-14,y+2); g.closePath();
+      g.stroke();
+      return;
     }
     const ov=this.asset(b.state==='build' ? typeKey+'_build' : typeKey)
       || (b.state==='build' ? this.asset('bld_baustelle') : null);
@@ -2546,6 +2580,22 @@ export class Renderer {
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
     if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo',null,udir,!!u._mov); return; }
+    if(u.type==='settle'||u.type==='flee'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,u.wtype||'worker',null,udir,!!u._mov); return; }
+    if(u.type==='scout'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'scout',null,udir,!!u._mov); return; }
+    if(u.type==='leveler'){
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'leveler',null,udir,!!u._mov);
+      // Schaufel in der Hand
+      const dig= u.state==='work' ? Math.sin(this.time/160+u.id)*0.5 : 0.2;
+      g.save();
+      g.translate(u.x+6,u.y-5); g.rotate(dig);
+      g.strokeStyle='#8a6b43'; g.lineWidth=1.5;
+      g.beginPath(); g.moveTo(0,4); g.lineTo(0,-6); g.stroke();
+      g.fillStyle='#9aa0a8';
+      g.beginPath(); g.moveTo(-2.2,4); g.lineTo(2.2,4); g.lineTo(1.6,8.4); g.lineTo(-1.6,8.4); g.closePath(); g.fill();
+      g.restore();
+      return;
+    }
+    if(u.type==='donkey'){ this.drawDonkey(g,u.x,u.y,udir,!!u._mov); return; }
     if(u.type==='builder'){
       this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'builder',null,udir,!!u._mov);
       // Hammer sichtbar in der Hand, beim Arbeiten schwingend
@@ -2631,6 +2681,77 @@ export class Renderer {
     const img=this.asset(prefix+k);
     if(!img) return null;
     return {img, flip};
+  }
+  // Esel: kleines Packtier (Bild-Asset unit_donkey oder prozedural)
+  drawDonkey(g,x,y,dir,mov){
+    const ov=this.asset('unit_donkey');
+    this.shadow(g,x+1,y+5.4,7,2.4,0.24);
+    const flip=dir && dir[0]<-0.05;
+    g.save();
+    g.translate(x,y+5);
+    if(flip) g.scale(-1,1);
+    if(ov){
+      const hh=17, ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      g.drawImage(ov,-ww/2,-hh,ww,hh);
+    } else {
+      const step=mov? Math.sin(this.time/110+x*0.2)*1.6 : 0;
+      g.strokeStyle='#5d5248'; g.lineWidth=1.6;
+      g.beginPath();
+      g.moveTo(-4,-3); g.lineTo(-4+step,1.6);
+      g.moveTo(4,-3); g.lineTo(4-step,1.6);
+      g.stroke();
+      g.fillStyle='#8a7a66';
+      g.beginPath(); g.ellipse(0,-5.4,6.4,3.4,0,0,7); g.fill();
+      g.strokeStyle='rgba(50,40,30,0.5)'; g.lineWidth=0.9; g.stroke();
+      // Kopf + lange Ohren
+      g.beginPath(); g.ellipse(6.6,-8,2.6,2,0.3,0,7); g.fillStyle='#8a7a66'; g.fill();
+      g.strokeStyle='#6d5f4e'; g.lineWidth=1.3;
+      g.beginPath(); g.moveTo(6,-9.6); g.lineTo(5.2,-12.6); g.moveTo(7.6,-9.4); g.lineTo(7.6,-12.4); g.stroke();
+      // Packtaschen
+      g.fillStyle='#a3814e';
+      g.fillRect(-3.4,-8.6,3.2,3.6); g.fillRect(0.6,-8.6,3.2,3.6);
+      g.strokeStyle='rgba(60,45,25,0.6)'; g.lineWidth=0.8;
+      g.strokeRect(-3.4,-8.6,3.2,3.6); g.strokeRect(0.6,-8.6,3.2,3.6);
+    }
+    g.restore();
+  }
+  // Handelsschiff auf dem Seeweg
+  drawShip(g,x,y,pl,dir,carrying){
+    const bob=Math.sin(this.time/700+x*0.05)*1.2;
+    const flip=dir && dir[0]<-0.05;
+    this.shadow(g,x,y+6,11,3,0.2);
+    g.save();
+    g.translate(x,y+bob);
+    if(flip) g.scale(-1,1);
+    // Kielwasser
+    g.strokeStyle='rgba(235,245,250,0.4)'; g.lineWidth=1.2;
+    g.beginPath(); g.moveTo(-13,5); g.quadraticCurveTo(-9,6.4,-6,5.4); g.stroke();
+    // Rumpf
+    g.fillStyle='#6d4f2e';
+    g.beginPath();
+    g.moveTo(-10,1); g.quadraticCurveTo(0,7.4,10,1);
+    g.lineTo(7.4,-2.6); g.lineTo(-7.4,-2.6);
+    g.closePath(); g.fill();
+    g.strokeStyle='rgba(40,26,12,0.6)'; g.lineWidth=1; g.stroke();
+    g.strokeStyle='rgba(220,195,150,0.4)';
+    g.beginPath(); g.moveTo(-8,-0.6); g.quadraticCurveTo(0,4,8,-0.6); g.stroke();
+    // Mast + Segel mit Spielerfarbe
+    g.strokeStyle='#4a3826'; g.lineWidth=1.6;
+    g.beginPath(); g.moveTo(0,-2.6); g.lineTo(0,-16); g.stroke();
+    const col=PLAYER_COLORS[pl]||'#888';
+    g.fillStyle='#efe6d2';
+    g.beginPath();
+    g.moveTo(0.8,-15); g.quadraticCurveTo(8.4,-11,0.8,-4);
+    g.closePath(); g.fill();
+    g.strokeStyle='rgba(60,45,25,0.5)'; g.lineWidth=0.9; g.stroke();
+    g.fillStyle=col;
+    g.beginPath(); g.moveTo(0.8,-11.6); g.quadraticCurveTo(5,-9.8,0.8,-7.4); g.closePath(); g.fill();
+    // Ladung
+    if(carrying){
+      g.fillStyle='#a3814e'; g.fillRect(-5.4,-6,4,3.4);
+      g.strokeStyle='rgba(50,35,18,0.6)'; g.lineWidth=0.8; g.strokeRect(-5.4,-6,4,3.4);
+    }
+    g.restore();
   }
   // getragene Ware: Bild-Asset (good_<ware>) oder farbiges Kistchen
   drawGood(g, good, x, y, h=6.8){
@@ -2724,6 +2845,20 @@ export class Renderer {
       fisher:    {tunic:'#4e6d8a', hat:'straw',   hatC:'#d9bb7d', tool:'rod'},
       hunter:    {tunic:'#5d6b42', hat:'feather', hatC:'#4a5636', tool:'bow'},
       farm:      {tunic:'#a3814e', hat:'straw',   hatC:'#d9bb7d', tool:'scythe'},
+      scout:     {tunic:'#6b5d3f', hat:'feather', hatC:'#54482f', tool:null},
+      leveler:   {tunic:'#7a6a4f', hat:'band',    hatC:'#5d5040', tool:null},
+      builder:   {tunic:'#8a7355', hat:'cap',     hatC:'#6d5940', tool:null},
+      smith:     {tunic:'#5d5248', hat:'band',    hatC:'#3f3830', tool:null},
+      toolsmith: {tunic:'#6d6152', hat:'band',    hatC:'#4a4238', tool:null},
+      minter:    {tunic:'#8a6d3f', hat:'cap',     hatC:'#6d5426', tool:null},
+      baker:     {tunic:'#d9d2c2', hat:'cap',     hatC:'#efe6d2', tool:null},
+      butcher:   {tunic:'#a3564a', hat:'band',    hatC:'#7d3f36', tool:null},
+      miller:    {tunic:'#cfc7b4', hat:'cap',     hatC:'#b5ac96', tool:null},
+      brewer:    {tunic:'#7a5b35', hat:'band',    hatC:'#5d4426', tool:null},
+      smelter:   {tunic:'#6d5a52', hat:'band',    hatC:'#4f403a', tool:null},
+      miner:     {tunic:'#6d665c', hat:'cap',     hatC:'#4f4a42', tool:'pick'},
+      pigfarmer: {tunic:'#96805c', hat:'straw',   hatC:'#d9bb7d', tool:null},
+      shipwright:{tunic:'#4e6d8a', hat:'cap',     hatC:'#3a5268', tool:null},
     };
     const pro=kind==='worker' ? (PRO[wtype]||null) : null;
     const tunic= kind==='soldier' ? '#8a95a0' : pro? pro.tunic : '#6d5a44';

@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -72,6 +72,7 @@ export class Game {
       inv: def.store? {} : undefined,           // Lagerbestand
       soldiers: def.mil? [] : undefined,        // Truppentypen stationierter Soldaten ('sword'|'spear'|'bow')
       coins: 0,
+      leveled: instant,                          // Planierer muss den Platz erst ebnen
       worker: def.gather||def.mine||def.prod||def.cata ? { present: instant, state:'in', timer:0, target:-1, x:0,y:0 } : null,
       prodT: 0, foodT: 0, burnT: 0,
     };
@@ -116,6 +117,8 @@ export class Game {
     else {
       if(!m.terrOkBuild(node)) return {ok:false, r:'Untergrund ungeeignet'};
     }
+    if(def.coastal && !m.nbs(node).some(n=>m.terr[n]===TER.WATER))
+      return {ok:false, r:'Nur direkt am Wasser'};
     {
       // Eingang liegt unten: dort muss eine Türfahne möglich sein
       const my=m.Y(node);
@@ -149,6 +152,17 @@ export class Game {
     this.map.bld[b.node] = -1;
     this.buildings.delete(b.id);
     this.changedNodes.push(b.node);
+    // eingezogene Fachkraft flieht sichtbar zurück ins Hauptquartier
+    if(b.worker && b.worker.present && b.type!=='hq'){
+      const [sx,sy]=this.map.worldPos(b.node);
+      this.units.push({ id:NEXT_ID++, type:'flee', player:b.player, x:sx, y:sy,
+        wtype:PROF_OF[b.type]||'worker' });
+    }
+    // Seewege dieses Hafens/dieser Werft kappen
+    if(b.type==='harbor'){
+      for(const [rid,r] of [...this.roads])
+        if(r.isSea && (r.path[0]===b.door || r.path[r.path.length-1]===b.door)) this.removeRoad(rid);
+    }
     // Kriegsschaden brennt sichtbar nieder und hinterlässt eine Ruine
     if(byWar){
       this.fx.push({type:'burn', node:b.node, t0:this.t, big:BLD[b.type].size==='L'});
@@ -769,9 +783,11 @@ export class Game {
           if(Math.abs(c.pos-mid)>0.05) c.pos += Math.sign(mid-c.pos)*CARRY_SPEED*0.4;
         }
       }
+      // Esel beschleunigen die Straße, Schiffe sind gemächlicher
+      const spd=CARRY_SPEED*(r.hasDonkey?1.5:1)*(r.isSea?0.85:1);
       if(c.state==='toPick'){
-        c.pos += Math.sign(c.targetIx-c.pos)*CARRY_SPEED;
-        if(Math.abs(c.pos-c.targetIx)<CARRY_SPEED){ c.pos=c.targetIx; c.state='pickup'; }
+        c.pos += Math.sign(c.targetIx-c.pos)*spd;
+        if(Math.abs(c.pos-c.targetIx)<spd){ c.pos=c.targetIx; c.state='pickup'; }
       }
       if(c.state==='pickup'){
         const f=r.path[c.job.endIx];
@@ -782,10 +798,11 @@ export class Game {
         c.item=c.job.item; c.item.reserved=false;
         c.targetIx = c.job.endIx===0 ? lastIx : 0;
         c.state='carry'; c.job=null;
+        r.traffic=(r.traffic||0)+1;      // Verkehr zählen (Eselzucht-Ziel)
       }
       if(c.state==='carry'){
-        c.pos += Math.sign(c.targetIx-c.pos)*CARRY_SPEED;
-        if(Math.abs(c.pos-c.targetIx)<CARRY_SPEED){
+        c.pos += Math.sign(c.targetIx-c.pos)*spd;
+        if(Math.abs(c.pos-c.targetIx)<spd){
           c.pos=c.targetIx;
           const f=r.path[c.targetIx];
           const dest=this.buildings.get(c.item.destB);
@@ -818,9 +835,17 @@ export class Game {
       const total = 80 + 30*((def.cost.board||0)+(def.cost.stone||0));
       if(b.progress>=total){
         b.state='done'; b.stock={};
-        if(b.worker) b.worker.present=true;
         this.changedNodes.push(b.node);
         if(def.mil){ this.recalcTerritory(); }
+        // Einzugswanderung: die Fachkraft läuft sichtbar vom Hauptquartier her
+        if(b.worker){
+          const hq=this.buildings.get(this.players[b.player].hq);
+          if(hq){
+            const [sx,sy]=this.map.worldPos(hq.node);
+            this.units.push({ id:NEXT_ID++, type:'settle', player:b.player,
+              x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker' });
+          } else b.worker.present=true;
+        }
         if(b.player===0) this.msg(`${def.name} fertiggestellt.`, 'ok', b.node);
         this.onBuilt && this.onBuilt(b);
       }
@@ -833,8 +858,14 @@ export class Game {
     for(const b of this.buildings.values()){
       if(b.state!=='done' || b.player<0) continue;
       const def=BLD[b.type];
+      // ohne eingezogene Fachkraft ruht der Betrieb
+      if(b.worker && !b.worker.present) continue;
       if(def.prod){
         if(b.out>=4) continue;
+        // Sonderausstoß: Esel/Schiff nur produzieren, wenn gebraucht
+        const special=def.prod.out==='@donkey'||def.prod.out==='@ship';
+        if(def.prod.out==='@donkey' && !this.donkeyTargetRoad(b.player)) { b.prodT=0; continue; }
+        if(def.prod.out==='@ship' && !this.shipNeeded(b.player)) { b.prodT=0; continue; }
         // Brunnen ohne Inputs
         let ok=true;
         for(const g in def.prod.inputs) if((b.stock[g]||0)<def.prod.inputs[g]) ok=false;
@@ -847,8 +878,9 @@ export class Game {
           for(const g in def.prod.inputs) b.stock[g]-=def.prod.inputs[g];
           if(fed){ const f=FOODS.find(k=>(b.stock[k]||0)>0); if(f) b.stock[f]--; }
           if(def.prod.outs){ b.altOut=((b.altOut||0)+1)%def.prod.outs.length; }
-          b.out++;
-          this.onProduce && this.onProduce(b);
+          if(def.prod.out==='@donkey') this.spawnDonkey(b);
+          else if(def.prod.out==='@ship') this.launchShip(b);
+          else { b.out++; this.onProduce && this.onProduce(b); }
         }
       }
       if(def.mine){
@@ -979,6 +1011,11 @@ export class Game {
       else if(u.type==='attack') this.tickAttack(u);
       else if(u.type==='geo') this.tickGeo(u);
       else if(u.type==='builder') this.tickBuilder(u);
+      else if(u.type==='leveler') this.tickLeveler(u);
+      else if(u.type==='settle') this.tickSettle(u);
+      else if(u.type==='flee') this.tickFlee(u);
+      else if(u.type==='scout') this.tickScout(u);
+      else if(u.type==='donkey') this.tickDonkey(u);
       else if(u.type==='soldierMove') this.tickSoldierMove(u);
       else if(u.type==='boulder'){
         u.prog+=0.02;
@@ -1258,6 +1295,158 @@ export class Game {
     }
   }
 
+  // ---------- Einzug & Flucht der Fachkräfte ----------
+  tickSettle(u){
+    const b=this.buildings.get(u.bld);
+    if(!b || b.state!=='done' || !b.worker){ u.dead=true; return; }
+    const [tx,ty]=this.map.worldPos(b.node);
+    if(this.moveToward(u,tx,ty,WALK_SPEED)){
+      u.dead=true;
+      b.worker.present=true;
+    }
+  }
+  tickFlee(u){
+    const hq=this.buildings.get(this.players[u.player].hq);
+    if(!hq){ u.dead=true; return; }
+    const [tx,ty]=this.map.worldPos(hq.node);
+    if(this.moveToward(u,tx,ty,WALK_SPEED*1.15)) u.dead=true;
+  }
+
+  // ---------- Späher: erkundet den Nebel rund um eine Fahne ----------
+  callScout(pl, flagNode){
+    if(!this.map.flag[flagNode]) return false;
+    const hq=this.buildings.get(this.players[pl].hq);
+    const [sx,sy]=this.map.worldPos((hq||{node:flagNode}).node);
+    this.units.push({ id:NEXT_ID++, type:'scout', player:pl, x:sx, y:sy,
+      flag:flagNode, legs:9, state:'toFlag', target:-1 });
+    return true;
+  }
+  tickScout(u){
+    const m=this.map;
+    if(u.state==='toFlag'){
+      const [tx,ty]=m.worldPos(u.flag);
+      if(this.moveToward(u,tx,ty,WALK_SPEED*1.1)) u.state='seek';
+    } else if(u.state==='seek'){
+      if(u.legs<=0){ u.state='home'; return; }
+      // Ziel wählen: bevorzugt unerkundete Knoten in der Umgebung
+      const base=m.nearestNode(u.x,u.y);
+      let best=-1, bs=-1;
+      for(let k=0;k<14;k++){
+        const cand=this.nodesInRange(base, 7)[(this.rng()*this.nodesInRange(base,7).length)|0];
+        if(cand==null) continue;
+        if(m.terr[cand]===TER.WATER||m.terr[cand]===TER.LAVA) continue;
+        let s=this.rng();
+        if(!m.explored[cand]) s+=2;
+        if(s>bs){ bs=s; best=cand; }
+      }
+      if(best<0){ u.state='home'; return; }
+      u.target=best; u.legs--; u.state='walk';
+    } else if(u.state==='walk'){
+      const [tx,ty]=m.worldPos(u.target);
+      if(this.moveToward(u,tx,ty,WALK_SPEED*1.1)) u.state='seek';
+    } else if(u.state==='home'){
+      const hq=this.buildings.get(this.players[u.player].hq);
+      const [tx,ty]=hq? m.worldPos(hq.node):[u.x,u.y];
+      if(this.moveToward(u,tx,ty,WALK_SPEED*1.1)) u.dead=true;
+    }
+  }
+
+  // ---------- Esel: verstärken die meistbefahrene Straße ----------
+  donkeyTargetRoad(pl){
+    let best=null, bt=5;   // erst ab spürbarem Verkehr
+    for(const r of this.roads.values()){
+      if(r.player!==pl || r.isSea || r.hasDonkey || r.donkeyEnroute) continue;
+      if((r.traffic||0)>bt){ bt=r.traffic; best=r; }
+    }
+    return best;
+  }
+  spawnDonkey(b){
+    const r=this.donkeyTargetRoad(b.player);
+    if(!r) return;
+    const [sx,sy]=this.map.worldPos(b.node);
+    const u={ id:NEXT_ID++, type:'donkey', player:b.player, x:sx, y:sy, road:r.id };
+    r.donkeyEnroute=u.id;
+    this.units.push(u);
+    if(b.player===0) this.msg('Ein Esel verstärkt eine Straße.', 'ok', b.node);
+  }
+  tickDonkey(u){
+    const r=this.roads.get(u.road);
+    if(!r){ u.dead=true; return; }
+    const mid=r.path[(r.path.length/2)|0];
+    const [tx,ty]=this.map.worldPos(mid);
+    if(this.moveToward(u,tx,ty,WALK_SPEED)){
+      u.dead=true;
+      r.donkeyEnroute=null;
+      r.hasDonkey=true;
+    }
+  }
+
+  // ---------- Seefahrt: Werft baut Schiffe, Schiffe verbinden Häfen ----------
+  harborsOf(pl){
+    return [...this.buildings.values()].filter(b=>b.player===pl && b.type==='harbor' && b.state==='done');
+  }
+  seaLinked(a,b){
+    for(const r of this.roads.values())
+      if(r.isSea && ((r.path[0]===a.door&&r.path[r.path.length-1]===b.door)
+        ||(r.path[0]===b.door&&r.path[r.path.length-1]===a.door))) return true;
+    return false;
+  }
+  shipNeeded(pl){
+    const hs=this.harborsOf(pl);
+    for(let i=0;i<hs.length;i++) for(let j=i+1;j<hs.length;j++)
+      if(!this.seaLinked(hs[i],hs[j])) return true;
+    return false;
+  }
+  // Wasserweg zwischen zwei Häfen (BFS über Wasserknoten; Start/Ziel ist
+  // das Wasser rund um Hafengebäude UND Türfahne)
+  seaPath(harborA, harborB){
+    const m=this.map;
+    const doorA=harborA.door, doorB=harborB.door;
+    const waterAround=(b)=>{
+      const s=new Set();
+      for(const base of [b.node, b.door])
+        for(const n of m.nbs(base)) if(m.terr[n]===TER.WATER) s.add(n);
+      return s;
+    };
+    const prev=new Map();
+    const q=[];
+    for(const n of waterAround(harborA)){ prev.set(n,-1); q.push(n); }
+    const goal=waterAround(harborB);
+    let end=-1;
+    for(let qi=0; qi<q.length && qi<4000; qi++){
+      const n=q[qi];
+      if(goal.has(n)){ end=n; break; }
+      for(const nn of m.nbs(n)){
+        if(m.terr[nn]!==TER.WATER || prev.has(nn)) continue;
+        prev.set(nn,n); q.push(nn);
+      }
+    }
+    if(end<0) return null;
+    const path=[end];
+    let cur=end;
+    while(prev.get(cur)!==-1){ cur=prev.get(cur); path.unshift(cur); }
+    return [doorA, ...path, doorB];
+  }
+  launchShip(sy){
+    const hs=this.harborsOf(sy.player);
+    let best=null, bd=1e9;
+    for(let i=0;i<hs.length;i++) for(let j=i+1;j<hs.length;j++){
+      if(this.seaLinked(hs[i],hs[j])) continue;
+      const d=Math.hypot(this.map.X(hs[i].node)-this.map.X(hs[j].node),
+        this.map.Y(hs[i].node)-this.map.Y(hs[j].node));
+      if(d<bd){ bd=d; best=[hs[i],hs[j]]; }
+    }
+    if(!best) return;
+    const path=this.seaPath(best[0], best[1]);
+    if(!path){ if(sy.player===0) this.msg('Werft: kein Seeweg zwischen den Häfen gefunden.', 'warn', sy.node); return; }
+    const r={ id:NEXT_ID++, player:sy.player, path, isSea:true,
+      carrier:{ pos:0, state:'idle', item:null, job:null } };
+    this.roads.set(r.id, r);
+    this.routeVer++;
+    if(sy.player===0) this.msg('Ein Schiff nimmt den Seeweg zwischen zwei Häfen auf!', 'ok', sy.node);
+    this.onShip && this.onShip(sy);
+  }
+
   // ---------- Bauarbeiter: freie Figur + Hammer errichtet die Baustelle ----------
   findToolStore(pl, good){
     for(const b of this.buildings.values())
@@ -1267,6 +1456,20 @@ export class Game {
   tickBuilderSpawn(){
     for(const b of this.buildings.values()){
       if(b.state!=='build') continue;
+      // Phase 1: Planierer ebnet den Bauplatz
+      if(!b.leveled){
+        if(b.levelerId!=null && this.units.some(u=>u.id===b.levelerId)) continue;
+        b.levelerId=null;
+        const hq=this.buildings.get(this.players[b.player].hq);
+        if(!hq) continue;
+        const [sx,sy]=this.map.worldPos(hq.node);
+        const u={ id:NEXT_ID++, type:'leveler', player:b.player, x:sx, y:sy,
+          bld:b.id, state:'toSite', pt:0 };
+        this.units.push(u);
+        b.levelerId=u.id;
+        continue;
+      }
+      // Phase 2: Bauarbeiter mit Hammer
       if(b.builderId!=null && this.units.some(u=>u.id===b.builderId)) continue;
       b.builderId=null;
       const src=this.findToolStore(b.player,'hammer');
@@ -1277,6 +1480,28 @@ export class Game {
         bld:b.id, state:'toSite', pt:0, swing:0 };
       this.units.push(u);
       b.builderId=u.id;
+    }
+  }
+  tickLeveler(u){
+    const m=this.map;
+    const b=this.buildings.get(u.bld);
+    if(u.state!=='home' && (!b || b.state!=='build' || b.leveled)) u.state='home';
+    if(u.state==='toSite'){
+      const [tx,ty]=m.worldPos(b.node);
+      if(this.moveToward(u,tx-10,ty+6,WALK_SPEED)){ u.state='work'; b.levelT=0; }
+    } else if(u.state==='work'){
+      const [bx,by]=m.worldPos(b.node);
+      const spots=[[bx-12,by+6],[bx+12,by+4],[bx,by-6],[bx-8,by-2]];
+      const [tx,ty]=spots[u.pt%spots.length];
+      if(this.moveToward(u,tx,ty,WALK_SPEED*0.5)) u.pt++;
+      b.levelT=(b.levelT||0)+1;
+      if(b.levelT%22===3) this.onLevel && this.onLevel(u);
+      if(b.levelT>=70){ b.leveled=true; u.state='home'; }
+    } else if(u.state==='home'){
+      const hq=this.buildings.get(this.players[u.player].hq);
+      if(!hq){ u.dead=true; return; }
+      const [tx,ty]=m.worldPos(hq.node);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)) u.dead=true;
     }
   }
   tickBuilder(u){
@@ -1573,6 +1798,11 @@ export class Game {
     for(const p of g.players){
       const hq=g.buildings.get(p.hq);
       if(hq && hq.inv && hq.inv.hammer===undefined){ hq.inv.hammer=10; hq.inv.pick=2; }
+    }
+    // Alt-Spielstände: fertige Gebäude gelten als besetzt, Baustellen als planiert
+    for(const b of g.buildings.values()){
+      if(b.leveled===undefined) b.leveled=true;
+      if(b.state==='done' && b.worker && b.worker.present===undefined) b.worker.present=true;
     }
     // Reservierungen & halboffene Trägeraufträge nach dem Laden zurücksetzen
     for(const items of g.flagItems.values()) for(const it of items) it.reserved=false;

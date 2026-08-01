@@ -57,6 +57,9 @@ export const BLD = {
   mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Als Sold machen sie Verteidiger stärker.' },
   armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
   toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet Hämmer (Bauarbeiter) und Spitzhacken (Geologen). Mit Essen doppelt so schnell.' },
+  donkeyfarm: { name:'Eselzucht', cat:'industrie', size:'M', cost:{board:3,stone:1}, prod:{out:'@donkey', inputs:{grain:1,water:1}, time:200}, desc:'Züchtet Esel. Sie verstärken stark befahrene Straßen – der Transport wird schneller.' },
+  harbor:     { name:'Hafen', cat:'lager', size:'M', cost:{board:3,stone:3}, store:true, coastal:true, desc:'Küstenlager. Zwei Häfen und ein Schiff eröffnen einen Seeweg für Waren.' },
+  shipyard:   { name:'Werft', cat:'industrie', size:'M', cost:{board:4,stone:2}, coastal:true, prod:{out:'@ship', inputs:{board:2}, time:240}, desc:'Der Werftarbeiter baut Schiffe, die Waren zwischen Häfen befördern.' },
   barracks:   { name:'Baracke', cat:'militaer', size:'S', cost:{board:2,stone:1}, mil:{cap:2,radius:8}, desc:'Kleiner Posten. Erweitert dein Gebiet.' },
   guardhouse: { name:'Wachhaus', cat:'militaer', size:'S', cost:{board:2,stone:3}, mil:{cap:3,radius:9}, desc:'Fester Posten mit drei Soldaten.' },
   watchtower: { name:'Wachturm', cat:'militaer', size:'M', cost:{board:3,stone:5}, mil:{cap:6,radius:11}, desc:'Hoher Turm, weite Grenzen.' },
@@ -68,6 +71,16 @@ export const BLD = {
   cottage:    { name:'Wohnhaus', cat:'schmuck', size:'S', cost:{board:2,stone:1}, desc:'Schmuckes Wohnhaus – jede Bauweise sieht anders aus.' },
 };
 export const BLD_KEYS = Object.keys(BLD);
+
+// Beruf, der beim fertigen Gebäude sichtbar einzieht (Einzugswanderung)
+export const PROF_OF = {
+  armory:'smith', toolsmith:'toolsmith', mint:'minter', bakery:'baker',
+  butcher:'butcher', mill:'miller', brewery:'brewer', smelter:'smelter',
+  pigfarm:'pigfarmer', donkeyfarm:'pigfarmer', shipyard:'shipwright',
+  coalmine:'miner', ironmine:'miner', goldmine:'miner', granitemine:'miner',
+  woodcutter:'woodcutter', forester:'forester', quarry:'quarry',
+  fisher:'fisher', hunter:'hunter', farm:'farm',
+};
 
 // Truppentypen (keine Ränge): Stärke im Nahkampf + Überlegenheits-Dreieck
 // Schwert schlägt Speer, Speer schlägt Bogen, Bogen schlägt Schwert (leicht).
