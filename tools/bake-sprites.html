@@ -96,15 +96,30 @@ function recenter(){
   root.updateMatrixWorld(true);
 }
 
-// einen Frame backen: Clip + Zeitpunkt + Blickrichtung (Grad um die Hochachse)
-window.bake=(clipName, t, yawDeg, outH=300)=>{
+// Mittelpunkt der geskinnten Box an einem Zeitpunkt (für Drift-Ausgleich)
+window.center=(clipName, t, yawDeg)=>{
   const clip=clips.find(c=>c.name===clipName)||clips[0];
   mixer.stopAllAction();
   if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
   root.rotation.y=yawDeg*Math.PI/180;
-  recenter();
-  window.__dbg={ hasHips:!!hips, rx:root.position.x, rz:root.position.z,
-    hipName:hips?hips.name:'-' };
+  root.position.set(0,0,0);
+  const bb=skinnedBox();
+  return { x:(bb.min.x+bb.max.x)/2, z:(bb.min.z+bb.max.z)/2 };
+};
+
+// einen Frame backen: Clip + Zeitpunkt + Blickrichtung; optional expliziter
+// Versatz (ox/oz) statt Auto-Zentrierung -> ruckelfreie Zyklen
+window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null)=>{
+  const clip=clips.find(c=>c.name===clipName)||clips[0];
+  mixer.stopAllAction();
+  if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
+  root.rotation.y=yawDeg*Math.PI/180;
+  if(ox!=null){
+    root.position.set(-ox,0,-(oz||0));
+    root.updateMatrixWorld(true);
+  } else {
+    recenter();
+  }
   renderer.render(scene,cam);
   // auf Zielhöhe verkleinern (fester Rahmen -> stabile Ankerpunkte)
   const cv=document.createElement('canvas');

@@ -1820,7 +1820,12 @@ export class Renderer {
       let mov=false;
       if(c._lx!==undefined){
         const ddx=pos[0]-c._lx, ddy=pos[1]-c._ly;
-        if(Math.hypot(ddx,ddy)>0.12){ c._dx=ddx; c._dy=ddy; mov=true; }
+        if(Math.hypot(ddx,ddy)>0.12){
+          // geglättet, damit die Blickrichtung in Kurven nicht flackert
+          c._dx=c._dx===undefined?ddx:c._dx*0.75+ddx*0.25;
+          c._dy=c._dy===undefined?ddy:c._dy*0.75+ddy*0.25;
+          mov=true;
+        }
       }
       c._lx=pos[0]; c._ly=pos[1];
       items.push({kind:'carrier', pl:r.player, x:pos[0], y:pos[1], carrying:!!c.item, good:c.item?.good,
@@ -1830,7 +1835,10 @@ export class Renderer {
       if(u._lx!==undefined){
         const ddx=u.x-u._lx, ddy=u.y-u._ly;
         u._mov=Math.hypot(ddx,ddy)>0.12;
-        if(u._mov){ u._dx=ddx; u._dy=ddy; }
+        if(u._mov){
+          u._dx=u._dx===undefined?ddx:u._dx*0.75+ddx*0.25;
+          u._dy=u._dy===undefined?ddy:u._dy*0.75+ddy*0.25;
+        }
       }
       u._lx=u.x; u._ly=u.y;
       items.push({kind:'unit', u, y:u.y});
@@ -2572,21 +2580,33 @@ export class Renderer {
   animFrame(baseKey, dir, mov){
     if(!this.asset(baseKey+'_walk_r_0')) return null;
     if(!this._animN) this._animN={};
-    const dirKey= dir && Math.abs(dir[1])>Math.abs(dir[0])*1.6 ? (dir[1]<0?'b':'f') : 'r';
-    const set= mov? 'walk' : (this.asset(baseKey+'_idle_r_0')? 'idle':'walk');
-    const prefix=`${baseKey}_${set}_${dirKey}_`;
-    let n=this._animN[prefix];
-    if(n===undefined){
-      n=0; while(this.asset(prefix+n) && n<32) n++;
-      this._animN[prefix]=n;
+    // Blickrichtung in 8 Sektoren; linke Hälfte wird gespiegelt
+    let dirKey='r', flip=false;
+    if(dir && (Math.abs(dir[0])>0.01 || Math.abs(dir[1])>0.01)){
+      let fx=dir[0];
+      if(fx<0){ flip=true; fx=-fx; }
+      const ang=Math.atan2(dir[1], fx)*180/Math.PI;   // -90..90 (0 = rechts, + = abwärts)
+      dirKey= ang>67.5?'f' : ang>22.5?'fr' : ang>-22.5?'r' : ang>-67.5?'br' : 'b';
+      if(dirKey==='f'||dirKey==='b') flip=false;      // frontal/Rücken sind symmetrisch
     }
-    if(!n) return null;
+    const set= mov? 'walk' : (this.asset(baseKey+'_idle_r_0')? 'idle':'walk');
+    // Fallback-Kette für ältere Sets ohne Diagonalen
+    const CAND={ r:['r'], fr:['fr','r'], br:['br','r'], f:['f','r'], b:['b','r'] };
+    let prefix=null, n=0;
+    for(const dk of CAND[dirKey]){
+      const p=`${baseKey}_${set}_${dk}_`;
+      let c=this._animN[p];
+      if(c===undefined){
+        c=0; while(this.asset(p+c) && c<32) c++;
+        this._animN[p]=c;
+      }
+      if(c>0){ prefix=p; n=c; break; }
+    }
+    if(!prefix) return null;
     const speed= set==='walk'? 85 : 380;
     const k=Math.floor(this.time/speed + (this._animSeed||0))%n;
     const img=this.asset(prefix+k);
     if(!img) return null;
-    // Seitenansicht schaut nach rechts -> bei Linkslauf spiegeln
-    const flip= dirKey==='r' && dir && dir[0]<-0.05;
     return {img, flip};
   }
   // getragene Ware: Bild-Asset (good_<ware>) oder farbiges Kistchen
