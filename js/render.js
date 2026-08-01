@@ -1847,12 +1847,45 @@ export class Renderer {
         if(m.bld[i]>=0||m.flag[i]||(m.obj[i]&127)!==OBJ.NONE) continue;
         if(!m.terrOkBuild(i)&&!m.terrOkMine(i)) continue;
         const [px,py]=m.worldPos(i);
+        if(ui.placeType){
+          // gewählter Gebäudetyp: nur gültige Plätze, grün markiert
+          if(!game.canBuild(0, ui.placeType, i).ok) continue;
+          const pulse=0.7+0.3*Math.sin(this.time/300+i);
+          g.fillStyle='rgba(20,30,16,0.45)';
+          g.beginPath(); g.arc(px,py+1,4,0,7); g.fill();
+          g.fillStyle=`rgba(150,230,120,${0.85*pulse})`;
+          g.beginPath(); g.arc(px,py,3.4,0,7); g.fill();
+          continue;
+        }
         const mine=m.terrOkMine(i);
         g.fillStyle='rgba(20,26,18,0.4)';
         g.beginPath(); g.arc(px,py+1,(mine?2.6:3.4),0,7); g.fill();
         g.fillStyle=mine?'rgba(255,190,90,0.85)':'rgba(255,255,255,0.85)';
         g.beginPath(); g.arc(px,py,(mine?2.2:3),0,7); g.fill();
       }
+    }
+    // halbtransparente Bau-Vorschau am gewählten Platz
+    if(ui.placeType && ui.placeAt>=0){
+      const [px,py]=m.worldPos(ui.placeAt);
+      const def=BLD[ui.placeType];
+      const ok=game.canBuild(0, ui.placeType, ui.placeAt).ok;
+      // Bauplatz-Ring (pulsierend, grün = passt / rot = blockiert)
+      const pulse=0.6+0.4*Math.sin(this.time/260);
+      g.strokeStyle= ok? `rgba(150,230,120,${pulse})` : `rgba(230,110,90,${pulse})`;
+      g.lineWidth=2.6;
+      const rr2= def.size==='L'?34 : def.size==='M'?28 : 22;
+      g.beginPath(); g.ellipse(px,py+2,rr2,rr2*0.42,0,0,7); g.stroke();
+      const ov=this.asset('bld_'+ui.placeType);
+      g.globalAlpha=0.55;
+      if(ov){
+        const hh= ui.placeType==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+        const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+        g.drawImage(ov, px-ww/2, py-hh+10, ww, hh);
+      } else {
+        const s=this.bldSprite(ui.placeType, 0, 'done');
+        g.drawImage(s.cv, px-s.w/2, py-s.h+10, s.w, s.h);
+      }
+      g.globalAlpha=1;
     }
     // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
     if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }

@@ -385,16 +385,13 @@ export class UI {
       return;
     }
     if(this.state.mode==='place'){
-      const r=this.game.placeBuilding(0, this.state.placeType, i);
-      if(r.ok){
-        Sound.sfx('place');
-        this.state.mode='view'; this.state.sel=-1;
-        this.closeSheet();
-        // direkt Straße anbieten, wenn Tür nicht verbunden
-        const b=r.b;
-        if(this.game.compOf(b.door)===undefined || !this.isConnected(b)) this.startRoad(b.door,true);
+      // Bauplatz antippen -> halbtransparente Vorschau + Bestätigung
+      const can=this.game.canBuild(0, this.state.placeType, i);
+      if(can.ok){
+        this.state.placeAt=i;
+        this.placeConfirmSheet();
       } else {
-        this.toast(r.r||'Hier nicht möglich');
+        this.toast(can.r||'Hier nicht möglich');
       }
       return;
     }
@@ -514,9 +511,10 @@ export class UI {
       // Gebäudebild aus dem Asset-Pack (Baukarte)
       const img=this.renderer.asset('bld_'+key)
         ? `<img class="bthumb" src="assets/bld_${key}.png" alt="" loading="lazy">` : '';
-      items+=`<button class="bitem ${can.ok?'':'off'}" data-bld="${key}">
-        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} + 🔨${afford?'':' ⚠️'}</small>
-        <small class="desc">${can.ok? def.desc : (can.r||'')}</small></span></button>`;
+      const sz={S:'◾ klein', M:'◼ mittel', L:'⬛ groß', MINE:'⛰ Gebirge'}[def.size]||'';
+      items+=`<button class="bitem" data-bld="${key}">
+        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} + 🔨 · ${sz}${afford?'':' ⚠️'}</small>
+        <small class="desc">${def.desc}</small></span></button>`;
     }
     this.sheet(`<div class="sh-head"><b>Bauen</b>
       <button class="hbtn" id="sh-flag" title="Fahne">🚩</button>
@@ -533,23 +531,60 @@ export class UI {
     });
     document.querySelectorAll('.bitem').forEach(b=> b.onclick=()=>{
       const key=b.dataset.bld;
+      // Platzieren-Modus: erst Vorschau, gebaut wird nach Bestätigung
       const can=g.canBuild(0,key,i);
-      if(can.ok){
-        const r=g.placeBuilding(0,key,i);
-        if(r.ok){
-          Sound.sfx('place');
-          this.state.sel=-1; this.closeSheet();
-          if(!this.isConnected(r.b)) this.startRoad(r.b.door,true);
-          return;
-        }
-      }
-      // Platzieren-Modus: woanders antippen
       this.state.mode='place'; this.state.placeType=key;
-      this.sheet(`<div class="sh-head"><b>${BLD[key].name} platzieren</b><button class="hbtn" id="sh-x">✕</button></div>
-        <p class="note">${can.ok?'':'Hier nicht möglich: '+(can.r||'')+'.<br>'}Tippe auf einen freien Punkt (weiße Punkte) in deinem Gebiet.</p>`);
-      this.state.showBuildDots=true;
-      $('#sh-x').onclick=()=>{ this.state.mode='view'; this.closeSheet(); };
+      this.state.placeAt= can.ok? i : -1;
+      if(this.state.placeAt>=0){
+        this.placeConfirmSheet();
+      } else {
+        this.sheet(`<div class="sh-head"><b>${BLD[key].name} platzieren</b><button class="hbtn" id="sh-x">✕</button></div>
+          <p class="note">Grüne Punkte zeigen, wo ${BLD[key].name} gebaut werden darf. Tippe einen an –
+          du siehst erst eine Vorschau und bestätigst dann.</p>`);
+        this.state.showBuildDots=true;
+        $('#sh-x').onclick=()=>this.cancelPlace();
+      }
     });
+  }
+  sizeLabel(def){
+    return def.size==='MINE' ? 'Stollen – nur im Gebirge'
+      : def.size==='L' ? 'großer Bauplatz (5 freie Nachbarfelder)'
+      : def.size==='M' ? 'mittlerer Bauplatz (4 freie Nachbarfelder)'
+      : 'kleiner Bauplatz (1 Feld)';
+  }
+  cancelPlace(){
+    this.state.mode='view'; this.state.placeAt=-1; this.state.placeType=null;
+    this.closeSheet();
+  }
+  placeConfirmSheet(){
+    const g=this.game, key=this.state.placeType, def=BLD[key];
+    const img=this.renderer.asset('bld_'+key)
+      ? `<img class="bthumb" src="assets/bld_${key}.png" alt="">` : '';
+    const cost=Object.entries(def.cost).map(([k,v])=>`${v} ${GOODS[k].name}`).join(', ')||'–';
+    this.state.showBuildDots=true;
+    this.sheet(`<div class="sh-head"><b>${def.name} – hier bauen?</b><button class="hbtn" id="sh-x">✕</button></div>
+      <div class="bitem" style="cursor:default">${img}<span class="binfo">
+        <small>${cost} + 🔨 · ${this.sizeLabel(def)}</small>
+        <small class="desc">Vorschau auf der Karte – tippe woanders hin, um den Platz zu wechseln.</small>
+      </span></div>
+      <div class="row" style="margin-top:8px">
+        <button class="mbtn primary" id="pl-ok">✓ Bauen</button>
+        <button class="mbtn back" id="pl-cancel">✕ Abbrechen</button>
+      </div>`);
+    $('#sh-x').onclick=()=>this.cancelPlace();
+    $('#pl-cancel').onclick=()=>this.cancelPlace();
+    $('#pl-ok').onclick=()=>{
+      const r=g.placeBuilding(0, key, this.state.placeAt);
+      if(r.ok){
+        Sound.sfx('place');
+        this.state.mode='view'; this.state.placeAt=-1; this.state.placeType=null; this.state.sel=-1;
+        this.closeSheet();
+        if(!this.isConnected(r.b)) this.startRoad(r.b.door,true);
+      } else {
+        this.toast(r.r||'Hier nicht mehr möglich');
+        this.state.placeAt=-1;
+      }
+    };
   }
   openFlagSheet(i){
     const g=this.game;
@@ -768,6 +803,8 @@ export class UI {
           sel:this.state.sel,
           roadPreview:this.state.mode==='road'? this.state.roadNodes:null,
           showBuildDots:this.state.showBuildDots||this.state.mode==='place',
+          placeType:this.state.mode==='place'? this.state.placeType : null,
+          placeAt:this.state.mode==='place'? (this.state.placeAt??-1) : -1,
         };
         this.renderer.draw(this.cam, this.uiRenderState, dt);
         if(!this._mmT||now-this._mmT>500){ this._mmT=now; this.renderer.drawMinimap($('#minimap'), this.cam); }
