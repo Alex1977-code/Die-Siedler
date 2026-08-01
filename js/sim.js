@@ -577,6 +577,7 @@ export class Game {
     this.tickUnits();
     this.tickBattles();
     this.tickMilitary();
+    if(this.t%25===11) this.tickBuilderSpawn();
     this.tickRuins();
     if(this.t%10===0) this.tickGrowth();
     if(this.t%10===3) this.tickAI();
@@ -604,12 +605,10 @@ export class Game {
       if(b.player<0) continue;
       const def=BLD[b.type];
       if(b.state==='build'){
-        // Baumaterial + 1 Hammer für die Bauarbeiter (aus der Werkzeugschmiede)
         for(const g of ['board','stone']){
           const need=(def.cost[g]||0) - (b.stock[g]||0) - (b.incoming[g]||0);
           for(let k=0;k<need;k++) reqs.push({b, good:g, prio:0});
         }
-        if((b.stock.hammer||0)+(b.incoming.hammer||0)<1) reqs.push({b, good:'hammer', prio:0});
       } else if(b.state==='done'){
         if(def.prod){
           for(const g in def.prod.inputs){
@@ -810,8 +809,10 @@ export class Game {
       if(b.state!=='build') continue;
       const def=BLD[b.type];
       const needB=def.cost.board||0, needS=def.cost.stone||0;
-      const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS
-        && (b.stock.hammer||0)>=1;   // ohne Hammer kein Baubeginn
+      // Material komplett + Bauarbeiter (freie Figur mit Hammer) vor Ort
+      const builderThere=b.builderId!=null
+        && this.units.some(u=>u.id===b.builderId && u.type==='builder' && u.state==='work');
+      const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS && builderThere;
       if(!haveAll) continue;
       b.progress += 1;
       const total = 80 + 30*((def.cost.board||0)+(def.cost.stone||0));
@@ -977,6 +978,7 @@ export class Game {
       if(u.type==='worker') this.tickWorker(u);
       else if(u.type==='attack') this.tickAttack(u);
       else if(u.type==='geo') this.tickGeo(u);
+      else if(u.type==='builder') this.tickBuilder(u);
       else if(u.type==='soldierMove') this.tickSoldierMove(u);
       else if(u.type==='boulder'){
         u.prog+=0.02;
@@ -1252,6 +1254,59 @@ export class Game {
             this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, x:sx, y:sy, targetB:b.id, stype:t});
           }
         }
+      }
+    }
+  }
+
+  // ---------- Bauarbeiter: freie Figur + Hammer errichtet die Baustelle ----------
+  findToolStore(pl, good){
+    for(const b of this.buildings.values())
+      if(b.player===pl && b.inv && b.state==='done' && (b.inv[good]||0)>0) return b;
+    return null;
+  }
+  tickBuilderSpawn(){
+    for(const b of this.buildings.values()){
+      if(b.state!=='build') continue;
+      if(b.builderId!=null && this.units.some(u=>u.id===b.builderId)) continue;
+      b.builderId=null;
+      const src=this.findToolStore(b.player,'hammer');
+      if(!src) continue;                       // kein Hammer -> kein Bauarbeiter
+      src.inv.hammer--;
+      const [sx,sy]=this.map.worldPos(src.node);
+      const u={ id:NEXT_ID++, type:'builder', player:b.player, x:sx, y:sy,
+        bld:b.id, state:'toSite', pt:0, swing:0 };
+      this.units.push(u);
+      b.builderId=u.id;
+    }
+  }
+  tickBuilder(u){
+    const m=this.map;
+    const b=this.buildings.get(u.bld);
+    // Baustelle weg oder fertig -> heim ins Hauptquartier (Hammer zurück)
+    if(u.state!=='home' && (!b || b.state!=='build')) u.state='home';
+    if(u.state==='toSite'){
+      const [tx,ty]=m.worldPos(b.node);
+      if(this.moveToward(u,tx+12,ty+6,WALK_SPEED)){ u.state='work'; u.pt=0; }
+    } else if(u.state==='work'){
+      // um die Baustelle pendeln und hämmern
+      const [bx,by]=m.worldPos(b.node);
+      const spots=[[bx-15,by+7],[bx+15,by+7],[bx+18,by-3],[bx-17,by-1]];
+      const [tx,ty]=spots[u.pt%spots.length];
+      if(this.moveToward(u,tx,ty,WALK_SPEED*0.55)) u.pt++;
+      u.swing++;
+      if(u.swing%16===0){
+        // nur hämmern, wenn Material da ist (sonst wartet er sichtbar)
+        const def=BLD[b.type];
+        if((b.stock.board||0)>=(def.cost.board||0) && (b.stock.stone||0)>=(def.cost.stone||0))
+          this.onHammer && this.onHammer(u);
+      }
+    } else if(u.state==='home'){
+      const hq=this.buildings.get(this.players[u.player].hq);
+      if(!hq){ u.dead=true; return; }
+      const [tx,ty]=m.worldPos(hq.node);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+        u.dead=true;
+        if(hq.inv) hq.inv.hammer=(hq.inv.hammer||0)+1;   // Werkzeug zurück ins Lager
       }
     }
   }

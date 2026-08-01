@@ -140,7 +140,9 @@ export class UI {
         die Waffenschmiede der Reihe nach Schwerter, Schilde, Speere und Bögen, die Brauerei Bier.
         Die <b>Werkzeugschmiede</b> (Eisen + Brett) schmiedet abwechselnd <b>Hämmer</b> und
         <b>Spitzhacken</b> – mit Essen beliefert arbeitet sie doppelt so schnell. Jede Baustelle
-        braucht einen Hammer, jeder Geologe eine Spitzhacke.</p>
+        braucht einen <b>Bauarbeiter</b>: eine freie Figur mit Hammer, die zur Baustelle geht und
+        dort hämmert (ohne verfügbaren Hammer ruht der Bau). Nach Fertigstellung kehrt er samt
+        Hammer ins Lager zurück. Jeder Geologen-Einsatz verbraucht eine Spitzhacke.</p>
         <h3>Militär – drei Truppentypen</h3>
         <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
         <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
@@ -369,6 +371,11 @@ export class UI {
       Sound.sfx('burn', Math.max(0.2, 1-d/900));
     };
     g.onBoulder=()=>Sound.sfx('boulder');
+    g.onHammer=(u)=>{
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d>750) return;
+      Sound.sfx('hammer', Math.max(0.15, 1-d/750));
+    };
     g.onBattleStart=(b)=>{ if(b.player===0) Sound.sfx('war'); };
     g.onCapture=()=>Sound.sfx('done');
   }
@@ -507,13 +514,13 @@ export class UI {
       if(def.cat!==cat || key==='hq') continue;
       const can=g.canBuild(0,key,i);
       const cost=Object.entries(def.cost).map(([k,v])=>`${v} ${GOODS[k].name}`).join(', ')||'–';
-      const afford=(inv.board||0)>=(def.cost.board||0)&&(inv.stone||0)>=(def.cost.stone||0)&&(inv.hammer||0)>=1;
+      const afford=(inv.board||0)>=(def.cost.board||0)&&(inv.stone||0)>=(def.cost.stone||0);
       // Gebäudebild aus dem Asset-Pack (Baukarte)
       const img=this.renderer.asset('bld_'+key)
         ? `<img class="bthumb" src="assets/bld_${key}.png" alt="" loading="lazy">` : '';
       const sz={S:'◾ klein', M:'◼ mittel', L:'⬛ groß', MINE:'⛰ Gebirge'}[def.size]||'';
       items+=`<button class="bitem" data-bld="${key}">
-        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} + 🔨 · ${sz}${afford?'':' ⚠️'}</small>
+        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} · ${sz}${afford?'':' ⚠️'}</small>
         <small class="desc">${def.desc}</small></span></button>`;
     }
     this.sheet(`<div class="sh-head"><b>Bauen</b>
@@ -564,8 +571,9 @@ export class UI {
     this.state.showBuildDots=true;
     this.sheet(`<div class="sh-head"><b>${def.name} – hier bauen?</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="bitem" style="cursor:default">${img}<span class="binfo">
-        <small>${cost} + 🔨 · ${this.sizeLabel(def)}</small>
-        <small class="desc">Vorschau auf der Karte – tippe woanders hin, um den Platz zu wechseln.</small>
+        <small>${cost} · ${this.sizeLabel(def)}</small>
+        <small class="desc">Ein Bauarbeiter (freie Figur + Hammer) errichtet das Gebäude.
+        Tippe woanders hin, um den Platz zu wechseln.</small>
       </span></div>
       <div class="row" style="margin-top:8px">
         <button class="mbtn primary" id="pl-ok">✓ Bauen</button>

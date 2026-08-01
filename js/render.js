@@ -2546,6 +2546,20 @@ export class Renderer {
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
     if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo',null,udir,!!u._mov); return; }
+    if(u.type==='builder'){
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'builder',null,udir,!!u._mov);
+      // Hammer sichtbar in der Hand, beim Arbeiten schwingend
+      const swing= u.state==='work' ? Math.sin(this.time/110+u.id)*0.9 : 0.35;
+      g.save();
+      g.translate(u.x+6,u.y-7);
+      g.rotate(swing);
+      g.strokeStyle='#7a5b35'; g.lineWidth=1.6;
+      g.beginPath(); g.moveTo(0,4); g.lineTo(0,-5); g.stroke();
+      g.fillStyle='#8a8f96';
+      g.fillRect(-3,-8,6,3.4);
+      g.restore();
+      return;
+    }
     this.drawFigure(g, u.x, u.y, u.player, u.carry||null, 'worker', 0, u.wtype, null, udir, !!u._mov);
   }
   // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
@@ -2603,8 +2617,17 @@ export class Renderer {
       if(c>0){ prefix=p; n=c; break; }
     }
     if(!prefix) return null;
-    const speed= set==='walk'? 85 : 380;
-    const k=Math.floor(this.time/speed + (this._animSeed||0))%n;
+    let k;
+    if(set==='walk'){
+      k=Math.floor(this.time/85 + (this._animSeed||0))%n;
+    } else {
+      // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine
+      // Geste (Fußtippen, Umschauen, Recken – aus dem Warte-Clip)
+      const T=this.time/1000 + (this._animSeed||0)*0.7;
+      const cyc=T%7.5;
+      if(cyc<3.0) k=Math.floor(cyc/3.0*n)%n;   // Geste: Clip einmal durchspielen
+      else k=0;                                 // ruhig stehen
+    }
     const img=this.asset(prefix+k);
     if(!img) return null;
     return {img, flip};
@@ -2626,9 +2649,12 @@ export class Renderer {
   // dir=[dx,dy] Bewegungsrichtung, mov=true wenn die Figur gerade läuft
   drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null, dir=null, mov=false){
     // Asset-Überschreibung (Stilguide §14): unit_<typ>.png / unit_carrier.png / unit_soldier.png
-    const baseKey= kind==='soldier'
+    let baseKey= kind==='soldier'
       ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
       : kind==='carrier' ? 'unit_carrier' : 'unit_'+(wtype||'worker');
+    // Berufe ohne eigenes Bild nutzen den generischen Siedler
+    if(kind==='worker' && !this.asset(baseKey) && !this.asset(baseKey+'_walk_r_0') && this.asset('unit_worker'))
+      baseKey='unit_worker';
     // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
     const anim=this.animFrame(baseKey, dir, mov);
     if(anim){
