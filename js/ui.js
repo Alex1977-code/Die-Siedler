@@ -476,23 +476,14 @@ export class UI {
     this.state.roadFrom=fromFlag;
     this.state.roadNodes=[fromFlag];
     this.closeSheet();
+    // bewusst kompakt: nur die zwei Aktionen + eine Statuszeile
     this.sheet(`<div class="sh-head"><b>🛤️ Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
-      ${autoHint?'<p class="note"><b>Verbinde das Gebäude mit deinem Wegenetz!</b></p>':''}
-      <div class="road-help">
-        <span>👆 Wegpunkte antippen</span>
-        <span>🏠 Zielgebäude oder 🚩 Fahne antippen = anschließen</span>
-        <span>👆👆 Doppeltipp aufs Ende = Fahne + fertig</span>
-      </div>
       <div class="row">
       <button class="mbtn primary" id="road-done">🚩 Fahne setzen &amp; fertig</button>
-      <button class="mbtn" id="road-undo">↩ Zurück</button>
       <button class="mbtn back" id="road-cancel">✕ Abbrechen</button></div>
-      <p class="note" id="road-status">Noch keine Wegpunkte.</p>`);
+      <p class="note" id="road-status">${autoHint?'Verbinde das Gebäude mit deinem Wegenetz – ':''}Wegpunkte antippen, Ziel-Fahne/Gebäude antippen = anschließen.</p>`);
     $('#sh-x').onclick=()=>this.cancelRoad();
     $('#road-cancel').onclick=()=>this.cancelRoad();
-    $('#road-undo').onclick=()=>{
-      if(this.state.roadNodes.length>1){ this.state.roadNodes.pop(); }
-    };
     $('#road-done').onclick=()=>{
       const nodes=this.state.roadNodes;
       if(!nodes || nodes.length<2){ this.toast('Erst Wegpunkte antippen'); return; }

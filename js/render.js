@@ -181,7 +181,7 @@ export class Renderer {
     const panim=this.animFrame('unit_pig', walk?[p.tx-p.x,p.ty-p.y]:null, walk);
     if(panim){
       this.shadow(g,p.x+1,p.y+3.6,5.4,2,0.22);
-      const hh=13, ww=hh*(panim.sw/panim.sh);
+      const hh=11, ww=hh*(panim.sw/panim.sh);
       g.save();
       g.translate(p.x, p.y+3.6);
       if(panim.flip) g.scale(-1,1);
@@ -229,7 +229,7 @@ export class Renderer {
     this._animSeed=(a.id||0)*1.3;
     const anim=this.animFrame('unit_'+a.kind, adir, walk);
     if(anim){
-      const hh=a.kind==='hare'?14: a.kind==='boar'?18:24;
+      const hh=a.kind==='hare'?11: a.kind==='boar'?15:20;
       const ww=hh*(anim.sw/anim.sh);
       this.shadow(g,a.x,a.y+3.9,hh*0.36,2.2,0.2);
       g.save();
@@ -313,7 +313,7 @@ export class Renderer {
     const sanim=this.animFrame('unit_sheep', walk?[s.tx-s.x,s.ty-s.y]:null, walk);
     if(sanim){
       this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
-      const hh=17, ww=hh*(sanim.sw/sanim.sh);
+      const hh=14, ww=hh*(sanim.sw/sanim.sh);
       g.save();
       g.translate(s.x, s.y+5);
       if(sanim.flip) g.scale(-1,1);
@@ -524,7 +524,8 @@ export class Renderer {
         tex.globalCompositeOperation='destination-in';
         tex.drawImage(this._maskTmp,0,0);
         tex.globalCompositeOperation='source-over';
-        g.globalAlpha= t===TER.MOUNT?0.62:0.5;
+        // kräftiger einblenden: die Cartoon-Kacheln sollen den Ton angeben
+        g.globalAlpha= t===TER.MOUNT?0.78:0.72;
         g.drawImage(this._texTmp,0,0);
         g.globalAlpha=1;
       }
@@ -763,9 +764,10 @@ export class Renderer {
   }
   // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
   terrainPattern(t, g){
-    const KEY={ [TER.GRASS]:['ter_grass',0.32], [TER.DESERT]:['ter_sand',0.45], [TER.SNOW]:['ter_snow',0.45],
-                [TER.SWAMP]:['ter_swamp',0.45], [TER.MOUNT]:['ter_rock',0.85],
-                [TER.WATER]:['ter_water',0.4], [TER.LAVA]:['ter_lava',0.45] };
+    // 512er-Kacheln: größere Skalen = knuffigere, deutlich lesbare Strukturen
+    const KEY={ [TER.GRASS]:['ter_grass',0.5], [TER.DESERT]:['ter_sand',0.55], [TER.SNOW]:['ter_snow',0.55],
+                [TER.SWAMP]:['ter_swamp',0.55], [TER.MOUNT]:['ter_rock',0.7],
+                [TER.WATER]:['ter_water',0.5], [TER.LAVA]:['ter_lava',0.55] };
     const e=KEY[t];
     if(!e) return null;
     if(!this._terPat) this._terPat={};
@@ -2232,7 +2234,14 @@ export class Renderer {
     const [fx,fy]=m.worldPos(i);
     const b=this._doorMap && this._doorMap.get(i);
     if(!b) return [fx,fy];
-    const [bx,by]=m.worldPos(b.node);
+    let [bx,by]=m.worldPos(b.node);
+    // Eingang mancher Bilder liegt nicht mittig: Hauptburg -> Zugbrücke (links vorn)
+    if(b.type==='hq'){
+      const hh=this.scaleOf('bld_hq',118);
+      const img=this.asset('bld_hq');
+      const ww=img? hh*(img.naturalWidth/img.naturalHeight) : hh*0.8;
+      bx-=ww*0.175; by+=4;
+    }
     const k=0.46;
     return [fx+(bx-fx)*k, fy+((by+8)-fy)*k];
   }
@@ -2422,17 +2431,19 @@ export class Renderer {
     const s=this.bldSprite(b.type, b.player, b.state==='build'?'build':'done');
     const def=BLD[b.type];
     const big=def.size==='L'||b.type==='hq';
-    // festgetretener Boden unter dem Gebäude (verankert es in der Welt)
-    g.fillStyle='rgba(128,104,70,0.2)';
-    g.beginPath(); g.ellipse(x,y+2, big?36:def.size==='M'?29:23, big?11:9, 0, 0, 7); g.fill();
-    // goldene Stunde: lange, weiche Schatten nach Südost
-    this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
     // Asset-Überschreibung (Stilguide §14): bld_<typ>.png bzw. bld_<typ>_build.png
     // Wohnhaus: drei Bauweisen, stabil je Gebäude gewählt
     let typeKey='bld_'+b.type;
     if(b.type==='cottage'){
       const v=b.id%3;
       if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
+    }
+    // gemalte Bodenellipse + Richtungsschatten nur für Prozedural-/Altbilder –
+    // die neuen Cartoon-Bilder bringen ihren eigenen Bodenschatten mit
+    if(!this.scaleOf(typeKey, null)){
+      g.fillStyle='rgba(128,104,70,0.2)';
+      g.beginPath(); g.ellipse(x,y+2, big?36:def.size==='M'?29:23, big?11:9, 0, 0, 7); g.fill();
+      this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
     }
     // Baustellen-Phasen aus dem Asset-Paket: Planierung + 3 Baufortschritte je Größe
     const sizeKey= (def.size==='L'||b.type==='hq') ? 'l' : def.size==='S' ? 's' : 'm';
@@ -2910,14 +2921,32 @@ export class Renderer {
   // Frame einer gebackenen 3D-Animation wählen (oder null, wenn keine existiert).
   // Frames liegen als Spritesheet: Spalten = Frames, Zeilen = Richtungen (r,fr,f,br,b).
   animFrame(baseKey, dir, mov, fight=null){
-    // Blickrichtung in 8 Sektoren; linke Hälfte wird gespiegelt
+    // Blickrichtung in 8 Sektoren; linke Hälfte wird gespiegelt.
+    // Mit Hysterese je Figur (Sektor/Spiegel wechseln erst bei klarem Abstand,
+    // sonst flackert die Ansicht an den Sektorgrenzen)
+    if(!this._dirHyst) this._dirHyst=new Map();
+    if(this._dirHyst.size>4000) this._dirHyst.clear();
+    const hkey=(this._animSeed||0)+'|'+baseKey;
+    const st=this._dirHyst.get(hkey);
     let dirKey='r', flip=false;
     if(dir && (Math.abs(dir[0])>0.01 || Math.abs(dir[1])>0.01)){
       let fx=dir[0];
       if(fx<0){ flip=true; fx=-fx; }
+      // schwache Horizontalkomponente: Spiegelung vom letzten Mal behalten
+      if(st && Math.abs(dir[0])<0.15*Math.abs(dir[1])) flip=st.flip;
       const ang=Math.atan2(dir[1], fx)*180/Math.PI;   // -90..90 (0 = rechts, + = abwärts)
       dirKey= ang>67.5?'f' : ang>22.5?'fr' : ang>-22.5?'r' : ang>-67.5?'br' : 'b';
+      // Sektor-Hysterese: alten Sektor behalten, solange der Winkel nahe dran ist
+      if(st && st.dirKey!==dirKey && st.flip===flip){
+        const RANGE={f:[67.5,90.01], fr:[22.5,67.5], r:[-22.5,22.5], br:[-67.5,-22.5], b:[-90.01,-67.5]};
+        const old=RANGE[st.dirKey];
+        if(old && ang>old[0]-9 && ang<old[1]+9) dirKey=st.dirKey;
+      }
       if(dirKey==='f'||dirKey==='b') flip=false;      // frontal/Rücken sind symmetrisch
+      this._dirHyst.set(hkey,{dirKey,flip});
+    } else if(st){
+      // stehend: zuletzt gelaufene Richtung beibehalten
+      dirKey=st.dirKey; flip=st.flip;
     }
     const COLS={ walk:8, idle:10, atk:6 };
     let set= fight!=null && this.asset(baseKey+'_atk') ? 'atk'
@@ -2949,7 +2978,7 @@ export class Renderer {
     const anim=this.animFrame('unit_donkey', dir, mov);
     if(anim){
       this.shadow(g,x+1,y+5.4,7,2.4,0.24);
-      const hh=22, ww=hh*(anim.sw/anim.sh);
+      const hh=18, ww=hh*(anim.sw/anim.sh);
       g.save();
       g.translate(x,y+5);
       if(anim.flip) g.scale(-1,1);
@@ -3070,18 +3099,19 @@ export class Renderer {
     // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
     const anim=this.animFrame(baseKey, dir, mov, fight);
     if(anim){
-      this.shadow(g,x,y+7.4,5.8,2.3,0.26);
+      this.shadow(g,x,y+7.4,4.8,1.9,0.26);
       g.strokeStyle=PLAYER_COLORS[pl]||'#888';
-      g.lineWidth=1.5; g.globalAlpha=0.8;
-      g.beginPath(); g.ellipse(x,y+6.8,6,2.4,0,0,7); g.stroke();
+      g.lineWidth=1.4; g.globalAlpha=0.8;
+      g.beginPath(); g.ellipse(x,y+6.8,5,2,0,0,7); g.stroke();
       g.globalAlpha=1;
-      const hh=40, ww=hh*(anim.sw/anim.sh);
+      // Größenanker: Figur ≈ halbe Wohnhaushöhe (klassische Lesbarkeit)
+      const hh=32, ww=hh*(anim.sw/anim.sh);
       g.save();
       g.translate(x,y+8);
       if(anim.flip) g.scale(-1,1);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
       g.restore();
-      if(good) this.drawGood(g, good, x, y-26, 8.5);
+      if(good) this.drawGood(g, good, x, y-22, 8);
       return;
     }
     let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);

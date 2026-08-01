@@ -1051,7 +1051,8 @@ export class Game {
         return t!==undefined? {node:t, kind:'chop', reserve:true} : null;
       }
       case 'plant': {
-        const t=nodes.find(i=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i] && m.owner[i]===b.player);
+        const t=nodes.find(i=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i]
+          && m.owner[i]===b.player && !this.roadAt(i));
         return t!==undefined? {node:t, kind:'plant', reserve:false} : null;
       }
       case 'stone': {
@@ -1084,7 +1085,8 @@ export class Game {
         const ripe=nodes.find(i=> m.obj[i]===OBJ.FIELD2);
         if(ripe!==undefined) return {node:ripe, kind:'harvest', reserve:false};
         if(b.out<2){
-          const empty=nodes.find(i=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i] && m.owner[i]===b.player);
+          const empty=nodes.find(i=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i]
+            && m.owner[i]===b.player && !this.roadAt(i));
           if(empty!==undefined) return {node:empty, kind:'sow', reserve:false};
         }
         return null;
@@ -1424,6 +1426,7 @@ export class Game {
       u.type='flee'; u.bld=undefined;
       return;
     }
+    if(!this.routeStep(u,WALK_SPEED)) return;        // erst der Straße folgen
     const [tx,ty]=this.map.worldPos(b.node);
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
@@ -1575,6 +1578,37 @@ export class Game {
     this.onShip && this.onShip(sy);
   }
 
+  // ---------- Fußweg entlang des Straßennetzes (Bauarbeiter, Planierer, Einzug) ----------
+  // Liefert Weltpunkte entlang der Straßen von Fahne zu Fahne – oder null,
+  // wenn die Ziele nicht verbunden sind (dann Luftlinie wie bisher).
+  flagWaypoints(fromFlag, toFlag){
+    if(fromFlag==null || toFlag==null || fromFlag<0 || toFlag<0) return null;
+    if(fromFlag===toFlag) return [];
+    if(this.compOf(fromFlag)===undefined || this.compOf(fromFlag)!==this.compOf(toFlag)) return null;
+    const wp=[]; let f=fromFlag; let guard=80;
+    while(f!==toFlag && guard-->0){
+      const rid=this.nextRoad(f, toFlag);
+      if(rid==null) return null;
+      const r=this.roads.get(rid);
+      if(!r || r.isSea) return null;
+      let pathNodes=r.path;
+      if(pathNodes[0]!==f) pathNodes=[...pathNodes].reverse();
+      if(pathNodes[0]!==f) return null;
+      for(let k=1;k<pathNodes.length;k++) wp.push(this.map.worldPos(pathNodes[k]));
+      f=r.path[0]===f? r.path[r.path.length-1] : r.path[0];
+    }
+    return f===toFlag? wp : null;
+  }
+  // Route abarbeiten; true, wenn alle Wegpunkte erreicht sind
+  routeStep(u, speed){
+    if(u.wp && (u.wpi||0)<u.wp.length){
+      const [tx,ty]=u.wp[u.wpi||0];
+      if(this.moveToward(u,tx,ty,speed)) u.wpi=(u.wpi||0)+1;
+      return (u.wpi||0)>=u.wp.length;
+    }
+    return true;
+  }
+
   // ---------- Werkzeuge: aus Lagern oder direkt vom Ausstoß der Werkzeugschmiede ----------
   findToolStore(pl, good){
     for(const b of this.buildings.values()){
@@ -1631,7 +1665,8 @@ export class Game {
     }
     const [sx,sy]=this.map.worldPos(hq.node);
     const u={ id:NEXT_ID++, type:'settle', player:b.player,
-      x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null };
+      x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null,
+      wp:this.flagWaypoints(hq.door, b.door)||undefined, wpi:0 };
     this.units.push(u);
     b.settlerId=u.id;
     return true;
@@ -1655,7 +1690,8 @@ export class Game {
         this.takeTool(src,'shovel');
         const [sx,sy]=this.map.worldPos(hq.node);
         const u={ id:NEXT_ID++, type:'leveler', player:b.player, x:sx, y:sy,
-          bld:b.id, state:'toSite', pt:0 };
+          bld:b.id, state:'toSite', pt:0,
+          wp:this.flagWaypoints(hq.door, b.door)||undefined, wpi:0 };
         this.units.push(u);
         b.levelerId=u.id;
         continue;
@@ -1671,7 +1707,8 @@ export class Game {
       this.takeTool(src,'hammer');
       const [sx,sy]=this.map.worldPos(src.node);
       const u={ id:NEXT_ID++, type:'builder', player:b.player, x:sx, y:sy,
-        bld:b.id, state:'toSite', pt:0, swing:0 };
+        bld:b.id, state:'toSite', pt:0, swing:0,
+        wp:this.flagWaypoints(src.door, b.door)||undefined, wpi:0 };
       this.units.push(u);
       b.builderId=u.id;
     }
@@ -1681,6 +1718,7 @@ export class Game {
     const b=this.buildings.get(u.bld);
     if(u.state!=='home' && (!b || b.state!=='build' || b.leveled)) u.state='home';
     if(u.state==='toSite'){
+      if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
       if(this.moveToward(u,tx-10,ty+6,WALK_SPEED)){ u.state='work'; b.levelT=0; }
     } else if(u.state==='work'){
@@ -1694,6 +1732,12 @@ export class Game {
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }
+      if(!u._homeWp){
+        u._homeWp=true;
+        u.wp=(b && this.map.flag[b.door] ? this.flagWaypoints(b.door, hq.door) : null)||[];
+        u.wpi=0;
+      }
+      if(!this.routeStep(u,WALK_SPEED)) return;
       const [tx,ty]=m.worldPos(hq.node);
       if(this.moveToward(u,tx,ty,WALK_SPEED)){
         u.dead=true;
@@ -1707,6 +1751,7 @@ export class Game {
     // Baustelle weg oder fertig -> heim ins Hauptquartier (Hammer zurück)
     if(u.state!=='home' && (!b || b.state!=='build')) u.state='home';
     if(u.state==='toSite'){
+      if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
       if(this.moveToward(u,tx+12,ty+6,WALK_SPEED)){ u.state='work'; u.pt=0; }
     } else if(u.state==='work'){
@@ -1725,6 +1770,12 @@ export class Game {
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }
+      if(!u._homeWp){
+        u._homeWp=true;
+        u.wp=(b && this.map.flag[b.door] ? this.flagWaypoints(b.door, hq.door) : null)||[];
+        u.wpi=0;
+      }
+      if(!this.routeStep(u,WALK_SPEED)) return;
       const [tx,ty]=m.worldPos(hq.node);
       if(this.moveToward(u,tx,ty,WALK_SPEED)){
         u.dead=true;
