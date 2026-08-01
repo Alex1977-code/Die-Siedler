@@ -2537,9 +2537,25 @@ export class Renderer {
     }
     // ---------- deutliche Arbeits-Effekte ----------
     const working=b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
-    // Windmühle: rotierende Flügel (nur fürs alte Bild ohne Flügel – das neue
-    // Cartoon-Sheet bringt die Flügel im Bild mit)
-    if(b.type==='mill' && b.state==='done' && !this.scaleOf('bld_mill', null)){
+    // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms
+    if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')){
+      const sails=this.asset('obj_millsails');
+      const mimg=this.asset('bld_mill');
+      const hh=this.scaleOf('bld_mill',92);
+      const ww=hh*(mimg? mimg.naturalWidth/mimg.naturalHeight : 0.5);
+      // Nabenzapfen sitzt links oben am Kegeldach (aus dem Turmbild vermessen)
+      const hubX=x-ww/2+ww*0.357, hubY=y-hh+10+hh*0.238;
+      const span=hh*0.92;                    // Flügelspannweite
+      const ang= working? this.time/650 : (b.id%6.28);
+      g.save();
+      g.translate(hubX,hubY);
+      g.scale(0.86,1);                       // Flügelebene leicht zur Seite geneigt
+      g.rotate(ang);
+      g.drawImage(sails, -span/2, -span/2, span, span);
+      g.restore();
+    }
+    // alte Bilder ohne Flügel: prozedurale Flügel als Rückfall
+    else if(b.type==='mill' && b.state==='done' && !this.scaleOf('bld_mill', null)){
       const hubX=x+1, hubY=y-58;
       const ang= working? this.time/650 : (b.id%6.28);
       g.save();
