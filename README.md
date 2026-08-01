@@ -131,6 +131,18 @@ Sprite aktiv (beliebig mischbar).
 | `fx_impact/sparks/smoke/splash/arrow/boulder.png` | Effekte (Leuchtdichte = Transparenz) | ~120–300 px |
 | `ui_wood.png`, `ui_parchment.png`, `ui_ring.png`, `ui_btn_pause/menu.png` | UI: Holz-Buttons, Pergament-Missionsbox, Zierring, HUD-Buttons | – |
 | `unit_<typ>_up.png` / `unit_<typ>_down.png` | optionale Rück-/Frontansicht laufender Figuren (sonst automatische Andeutung) | ~256 px |
+| `unit_<typ>_walk/idle_<r\|f\|b>_<n>.png` | gebackene 3D-Animationsframes (Laufen/Warten × rechts/frontal/Rücken); ersetzt automatisch das Einzelbild | 300 px |
+
+### 3D-Figuren einbinden (GLB → Sprites backen)
+
+Geriggte GLB-Modelle (z. B. aus Tripo, mit Animationen „Gehen"/„Warten")
+nach `tools/models/<name>.glb` legen und
+`tools/bake-sprites.html?m=<name>` im Browser öffnen: Die Seite rendert
+das Modell mit fester Spielkamera (~38° von schräg oben, Licht von links
+oben) und exportiert über `window.bake(clip, zeit, richtung)` einzelne
+Frames. Der Bake gleicht Root-Motion automatisch aus (geskinnte
+Bounding-Box). Das Spiel spielt Frames nach dem Namensschema oben
+automatisch als Animation ab – Blickrichtung inklusive (links = gespiegelt).
 | `unit_carrier.png`, `unit_sword.png`, `unit_spear.png`, `unit_bow.png`, `unit_soldier.png` (Fallback), `unit_<beruf>.png` | Figuren (Truppentypen; Berufe: `woodcutter`, `farm`, `fisher`, `hunter`, `quarry`, `forester`, `geo`) | ~256 px hoch, Blick nach rechts |
 | `icon_<ware>.png`, `icon_soldier.png` | HUD-Icons (`board`, `stone`, `bread`, `fish`, `coal`, `iron`, `coin`) | 64×64 px |
 

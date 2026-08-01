@@ -1824,7 +1824,7 @@ export class Renderer {
       }
       c._lx=pos[0]; c._ly=pos[1];
       items.push({kind:'carrier', pl:r.player, x:pos[0], y:pos[1], carrying:!!c.item, good:c.item?.good,
-        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov});
+        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov, seed:r.id*2.7});
     }
     for(const u of game.units){
       if(u._lx!==undefined){
@@ -1843,8 +1843,8 @@ export class Renderer {
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
-      else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov);
-      else if(it.kind==='unit') this.drawUnit(g, it.u);
+      else if(it.kind==='carrier'){ this._animSeed=it.seed; this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov); }
+      else if(it.kind==='unit'){ this._animSeed=(it.u.id||0)*1.9; this.drawUnit(g, it.u); }
       else if(it.kind==='sheep') this.drawSheep(g, it.sh);
     }
     this.drawFx(g, game);
@@ -2568,6 +2568,27 @@ export class Renderer {
       g.beginPath(); g.arc(x-0.9,y-15.3,1,0,7); g.fill();
     }
   }
+  // Frame einer gebackenen 3D-Animation wählen (oder null, wenn keine existiert)
+  animFrame(baseKey, dir, mov){
+    if(!this.asset(baseKey+'_walk_r_0')) return null;
+    if(!this._animN) this._animN={};
+    const dirKey= dir && Math.abs(dir[1])>Math.abs(dir[0])*1.6 ? (dir[1]<0?'b':'f') : 'r';
+    const set= mov? 'walk' : (this.asset(baseKey+'_idle_r_0')? 'idle':'walk');
+    const prefix=`${baseKey}_${set}_${dirKey}_`;
+    let n=this._animN[prefix];
+    if(n===undefined){
+      n=0; while(this.asset(prefix+n) && n<32) n++;
+      this._animN[prefix]=n;
+    }
+    if(!n) return null;
+    const speed= set==='walk'? 85 : 380;
+    const k=Math.floor(this.time/speed + (this._animSeed||0))%n;
+    const img=this.asset(prefix+k);
+    if(!img) return null;
+    // Seitenansicht schaut nach rechts -> bei Linkslauf spiegeln
+    const flip= dirKey==='r' && dir && dir[0]<-0.05;
+    return {img, flip};
+  }
   // getragene Ware: Bild-Asset (good_<ware>) oder farbiges Kistchen
   drawGood(g, good, x, y, h=6.8){
     const gi=this.asset('good_'+good);
@@ -2588,6 +2609,23 @@ export class Renderer {
     const baseKey= kind==='soldier'
       ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
       : kind==='carrier' ? 'unit_carrier' : 'unit_'+(wtype||'worker');
+    // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
+    const anim=this.animFrame(baseKey, dir, mov);
+    if(anim){
+      this.shadow(g,x,y+7.4,5.8,2.3,0.26);
+      g.strokeStyle=PLAYER_COLORS[pl]||'#888';
+      g.lineWidth=1.5; g.globalAlpha=0.8;
+      g.beginPath(); g.ellipse(x,y+6.8,6,2.4,0,0,7); g.stroke();
+      g.globalAlpha=1;
+      const hh=40, ww=hh*(anim.img.naturalWidth/anim.img.naturalHeight);
+      g.save();
+      g.translate(x,y+8);
+      if(anim.flip) g.scale(-1,1);
+      g.drawImage(anim.img, -ww/2, -hh, ww, hh);
+      g.restore();
+      if(good) this.drawGood(g, good, x, y-26, 8.5);
+      return;
+    }
     let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);
     let imgKey=baseKey;
     if(ovU){
