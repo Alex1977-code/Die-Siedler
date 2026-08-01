@@ -2158,20 +2158,78 @@ export class Renderer {
       g.font='bold 13px Georgia,serif';
       g.fillText('Z', x+19, y-44-ph*10);
     }
-    // Rauch bei aktiver Produktion (Bild-Rauchsäule, sonst Kreise)
-    if(b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && (b.prodT>0)){
+    // ---------- deutliche Arbeits-Effekte ----------
+    const working=b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
+    // Windmühle: rotierende Flügel (Bild ist ohne Flügel); stehen still ohne Arbeit
+    if(b.type==='mill' && b.state==='done'){
+      const hubX=x+1, hubY=y-58;
+      const ang= working? this.time/650 : (b.id%6.28);
+      g.save();
+      g.translate(hubX,hubY);
+      g.scale(1,0.92);                       // leichte Perspektive
+      for(let k=0;k<4;k++){
+        g.save();
+        g.rotate(ang + k*Math.PI/2);
+        // Holzrahmen des Flügels
+        g.strokeStyle='#6d5433'; g.lineWidth=2.2;
+        g.beginPath(); g.moveTo(0,3); g.lineTo(0,-30); g.stroke();
+        // bespannte Gitterfläche
+        g.fillStyle='rgba(233,222,193,0.88)';
+        g.beginPath();
+        g.moveTo(0,-4); g.lineTo(7.5,-8); g.lineTo(7.5,-28) ; g.lineTo(0,-30);
+        g.closePath(); g.fill();
+        g.strokeStyle='rgba(94,74,46,0.75)'; g.lineWidth=1; g.stroke();
+        for(let s=1;s<4;s++){                // Querstreben
+          g.beginPath(); g.moveTo(0,-4-s*6.4); g.lineTo(7.5,-8-s*5.2); g.stroke();
+        }
+        g.restore();
+      }
+      g.fillStyle='#4a3826';
+      g.beginPath(); g.arc(0,0,3,0,7); g.fill();
+      g.fillStyle='#c9a05a';
+      g.beginPath(); g.arc(0,0,1.3,0,7); g.fill();
+      g.restore();
+    }
+    // Glut in Schmieden & Öfen: flackernder Feuerschein im unteren Gebäudeteil
+    if(working && (b.type==='smelter'||b.type==='armory'||b.type==='toolsmith'||b.type==='mint'||b.type==='bakery')){
+      const fl=0.55+0.3*Math.sin(this.time/95+b.id*1.7)+0.15*Math.sin(this.time/41+b.id*3.1);
+      const gx=x-5, gy=y-13;
+      g.globalCompositeOperation='lighter';
+      const rad=g.createRadialGradient(gx,gy,1,gx,gy,15);
+      rad.addColorStop(0,`rgba(255,150,50,${0.42*fl})`);
+      rad.addColorStop(0.6,`rgba(255,110,30,${0.2*fl})`);
+      rad.addColorStop(1,'rgba(255,90,20,0)');
+      g.fillStyle=rad;
+      g.beginPath(); g.arc(gx,gy,15,0,7); g.fill();
+      // Funkenflug bei Metallbetrieben
+      if(b.type!=='bakery'){
+        for(let k=0;k<2;k++){
+          const ph=(this.time/500+k*0.5+b.id*0.3)%1;
+          g.fillStyle=`rgba(255,200,110,${(1-ph)*fl*0.8})`;
+          g.beginPath(); g.arc(gx+Math.sin(this.time/140+k*4)*5, gy-3-ph*13, 0.9, 0, 7); g.fill();
+        }
+      }
+      g.globalCompositeOperation='source-over';
+    }
+    // Rauch bei aktiver Produktion – kräftig sichtbar; Bäckerei raucht weiß
+    if(working){
       const smi=this.asset('fx_smoke');
+      const white=b.type==='bakery';
       if(smi){
-        const ph=(this.time/2600 + b.id*0.37)%1;
-        const hh=14+ph*20, ww=hh*(smi.naturalWidth/smi.naturalHeight);
-        const sway=Math.sin((this.time/900+b.id))*4;
-        g.globalAlpha=0.5*(1-ph);
-        g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*22-hh, ww, hh);
+        for(const off of [0,0.5]){
+          const ph=(this.time/2200 + b.id*0.37 + off)%1;
+          const hh=16+ph*26, ww=hh*(smi.naturalWidth/smi.naturalHeight);
+          const sway=Math.sin((this.time/900+b.id+off*3))*5;
+          g.globalAlpha=(white?0.75:0.6)*(1-ph);
+          if(white && 'filter' in g) g.filter='brightness(2.1)';
+          g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*26-hh, ww, hh);
+          if(white && 'filter' in g) g.filter='none';
+        }
         g.globalAlpha=1;
       } else for(const off of [0,0.45]){
         const ph=(this.time/800 + b.id*0.7 + off)%1;
         const sway=Math.sin((this.time/600+b.id+off*4))*4;
-        g.fillStyle=`rgba(215,215,218,${0.42*(1-ph)})`;
+        g.fillStyle=white?`rgba(245,245,242,${0.55*(1-ph)})`:`rgba(215,215,218,${0.42*(1-ph)})`;
         g.beginPath(); g.arc(x+12+sway*ph, y-44-ph*26, 2.6+ph*5.4, 0, 7); g.fill();
       }
     }
