@@ -574,6 +574,31 @@ export class Renderer {
     const img=this.assets && this.assets.get(key);
     return (img && img.complete && img.naturalWidth>0) ? img : null;
   }
+  // Baumbilder einmalig an die Wiesenpalette anpassen + zum Boden hin abdunkeln
+  tintedTree(key){
+    const img=this.asset(key);
+    if(!img) return null;
+    if(!this._tint) this._tint=new Map();
+    let cv=this._tint.get(key);
+    if(cv) return cv;
+    cv=document.createElement('canvas');
+    cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    t.globalCompositeOperation='source-atop';
+    if(key!=='tree_winter'){
+      t.fillStyle='rgba(96,116,60,0.1)';          // warmer Wiesenton
+      t.fillRect(0,0,cv.width,cv.height);
+    }
+    const gr=t.createLinearGradient(0,cv.height*0.72,0,cv.height);
+    gr.addColorStop(0,'rgba(40,54,28,0)');        // unten leicht verschattet -> verwurzelt
+    gr.addColorStop(1,'rgba(40,54,28,0.3)');
+    t.fillStyle=gr;
+    t.fillRect(0,0,cv.width,cv.height);
+    t.globalCompositeOperation='source-over';
+    this._tint.set(key,cv);
+    return cv;
+  }
   shadow(g,x,y,rx,ry,a=0.26){
     g.fillStyle=`rgba(12,18,10,${a})`;
     g.beginPath(); g.ellipse(x,y,rx,ry,0,0,7); g.fill();
@@ -1777,6 +1802,8 @@ export class Renderer {
       u._lx=u.x; u._ly=u.y;
       items.push({kind:'unit', u, y:u.y});
     }
+    // Schafe in die Tiefensortierung einreihen (sonst stehen sie VOR Bäumen)
+    if(this.sheep) for(const sh of this.sheep) items.push({kind:'sheep', sh, y:sh.y+4});
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
@@ -1785,6 +1812,7 @@ export class Renderer {
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
       else if(it.kind==='carrier') this.drawFigure(g, it.x, it.y, it.pl, it.carrying? it.good:null, 'carrier', 0, null, null, it.dir, it.mov);
       else if(it.kind==='unit') this.drawUnit(g, it.u);
+      else if(it.kind==='sheep') this.drawSheep(g, it.sh);
     }
     this.drawFx(g, game);
     // Wolkenschatten ziehen über das Land
@@ -1822,9 +1850,8 @@ export class Renderer {
     }
     // Vogelschwärme
     this.drawBirds(g, cw, chh, wx0, wx1, wy0, wy1);
-    // Schafe (bewegte Deko)
+    // Schafe: Position aktualisieren (gezeichnet werden sie tiefensortiert oben)
     this.updateSheep(dtMs);
-    for(const sh of this.sheep) this.drawSheep(g, sh);
     // Auswahl-Marker
     if(ui.sel>=0){
       const [x,y]=m.worldPos(ui.sel);
@@ -1954,14 +1981,23 @@ export class Renderer {
         const sc=0.85+hash01(i*7+1)*0.3;
         // Asset-Überschreibung (Stilguide §14): tree_conifer/tree_leaf/tree_autumn.png
         // Im Winter: eigenes tree_winter.png, sonst prozedural verschneit
-        const ovT=this.theme==='winter'
-          ? this.asset('tree_winter')
-          : this.asset(species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        const treeKey=this.theme==='winter' ? 'tree_winter'
+          : (species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        const ovT=this.tintedTree(treeKey);
         const grow=st===3?1:st===2?0.72:0.45;
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=74*sc*(ovT?grow:1);
-        const w=ovT? h*(ovT.naturalWidth/ovT.naturalHeight) : 56*sc;
-        this.shadow(g,x+8*sc,y+2, 16*sc*(st/3), 4.2*sc, 0.2);
+        const w=ovT? h*(ovT.width/ovT.height) : 56*sc;
+        // kühler Wiesenschatten unter der Krone statt grauem Fleck
+        const shR=20*sc*(st/3)+7;
+        const gr2=g.createRadialGradient(x+3*sc,y+2,2, x+3*sc,y+2, shR);
+        gr2.addColorStop(0,'rgba(28,44,20,0.3)');
+        gr2.addColorStop(0.7,'rgba(28,44,20,0.15)');
+        gr2.addColorStop(1,'rgba(28,44,20,0)');
+        g.fillStyle=gr2;
+        g.beginPath(); g.ellipse(x+3*sc,y+2, shR, shR*0.38, 0,0,7); g.fill();
+        // gerichteter Kernschatten (goldene Stunde, nach Südost)
+        this.shadow(g,x+9*sc,y+3, 13*sc*(st/3), 3.6*sc, 0.14);
         // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
         const sway=Math.sin(this.time/1150 + i*0.73)*0.05 + Math.sin(this.time/451 + i*1.7)*0.013;
         g.save();
@@ -1970,6 +2006,18 @@ export class Renderer {
         if(ovT) g.drawImage(ovT, -w/2, -h, w, h);
         else g.drawImage(s.cv, -w/2, -h, w, h);
         g.restore();
+        // Grasbüschel am Stammfuß: der Baum steht IM Gras, nicht darauf
+        if(this.theme!=='winter' && this.theme!=='wueste'){
+          for(let k2=0;k2<4;k2++){
+            const hx2=x+(hash01(i*13+k2)-0.5)*13*sc, hy2=y+3.4+(hash01(i*29+k2)-0.5)*3.4;
+            g.strokeStyle=k2%2?'rgba(92,124,56,0.7)':'rgba(116,144,66,0.65)';
+            g.lineWidth=1.2;
+            g.beginPath();
+            g.moveTo(hx2-1.4,hy2+1); g.quadraticCurveTo(hx2-1.2,hy2-2.6,hx2-0.4,hy2-3.6);
+            g.moveTo(hx2,hy2+1); g.quadraticCurveTo(hx2+0.3,hy2-3,hx2+1.1,hy2-4);
+            g.stroke();
+          }
+        }
         break;
       }
       case OBJ.STONE: {
