@@ -1686,6 +1686,11 @@ export class Renderer {
       g.strokeStyle=PLAYER_COLORS[e.pl]+'cc'; g.lineWidth=2;
       g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
     }
+    // Zuordnung Türfahne -> Gebäude (für die Eingangs-Position der Fahnen)
+    this._doorMap=new Map();
+    for(const b of game.buildings.values())
+      if(b.door!=null && b.door>=0 && m.flag[b.door] && !this._doorMap.has(b.door))
+        this._doorMap.set(b.door, b);
     // Straßen: sanft geschwungen und gepflastert
     for(const r of game.roads.values()){
       const pts=this.roadPts(r);
@@ -1768,7 +1773,7 @@ export class Renderer {
       for(const b of game.buildings.values()){
         if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
         const [bx,by]=m.worldPos(b.node);
-        const [fx3,fy3]=m.worldPos(b.door);
+        const [fx3,fy3]=this.doorVisualPos(b.door);
         if(bx<wx0-80||bx>wx1+80||by<wy0-80||by>wy1+80) continue;
         const sx=bx+(fx3-bx)*0.22, sy=by+7;      // Ansatz am unteren Gebäuderand
         const mx2=(sx+fx3)/2, my2=(sy+fy3)/2+1.5;
@@ -1983,12 +1988,24 @@ export class Renderer {
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
   }
-  // Straßenpunkte mit dezentem Versatz (Enden/Fahnen bleiben exakt)
+  // Türfahnen werden optisch an den Gebäudeeingang gerückt
+  doorVisualPos(i){
+    const m=this.game.map;
+    const [fx,fy]=m.worldPos(i);
+    const b=this._doorMap && this._doorMap.get(i);
+    if(!b) return [fx,fy];
+    const [bx,by]=m.worldPos(b.node);
+    const k=0.46;
+    return [fx+(bx-fx)*k, fy+((by+8)-fy)*k];
+  }
+  // Straßenpunkte mit dezentem Versatz (Enden/Fahnen bleiben exakt,
+  // Türfahnen-Enden ziehen bis vor den Gebäudeeingang)
   roadPts(r){
     const m=this.game.map;
     return r.path.map((n,ix)=>{
+      if(ix===0 || ix===r.path.length-1) return this.doorVisualPos(n);
       const [x,y]=m.worldPos(n);
-      if(ix===0 || ix===r.path.length-1 || m.flag[n]) return [x,y];
+      if(m.flag[n]) return [x,y];
       return [x+(hash01(n*3+1)-0.5)*6, y+(hash01(n*5+2)-0.5)*5];
     });
   }
@@ -2311,7 +2328,7 @@ export class Renderer {
     }
   }
   drawFlag(g, m, game, i){
-    const [x,y]=m.worldPos(i);
+    const [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
     const pl=m.owner[i];
     this.shadow(g,x+1,y+1.6,5,2,0.3);
     // Mast
