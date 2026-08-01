@@ -1762,6 +1762,34 @@ export class Renderer {
       // ausgetretene Wegmitte
       trace(); g.strokeStyle='rgba(94,80,62,0.22)'; g.lineWidth=2.6; g.stroke();
     }
+    // Eingangswege: kurzer Pflasterstummel vom Gebäude zur Türfahne
+    {
+      const cob2=this.asset('ter_cobble');
+      for(const b of game.buildings.values()){
+        if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
+        const [bx,by]=m.worldPos(b.node);
+        const [fx3,fy3]=m.worldPos(b.door);
+        if(bx<wx0-80||bx>wx1+80||by<wy0-80||by>wy1+80) continue;
+        const sx=bx+(fx3-bx)*0.22, sy=by+7;      // Ansatz am unteren Gebäuderand
+        const mx2=(sx+fx3)/2, my2=(sy+fy3)/2+1.5;
+        const stub=()=>{
+          g.beginPath();
+          g.moveTo(sx,sy);
+          g.quadraticCurveTo(mx2,my2,fx3,fy3);
+        };
+        g.lineJoin='round'; g.lineCap='round';
+        stub(); g.strokeStyle='rgba(74,62,46,0.14)'; g.lineWidth=10; g.stroke();
+        stub(); g.strokeStyle='rgba(80,66,50,0.28)'; g.lineWidth=7; g.stroke();
+        if(cob2){
+          if(!this._cobPat) { this._cobPat=g.createPattern(cob2,'repeat'); if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12)); }
+          g.globalAlpha=0.8;
+          stub(); g.strokeStyle=this._cobPat; g.lineWidth=5.2; g.stroke();
+          g.globalAlpha=1;
+        } else {
+          stub(); g.strokeStyle='#b3a68c'; g.lineWidth=5; g.stroke();
+        }
+      }
+    }
     // Straßen-Vorschau
     if(ui.roadPreview && ui.roadPreview.length>1){
       g.strokeStyle='rgba(255,244,170,0.95)'; g.lineWidth=4; g.setLineDash([8,7]);

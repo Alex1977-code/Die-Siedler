@@ -87,13 +87,21 @@ export class Game {
     return b;
   }
   pickDoor(node){
-    const nbs = this.map.nbs(node);
-    // bevorzugt SE/SW (untere Reihe)
-    const my = this.map.Y(node);
-    const sorted = nbs.slice().sort((a,b)=> (this.map.Y(b)-my)-(this.map.Y(a)-my));
-    for(const n of sorted){
-      if(this.map.terrOkRoad(n) && this.map.bld[n]<0 && this.map.obj[n]===OBJ.NONE) return n;
-      if(this.map.flag[n]) return n;
+    // Der Eingang liegt IMMER unten: nur die untere Nachbarreihe kommt infrage,
+    // bevorzugt der Knoten am nächsten zur Gebäudemitte.
+    const m=this.map;
+    const nbs=m.nbs(node);
+    const my=m.Y(node), mx=m.X(node);
+    const lower=nbs.filter(n=>m.Y(n)>my)
+      .sort((a,b)=>Math.abs(m.X(a)-mx)-Math.abs(m.X(b)-mx));
+    for(const n of lower){
+      if(m.flag[n]) return n;                                    // vorhandene Fahne nutzen
+      if(m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE && !this.roadAt(n)) return n;
+    }
+    // Notfall (sollte durch canBuild nicht vorkommen): restliche Nachbarn
+    for(const n of nbs){
+      if(m.flag[n]) return n;
+      if(m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE) return n;
     }
     return nbs[0] ?? -1;
   }
@@ -107,6 +115,15 @@ export class Game {
     if(def.size==='MINE'){ if(!m.terrOkMine(node)) return {ok:false, r:'Bergwerke nur im Gebirge'}; }
     else {
       if(!m.terrOkBuild(node)) return {ok:false, r:'Untergrund ungeeignet'};
+    }
+    {
+      // Eingang liegt unten: dort muss eine Türfahne möglich sein
+      const my=m.Y(node);
+      const doorOk=m.nbs(node).some(n=> m.Y(n)>my &&
+        (m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE && !this.roadAt(n))));
+      if(!doorOk) return {ok:false, r:'Kein Platz für den Eingang (unterhalb)'};
+    }
+    if(def.size!=='MINE'){
       if(def.size!=='S'){
         let free=0;
         for(const n of m.nbs(node)) if(m.bld[n]<0 && m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA && m.terr[n]!==TER.MOUNT) free++;
