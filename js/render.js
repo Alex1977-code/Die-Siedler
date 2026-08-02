@@ -459,7 +459,7 @@ export class Renderer {
     if(c && c.ver===ver){ c.used=this.time; return c; }
     const m=this.game.map;
     const pad=TILE*1.5;
-    const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*3;
+    const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*8;
     if(!c){
       // Speicherbremse: jeder Chunk ist ein großes Canvas – selten benutzte
       // Chunks werden verworfen, bevor der Speicher auf dem Handy volläuft
@@ -471,7 +471,7 @@ export class Renderer {
     }
     c.used=this.time;
     c.ver=ver;
-    c.ox=cx*CHUNK*TILE-pad; c.oy=cy*CHUNK*ROWH-pad-HSCALE*1.5;
+    c.ox=cx*CHUNK*TILE-pad; c.oy=cy*CHUNK*ROWH-pad-HSCALE*6;
     const g=c.cv.getContext('2d');
     g.clearRect(0,0,w,h);
     const cols=TER_COL[this.theme]||TER_COL.gruen;
@@ -544,7 +544,7 @@ export class Renderer {
         // fleckige Auflage -> die Wiederholung der einen Kachel verschwindet
         const pat2=this.terrainPattern(L.pat, tex, 1);
         if(pat2){
-          tex.globalAlpha=0.26;
+          tex.globalAlpha=0.16;
           tex.fillStyle=pat2;
           tex.fillRect(c.ox,c.oy,w,h);
           tex.globalAlpha=1;
@@ -597,7 +597,7 @@ export class Renderer {
         bg.filter='none';
         g.save();
         g.globalCompositeOperation='color';
-        g.globalAlpha=0.5;
+        g.globalAlpha=0.3;
         g.drawImage(this._blurTmp,0,0);
         g.restore();
       }
@@ -691,7 +691,7 @@ export class Renderer {
         sg.globalCompositeOperation='source-over';
         g.save();
         g.globalCompositeOperation='soft-light';
-        g.globalAlpha=0.95;
+        g.globalAlpha=1;
         if('filter' in g) g.filter='blur(5px)';
         g.drawImage(this._shadeTmp,0,0);
         g.filter='none';
@@ -700,7 +700,7 @@ export class Renderer {
         if(perT.has(TER.MOUNT)){
           g.save();
           g.globalCompositeOperation='soft-light';
-          g.globalAlpha=0.6;
+          g.globalAlpha=0.75;
           if('filter' in g) g.filter='blur(2px)';
           g.drawImage(this._shadeTmp,0,0);
           g.filter='none';
@@ -1043,7 +1043,7 @@ export class Renderer {
       gx+=dh*ddx; gy+=dh*ddy;
     }
     const t=m.terr[i];
-    const k = t===TER.MOUNT? 1.5 : t===TER.WATER? 0.15 : 0.75;
+    const k = t===TER.MOUNT? 1.9 : t===TER.WATER? 0.12 : 1.15;
     // Sonne von oben-links (wie alle Schlagschatten): nach Nordwest geneigte
     // Hänge hell, nach Südost geneigte dunkel
     let l = 0.5 + (gx*0.8+gy*0.6)*k;
@@ -2232,7 +2232,7 @@ export class Renderer {
         g.drawImage(c.cv, c.ox, c.oy);
       }
     const x0=Math.max(0,Math.floor(wx0/TILE)-1), x1=Math.min(m.w-1,Math.ceil(wx1/TILE)+1);
-    const y0=Math.max(0,Math.floor(wy0/ROWH)-1), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+2);
+    const y0=Math.max(0,Math.floor(wy0/ROWH)-2), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+6);
     // Fischschwärme zeigen ergiebige Fanggründe an (Anzahl = Bestand)
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);

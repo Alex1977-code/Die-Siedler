@@ -40,7 +40,9 @@ export class WorldMap {
     // grobe Schätzung + lokale Suche (Höhenversatz berücksichtigen)
     const gy = clamp(Math.round(wy/ROWH), 0, this.h-1);
     let best=-1, bd=1e18;
-    for(let y=Math.max(0,gy-2); y<=Math.min(this.h-1,gy+2); y++){
+    // Suchfenster großzügig: durch das Höhenrelief kann ein Knoten mehrere
+    // Zeilen weit nach oben versetzt sein
+    for(let y=Math.max(0,gy-4); y<=Math.min(this.h-1,gy+4); y++){
       const gx = clamp(Math.round(wx/TILE - (y&1)*0.5), 0, this.w-1);
       for(let x=Math.max(0,gx-2); x<=Math.min(this.w-1,gx+2); x++){
         const i=this.idx(x,y); const [px,py]=this.worldPos(i);
@@ -87,14 +89,21 @@ export function genWorld(opts){
   // Wertrauschen (fbm)
   const gs = 8, gw = Math.ceil(w/gs)+2, gh = Math.ceil(h/gs)+2;
   const mkGrid = ()=> Float32Array.from({length:gw*gh}, ()=> rng());
-  const grids = [mkGrid(), mkGrid(), mkGrid()];
+  const grids = [mkGrid(), mkGrid(), mkGrid(), mkGrid()];
   const sample = (g, x, y)=>{
     const fx=x/gs, fy=y/gs, x0=fx|0, y0=fy|0, tx=fx-x0, ty=fy-y0;
     const sx=tx*tx*(3-2*tx), sy=ty*ty*(3-2*ty);
     const v=(xx,yy)=> g[clamp(yy,0,gh-1)*gw + clamp(xx,0,gw-1)];
     return (v(x0,y0)*(1-sx)+v(x0+1,y0)*sx)*(1-sy) + (v(x0,y0+1)*(1-sx)+v(x0+1,y0+1)*sx)*sy;
   };
+  // Großform der Landschaft: entscheidet über Wasser/Land/Gebirge
   const fbm = (x,y)=> sample(grids[0],x,y)*0.55 + sample(grids[1],x*2.1+7,y*2.1+3)*0.3 + sample(grids[2],x*4.3+13,y*4.3+11)*0.15;
+  // Feinrelief: NUR für die Darstellungshöhe – erzeugt die Hügeligkeit,
+  // ohne die Geländeverteilung (und damit das Spielgefühl) zu verändern
+  const detail = (x,y)=> sample(grids[3],x*9.1+29,y*9.1+19)*0.62
+                       + sample(grids[2],x*4.6+61,y*4.6+37)*0.38 - 0.5;
+  // Gratrauschen für Bergkämme (scharfe Rücken statt runder Kuppen)
+  const ridge = (x,y)=> 1-Math.abs(sample(grids[2],x*2.6+91,y*2.6+53)*2-1);
 
   // Inselmaske: Rand fällt ab
   const edge = (x,y)=>{
@@ -114,9 +123,11 @@ export function genWorld(opts){
 
   const SEA = theme==='inseln'?0.34: theme==='gebirge'?0.24: 0.30;
   const MNT = theme==='gebirge'?0.58: 0.66;
+  const AMP = 4.2;                       // Reliefüberhöhung (Höhe -> Bildversatz)
+  const raw = Float32Array.from(map.hgt);
   for(let i=0;i<w*h;i++){
-    const e=map.hgt[i];
-    if(e < SEA){ map.terr[i]=TER.WATER; map.hgt[i]=SEA*0.9; }
+    const e=raw[i];
+    if(e < SEA){ map.terr[i]=TER.WATER; }
     else if(e > MNT){ map.terr[i] = (theme==='winter'&&e>MNT+0.12)?TER.SNOW : TER.MOUNT; }
     else {
       map.terr[i]=TER.GRASS;
@@ -127,8 +138,20 @@ export function genWorld(opts){
       if(theme==='winter' && m>0.45) map.terr[i]=TER.SNOW;
       if(theme==='vulkan'){ if(m>0.84) map.terr[i]=TER.LAVA; else if(m>0.6) map.terr[i]=TER.DESERT; }
     }
-    // Höhe normalisieren für Darstellung
-    map.hgt[i] = (map.hgt[i]-SEA) * 2.2;
+    // Darstellungshöhe: Ebene sanft gewellt, Gebirge türmt sich steil auf,
+    // leichte Terrassierung erzeugt die typischen Geländestufen
+    let hv;
+    if(map.terr[i]===TER.WATER) hv=-0.10;                 // Wasserspiegel unter Land
+    else {
+      const X=map.X(i), Y=map.Y(i);
+      hv=(e-SEA)*AMP + detail(X,Y)*2.1;                  // gewellte Ebene
+      if(map.terr[i]===TER.MOUNT || (map.terr[i]===TER.SNOW && e>MNT)){
+        const over=Math.max(0,e-MNT);
+        hv += over*4.5 + ridge(X,Y)*over*5.5;             // Flanken und Kämme
+      }
+    }
+    const step=0.15;
+    map.hgt[i] = hv*0.55 + Math.round(hv/step)*step*0.45;
   }
 
   // Bäume
