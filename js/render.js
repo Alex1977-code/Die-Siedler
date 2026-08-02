@@ -2709,82 +2709,56 @@ export class Renderer {
         continue;
       }
       // Pflaster aus der Kachel-Textur (nahtlos), sonst prozedural
-      const cob=this.asset('ter_cobble');
-      if(cob){
-        if(!this._cobPat){
-          this._cobPat=g.createPattern(cob,'repeat');
-          if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12));
+      // ---------- Wegenetz aus Kacheln ----------
+      // Jede Verbindung zwischen zwei Knoten bekommt die gerade Pflaster-
+      // kachel, gedreht in ihre Richtung. An den Knoten überlappen sich die
+      // Kacheln – daraus entstehen Kreuzungen und Kurven von selbst.
+      const rtile=this.asset('road_str');
+      if(rtile){
+        const slopeT=this.asset('road_slope')||rtile;
+        const nodes=r.path;
+        for(let k=0;k<nodes.length-1;k++){
+          const a2=nodes[k], b2=nodes[k+1];
+          const [ax,ay]=m.worldPos(a2), [bx,by]=m.worldPos(b2);
+          const dx=bx-ax, dy=by-ay;
+          const len=Math.hypot(dx,dy)||1;
+          // steile Verbindung -> Stufenkachel
+          const steep=Math.abs(m.hgt[a2]-m.hgt[b2])>0.45;
+          const img=steep? slopeT : rtile;
+          g.save();
+          g.translate((ax+bx)/2,(ay+by)/2);
+          g.rotate(Math.atan2(dy,dx)-Math.PI/2);     // Kachel läuft senkrecht
+          // Die Kachel zeigt einen Weg über die volle Kachelbreite. Bei
+          // voller Kachelgröße wäre das Pflaster fast drei Figuren breit –
+          // deshalb schmal ziehen, in der Länge aber den Knoten überlappen.
+          const wq=TILE*0.46, hq=len+TILE*0.22;
+          g.drawImage(img, -wq/2, -hq/2, wq, hq);
+          g.restore();
         }
-        g.lineJoin='round'; g.lineCap='round';
-        // Ausgetretener Pfad: der Erdsaum wird als Fläche mit UNREGELMÄSSIGER
-        // Breite gezeichnet. Ein gleichmäßig breiter Strich trennt den Weg
-        // wie mit dem Lineal von der Wiese – so franst er aus und wächst hinein.
-        const verge=(base,amp,seed)=>{
-          const L=pts.length;
-          const off=(k,side)=>{
-            const p0=pts[Math.max(0,k-1)], p1=pts[Math.min(L-1,k+1)];
-            let dx=p1[0]-p0[0], dy=p1[1]-p0[1];
-            const dl=Math.hypot(dx,dy)||1; dx/=dl; dy/=dl;
-            const wob=base+ (hash01(r.id*131+k*7+seed)-0.5)*amp
-                    + Math.sin(k*1.7+r.id)*amp*0.22;
-            return [pts[k][0]-dy*wob*side, pts[k][1]+dx*wob*side];
-          };
-          g.beginPath();
-          for(let k=0;k<L;k++){ const q=off(k,1); if(k===0) g.moveTo(q[0],q[1]); else g.lineTo(q[0],q[1]); }
-          for(let k=L-1;k>=0;k--){ const q=off(k,-1); g.lineTo(q[0],q[1]); }
-          g.closePath();
-        };
-        verge(9.0,5.6,0);  g.fillStyle='rgba(96,82,60,0.10)'; g.fill();
-        verge(7.0,3.8,17); g.fillStyle='rgba(86,72,54,0.16)'; g.fill();
-        verge(5.4,2.4,41); g.fillStyle='rgba(78,65,48,0.26)'; g.fill();
-        // Pflaster: von außen nach innen immer deckender – so gibt es keine
-        // harte Kante zwischen Stein und Wiese, das Pflaster wächst heraus
-        g.strokeStyle=this._cobPat;
-        for(const [wd,al] of [[8.0,0.20],[6.6,0.34],[5.0,0.55],[3.4,0.78]]){
-          g.globalAlpha=al; trace(); g.lineWidth=wd; g.stroke();
-        }
-        g.globalAlpha=1;
-        // schmaler heller Grat auf der Mitte: die Steine fangen das Licht
-        g.globalAlpha=0.16;
-        trace(); g.strokeStyle='rgba(255,244,214,1)'; g.lineWidth=1.6; g.stroke();
-        g.globalAlpha=1;
-        // zwei blasse Fahrspuren statt einer harten Mittellinie
-        g.save();
-        g.globalAlpha=0.5;
-        g.strokeStyle='rgba(104,88,66,0.5)'; g.lineWidth=1.5;
-        g.translate(-1.4,0.5); trace(); g.stroke();
-        g.translate(2.8,-0.2); trace(); g.stroke();
-        g.restore();
-        // vereinzelte Kiesel am Rand
-        if(cam.z>0.85){
-          for(let k=0;k<pts.length-1;k++){
-            const hsh=hash01(r.id*17+k*5+3);
-            if(hsh<0.45) continue;
-            const [x1,y1]=pts[k], [x2,y2]=pts[k+1];
-            const dx=x2-x1, dy=y2-y1, L=Math.hypot(dx,dy)||1;
-            const t=0.2+hsh*0.6, side=(k%2?-1:1)*(3.6+hsh*2.4);
-            const px2=x1+dx*t+(-dy/L)*side, py2=y1+dy*t+(dx/L)*side;
-            g.fillStyle='rgba(120,110,96,0.5)';
-            g.beginPath(); g.ellipse(px2,py2,1.5+hsh*0.9,1+hsh*0.6,hsh*3,0,7); g.fill();
+        // Esel-Straße: doppelte Fahrspur andeuten
+        if(r.hasDonkey){
+          g.globalAlpha=0.22;
+          for(let k=0;k<nodes.length-1;k++){
+            const [ax,ay]=m.worldPos(nodes[k]), [bx,by]=m.worldPos(nodes[k+1]);
+            g.strokeStyle='rgba(90,74,52,1)'; g.lineWidth=1.4;
+            g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
           }
+          g.globalAlpha=1;
         }
         // Grasbüschel verzahnen die Ränder mit der Wiese
         if(cam.z>0.7 && this.theme!=='winter' && this.theme!=='wueste'){
           for(let k=0;k<pts.length-1;k++){
             const hsh=hash01(r.id*31+k*7);
-            if(hsh<0.5) continue;
+            if(hsh<0.55) continue;
             const [x1,y1]=pts[k], [x2,y2]=pts[k+1];
-            const dx=x2-x1, dy=y2-y1;
-            const L=Math.hypot(dx,dy)||1;
-            const t=0.25+hsh*0.5;
-            const side=(k%2?1:-1)*(4+hsh*1.6);
-            const gx=x1+dx*t+(-dy/L)*side, gy=y1+dy*t+(dx/L)*side;
-            g.strokeStyle= hsh>0.78?'rgba(88,120,54,0.55)':'rgba(112,140,66,0.45)';
+            const dx=x2-x1, dy=y2-y1, L2=Math.hypot(dx,dy)||1;
+            const t=0.25+hsh*0.5, side=(k%2?1:-1)*(11+hsh*3);
+            const gx=x1+dx*t+(-dy/L2)*side, gy=y1+dy*t+(dx/L2)*side;
+            g.strokeStyle= hsh>0.8?'rgba(88,120,54,0.5)':'rgba(112,140,66,0.42)';
             g.lineWidth=1.1;
             g.beginPath();
             g.moveTo(gx-1.5,gy+1); g.quadraticCurveTo(gx-1.3,gy-2.2,gx-0.5,gy-3);
             g.moveTo(gx,gy+1.2); g.quadraticCurveTo(gx+0.3,gy-2.6,gx+1.1,gy-3.4);
-            g.moveTo(gx+1.4,gy+1); g.quadraticCurveTo(gx+1.8,gy-1.8,gx+2.5,gy-2.4);
             g.stroke();
           }
         }
@@ -4713,11 +4687,49 @@ export class Renderer {
     }
   }
   // Grenzpfosten: weißer Pfahl mit Ringen in Spielerfarbe
+  // Das Band am gemalten Pfosten ist REIN weiß und flach (so im Stilguide
+  // gefordert). Genau daran erkennt man es: Sättigung ~0 und Helligkeit am
+  // Anschlag, während der Schaft gebrochen weiß und schattiert ist.
+  postTinted(pl){
+    const img=this.asset('obj_borderpost');
+    if(!img) return null;
+    if(!this._postT) this._postT=new Map();
+    let cv=this._postT.get(pl);
+    if(cv!==undefined) return cv;
+    const w=img.naturalWidth, h=img.naturalHeight;
+    cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    const t=cv.getContext('2d',{willReadFrequently:true});
+    t.drawImage(img,0,0);
+    try{
+      const id=t.getImageData(0,0,w,h), d=id.data;
+      const col=toArr(PLAYER_COLORS[pl]||'#888');
+      for(let p2=0;p2<d.length;p2+=4){
+        if(d[p2+3]<8) continue;
+        const mn=Math.min(d[p2],d[p2+1],d[p2+2]), mx=Math.max(d[p2],d[p2+1],d[p2+2]);
+        if(mn<246 || mx-mn>6) continue;                 // nicht das Band
+        // das Band ist flach – die Rundung kommt hier dazu
+        const x=((p2/4)%w)/w;
+        const sh=0.72+0.42*Math.cos((x-0.36)*2.6);
+        d[p2]  = Math.min(255, col[0]*sh);
+        d[p2+1]= Math.min(255, col[1]*sh);
+        d[p2+2]= Math.min(255, col[2]*sh);
+      }
+      t.putImageData(id,0,0);
+    }catch(_){ cv=null; }
+    this._postT.set(pl,cv);
+    return cv;
+  }
   // Grenzpfosten: schlichter weißer Steckpfosten mit einem breiten,
-  // umlaufenden Band in der Farbe des Gebietsbesitzers. Bewusst einfach –
-  // er markiert die Grenze, ohne die Aufmerksamkeit zu stehlen.
+  // umlaufenden Band in der Farbe des Gebietsbesitzers.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
+    const tint=this.postTinted(pl);
+    if(tint){
+      const hh=this.scaleOf('obj_borderpost',22), ww=hh*(tint.width/tint.height);
+      this.shadow(g, x+2, y+1.2, ww*0.5, 1.4, 0.28);
+      g.drawImage(tint, x-ww/2, y+2-hh, ww, hh);
+      return;
+    }
     const col=PLAYER_COLORS[pl]||'#999';
     const H=16, W=4.4;
     this.shadow(g, x+2, y+1.2, 3.4, 1.3, 0.28);
