@@ -494,7 +494,10 @@ export class Renderer {
       this._tmpChunk.width=w; this._tmpChunk.height=h;
     }
     const tg=this._tmpChunk.getContext('2d');
+    tg.globalCompositeOperation='source-over';
     tg.clearRect(0,0,w,h);
+    // additiv: die Gouraud-Verläufe summieren sich zur stufenlosen Fläche
+    tg.globalCompositeOperation='lighter';
     tg.save(); tg.translate(-c.ox,-c.oy);
     const x0=cx*CHUNK-3, y0=cy*CHUNK-3, x1=x0+CHUNK+6, y1=y0+CHUNK+6;
     for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
@@ -509,8 +512,9 @@ export class Renderer {
       }
     }
     tg.restore();
-    // 2) weichgezeichnet übernehmen -> Facetten verschwinden vollständig
-    if('filter' in g){ g.filter='blur(4px)'; }
+    tg.globalCompositeOperation='source-over';
+    // 2) leicht weichgezeichnet übernehmen (die Fläche ist bereits stufenlos)
+    if('filter' in g){ g.filter='blur(2px)'; }
     g.drawImage(this._tmpChunk,0,0);
     g.filter='none';
     // 3) Geländetexturen geschichtet: jede Terrainart bekommt eine weich
@@ -616,44 +620,95 @@ export class Renderer {
       // Klippen: wo ein Knoten deutlich höher liegt als sein südlicher Nachbar,
       // steht eine senkrechte Felswand – erst das macht die Höhe wirklich lesbar
       {
-        const cliff=this.asset('ter_cliff'), cliffE=this.asset('ter_cliffearth');
+        const cliff=this.asset('ter_cliff');
         if(cliff){
-          if(!this._cliffPat){
-            this._cliffPat=g.createPattern(cliff,'repeat');
-            if(this._cliffPat.setTransform) this._cliffPat.setTransform(new DOMMatrix().scale(0.18));
-            if(cliffE){
-              this._cliffPatE=g.createPattern(cliffE,'repeat');
-              if(this._cliffPatE.setTransform) this._cliffPatE.setTransform(new DOMMatrix().scale(0.18));
+          // drei Wandtexturen: nackter Fels, erdiger Abbruch, vereiste Wand
+          if(!this._cliffPats){
+            this._cliffPats={};
+            for(const [k,key] of [['rock','ter_cliff'],['earth','ter_cliffearth'],['snow','ter_cliffsnow']]){
+              const im=this.asset(key)||cliff;
+              const p=g.createPattern(im,'repeat');
+              if(p.setTransform) p.setTransform(new DOMMatrix().scale(0.18));
+              this._cliffPats[k]=p;
             }
           }
+          const topImg=this.asset('ter_cliffTop'), footImg=this.asset('ter_cliffFoot');
+          // Wandtextur nach dem Gelände OBEN an der Kante. Zur Wiese hin bricht
+          // der Berg erdig ab, im Hochgebirge vereist, sonst nackter Fels.
+          const wallOf=(t,soft)=> t===TER.SNOW? 'snow' : soft>=3? 'earth' : 'rock';
           g.save(); g.translate(-c.ox,-c.oy);
           for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
             for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
               const i=m.idx(x,y);
-              if(m.terr[i]===TER.WATER) continue;
+              const ti=m.terr[i];
+              if(ti===TER.WATER) continue;
               const p2=y&1;
               const sw2=m.inb(x-1+p2,y+1)? m.idx(x-1+p2,y+1) : -1;
               const se2=m.inb(x+p2,y+1)? m.idx(x+p2,y+1) : -1;
-              // nur echte Felsstufen im Gebirge – in der Ebene wirkt eine
-              // senkrechte Wand wie ein Fremdkörper
-              if(m.terr[i]!==TER.MOUNT) continue;
+              // Fels bricht früher ab als Erde; auch Terrassen in der Ebene
+              // bekommen so eine sichtbare Kante statt einer sanften Rampe
+              // Nur Fels bricht senkrecht ab. Auf Wiese und Sand entstünde
+              // sonst mitten in der Ebene eine Lehmwand – genau der Effekt,
+              // der vorher als "braune Rampe" störte.
+              const rocky=(ti===TER.MOUNT||ti===TER.SNOW||ti===TER.LAVA);
+              if(!rocky) continue;
+              // Wie weit ragt der Fels ins Grüne? Nur am äußeren Saum des
+              // Gebirges bricht er erdig ab – mitten im Fels wäre eine
+              // Lehmwand ein Fremdkörper.
+              let soft=0;
+              for(const q of m.nbs(i)) if(m.terr[q]===TER.GRASS||m.terr[q]===TER.SWAMP) soft++;
               for(const n of [sw2,se2]){
                 if(n<0 || m.terr[n]===TER.WATER) continue;
                 const drop=(m.hgt[i]-m.hgt[n])*HSCALE;
-                if(drop<24) continue;                       // erst ab deutlicher Stufe
-                const [ax,ay]=m.worldPos(i), [bx,by]=m.worldPos(n);
-                g.fillStyle=this._cliffPat;
-                g.beginPath();
-                g.moveTo(ax-TILE*0.5, ay+2); g.lineTo(ax+TILE*0.5, ay+2);
-                g.lineTo(bx+TILE*0.5, by+2); g.lineTo(bx-TILE*0.5, by+2);
-                g.closePath();
-                g.fill();
+                if(drop<15) continue;
+                const [ax,ay]=m.worldPos(i);
+                let [bx,by]=m.worldPos(n);
+                // Sehr große Höhenunterschiede (Berghang zur Ebene) würden
+                // eine riesige schräge Fläche ergeben, die wie eine Rampe quer
+                // über die Karte liegt. Die Wand wird deshalb auf eine
+                // glaubwürdige Absatzhöhe begrenzt – den Rest übernimmt das
+                // Gelände selbst.
+                const MAXWALL=ROWH*1.6;
+                if(drop>MAXWALL){ const f=MAXWALL/drop; bx=ax+(bx-ax)*f; by=ay+(by-ay)*f; }
+                // die Wand bekommt eine leicht unruhige Ober- und Unterkante,
+                // sonst stapeln sich die Absätze zu einer Treppe aus Rechtecken
+                const j1=(hash01(i*31+n)-0.5)*7, j2=(hash01(n*17+i)-0.5)*7;
+                const j3=(hash01(i*53+7)-0.5)*6, j4=(hash01(n*41+3)-0.5)*6;
+                const hw=TILE*0.52;
+                const wall=()=>{
+                  g.beginPath();
+                  g.moveTo(ax-hw, ay+2+j1);
+                  g.quadraticCurveTo(ax, ay+1+j3, ax+hw, ay+2+j2);
+                  g.lineTo(bx+hw, by+2+j4);
+                  g.quadraticCurveTo(bx, by+3+j1, bx-hw, by+2+j3);
+                  g.closePath();
+                };
+                g.fillStyle=this._cliffPats[wallOf(ti, soft)];
+                wall(); g.fill();
                 // Oberkante hell, Fuß dunkel -> die Wand steht im Licht
                 const gr=g.createLinearGradient(0,ay,0,by);
                 gr.addColorStop(0,'rgba(255,246,224,0.22)');
                 gr.addColorStop(0.35,'rgba(0,0,0,0)');
                 gr.addColorStop(1,'rgba(24,20,16,0.42)');
-                g.fillStyle=gr; g.fill();
+                g.fillStyle=gr; wall(); g.fill();
+                // Abbruchkante oben und Geröllsaum unten säumen die Wand.
+                // Bewusst breiter als eine Kachel, damit benachbarte Wände
+                // einen durchgehenden Saum ergeben statt gestrichelter Striche.
+                const put=(img,mx,my,ww,al)=>{
+                  if(!img) return;
+                  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+                  const hp=ww*(ih/Math.max(1,iw));
+                  g.globalAlpha=al;
+                  g.drawImage(img, mx-ww/2, my-hp*0.5, ww, hp);
+                  g.globalAlpha=1;
+                };
+                // Grasnarbe nur über erdigen Abbrüchen – auf nacktem Fels
+                // lägen sonst grüne Streifen im Stein. Geröll sammelt sich
+                // dezent am Wandfuß.
+                // Grasnarbe säumt nur die Kante zum Wiesental, Geröll den Fuß
+                const grassy=(m.terr[n]===TER.GRASS||m.terr[n]===TER.SWAMP);
+                if(grassy) put(topImg, ax, ay+2, TILE*1.4, 0.7);
+                if(drop>26) put(footImg, bx, by+3, TILE*1.3, grassy?0.55:0.4);
               }
             }
           }
@@ -754,7 +809,9 @@ export class Renderer {
         const sg=this._shadeTmp.getContext('2d');
         sg.globalCompositeOperation='source-over';
         sg.clearRect(0,0,w,h);
-        sg.fillStyle='rgb(128,128,128)'; sg.fillRect(0,0,w,h);
+        // Gouraud braucht eine transparente Fläche im Modus 'lighter';
+        // unbedeckte Bereiche bleiben transparent und damit im Weichlicht neutral
+        sg.globalCompositeOperation='lighter';
         sg.save(); sg.translate(-c.ox,-c.oy);
         const scache=new Map();
         for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
@@ -776,7 +833,7 @@ export class Renderer {
         g.save();
         g.globalCompositeOperation='soft-light';
         g.globalAlpha=1;
-        if('filter' in g) g.filter='blur(5px)';
+        if('filter' in g) g.filter='blur(3px)';
         g.drawImage(this._shadeTmp,0,0);
         g.filter='none';
         g.restore();
@@ -996,18 +1053,45 @@ export class Renderer {
     ncache.set(i,col);
     return col;
   }
+  // Gouraud-Schattierung: die drei Eckfarben werden über die Dreiecksfläche
+  // interpoliert. Jede baryzentrische Gewichtung ist linear und damit exakt
+  // als Verlauf vom Lotfußpunkt auf der Gegenkante bis zur Ecke darstellbar;
+  // additiv überlagert ergeben die drei Verläufe eine stufenlose Fläche.
+  // Ohne das zerfällt jeder Hang in flache Facetten – das Gelände sieht
+  // rautenförmig aus. Voraussetzung: Ziel-Canvas transparent, Modus 'lighter'.
+  gouraud(g, P, C){
+    const path=()=>{ g.beginPath(); g.moveTo(P[0][0],P[0][1]); g.lineTo(P[1][0],P[1][1]);
+                     g.lineTo(P[2][0],P[2][1]); g.closePath(); };
+    const grads=[];
+    for(let k=0;k<3;k++){
+      const A=P[k], B=P[(k+1)%3], D=P[(k+2)%3];
+      const ex=D[0]-B[0], ey=D[1]-B[1];
+      const L=ex*ex+ey*ey;
+      if(L<1e-6){ grads.length=0; break; }
+      const t=((A[0]-B[0])*ex+(A[1]-B[1])*ey)/L;
+      const fx=B[0]+ex*t, fy=B[1]+ey*t;
+      if(Math.hypot(A[0]-fx,A[1]-fy)<0.5){ grads.length=0; break; }
+      const gr=g.createLinearGradient(fx,fy,A[0],A[1]);
+      const c=C[k];
+      gr.addColorStop(0,`rgba(${c[0]|0},${c[1]|0},${c[2]|0},0)`);
+      gr.addColorStop(1,`rgba(${c[0]|0},${c[1]|0},${c[2]|0},1)`);
+      grads.push(gr);
+    }
+    if(!grads.length){                                   // entartetes Dreieck
+      const r=(C[0][0]+C[1][0]+C[2][0])/3, gg=(C[0][1]+C[1][1]+C[2][1])/3, b=(C[0][2]+C[1][2]+C[2][2])/3;
+      g.fillStyle=`rgb(${r|0},${gg|0},${b|0})`;
+      path(); g.fill();
+      return;
+    }
+    for(const gr of grads){ g.fillStyle=gr; path(); g.fill(); }
+  }
   tri(g, m, cols, ncache, a,b,c){
     const [ax,ay]=m.worldPos(a), [bx,by]=m.worldPos(b), [cx2,cy2]=m.worldPos(c);
     const coast=COAST_COL[this.theme]||COAST_COL.gruen;
     const ca=this.nodeColor(m,cols,coast,ncache,a);
     const cb=this.nodeColor(m,cols,coast,ncache,b);
     const cc=this.nodeColor(m,cols,coast,ncache,c);
-    // reine Eckfarben-Mittelung, Licht steckt bereits in den Knotenfarben
-    const r=(ca[0]+cb[0]+cc[0])/3, gr=(ca[1]+cb[1]+cc[1])/3, bl=(ca[2]+cb[2]+cc[2])/3;
-    g.fillStyle=`rgb(${r|0},${gr|0},${bl|0})`;
-    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.lineTo(cx2,cy2); g.closePath();
-    g.fill();
-    g.strokeStyle=g.fillStyle; g.lineWidth=1; g.stroke();
+    this.gouraud(g, [[ax,ay],[bx,by],[cx2,cy2]], [ca,cb,cc]);
     // Lava-Glut
     if(m.terr[a]===TER.LAVA){
       g.fillStyle=`rgba(255,${150+((hash01(a)*60)|0)},50,0.3)`;
@@ -1139,17 +1223,19 @@ export class Renderer {
     scache.set(i,v);
     return v;
   }
-  triShade(g, m, scache, a, b, c){
-    const [ax,ay]=m.worldPos(a), [bx,by]=m.worldPos(b), [cx2,cy2]=m.worldPos(c);
-    const v=((this.nodeShade(m,scache,a)+this.nodeShade(m,scache,b)+this.nodeShade(m,scache,c))/3)|0;
-    // Schatten kühl-blau, Licht warm – wirkt deutlich plastischer als reines Grau
+  // Schatten kühl-blau, Licht warm – wirkt deutlich plastischer als reines Grau
+  shadeCol(v){
     const t2=(v-128)/127;
-    const col= t2<0
+    return t2<0
       ? [128+t2*54, 128+t2*44, 128+t2*22]        // Richtung kühles Blau
       : [128+t2*60, 128+t2*52, 128+t2*34];       // Richtung warmes Sonnenlicht
-    g.fillStyle=`rgb(${col[0]|0},${col[1]|0},${col[2]|0})`;
-    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.lineTo(cx2,cy2); g.closePath(); g.fill();
-    g.strokeStyle=g.fillStyle; g.lineWidth=1; g.stroke();
+  }
+  triShade(g, m, scache, a, b, c){
+    this.gouraud(g,
+      [m.worldPos(a), m.worldPos(b), m.worldPos(c)],
+      [this.shadeCol(this.nodeShade(m,scache,a)),
+       this.shadeCol(this.nodeShade(m,scache,b)),
+       this.shadeCol(this.nodeShade(m,scache,c))]);
   }
   asset(key){
     const img=this.assets && this.assets.get(key);
@@ -2562,6 +2648,9 @@ export class Renderer {
       const cob2=this.asset('ter_cobble');
       for(const b of game.buildings.values()){
         if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
+        // Die Burg hat ihre eigene Zugbrücke – ein Pflasterstummel darüber
+        // sähe aus wie ein Weg im Wassergraben
+        if(b.type==='hq' && this.asset('bld_hq')) continue;
         const [bx,by]=m.worldPos(b.node);
         const [fx3,fy3]=this.doorVisualPos(b.door);
         if(bx<wx0-80||bx>wx1+80||by<wy0-80||by>wy1+80) continue;
@@ -2684,8 +2773,8 @@ export class Renderer {
       const my=((k*1481)%chh) + Math.sin(this.time/7000+k*1.9)*70;
       if(mx+400<wx0||mx-400>wx1||my+200<wy0||my-200>wy1) continue;
       const rad=g.createRadialGradient(mx,my,30,mx,my,300);
-      rad.addColorStop(0,'rgba(238,242,246,0.055)');
-      rad.addColorStop(0.6,'rgba(238,242,246,0.03)');
+      rad.addColorStop(0,'rgba(238,242,246,0.028)');
+      rad.addColorStop(0.6,'rgba(238,242,246,0.015)');
       rad.addColorStop(1,'rgba(238,242,246,0)');
       g.fillStyle=rad;
       g.save(); g.translate(mx,my); g.scale(1.8,0.7);
@@ -2822,12 +2911,23 @@ export class Renderer {
     const b=this._doorMap && this._doorMap.get(i);
     if(!b) return [fx,fy];
     let [bx,by]=m.worldPos(b.node);
-    // Eingang mancher Bilder liegt nicht mittig: Hauptburg -> Zugbrücke (links vorn)
+    // Der Eingang liegt nicht bei jedem Bild mittig. Die Hauptburg betritt man
+    // über die Zugbrücke links vorn – die Wegfahne (und damit das Ende der
+    // Straße) muss genau dort stehen, sonst endet das Pflaster im Wassergraben.
     if(b.type==='hq'){
-      const hh=this.scaleOf('bld_hq',118);
       const img=this.asset('bld_hq');
-      const ww=img? hh*(img.naturalWidth/img.naturalHeight) : hh*0.8;
-      bx-=ww*0.175; by+=4;
+      if(img){
+        const hh=this.scaleOf('bld_hq',118);
+        const ww=hh*(img.naturalWidth/img.naturalHeight);
+        // Bildanteil des äußeren Brückenkopfes (aus der Grafik ausgemessen)
+        const BX=0.155, BY=0.895;
+        // Gebäude wird bei (bx-ww/2, by-hh+10) gezeichnet
+        const px=bx-ww/2+BX*ww, py=by-hh+10+BY*hh;
+        // ein Stück in Richtung Knoten versetzt, damit die Fahne vor der
+        // Brücke steht statt darauf
+        return [px+(fx-px)*0.14, py+4+(fy-py)*0.14];
+      }
+      bx-=8; by+=4;
     }
     const k=0.46;
     return [fx+(bx-fx)*k, fy+((by+8)-fy)*k];
@@ -3174,7 +3274,20 @@ export class Renderer {
       g.fillText('Z', x+19, y-44-ph*10);
     }
     // ---------- deutliche Arbeits-Effekte ----------
-    const working=b.state==='done' && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
+    const working=b.state==='done' && !b.paused && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
+    // stillgelegt: Betrieb ruht sichtbar
+    if(b.paused && b.state==='done'){
+      const hh3=this.scaleOf(typeKey, big?96:64);
+      g.globalAlpha=0.85;
+      g.fillStyle='rgba(18,24,32,0.72)';
+      g.beginPath(); g.arc(x, y-hh3*0.55, 8, 0, 7); g.fill();
+      g.strokeStyle='rgba(242,217,140,0.85)'; g.lineWidth=1.2;
+      g.beginPath(); g.arc(x, y-hh3*0.55, 8, 0, 7); g.stroke();
+      g.fillStyle='#f2d98c';
+      g.fillRect(x-3.4, y-hh3*0.55-4, 2.4, 8);
+      g.fillRect(x+1.0, y-hh3*0.55-4, 2.4, 8);
+      g.globalAlpha=1;
+    }
     // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms
     if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')){
       const sails=this.asset('obj_millsails');
@@ -3265,6 +3378,142 @@ export class Renderer {
         g.beginPath(); g.arc(x+12+sway*ph, y-44-ph*26, 2.6+ph*5.4, 0, 7); g.fill();
       }
     }
+    this.bldEffect(g, b, x, y, working);
+  }
+  // Jedes Gebäude bekommt einen Effekt, der zu seiner Arbeit passt – daran
+  // erkennt man auf einen Blick, was gerade produziert wird.
+  bldEffect(g, b, x, y, working){
+    if(b.state!=='done') return;
+    const t=this.time, id=b.id;
+    // kleine Helfer
+    const puff=(px,py,col,n,rise,size,speed)=>{
+      for(let k=0;k<n;k++){
+        const ph=((t/speed)+k/n+id*0.13)%1;
+        g.fillStyle=col.replace('$A', (0.5*(1-ph)).toFixed(3));
+        g.beginPath();
+        g.arc(px+Math.sin(t/430+k*2.1+id)*4*ph, py-ph*rise, size*(0.5+ph), 0, 7);
+        g.fill();
+      }
+    };
+    const chips=(px,py,col,n,spread)=>{
+      for(let k=0;k<n;k++){
+        const ph=((t/620)+k/n+id*0.21)%1;
+        const a=(hash01(id*7+k)-0.5)*2.2;
+        g.fillStyle=col.replace('$A',(0.85*(1-ph)).toFixed(3));
+        g.save();
+        g.translate(px+Math.cos(a)*spread*ph, py-Math.sin(Math.PI*ph)*9+ph*4);
+        g.rotate(a*3+ph*6);
+        g.fillRect(-1.3,-0.6,2.6,1.2);
+        g.restore();
+      }
+    };
+    const ripple=(px,py,col)=>{
+      for(let k=0;k<2;k++){
+        const ph=((t/1300)+k*0.5+id*0.17)%1;
+        g.strokeStyle=col.replace('$A',(0.5*(1-ph)).toFixed(3));
+        g.lineWidth=1.2;
+        g.beginPath(); g.ellipse(px,py, 3+ph*13, (3+ph*13)*0.38, 0,0,7); g.stroke();
+      }
+    };
+    switch(b.type){
+      case 'woodcutter':
+        if(working) chips(x+9,y-6,'rgba(214,178,116,$A)',4,13);
+        break;
+      case 'sawmill':
+        if(working){
+          chips(x+2,y-4,'rgba(228,200,146,$A)',5,15);
+          puff(x+2,y-6,'rgba(226,208,170,$A)',2,14,2.6,1500);
+        }
+        break;
+      case 'quarry': case 'coalmine': case 'ironmine': case 'goldmine': case 'granitemine':
+        if(working){
+          puff(x+3,y-2,'rgba(150,140,124,$A)',3,16,3.4,1400);
+          chips(x+3,y-2,'rgba(126,118,106,$A)',3,11);
+        }
+        break;
+      case 'well':
+        // der Brunnen plätschert auch ohne Auftrag leise vor sich hin
+        ripple(x,y+3,'rgba(180,220,240,$A)');
+        if(working) puff(x,y-8,'rgba(210,232,244,$A)',2,10,2.2,1100);
+        break;
+      case 'fisher':
+        ripple(x+13,y+6,'rgba(180,220,240,$A)');
+        break;
+      case 'brewery':
+        if(working){
+          puff(x-6,y-16,'rgba(238,232,206,$A)',3,20,3,1700);
+          for(let k=0;k<3;k++){
+            const ph=((t/900)+k/3+id*0.2)%1;
+            g.fillStyle=`rgba(246,226,150,${0.6*(1-ph)})`;
+            g.beginPath(); g.arc(x-6+Math.sin(t/300+k)*3, y-10-ph*14, 1.1+ph, 0,7); g.fill();
+          }
+        }
+        break;
+      case 'mint':
+        if(working) for(let k=0;k<4;k++){
+          const ph=((t/760)+k/4+id*0.3)%1;
+          g.fillStyle=`rgba(255,224,120,${0.9*(1-ph)})`;
+          g.beginPath();
+          g.arc(x-4+Math.sin(t/180+k*2)*7, y-16-ph*18, 1.1*(1-ph*0.4), 0,7);
+          g.fill();
+        }
+        break;
+      case 'farm': case 'donkeyfarm':
+        if(working) puff(x+4,y-4,'rgba(224,206,150,$A)',3,12,3.2,1900);
+        break;
+      case 'pigfarm': case 'butcher':
+        if(working) puff(x+6,y-10,'rgba(228,220,212,$A)',2,14,2.6,1800);
+        break;
+      case 'forester':
+        // frisches Grün wirbelt um den Förster
+        for(let k=0;k<3;k++){
+          const ph=((t/2400)+k/3+id*0.19)%1;
+          g.fillStyle=`rgba(150,196,96,${0.55*(1-ph)})`;
+          g.save();
+          g.translate(x-8+Math.sin(t/700+k*2)*10, y-8-ph*16);
+          g.rotate(t/500+k);
+          g.beginPath(); g.ellipse(0,0,2.2,1.1,0,0,7); g.fill();
+          g.restore();
+        }
+        break;
+      case 'chapel': {
+        // ruhiger goldener Schein, im Takt eines Glockenschlags
+        const bell=0.5+0.5*Math.sin(t/1900+id);
+        g.globalCompositeOperation='lighter';
+        const rad=g.createRadialGradient(x,y-30,2,x,y-30,26);
+        rad.addColorStop(0,`rgba(255,226,150,${0.16*bell})`);
+        rad.addColorStop(1,'rgba(255,226,150,0)');
+        g.fillStyle=rad;
+        g.beginPath(); g.arc(x,y-30,26,0,7); g.fill();
+        g.globalCompositeOperation='source-over';
+        break;
+      }
+      case 'market': {
+        // bunte Wimpel flattern über den Ständen
+        const cols=['#d9704f','#e8c15a','#7ec96b','#6fa8dc'];
+        for(let k=0;k<4;k++){
+          const px=x-13+k*8.6, py=y-24+Math.sin(k*1.3)*2;
+          const w=Math.sin(t/380+k*1.7)*1.6;
+          g.fillStyle=cols[k];
+          g.beginPath();
+          g.moveTo(px,py); g.lineTo(px+5+w,py+2.4); g.lineTo(px,py+5);
+          g.closePath(); g.fill();
+        }
+        break;
+      }
+      case 'harbor': case 'shipyard':
+        ripple(x+16,y+8,'rgba(180,220,240,$A)');
+        if(working) chips(x-2,y-6,'rgba(214,178,116,$A)',3,12);
+        break;
+      case 'hunter':
+        // Rauch vom Räucherfeuer, auch in Wartezeiten
+        puff(x-9,y-12,'rgba(198,192,182,$A)',2,18,2.4,2100);
+        break;
+      case 'toolsmith': case 'armory': case 'smelter':
+        if(working) chips(x-5,y-13,'rgba(255,206,120,$A)',4,9);
+        break;
+      default: break;
+    }
   }
   drawFlag(g, m, game, i){
     const [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
@@ -3298,7 +3547,7 @@ export class Renderer {
     if(items && items.length){
       for(let k=0;k<Math.min(items.length,8);k++){
         const bx=x-7+(k%4)*5.6, by=y+4.4+Math.floor(k/4)*5;
-        this.drawGood(g, items[k].good, bx, by, 5.6);
+        this.drawGood(g, items[k].good, bx, by, 7.4);
       }
     }
   }
@@ -3502,7 +3751,9 @@ export class Renderer {
     if(u.type==='settle'||u.type==='flee'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,u.wtype||'worker',null,udir,!!u._mov); return; }
     if(u.type==='scout'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'scout',null,udir,!!u._mov); return; }
     if(u.type==='leveler'){
-      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'leveler',null,udir,!!u._mov);
+      // beim Ebnen die gebackene Schaufel-Geste spielen
+      const lw= u.state==='work' && !u._mov && this.asset('unit_leveler_atk');
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'leveler', lw? (u.id%5):null, udir,!!u._mov);
       // Schaufel-Overlay nur für die Prozeduralfigur (GLB-Modell bringt sie mit)
       if(!this.asset('unit_leveler_walk')){
         const dig= u.state==='work' ? Math.sin(this.time/160+u.id)*0.5 : 0.2;
@@ -3759,8 +4010,14 @@ export class Renderer {
       // damit die Figur exakt auf ihrem Schatten steht (kein Schweben).
       const hh=30, ww=hh*(anim.sw/anim.sh);
       g.save();
-      g.translate(x, y+7.4+hh*0.04);
+      // Wer etwas schleppt, beugt sich leicht nach vorn und wiegt sich
+      // schwerer – Last soll man der Figur ansehen
+      const heavy= good==='trunk'||good==='stone'||good==='board'||good==='pig';
+      const load= good? (heavy?1:0.55) : 0;
+      const bob= load? Math.sin(this.time/(heavy?260:210)+(this._animSeed||0))*load*0.7 : 0;
+      g.translate(x, y+7.4+hh*0.04+bob);
       if(anim.flip) g.scale(-1,1);
+      if(load) g.rotate((anim.flip?-1:1)*0.045*load);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
       // Umhang/Helmbusch der Soldaten in Spielerfarbe einfärben
       if(kind==='soldier'){
@@ -3782,7 +4039,7 @@ export class Renderer {
         }
       }
       g.restore();
-      if(good) this.drawGood(g, good, x, y-22, 8);
+      if(good) this.drawGood(g, good, x, y-15.5, 11);   // auf Schulterhöhe, gut erkennbar
       return;
     }
     let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);
@@ -3824,7 +4081,7 @@ export class Renderer {
       g.rotate(tilt);
       g.drawImage(ovU, -ww/2, -hh, ww, hh);
       g.restore();
-      if(good) this.drawGood(g, good, x, y-24, 8.5);
+      if(good) this.drawGood(g, good, x, y-16, 11);
       return;
     }
     const col=PLAYER_COLORS[pl]||'#888';
@@ -4058,7 +4315,7 @@ export class Renderer {
       g.closePath(); g.fill();
       g.fillStyle='#fff'; g.beginPath(); g.arc(x+2.6,y-16.6,1.2,0,7); g.fill();
     }
-    if(good) this.drawGood(g, good, x, y-17.5, 7);
+    if(good) this.drawGood(g, good, x, y-13, 9.4);
     g.restore();
   }
   computeBorders(){
@@ -4090,29 +4347,54 @@ export class Renderer {
     }
   }
   // Grenzpfosten: weißer Pfahl mit Ringen in Spielerfarbe
+  // Grenzstein: geschnitzter Holzpfahl mit Wappenschild in Spielerfarbe.
+  // Passt zum handgemalten Stil der Gebäude – kein technischer Absperrpfosten.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
     const col=PLAYER_COLORS[pl]||'#999';
-    this.shadow(g,x+1.4,y+1.2,3.2,1.2,0.26);
-    // Pfahl
-    g.fillStyle='#f2efe6';
+    const H=17;
+    this.shadow(g,x+2.2,y+1.4,4.2,1.6,0.28);
+    // Erdhügel, in dem der Pfahl steckt
+    g.fillStyle='rgba(84,74,52,0.55)';
+    g.beginPath(); g.ellipse(x,y+0.6,3.6,1.5,0,0,7); g.fill();
+    // Pfahl: unten breiter, oben leicht verjüngt (geschnitzt, nicht gedrechselt)
     g.beginPath();
-    g.moveTo(x-1.9,y); g.lineTo(x-1.9,y-13); g.lineTo(x+1.9,y-13); g.lineTo(x+1.9,y);
-    g.closePath(); g.fill();
-    g.fillStyle='rgba(150,148,138,0.45)';        // Schattenseite
-    g.fillRect(x+0.5,y-13,1.4,13);
-    g.strokeStyle='rgba(60,55,46,0.5)'; g.lineWidth=0.7;
-    g.strokeRect(x-1.9,y-13,3.8,13);
-    // zwei Streifen in Spielerfarbe
-    g.fillStyle=col;
-    g.fillRect(x-1.9,y-11.4,3.8,2.6);
-    g.fillRect(x-1.9,y-6.6,3.8,2.6);
-    // Spitze
-    g.fillStyle='#f7f5ee';
+    g.moveTo(x-2.3,y+0.4); g.lineTo(x-1.7,y-H); g.lineTo(x+1.7,y-H); g.lineTo(x+2.3,y+0.4);
+    g.closePath();
+    const wg=g.createLinearGradient(x-2.3,0,x+2.3,0);
+    wg.addColorStop(0,'#a9834f'); wg.addColorStop(0.42,'#8d6a3c'); wg.addColorStop(1,'#65492a');
+    g.fillStyle=wg; g.fill();
+    g.strokeStyle='rgba(48,34,20,0.55)'; g.lineWidth=0.7; g.stroke();
+    // Maserung
+    g.strokeStyle='rgba(60,42,24,0.3)'; g.lineWidth=0.5;
+    g.beginPath(); g.moveTo(x-0.5,y-1.5); g.lineTo(x-0.3,y-H+2); g.stroke();
+    // Kappe
+    g.fillStyle='#b8905a';
+    g.beginPath(); g.ellipse(x,y-H,2.2,0.9,0,0,7); g.fill();
+    g.strokeStyle='rgba(48,34,20,0.5)'; g.lineWidth=0.6; g.stroke();
+    // Wappenschild in Spielerfarbe, leicht schräg angenagelt
+    g.save();
+    g.translate(x,y-H+6.6);
+    g.rotate(0.06);
     g.beginPath();
-    g.moveTo(x-2.2,y-13); g.lineTo(x,y-15.6); g.lineTo(x+2.2,y-13);
+    g.moveTo(-3.5,-4.2); g.lineTo(3.5,-4.2); g.lineTo(3.5,0.6);
+    g.quadraticCurveTo(3.4,3.6, 0,4.9);
+    g.quadraticCurveTo(-3.4,3.6, -3.5,0.6);
+    g.closePath();
+    g.fillStyle=col; g.fill();
+    g.strokeStyle='rgba(36,28,16,0.65)'; g.lineWidth=0.8; g.stroke();
+    // Glanzkante und heller Sparren – liest sich auch klein noch als Wappen
+    g.fillStyle='rgba(255,255,255,0.3)';
+    g.beginPath();
+    g.moveTo(-3.5,-4.2); g.lineTo(0,-4.2); g.lineTo(0,4.7);
+    g.quadraticCurveTo(-3.2,3.4,-3.5,0.6);
     g.closePath(); g.fill();
-    g.strokeStyle='rgba(60,55,46,0.45)'; g.lineWidth=0.7; g.stroke();
+    g.strokeStyle='rgba(255,246,214,0.75)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(-2.4,1.1); g.lineTo(0,-1.4); g.lineTo(2.4,1.1); g.stroke();
+    // Nägel
+    g.fillStyle='rgba(60,50,34,0.7)';
+    g.beginPath(); g.arc(-2.4,-3,0.5,0,7); g.arc(2.4,-3,0.5,0,7); g.fill();
+    g.restore();
   }
   // ---------- Minimap ----------
   drawMinimap(cv, cam){

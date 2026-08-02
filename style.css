@@ -14,12 +14,33 @@ body{
 /* ---------- Titel & Menüs ---------- */
 #scr-title{
   background:
+    radial-gradient(ellipse at 50% 8%, rgba(242,217,140,0.16) 0%, transparent 55%),
     radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
     radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
     #16202e;
   display:flex; align-items:center; justify-content:center;
 }
-.title-wrap{ text-align:center; padding:24px; max-width:420px; width:100%; }
+/* Titelbild als Kulisse, falls vorhanden */
+#scr-title::before{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:url('assets/story_1.jpg') center/cover no-repeat;
+  opacity:0.22; filter:saturate(0.85);
+  mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 78%);
+  -webkit-mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 78%);
+}
+.title-wrap{
+  text-align:center; padding:26px 22px 24px; max-width:420px; width:100%;
+  position:relative; border-radius:20px;
+  background:
+    linear-gradient(rgba(22,32,46,0.72),rgba(16,24,36,0.84)),
+    url('assets/ui_wood.png') center/260px;
+  border:2px solid #6b5333;
+  box-shadow:0 18px 48px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.3);
+}
+.title-wrap::before{
+  content:''; position:absolute; inset:8px; border-radius:14px; pointer-events:none;
+  border:1px dashed rgba(201,160,90,0.26);
+}
 h1{
   font-family:Georgia,'Times New Roman',serif;
   font-size:clamp(46px,12vw,74px); letter-spacing:0.14em;
@@ -110,13 +131,14 @@ h1::after{
 }
 #g-speed{ font-weight:700; font-size:15px; }
 #res-bar{
-  flex:1; display:flex; gap:10px; overflow-x:auto; padding:4px 8px;
-  background:rgba(20,30,44,0.78); border-radius:12px; font-size:14.5px;
+  flex:1; display:flex; gap:7px; overflow-x:auto; padding:4px 7px;
+  background:rgba(20,30,44,0.78); border-radius:12px; font-size:14px;
   white-space:nowrap; scrollbar-width:none;
   border:1px solid rgba(201,160,90,0.3);
 }
 #res-bar span{ display:inline-flex; gap:2px; align-items:center; }
-.res-ic{ width:17px; height:17px; object-fit:contain; }
+#res-bar::-webkit-scrollbar{ display:none; }
+.res-ic{ width:16px; height:16px; object-fit:contain; }
 .unit-ic{ width:20px; height:20px; }
 #res-bar{ cursor:pointer; }
 .res-more{ opacity:0.85; font-size:12.5px; padding-left:2px; }
@@ -135,8 +157,19 @@ h1::after{
 .stock-it b{ font-size:14px; color:#f2d98c; }
 .stock-it small{ font-size:10px; opacity:0.85; text-align:center; line-height:1.15; }
 .stock-ic{ width:26px; height:26px; object-fit:contain; }
+#unit-bar{
+  position:absolute; top:calc(48px + env(safe-area-inset-top)); left:8px; right:8px;
+  display:flex; gap:9px; align-items:center; justify-content:flex-start;
+  padding:3px 9px; border-radius:11px; font-size:13.5px; white-space:nowrap;
+  background:rgba(20,30,44,0.72); border:1px solid rgba(201,160,90,0.28);
+  overflow-x:auto; scrollbar-width:none; cursor:pointer; z-index:4;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+}
+#unit-bar::-webkit-scrollbar{ display:none; }
+#unit-bar span{ display:inline-flex; gap:2px; align-items:center; }
+#unit-bar:empty{ display:none; }
 #objectives{
-  position:absolute; top:calc(58px + env(safe-area-inset-top)); left:8px;
+  position:absolute; top:calc(86px + env(safe-area-inset-top)); left:8px;
   background:url('assets/ui_parchment.png') center/cover, #d9c49a;
   color:#3a2c16; border:1px solid #8a6f4a; border-radius:10px;
   padding:10px 14px; font-size:13.5px; line-height:1.55; max-width:75vw; z-index:5;
@@ -245,6 +278,40 @@ h1::after{
   display:flex; align-items:center; justify-content:center; padding:18px;
 }
 #game-menu .panel,#dlg .panel{
-  background:#1d2a3a; border:1px solid #4a5a70; border-radius:16px;
+  background:
+    linear-gradient(rgba(29,42,58,0.86),rgba(22,32,46,0.92)),
+    url('assets/ui_wood.png') center/240px;
+  border:2px solid #6b5333; border-radius:18px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.35),
+             inset 0 2px 0 rgba(255,255,255,0.08);
   min-height:0; width:100%; max-width:360px; max-height:82vh; overflow-y:auto;
+}
+/* Ziernägel in den Ecken der Holztafel */
+#game-menu .panel,#dlg .panel{ position:relative; }
+#game-menu .panel::before,#dlg .panel::before{
+  content:''; position:absolute; inset:7px; border-radius:12px; pointer-events:none;
+  border:1px dashed rgba(201,160,90,0.28);
+}
+
+/* ---------- Steuerung im Gebäude-Sheet ---------- */
+.pips{ display:inline-flex; gap:3px; vertical-align:middle; }
+.pip{
+  width:24px; height:24px; line-height:22px; font-size:13px; padding:0;
+  border-radius:7px; border:1px solid #4a5a70; background:#26364b;
+  color:#8fa2b8; cursor:pointer; filter:grayscale(1) brightness(0.7);
+}
+.pip.on{
+  border-color:#f2d98c; background:linear-gradient(#4a6b3e,#33512c);
+  color:#f4ecda; filter:none;
+}
+.pip:active{ transform:scale(0.92); }
+.orebar{
+  display:inline-block; vertical-align:middle; width:66px; height:8px;
+  border-radius:4px; background:rgba(0,0,0,0.45);
+  border:1px solid rgba(201,160,90,0.4); overflow:hidden;
+}
+.orebar i{ display:block; height:100%; }
+.lnk{
+  background:none; border:none; color:#8fc0f2; font-size:12.5px;
+  text-decoration:underline; cursor:pointer; padding:0 2px;
 }

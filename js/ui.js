@@ -205,6 +205,7 @@ export class UI {
         <button id="g-speed" class="hbtn">1×</button>
         <button id="g-pause" class="hbtn"></button>
       </div>
+      <div id="unit-bar"></div>
       <div id="objectives" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
       <div id="minimap-wrap"><canvas id="minimap" width="140" height="140"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
@@ -256,6 +257,8 @@ export class UI {
     // HUD
     $('#g-menu').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(true); };
     $('#res-bar').onclick=()=>{ Sound.sfx('tap'); this.openStockSheet(); };
+    const ub=$('#unit-bar');
+    if(ub) ub.onclick=()=>{ Sound.sfx('tap'); this.openStockSheet(); };
     $('#gm-resume').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); };
     $('#gm-save').onclick=()=>{ Sound.sfx('tap'); this.saveDialog(); };
     $('#gm-export').onclick=()=>{ if(this.game) SAVE.exportSave(this.game); };
@@ -783,7 +786,14 @@ export class UI {
         for(const k in def.prod.inputs) rows.push(`${GOODS[k].name}: ${b.stock[k]||0}`);
         rows.push(`Fertig: ${b.out||0}`);
       }
-      if(def.mine){ rows.push(`Essen: ${['fish','bread','meat'].map(f=>b.stock[f]||0).reduce((a,c)=>a+c,0)}`, `Gefördert wartend: ${b.out||0}`, b.depleted?'⚠️ Vorkommen erschöpft':''); }
+      if(def.mine){
+        const left=g.oreLeft(b)||0;
+        const oreN={coal:'Kohle',ironore:'Eisenerz',gold:'Golderz',stone:'Granit'}[def.mine]||'Vorkommen';
+        rows.push(`Essen: ${['fish','bread','meat'].map(f=>b.stock[f]||0).reduce((a,c)=>a+c,0)}`,
+          `Gefördert wartend: ${b.out||0}`,
+          b.depleted? '⚠️ Vorkommen erschöpft'
+            : `${oreN} im Berg: <b>${left}</b> ${this.oreBar(left)}`);
+      }
       if(def.gather){ rows.push(`Ware wartend: ${b.out||0}`); }
       if(def.cata){ rows.push(`Steine: ${b.stock.stone||0}`); }
       if(b.soldiers){
@@ -791,8 +801,13 @@ export class UI {
           const n=b.soldiers.filter(s=>s===t).length;
           return n? `${n}× ${STYPES[t].short}` : null;
         }).filter(Boolean).join(' · ');
+        const want=b.garrison??def.mil.cap;
         rows.push(`Besatzung: ${b.soldiers.length}/${def.mil.cap}${byT? ' ('+byT+')':''}`,
-          `Sold (Münzen): ${b.coins||0}`);
+          `Sold (Münzen): ${b.coins||0}`,
+          `Soll-Stärke (antippen): <span class="pips" id="gar-pips">${
+            Array.from({length:def.mil.cap},(_,k)=>
+              `<button class="pip${k<want?' on':''}" data-n="${k+1}" title="${k+1} Mann">🛡</button>`).join('')
+          }</span>`);
       }
       if(b.inv){
         const inv=Object.entries(b.inv).filter(([,v])=>v>0).map(([k,v])=>`${GOODS[k].name} ${v}`).join(' · ')||'leer';
@@ -805,20 +820,43 @@ export class UI {
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
       ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;
     }
+    // Arbeitsbetrieb: stilllegen und Essen zuteilen (nur fertige Produktionsstätten)
+    const works=b.state==='done' && (def.prod||def.mine||def.gather);
+    const canFeed=works && !def.foodBoost && !def.mine;
     this.sheet(`<div class="sh-head"><b>${def.name}</b><button class="hbtn" id="sh-x">✕</button></div>
       ${body}
+      ${works?`<div class="row">
+        <button class="mbtn${b.paused?' primary':''}" id="bd-pause">${b.paused?'▶️ Weiterarbeiten':'⏸️ Stilllegen'}</button>
+        ${canFeed?`<button class="mbtn${b.foodPrio?' primary':''}" id="bd-food">🍖 Essen ${b.foodPrio?'zugeteilt':'zuteilen'}</button>`:''}
+      </div>`:''}
       <div class="row">
         <button class="mbtn" id="bd-road">🛤️ Straße ab Fahne</button>
         ${b.type!=='hq'?'<button class="mbtn back" id="bd-del">🔥 Abreißen</button>':''}
       </div>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#bd-road').onclick=()=>this.startRoad(b.door);
+    const pz=$('#bd-pause');
+    if(pz) pz.onclick=()=>{ b.paused=!b.paused; Sound.sfx('tap'); this.openBuildingSheet(b); };
+    const fd=$('#bd-food');
+    if(fd) fd.onclick=()=>{ b.foodPrio=!b.foodPrio; Sound.sfx('tap'); this.openBuildingSheet(b); };
+    document.querySelectorAll('#gar-pips .pip').forEach(p=> p.onclick=()=>{
+      const n=+p.dataset.n;
+      // erneutes Antippen der aktuellen Stärke setzt wieder auf volle Besatzung
+      b.garrison = (b.garrison===n)? def.mil.cap : n;
+      Sound.sfx('tap'); this.openBuildingSheet(b);
+    });
     const del=$('#bd-del');
     if(del) del.onclick=()=>{
       this.confirm(`${def.name} wirklich abreißen?`, ()=>{
         g.demolish(b.id); Sound.sfx('place'); this.state.sel=-1; this.closeSheet();
       });
     };
+  }
+  // kleiner Balken für das verbleibende Erzvorkommen
+  oreBar(n){
+    const f=Math.max(0,Math.min(1,n/60));
+    const col= f>0.5? '#7ec96b' : f>0.2? '#e8c15a' : '#d9704f';
+    return `<span class="orebar"><i style="width:${(f*100).toFixed(0)}%;background:${col}"></i></span>`;
   }
   openInfoSheet(i){
     const g=this.game, m=g.map;
@@ -837,18 +875,6 @@ export class UI {
     this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x">✕</button></div>
       <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>`);
     $('#sh-x').onclick=()=>this.closeSheet();
-    document.querySelectorAll('.stock-it').forEach(b=>b.onclick=()=>{
-      const k=b.dataset.good;
-      const list=(this.opts.hudGoods||[]).slice();
-      const ix=list.indexOf(k);
-      if(ix>=0) list.splice(ix,1);
-      else { list.push(k); if(list.length>6) list.shift(); }
-      this.opts.hudGoods=list;
-      SAVE.setOptions(this.opts);
-      Sound.sfx('tap');
-      this.updateHud();
-      this.openStockSheet();
-    });
   }
   confirm(txt, cb){
     const d=$('#dlg');
@@ -971,13 +997,17 @@ export class UI {
     const st=g.settlerStats(0);
     $('#res-bar').innerHTML=
       sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
-      +`<span class="res-sep"></span>`
-      +this.unitChip('icon_settler','🧑‍🌾','Freie Siedler',st.free)
+      +`<span class="res-more">📦</span>`;
+    // Siedlerleiste als eigene Zeile – auf dem Handy wäre sie in der
+    // Warenleiste nach rechts aus dem Bild gescrollt
+    const ub=$('#unit-bar');
+    if(ub) ub.innerHTML=
+      this.unitChip('icon_settler','🧑‍🌾','Freie Siedler',st.free)
       +this.unitChip('icon_geo','⛏️','Geologen',st.geo)
+      +`<span class="res-sep"></span>`
       +this.unitChip('icon_sword','🗡️','Schwertkämpfer',st.sword)
       +this.unitChip('icon_spear','🔱','Speerkämpfer',st.spear)
-      +this.unitChip('icon_bow','🏹','Bogenschützen',st.bow)
-      +`<span class="res-more">📦</span>`;
+      +this.unitChip('icon_bow','🏹','Bogenschützen',st.bow);
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }
   // vollständige Warenübersicht (alle 28 Waren)
@@ -986,16 +1016,34 @@ export class UI {
     const inv=g.invTotal(0);
     const ic=(k)=> this.renderer.asset('good_'+k) ? `<img class="stock-ic" src="assets/good_${k}.png" alt="">`
       : this.renderer.asset('icon_'+k) ? `<img class="stock-ic" src="assets/icon_${k}.png" alt="">` : '';
-    const sel=this.opts.hudGoods||[];
+    const sel=(this.opts.hudGoods&&this.opts.hudGoods.length? this.opts.hudGoods
+      : ['trunk','board','stone','fish','water']);
     const cells=GOOD_LIST.map(k=>`<button class="stock-it${(inv[k]||0)?'':' zero'}${sel.includes(k)?' pinned':''}" data-good="${k}">${ic(k)}
       <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></button>`).join('');
     const r=g.players[0].recruits;
     this.sheet(`<div class="sh-head"><b>📦 Lager &amp; Vorräte</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">Tippe eine Ware an, um sie oben in der Leiste anzuzeigen (bis zu 6).</p>
+      <p class="note">Antippen heftet eine Ware oben an die Leiste (max. 6) – nochmal antippen nimmt sie wieder weg.
+      Angeheftet: <b id="pin-n">${sel.length}</b>/6 <button class="lnk" id="pin-clr">alle lösen</button></p>
       <div class="stock-grid">${cells}</div>
       <p class="note">Reserve im Hauptquartier: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}
       · Soldaten im Feld/in Gebäuden: ${g.soldierCount(0)}</p>`);
     $('#sh-x').onclick=()=>this.closeSheet();
+    const setPins=(list)=>{
+      this.opts.hudGoods=list;
+      SAVE.setOptions(this.opts);
+      Sound.sfx('tap');
+      this.updateHud();
+      this.openStockSheet();
+    };
+    $('#pin-clr').onclick=()=>setPins([]);
+    document.querySelectorAll('.stock-it').forEach(btn=> btn.onclick=()=>{
+      const k=btn.dataset.good;
+      const list=sel.slice();
+      const ix=list.indexOf(k);
+      if(ix>=0) list.splice(ix,1);                 // abwählen
+      else { list.push(k); if(list.length>6) list.shift(); }
+      setPins(list);
+    });
   }
   pollMsgs(){
     const g=this.game;

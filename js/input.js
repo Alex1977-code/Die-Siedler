@@ -19,7 +19,7 @@ export function setupInput(canvas, api){
     const b=api.bounds();
     cam.x=clamp(cam.x, -100, b.w+100);
     cam.y=clamp(cam.y, -100, b.h+100);
-    cam.z=clamp(cam.z, 0.4, 2.6);
+    cam.z=clamp(cam.z, 0.4, 4.2);
   };
 
   canvas.addEventListener('pointerdown',(e)=>{
@@ -56,7 +56,7 @@ export function setupInput(canvas, api){
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
       const r=canvas.getBoundingClientRect();
       const oldZ=cam.z;
-      cam.z=clamp(pinchStart.z*(d/Math.max(20,pinchStart.d)), 0.4, 2.6);
+      cam.z=clamp(pinchStart.z*(d/Math.max(20,pinchStart.d)), 0.4, 4.2);
       // um Pinch-Zentrum zoomen + Pan mit zwei Fingern
       const wx=pinchStart.cx+((pinchStart.mx-r.left)-r.width/2)/pinchStart.z;
       const wy=pinchStart.cy+((pinchStart.my-r.top)-r.height/2)/pinchStart.z;
@@ -89,7 +89,7 @@ export function setupInput(canvas, api){
     const r=canvas.getBoundingClientRect();
     const mx=e.clientX-r.left, my=e.clientY-r.top;
     const wx=cam.x+(mx-r.width/2)/cam.z, wy=cam.y+(my-r.height/2)/cam.z;
-    cam.z=clamp(cam.z*(e.deltaY<0?1.15:0.87), 0.4, 2.6);
+    cam.z=clamp(cam.z*(e.deltaY<0?1.15:0.87), 0.4, 4.2);
     cam.x=wx-(mx-r.width/2)/cam.z;
     cam.y=wy-(my-r.height/2)/cam.z;
     clampCam();

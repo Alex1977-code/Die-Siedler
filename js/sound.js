@@ -68,6 +68,10 @@ export const Sound = {
   },
   sfx(name, scale=1){
     if(!this.ctx||!this.sfxOn) return;
+    // defensiv: ein ungültiger Lautstärkefaktor darf die Simulation nicht
+    // mit einem WebAudio-Fehler abbrechen
+    if(!Number.isFinite(scale)) scale=1;
+    scale=Math.max(0.05, Math.min(1, scale));
     this._scale=Math.max(0,Math.min(1,scale));
     switch(name){
       case 'tap':    this.osc('sine', 660, 0.06, 0.15); break;

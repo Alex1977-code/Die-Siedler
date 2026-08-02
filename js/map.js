@@ -150,16 +150,53 @@ export function genWorld(opts){
         hv += over*4.5 + ridge(X,Y)*over*5.5;             // Flanken und Kämme
       }
     }
-    const step=0.15;
-    map.hgt[i] = hv*0.55 + Math.round(hv/step)*step*0.45;
+    // Fels wird auf Terrassen gerastert (Siedler-2-Prinzip): innerhalb einer
+    // Stufe ist der Boden eben, dazwischen steht eine echte Felswand. Wiese
+    // und Sand bleiben weich gewellt, damit die Ebene nicht wie eine Treppe
+    // aussieht.
+    const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
+    const step = rocky? 1.55 : 0.42;
+    const q    = rocky? 0.92 : 0.16;
+    // Der Rasterpunkt wandert mit einem groben Rauschen – dadurch mäandern die
+    // Absätze, statt als kerzengerade Höhenlinien quer über den Berg zu laufen
+    const jit  = rocky? (sample(grids[3], map.X(i)*3.3+41, map.Y(i)*3.3+77)-0.5)*0.7 : 0;
+    map.hgt[i] = hv*(1-q) + (Math.round(hv/step + jit)-jit)*step*q;
   }
 
-  // Bäume
+  // ---- Wälder ----
+  // Nicht "Rauschen über Schwelle = Baum" (das ergibt geschlossene Blöcke),
+  // sondern Bestände mit weichem Rand, Lichtungen im Inneren und Jungwuchs
+  // am Saum. Ein Nachlauf lichtet zu dichte Stellen aus, damit Siedler
+  // überall durchkommen und der Wald atmet.
   const treeP = { gruen:0.34, winter:0.18, wueste:0.08, vulkan:0.10, sumpf:0.22, inseln:0.30, gebirge:0.22 }[theme] ?? 0.3;
+  const woodOk = (i)=> map.terr[i]===TER.GRASS || (map.terr[i]===TER.SNOW&&theme==='winter');
+  const smooth = (a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
+  const MAXDENS = 0.60;                       // dichtester Kern: gut 3 von 5 Knoten
   for(let i=0;i<w*h;i++){
-    if(map.terr[i]!==TER.GRASS && !(map.terr[i]===TER.SNOW&&theme==='winter')) continue;
-    const f = sample(grids[1], map.X(i)*2.6+71, map.Y(i)*2.6+43);
-    if(f>1-treeP*res && rng()<0.85){ map.obj[i]=OBJ.TREE; }
+    if(!woodOk(i) || map.obj[i]) continue;
+    const X=map.X(i), Y=map.Y(i);
+    const f = sample(grids[1], X*2.6+71, Y*2.6+43);
+    const t0 = 1-treeP*res;                   // Saum des Bestands
+    let p = smooth(t0-0.10, t0+0.13, f) * MAXDENS;
+    if(p<=0.001) continue;
+    // Lichtungen: feineres Rauschen frisst Löcher in geschlossene Bestände
+    const gl = sample(grids[3], X*7.3+17, Y*7.3+53);
+    if(gl>0.62) p *= 1-smooth(0.62,0.86,gl)*0.85;
+    if(rng()>=p) continue;
+    // Randbereich des Bestands: junger Wuchs statt ausgewachsener Stämme
+    const edge = 1-smooth(t0-0.06, t0+0.10, f);
+    const r=rng();
+    map.obj[i] = r < edge*0.42 ? OBJ.SAPLING : r < edge*0.78 ? OBJ.TREE2 : OBJ.TREE;
+  }
+  // Auslichten: kein Knoten behält mehr als 4 bewaldete Nachbarn
+  for(let i=0;i<w*h;i++){
+    const o=map.obj[i]&127;
+    if(o!==OBJ.TREE && o!==OBJ.TREE2 && o!==OBJ.SAPLING) continue;
+    const nb=map.nbs(i);
+    let n=0;
+    for(const k of nb){ const ok=map.obj[k]&127; if(ok===OBJ.TREE||ok===OBJ.TREE2||ok===OBJ.SAPLING) n++; }
+    if(n>=5 && rng()<0.72) map.obj[i]=OBJ.NONE;
+    else if(n>=4 && rng()<0.3) map.obj[i]=OBJ.NONE;
   }
   // Steinhaufen
   for(let i=0;i<w*h;i++){
@@ -170,10 +207,10 @@ export function genWorld(opts){
   for(let i=0;i<w*h;i++){
     if(map.terr[i]!==TER.MOUNT) continue;
     const r=rng();
-    if(r<0.30*res){ map.oreT[i]=1; map.oreA[i]=6+((rng()*8)|0); }        // Kohle
-    else if(r<0.52*res){ map.oreT[i]=2; map.oreA[i]=5+((rng()*7)|0); }   // Eisen
-    else if(r<0.62*res){ map.oreT[i]=3; map.oreA[i]=4+((rng()*5)|0); }   // Gold
-    else if(r<0.74*res){ map.oreT[i]=4; map.oreA[i]=6+((rng()*8)|0); }   // Granit
+    if(r<0.30*res){ map.oreT[i]=1; map.oreA[i]=26+((rng()*30)|0); }      // Kohle
+    else if(r<0.52*res){ map.oreT[i]=2; map.oreA[i]=22+((rng()*26)|0); } // Eisen
+    else if(r<0.62*res){ map.oreT[i]=3; map.oreA[i]=16+((rng()*18)|0); } // Gold
+    else if(r<0.74*res){ map.oreT[i]=4; map.oreA[i]=28+((rng()*32)|0); } // Granit
   }
   // Fische in Küstennähe
   for(let i=0;i<w*h;i++){
@@ -255,7 +292,7 @@ function ensureStartResources(map, s, rng){
     }
     q=nq;
   }
-  let trees=ring.filter(i=>map.obj[i]===OBJ.TREE).length;
+  let trees=ring.filter(i=>{const o=map.obj[i]&127; return o===OBJ.TREE||o===OBJ.TREE2||o===OBJ.SAPLING;}).length;
   let stones=ring.filter(i=>map.obj[i]===OBJ.STONE).length;
   const free=ring.filter(i=> map.terrOkBuild(i)&&!map.obj[i]&&map.bld[i]<0);
   while(trees<7 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }

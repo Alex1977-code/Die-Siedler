@@ -90,6 +90,8 @@ export class Game {
       leveled: instant,                          // Planierer muss den Platz erst ebnen
       worker: def.gather||def.mine||def.prod||def.cata ? { present: instant, state:'in', timer:0, target:-1, x:0,y:0 } : null,
       prodT: 0, foodT: 0, burnT: 0,
+      paused:false, foodPrio:false,
+      garrison: def.mil? def.mil.cap : 0,
     };
     this.map.bld[node] = b.id;
     this.buildings.set(b.id, b);
@@ -420,6 +422,21 @@ export class Game {
     }
     return t;
   }
+  // verbleibendes Vorkommen im Umkreis eines Bergwerks
+  oreLeft(b){
+    const def=BLD[b.type];
+    if(!def.mine) return null;
+    const m=this.map;
+    const targetT={coal:1, ironore:2, gold:3, stone:4}[def.mine];
+    let sum=0;
+    const seen=new Set();
+    for(const n of [b.node, ...m.nbs(b.node)])
+      for(const nn of [n, ...m.nbs(n)]){
+        if(seen.has(nn)) continue; seen.add(nn);
+        if(m.oreT[nn]===targetT) sum+=m.oreA[nn];
+      }
+    return sum;
+  }
   prodGood(b){
     const def=BLD[b.type];
     if(def.out) return def.out;
@@ -609,8 +626,10 @@ export class Game {
     const sources=[];
     for(const mb of this.buildings.values()){
       if(mb.player!==pl || !mb.soldiers || mb.state!=='done') continue;
+      const mil=BLD[mb.type].mil;
+      const reach=(mb.type==='hq'? 9 : (mil? mil.radius : 8)) + 5;
       const d=Math.hypot(this.map.X(mb.node)-this.map.X(target.node), this.map.Y(mb.node)-this.map.Y(target.node));
-      if(d>30) continue;
+      if(d>reach) continue;
       sources.push({mb, d});
     }
     sources.sort((a,b)=>a.d-b.d);
@@ -765,7 +784,7 @@ export class Game {
             for(let k=0;k<need;k++) reqs.push({b, good:g, prio:1});
           }
         }
-        if(def.foodBoost){
+        if(def.foodBoost || b.foodPrio){
           let have=0; for(const f of FOODS) have+=(b.stock[f]||0)+(b.incoming[f]||0);
           if(have<2) reqs.push({b, good:'@food', prio:2});
         }
@@ -986,6 +1005,7 @@ export class Game {
     for(const b of this.buildings.values()){
       if(b.state!=='done' || b.player<0) continue;
       const def=BLD[b.type];
+      if(b.paused) continue;                       // vom Spieler stillgelegt
       // ohne eingezogene Fachkraft ruht der Betrieb
       if(b.worker && !b.worker.present) continue;
       if(def.prod){
@@ -1004,8 +1024,8 @@ export class Game {
           b.chosenTool=this.toolsmithChoose(b.player);
           if(!b.chosenTool) continue;
         }
-        // Werkzeugschmiede: mit Essen doppelt so schnell
-        const fed=def.foodBoost && FOODS.some(f=>(b.stock[f]||0)>0);
+        // mit zugeteiltem Essen arbeitet ein Betrieb deutlich schneller
+        const fed=(def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
         b.prodT += fed? 2 : 1;
         if(b.prodT>=def.prod.time){
           b.prodT=0;
@@ -1270,7 +1290,7 @@ export class Game {
               this.fx.push({type:'arrow', x0:u.x, y0:u.y-10, x1:a.x, y1:a.y-3, t0:this.t, hit:true});
               this.animals=this.animals.filter(q=>q.id!==a.id);
               u.carry='meat';
-              this.onVolley && u.player===0 && this.onVolley(1);
+              this.onVolley && u.player===0 && this.onVolley(u.x, u.y);
             } else if(a) a.hunted=false;   // entwischt -> wieder freigeben
             u.state='back';
           }
@@ -1465,7 +1485,7 @@ export class Game {
         milB.sort((a,b)=> (a.soldiers.length/BLD[a.type].mil.cap) - (b.soldiers.length/BLD[b.type].mil.cap));
         for(const b of milB){
           if(this.recruitTotal(p.id)<=0) break;
-          const cap=BLD[b.type].mil.cap;
+          const cap=Math.min(BLD[b.type].mil.cap, b.garrison??BLD[b.type].mil.cap);
           const enroute=this.units.filter(u=>u.type==='soldierMove'&&u.targetB===b.id).length;
           if(b.soldiers.length+enroute<cap){
             const t=this.takeRecruit(p.id);
@@ -2130,6 +2150,9 @@ export class Game {
     // besetzte Gebäude mit Werkzeugberuf gelten als ausgerüstet
     for(const b of g.buildings.values()){
       if(b.leveled===undefined) b.leveled=true;
+      if(b.paused===undefined) b.paused=false;
+      if(b.foodPrio===undefined) b.foodPrio=false;
+      if(b.garrison===undefined && BLD[b.type] && BLD[b.type].mil) b.garrison=BLD[b.type].mil.cap;
       if(b.state==='done' && b.worker && b.worker.present===undefined) b.worker.present=true;
       if(b.state==='done' && b.worker && b.worker.present && b.toolGood===undefined && TOOL_OF[b.type])
         b.toolGood=TOOL_OF[b.type];
