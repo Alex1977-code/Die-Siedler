@@ -2734,9 +2734,10 @@ export class Renderer {
         if(sp){
           g.save();
           g.globalAlpha=0.92;
-          g.translate(px, py+8);
+          g.translate(px, py+9);
           g.scale(1,0.58);                    // in die Bodenebene gekippt
-          g.rotate(hash01(b.id)*1.6);
+          // NICHT drehen: ein gedrehtes Quadrat wird beim Kippen zur Raute
+          // und legt sich schief neben das Haus.
           g.drawImage(sp,-sz/2,-sz/2,sz,sz);
           g.restore();
           g.globalAlpha=1;
@@ -2769,13 +2770,13 @@ export class Renderer {
       // Jede Verbindung zwischen zwei Knoten bekommt die gerade Pflaster-
       // kachel, gedreht in ihre Richtung. An den Knoten überlappen sich die
       // Kacheln – daraus entstehen Kreuzungen und Kurven von selbst.
-      const rtile=this.asset('road_str');
+      const rtile=this.roadTile('road_str');
       if(rtile){
-        const slopeT=this.asset('road_slope')||rtile;
+        const slopeT=this.roadTile('road_slope')||rtile;
         // Frisch gebaute Wege sind Trampelpfade. Erst wenn genug Waren
         // darüber gegangen sind, ist der Boden zu Pflaster festgetreten –
         // eine gewachsene Handelsroute sieht man ihr an.
-        const dirtT=this.asset('road_dirt');
+        const dirtT=this.roadTile('road_dirt');
         const worn=(r.traffic||0);
         const baseT = (dirtT && worn<14 && !r.hasDonkey) ? dirtT : rtile;
         const nodes=r.path;
@@ -2790,23 +2791,26 @@ export class Renderer {
           if(links.__done) continue;
           links.__done=true;                       // jeder Knoten nur einmal
           const cnt=links.length;
-          let key=null;
+          let key=null, rot=links[0];
           if(cnt===1) key='road_end';
           else if(cnt===2){
-            // Knick? Bei annähernd gerader Durchfahrt braucht es nichts.
+            // An JEDEM Durchgangsknoten liegt ein Teller: er deckt die
+            // Stirnseiten der beiden Kacheln zu. Bei einem Knick die
+            // Kurvenkachel, sonst ein kurzes gerades Stück quer zur Naht.
             let d=Math.abs(links[0]-links[1]);
             if(d>Math.PI) d=Math.PI*2-d;
-            if(Math.abs(d-Math.PI)>0.5) key='road_cur';
+            if(Math.abs(d-Math.PI)>0.5){ key='road_cur'; }
+            else { key='road_str'; rot=links[0]; }
           }
           else if(cnt===3) key= this.asset('road_y')? 'road_y' : 'road_t';
           else key='road_x';
           const jimg=key && this.asset(key);
           if(!jimg) continue;
           const [nx2,ny2]=this.doorVisualPos(nd);
-          const sz=TILE*(cnt>=3? 0.62 : 0.5);
+          const sz=TILE*(cnt>=3? 0.62 : cnt===2? 0.46 : 0.5);
           g.save();
           g.translate(nx2,ny2);
-          g.rotate(links[0]-Math.PI/2);
+          g.rotate(rot-Math.PI/2);
           g.drawImage(jimg, -sz/2, -sz/2, sz, sz);
           g.restore();
         }
@@ -2827,7 +2831,10 @@ export class Renderer {
           // Die Kachel zeigt einen Weg über die volle Kachelbreite. Bei
           // voller Kachelgröße wäre das Pflaster fast drei Figuren breit –
           // deshalb schmal ziehen, in der Länge aber den Knoten überlappen.
-          const wq=TILE*0.46, hq=len+TILE*0.22;
+          // Die Kachel hat weiche Längsseiten, aber HARTE Stirnseiten. Ohne
+          // kräftige Überlappung stoßen zwei Stücke an einem Knick mit ihren
+          // Schnittkanten aneinander – das sieht hingeklatscht aus.
+          const wq=TILE*0.46, hq=len+TILE*0.86;
           g.drawImage(img, -wq/2, -hq/2, wq, hq);
           g.restore();
         }
@@ -4813,6 +4820,31 @@ export class Renderer {
       t.putImageData(id,0,0);
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
+    return cv;
+  }
+  // Die Wegekacheln haben weiche Längsseiten, aber messerscharfe Stirn-
+  // seiten. Beim Aneinanderlegen sieht man jede Naht. Deshalb bekommen sie
+  // einmalig einen weichen Auslauf an Kopf und Fuß – danach verschmelzen
+  // zwei Stücke, statt sich zu überlappen wie hingeworfene Bretter.
+  roadTile(key){
+    const img=this.asset(key);
+    if(!img) return null;
+    if(!this._roadT) this._roadT=new Map();
+    let cv=this._roadT.get(key);
+    if(cv!==undefined) return cv;
+    const w=img.naturalWidth, h=img.naturalHeight;
+    cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    t.globalCompositeOperation='destination-in';
+    const gr=t.createLinearGradient(0,0,0,h);
+    gr.addColorStop(0,'rgba(255,255,255,0)');
+    gr.addColorStop(0.16,'rgba(255,255,255,1)');
+    gr.addColorStop(0.84,'rgba(255,255,255,1)');
+    gr.addColorStop(1,'rgba(255,255,255,0)');
+    t.fillStyle=gr; t.fillRect(0,0,w,h);
+    t.globalCompositeOperation='source-over';
+    this._roadT.set(key,cv);
     return cv;
   }
   // Platzpflaster mit weich auslaufendem Rand. Die Kachel ist rechteckig;
