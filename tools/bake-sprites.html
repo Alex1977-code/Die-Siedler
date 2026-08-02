@@ -99,17 +99,23 @@ window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
 // Figur nicht schrumpfen) und so verschoben, dass die FÜSSE knapp über dem
 // unteren Bildrand sitzen -> im Spiel steht die Figur exakt auf ihrem Schatten.
 const FOOT=0.04;                        // Restluft unter den Füßen (Anteil)
+// ELEV=90 blickt senkrecht von oben – für Dinge, die flach im Wasser oder auf
+// dem Boden liegen (Fischschwarm), statt der schrägen Figurenperspektive
+const ELEV=+(params.get('elev')||38);
 function applyFrame(box){
   const h=(box.max.y-box.min.y);
   const w=Math.max(box.max.x-box.min.x, box.max.z-box.min.z);
-  const span=Math.max(h*1.30, w*1.05)*1.06;
-  frame={ h:span, cy:box.min.y+span*(0.5-FOOT) };
+  const top=ELEV>75;
+  const span= top ? Math.max(box.max.x-box.min.x, box.max.z-box.min.z)*1.12
+                  : Math.max(h*1.30, w*1.05)*1.06;
+  frame={ h:span, cy: top ? (box.min.y+box.max.y)/2 : box.min.y+span*(0.5-FOOT) };
   cam.left=-span/2; cam.right=span/2;
   cam.top=span/2; cam.bottom=-span/2;
-  // Kamera: ~38° von schräg oben (Spielperspektive)
-  const el=38*Math.PI/180, d=6;
+  // Kamera: ~38° von schräg oben (Spielperspektive), 90° = Draufsicht
+  const el=ELEV*Math.PI/180, d=6;
   cam.position.set(0, frame.cy+Math.sin(el)*d, Math.cos(el)*d);
   cam.lookAt(0, frame.cy, 0);
+  cam.up.set(0, top?0:1, top?-1:0);
   cam.updateProjectionMatrix();
 }
 // Rahmen anhand EINES Clips (i.d.R. Gehen) neu vermessen – für alle Sets gleich

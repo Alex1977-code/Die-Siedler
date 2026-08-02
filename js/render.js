@@ -2475,10 +2475,10 @@ export class Renderer {
       const head=Math.atan2(Math.cos(t)*8, -Math.sin(t)*15);
       const simg=this.asset('fx_school');
       if(simg){
-        const hh=17+Math.min(9,m.fish[i])*1.5, ww=hh*(simg.naturalWidth/simg.naturalHeight);
+        const hh=30+Math.min(9,m.fish[i])*2.6, ww=hh*(simg.naturalWidth/simg.naturalHeight);
         g.save();
         g.translate(cx3,cy3); g.rotate(head);
-        g.globalAlpha=0.72;
+        g.globalAlpha=0.66;
         g.drawImage(simg,-ww/2,-hh/2,ww,hh);
         g.restore();
         g.globalAlpha=1;
@@ -3656,6 +3656,28 @@ export class Renderer {
     const m=game.map;
     for(const f of game.fx){
       const age=game.t - f.t0;
+      // Gefallener: die Figur sackt zusammen und bleibt kurz liegen
+      if(f.type==='fallen'){
+        const DUR=14;
+        if(age>DUR+42) continue;
+        const prog=Math.min(1, age/DUR);
+        g.globalAlpha= age>DUR+22 ? Math.max(0, 1-(age-DUR-22)/20) : 1;
+        this._animSeed=(f.x|0)*0.7;
+        this.drawFigure(g, f.x, f.y, f.player, null, 'soldier', f.stype||'sword',
+          null, null, null, false, {set:'die', prog});
+        g.globalAlpha=1;
+        continue;
+      }
+      // Jubel der Sieger vor dem eroberten Gebäude
+      if(f.type==='cheer'){
+        if(age>34) continue;
+        g.globalAlpha= age>26 ? Math.max(0,1-(age-26)/8) : 1;
+        this._animSeed=(f.x|0)*1.3;
+        this.drawFigure(g, f.x, f.y, f.player, null, 'soldier', f.stype||'sword',
+          null, null, null, false, {set:'cheer'});
+        g.globalAlpha=1;
+        continue;
+      }
       if(f.type==='arrow'){
         const DUR=8;                       // Flugticks
         if(age>DUR+30) continue;
@@ -3839,15 +3861,23 @@ export class Renderer {
     const udir=u._dx!==undefined?[u._dx,u._dy]:null;
     if(u.type==='attack'){
       const fighting=u.state==='fight';
+      // frischer Treffer: die Gruppe zuckt kurz zurück
+      const age=this.game.t-(u.hitT??-999);
+      const act= age>=0 && age<9 ? {set:'hit', prog:age/9} : null;
       u.soldiers.forEach((r,k)=>{
         this.drawFigure(g, u.x+(k%3)*9-9, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r,
-          null, fighting ? k*1.9 : null, udir, !!u._mov);
+          null, fighting ? k*1.9 : null, udir, !!u._mov, act);
       });
       return;
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
     if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo',null,udir,!!u._mov); return; }
-    if(u.type==='settle'||u.type==='flee'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,u.wtype||'worker',null,udir,!!u._mov); return; }
+    if(u.type==='settle'||u.type==='flee'){
+      // Flüchtende laufen vornübergebeugt und schneller
+      const act= u.type==='flee' ? {set:'flee'} : null;
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,u.wtype||'worker',null,udir,!!u._mov,act);
+      return;
+    }
     if(u.type==='scout'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'scout',null,udir,!!u._mov); return; }
     if(u.type==='leveler'){
       // beim Ebnen die gebackene Schaufel-Geste spielen
@@ -3919,7 +3949,8 @@ export class Renderer {
   }
   // Frame einer gebackenen 3D-Animation wählen (oder null, wenn keine existiert).
   // Frames liegen als Spritesheet: Spalten = Frames, Zeilen = Richtungen (r,fr,f,br,b).
-  animFrame(baseKey, dir, mov, fight=null){
+  // act: {set:'hit'|'die'|'flee'|'cheer', prog:0..1} überschreibt die Auswahl
+  animFrame(baseKey, dir, mov, fight=null, act=null){
     // Blickrichtung in 8 Sektoren; linke Hälfte wird gespiegelt.
     // Mit Hysterese je Figur (Sektor/Spiegel wechseln erst bei klarem Abstand,
     // sonst flackert die Ansicht an den Sektorgrenzen)
@@ -3947,8 +3978,9 @@ export class Renderer {
       // stehend: zuletzt gelaufene Richtung beibehalten
       dirKey=st.dirKey; flip=st.flip;
     }
-    const COLS={ walk:12, idle:12, atk:8 };
-    let set= fight!=null && this.asset(baseKey+'_atk') ? 'atk'
+    const COLS={ walk:12, idle:12, atk:8, hit:8, die:10, flee:12, cheer:12 };
+    let set= (act && this.asset(baseKey+'_'+act.set)) ? act.set
+      : fight!=null && this.asset(baseKey+'_atk') ? 'atk'
       : mov? 'walk' : (this.asset(baseKey+'_idle')? 'idle':'walk');
     let img=this.asset(baseKey+'_'+set);
     if(!img && set!=='walk'){ set='walk'; img=this.asset(baseKey+'_walk'); }
@@ -3956,7 +3988,16 @@ export class Renderer {
     const n=COLS[set];
     const row={r:0, fr:1, f:2, br:3, b:4}[dirKey]||0;
     let k;
-    if(set==='walk'){
+    if(set==='hit' || set==='die'){
+      // Einmalclips laufen über den übergebenen Fortschritt; Sterben bleibt
+      // auf dem letzten Bild liegen
+      const pr=Math.max(0, Math.min(0.999, (act&&act.prog)||0));
+      k= set==='die' ? Math.min(n-1, Math.floor(pr*n)) : Math.floor(pr*n)%n;
+    } else if(set==='flee'){
+      k=Math.floor(this.time/46 + (this._animSeed||0))%n;   // schneller = Rennen
+    } else if(set==='cheer'){
+      k=Math.floor(this.time/95 + (this._animSeed||0))%n;
+    } else if(set==='walk'){
       // 12 Frames -> kürzere Frame-Zeit, damit der Schritt flüssig bleibt
       k=Math.floor(this.time/62 + (this._animSeed||0))%n;
     } else if(set==='atk'){
@@ -4088,7 +4129,7 @@ export class Renderer {
   // kind 'soldier': rank trägt den Truppentyp ('sword'|'spear'|'bow'),
   // fight!==null aktiviert die Kampfpose (Wert = Phasenversatz der Figur)
   // dir=[dx,dy] Bewegungsrichtung, mov=true wenn die Figur gerade läuft
-  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null, dir=null, mov=false){
+  drawFigure(g, x, y, pl, good, kind, rank=0, wtype=null, fight=null, dir=null, mov=false, act=null){
     // Asset-Überschreibung (Stilguide §14): unit_<typ>.png / unit_carrier.png / unit_soldier.png
     let baseKey= kind==='soldier'
       ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
@@ -4097,7 +4138,7 @@ export class Renderer {
     if(kind==='worker' && !this.asset(baseKey) && !this.asset(baseKey+'_walk_r_0') && this.asset('unit_worker'))
       baseKey='unit_worker';
     // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
-    const anim=this.animFrame(baseKey, dir, mov, fight);
+    const anim=this.animFrame(baseKey, dir, mov, fight, act);
     if(anim){
       this.shadow(g,x,y+7.4,4.8,1.9,0.26);
       g.strokeStyle=PLAYER_COLORS[pl]||'#888';

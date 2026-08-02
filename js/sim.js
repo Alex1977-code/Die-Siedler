@@ -1439,18 +1439,31 @@ export class Game {
       const atkBows=u.soldiers.filter(t=>t==='bow').length;
       this.volley(atkBows, ()=>{
         const dl=defList();
-        if(dl){ dl.splice((this.rng()*dl.length)|0,1); return true; }
-        if(militia()>0){ this.takeRecruit(b.player); return true; }
-        return false;
+        const t2=dl&&dl.length? dl[0] : 'sword';
+        if(dl){ dl.splice((this.rng()*dl.length)|0,1); }
+        else if(militia()>0){ this.takeRecruit(b.player); }
+        else return false;
+        this.fx.push({type:'fallen', x:bPos[0]+(this.rng()*16-8), y:bPos[1]+11,
+                      stype:t2, player:b.player, t0:this.t});
+        return true;
       }, uPos, bPos);
       const defBows=(defList()||[]).filter(t=>t==='bow').length;
       this.volley(defBows, ()=>{
-        if(u.soldiers.length){ u.soldiers.splice((this.rng()*u.soldiers.length)|0,1); return true; }
-        return false;
+        if(!u.soldiers.length) return false;
+        const ix=(this.rng()*u.soldiers.length)|0, t2=u.soldiers[ix];
+        u.soldiers.splice(ix,1);
+        this.fx.push({type:'fallen', x:u.x+(this.rng()*16-8), y:u.y+(this.rng()*8-4),
+                      stype:t2, player:u.player, t0:this.t});
+        u.hitT=this.t;
+        return true;
       }, bPos, uPos);
       // --- Sieg/Niederlage nach der Salve? ---
       if(!u.soldiers.length){ bt.doneFlag=true; u.dead=true; continue; }
       if(!defList() && militia()<=0){
+        // Jubel der Sieger vor dem eroberten Gebäude
+        for(let k=0;k<Math.min(3,u.soldiers.length);k++)
+          this.fx.push({type:'cheer', x:bPos[0]-10+k*10, y:bPos[1]+13, stype:u.soldiers[k],
+                        player:bt.attPlayer, t0:this.t});
         this.captureBuilding(b, bt.attPlayer, u.soldiers);
         bt.doneFlag=true; u.dead=true;
         continue;
@@ -1471,8 +1484,15 @@ export class Game {
       if(this.rng()<clamp(p,0.12,0.88)){
         if(defMilitia) pl.recruits[defT]--;
         else dl.splice(dl.indexOf(defT),1);
+        // Gefallener Verteidiger vor dem Tor, Angreifer treffen
+        this.fx.push({type:'fallen', x:bPos[0]+(this.rng()*16-8), y:bPos[1]+11+(this.rng()*6-3),
+                      stype:defT, player:b.player, t0:this.t});
+        b.hitT=this.t;
       } else {
         u.soldiers.splice(u.soldiers.indexOf(atkT),1);
+        this.fx.push({type:'fallen', x:u.x+(this.rng()*16-8), y:u.y+(this.rng()*8-4),
+                      stype:atkT, player:u.player, t0:this.t});
+        u.hitT=this.t;
       }
     }
     this.battles=this.battles.filter(bt=>!bt.doneFlag);
