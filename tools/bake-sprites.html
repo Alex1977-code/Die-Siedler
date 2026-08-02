@@ -33,13 +33,28 @@ let mixer=null, root=null, clips=[], frame={h:1, cy:0};
 
 const params=new URLSearchParams(location.search);
 const MODEL=params.get('m')||'traeger';
+// Alle menschlichen Figuren teilen sich EIN Rig (41 Knochen, gleiche Namen).
+// Ein Clip aus einer anderen Figur lässt sich deshalb direkt auf dieses
+// Skelett abspielen – so bekommen auch Figuren ohne eigenen Warte-Clip einen.
+const DONOR=params.get('donor')||'';
 
-let hips=null;
+let hips=null, restQ=new Map(), boneMap=new Map();
+const loadDonor=(cb)=>{
+  if(!DONOR) return cb();
+  new GLTFLoader().load(`./models/${DONOR}.glb`, (dg)=>{
+    (dg.animations||[]).forEach((c,ix)=>{
+      const cl=c.clone(); cl.name='donor'+ix;
+      clips.push(cl);
+    });
+    cb();
+  }, undefined, ()=>cb());
+};
 new GLTFLoader().load(`./models/${MODEL}.glb`, (g)=>{
   root=g.scene;
   scene.add(root);
-  clips=g.animations||[];
+  clips=(g.animations||[]).slice();
   mixer=new THREE.AnimationMixer(root);
+  root.traverse(o=>{ if(o.isBone){ boneMap.set(o.name,o); restQ.set(o.name, o.quaternion.clone()); } });
   root.traverse(o=>{ if(!hips && o.isBone) hips=o; });   // Wurzelknochen (Hüfte)
   // Rahmen: Bounding Box über mehrere Posen der längsten Animation vereinigen,
   // damit ALLE Frames dieselbe Kamera bekommen (kein Zittern)
@@ -54,10 +69,29 @@ new GLTFLoader().load(`./models/${MODEL}.glb`, (g)=>{
     act.stop();
   } else measure();
   applyFrame(box);
-  document.getElementById('log').textContent=
-    'Clips: '+clips.map(c=>`${c.name} (${c.duration.toFixed(2)}s)`).join(' · ');
-  window.__ready=true;
+  loadDonor(()=>{
+    document.getElementById('log').textContent=
+      'Clips: '+clips.map(c=>`${c.name} (${c.duration.toFixed(2)}s)`).join(' · ');
+    window.__ready=true;
+  });
 }, undefined, (e)=>{ window.__err=String(e); document.getElementById('log').textContent='FEHLER '+e; });
+
+// Zusatzdrehungen auf einzelne Knochen legen (Grad, lokal, additiv zur
+// aktuellen Clip-Pose). Damit lassen sich Posen von Hand schreiben:
+//   {Spine01:[2,0,0], Head:[0,-8,0], R_Upperarm:[0,0,-14]}
+const _e=new THREE.Euler(), _q=new THREE.Quaternion();
+window.poseAdd=(rots)=>{
+  for(const name in rots){
+    const b2=boneMap.get(name);
+    if(!b2) continue;
+    const r=rots[name];
+    _e.set(r[0]*Math.PI/180, r[1]*Math.PI/180, r[2]*Math.PI/180);
+    _q.setFromEuler(_e);
+    b2.quaternion.multiply(_q);
+  }
+  root.updateMatrixWorld(true);
+};
+window.bones=()=>[...boneMap.keys()];
 
 window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
 
@@ -135,10 +169,11 @@ window.center=(clipName, t, yawDeg)=>{
 
 // einen Frame backen: Clip + Zeitpunkt + Blickrichtung; optional expliziter
 // Versatz (ox/oz) statt Auto-Zentrierung -> ruckelfreie Zyklen
-window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null)=>{
+window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null, extra=null)=>{
   const clip=clips.find(c=>c.name===clipName)||clips[0];
   mixer.stopAllAction();
   if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
+  if(extra) window.poseAdd(extra);
   root.rotation.y=yawDeg*Math.PI/180;
   if(ox!=null){
     root.position.set(-ox,0,-(oz||0));
