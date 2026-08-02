@@ -2715,75 +2715,199 @@ export class Renderer {
       }
     }
     // ---------- Wegenetz ----------
-    // Ein Weg ist EIN durchgehender Strich, kein Stapel einzelner Kacheln.
-    // Gezeichnet wird eine Linie, deren Pinsel die Pflastertextur ist: an
-    // Knicken und Kreuzungen gibt es dadurch überhaupt keine Stoßkanten mehr.
-    // Vorher stieß Kachel an Kachel – das waren die hingeklatschten Bretter.
-    // Als Belag taugt nur eine RICHTUNGSLOSE Textur: sie liegt in der Welt
-    // fest und dreht sich nicht mit dem Weg mit. road_plaza ist ein
-    // ungerichtetes Kopfsteinfeld, der Trampelpfad wird eigens richtungslos
-    // gemacht. Die Längsstruktur kommt danach aus Bordkante und Spurrinnen.
-    const patPav=this.roadPattern(g,'road_plaza',26,{crop:0.34});
-    const patDirt=this.roadPattern(g,'road_dirt',26,{crop:0.30, isotrop:true})||patPav;
-    if(patPav){
-      const pav=new Path2D(), dirt=new Path2D(), alle=new Path2D();
-      let leer=true;
-      const legen=(P,pts)=>{
-        P.moveTo(pts[0][0],pts[0][1]);
-        for(let k=1;k<pts.length-1;k++){
-          const mx=(pts[k][0]+pts[k+1][0])/2, my=(pts[k][1]+pts[k+1][1])/2;
-          P.quadraticCurveTo(pts[k][0],pts[k][1],mx,my);
-        }
-        P.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
-      };
+    // Zwei Dinge muessen zusammenkommen, die sich bisher gegenseitig kaputt
+    // gemacht haben: die KACHELN (Steinreihen in Wegrichtung, Kurven,
+    // Kreuzungen) und ein SAUBERER RAND ohne Stossnaehte.
+    //
+    // Der Trick ist die Trennung von Silhouette und Textur:
+    //   1. Die Aussenform kommt aus EINEM zusammenhaengenden Band - je
+    //      Abschnitt ein Rechteck, an jedem Knoten ein Kreis, alles als
+    //      eine einzige Flaeche gefuellt. Eine Naht kann darin gar nicht
+    //      entstehen, weil es nur eine Kante gibt.
+    //   2. In dieses Band hinein kommen die Kacheln, jede in die
+    //      tatsaechliche Richtung ihres Abschnitts gedreht. Innerhalb des
+    //      Bandes ist jede Kachel deckend - zwei Kacheln duerfen sich also
+    //      ueberlagern, ohne dass sich halbdurchsichtige Raender addieren.
+    //      Die ausgefransten Kachelraender liegen ausserhalb und fallen weg.
+    const tStr=this.asset('road_str');
+    if(tStr){
+      const tDirt=this.asset('road_dirt')||tStr, tSlope=this.asset('road_slope')||tStr;
+      const BAND=TILE*0.30, half=BAND/2;
+      // Die Vorlage ist auf eine ganze Gitterzelle ausgelegt: ihr Wegband
+      // fuellt gut die halbe Kachel. Zeichnet man die Kachel nur so gross
+      // wie das Band, schrumpfen die Steine zu Kies. Deshalb wird sie
+      // deutlich groesser gezeichnet und nur ihr mittlerer Streifen benutzt
+      // - die Steine behalten damit fast ihre gedachte Groesse.
+      const bw=BAND/0.36;
+      const band=new Path2D();
+      const wege=[];
+      const links=new Map();               // Knoten -> Richtungen der Anschluesse
       for(const r of game.roads.values()){
         if(r.isSea) continue;
         const pts=this.roadPts(r);
         if(pts.length<2) continue;
         let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
         for(const q of pts){ if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0]; if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1]; }
-        if(x1<wx0-40||x0>wx1+40||y1<wy0-40||y0>wy1+40) continue;
-        legen(alle,pts);
-        // Frisch gebaute Wege sind Trampelpfade; erst wenn genug Waren
-        // darübergegangen sind, ist der Boden zu Pflaster festgetreten
-        legen(((r.traffic||0)<14 && !r.hasDonkey)? dirt : pav, pts);
-        leer=false;
+        if(x1<wx0-60||x0>wx1+60||y1<wy0-60||y0>wy1+60) continue;
+        wege.push({r,pts});
+        for(let k=0;k<pts.length-1;k++){
+          const [ax,ay]=pts[k], [bx,by]=pts[k+1];
+          const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+          const nx=-dy/L2*half, ny=dx/L2*half;
+          // Umlaufsinn wie beim Kreis, sonst loeschen sich Rechteck und
+          // Kreis bei der Nonzero-Fuellung gegenseitig aus
+          band.moveTo(ax-nx,ay-ny); band.lineTo(bx-nx,by-ny);
+          band.lineTo(bx+nx,by+ny); band.lineTo(ax+nx,ay+ny); band.closePath();
+        }
+        for(const [px2,py2] of pts){ band.moveTo(px2+half,py2); band.arc(px2,py2,half,0,6.2832); }
+        // Anschlussrichtungen je Knoten sammeln (fuer die Kreuzungskacheln)
+        for(let k=0;k<r.path.length;k++){
+          const nd=r.path[k];
+          let arr=links.get(nd);
+          if(!arr){ arr=[]; links.set(nd,arr); }
+          const [nx2,ny2]=this.doorVisualPos(nd);
+          for(const nb of [r.path[k-1], r.path[k+1]]){
+            if(nb===undefined) continue;
+            const [qx,qy]=this.doorVisualPos(nb);
+            const a3=Math.atan2(qy-ny2, qx-nx2);
+            if(!arr.some(v=>{ let d=Math.abs(v-a3); if(d>Math.PI) d=Math.PI*2-d; return d<0.3; })) arr.push(a3);
+          }
+        }
       }
-      if(!leer){
-        // Ein Weg ist etwa eine Figur breit – so breit wie in Siedler 2.
-        const W=TILE*0.25;
+      if(wege.length){
+        // ausgetretener Erdsaum UNTER dem Band: er allein macht den
+        // Uebergang zur Wiese weich, das Band selbst hat eine klare Kante
         g.save();
         g.lineJoin='round'; g.lineCap='round';
-        // 1) ausgetretener Erdsaum. EIN Strich für alle Wege gemeinsam –
-        //    zwei getrennte Striche würden sich an jeder Kreuzung
-        //    überlagern und dort einen dunklen Fleck hinterlassen.
-        g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=W+13; g.stroke(alle);
-        g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=W+7;  g.stroke(alle);
-        // 2) weicher Auslauf zur Wiese: der Belag zweimal breiter als die
-        //    Fahrbahn und halbdurchsichtig, damit der Rand ausfranst statt
-        //    mit einer Lineal-Kante im Gras zu enden
-        for(const [lw,al] of [[W+5.5,0.20],[W+3,0.36]]){
-          g.globalAlpha=al;
-          g.strokeStyle=patDirt; g.lineWidth=lw*0.88; g.stroke(dirt);
-          g.strokeStyle=patPav;  g.lineWidth=lw;      g.stroke(pav);
+        const saum=new Path2D();
+        for(const {pts} of wege){
+          saum.moveTo(pts[0][0],pts[0][1]);
+          for(let k=1;k<pts.length;k++) saum.lineTo(pts[k][0],pts[k][1]);
         }
-        g.globalAlpha=1;
-        // 3) Bordkante: ein dunkler Strich in voller Breite, auf den sich
-        //    gleich die schmalere Fahrbahn legt. Übrig bleibt beidseits ein
-        //    Saum, der dem Weg folgt – die Längsrichtung, die eine weltfest
-        //    liegende Textur niemals mitdrehen kann.
-        g.strokeStyle='rgba(70,55,34,0.50)'; g.lineWidth=W;      g.stroke(pav);
-        g.strokeStyle='rgba(74,56,32,0.34)'; g.lineWidth=W*0.88; g.stroke(dirt);
-        // 4) Fahrbahn, deckend und schmaler als die Bordkante
-        g.strokeStyle=patPav;  g.lineWidth=W-3.2;      g.stroke(pav);
-        g.strokeStyle=patDirt; g.lineWidth=W*0.88-3.2; g.stroke(dirt);
-        // Das Kopfsteinfeld ist kühlgrau, die Wiese warm – ein dünner
-        // warmer Schleier bindet den Weg in die Landschaft ein, statt ihn
-        // als graues Band darauf liegen zu lassen.
-        g.strokeStyle='rgba(158,124,78,0.16)'; g.lineWidth=W-3.2; g.stroke(pav);
-        // 5) Trampelpfad: aufgehellte Mitte. Zusammen mit den dunklen
-        //    Rändern liest sich das als zwei ausgefahrene Spurrinnen.
-        g.strokeStyle='rgba(206,178,128,0.15)'; g.lineWidth=W*0.30; g.stroke(dirt);
+        g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=BAND+13; g.stroke(saum);
+        g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=BAND+6;  g.stroke(saum);
+        g.restore();
+        // ---- Kacheln im Band ----
+        g.save();
+        g.clip(band);
+        // Schnittkante zwischen zwei Abschnitten: die Winkelhalbierende.
+        // Ohne sie ueberschreibt der naechste Abschnitt den vorigen mit
+        // einer beliebigen Querkante quer durchs Pflaster - das war der
+        // harte Bruch am Knick. Mit ihr stossen die beiden Steinmuster
+        // aneinander wie eine Gehrung in einer echten Pflasterung.
+        const schnitt=(p1,d1,q1,e1)=>{
+          const den=d1[0]*e1[1]-d1[1]*e1[0];
+          if(Math.abs(den)<1e-6) return [q1[0],q1[1]];
+          const t=((q1[0]-p1[0])*e1[1]-(q1[1]-p1[1])*e1[0])/den;
+          return [p1[0]+d1[0]*t, p1[1]+d1[1]*t];
+        };
+        for(const {r,pts} of wege){
+          const abgenutzt=(r.traffic||0);
+          const basis=(abgenutzt<14 && !r.hasDonkey)? tDirt : tStr;
+          const N=pts.length;
+          const dirs=[];
+          for(let k=0;k<N-1;k++){
+            const dx=pts[k+1][0]-pts[k][0], dy=pts[k+1][1]-pts[k][1], L2=Math.hypot(dx,dy)||1;
+            dirs.push([dx/L2,dy/L2,L2]);
+          }
+          // mittlere Richtung an jedem Knoten = Normale der Schnittlinie
+          const norm=[];
+          for(let k=0;k<N;k++){
+            const a=dirs[k-1], b2=dirs[k];
+            if(!a) norm.push([b2[0],b2[1]]);
+            else if(!b2) norm.push([a[0],a[1]]);
+            else { const sx=a[0]+b2[0], sy=a[1]+b2[1], L3=Math.hypot(sx,sy)||1; norm.push([sx/L3,sy/L3]); }
+          }
+          let phase=0;
+          for(let k=0;k<N-1;k++){
+            const [ux,uy,L2]=dirs[k];
+            const steil=Math.abs(m.hgt[r.path[k]]-m.hgt[r.path[k+1]])>0.45;
+            const img=steil? tSlope : basis;
+            // An den beiden Enden eines Weges ueber den Knoten hinausziehen:
+            // dort stoesst ein anderer Weg an, und ohne Ueberstand klaffte
+            // im Band eine Luecke, durch die das Gras schiene.
+            const e0=(k===0)? BAND*0.9 : 0, eN=(k===N-2)? BAND*0.9 : 0;
+            const A=[pts[k][0]-ux*e0,   pts[k][1]-uy*e0];
+            const B=[pts[k+1][0]+ux*eN, pts[k+1][1]+uy*eN];
+            const px3=-uy, py3=ux, H=BAND*1.4;             // seitlich reichlich
+            const n0=norm[k], n1=norm[k+1];
+            const m0=[-n0[1],n0[0]], m1=[-n1[1],n1[0]];    // Richtung der Schnittlinien
+            const lp=[A[0]+px3*H, A[1]+py3*H], lm=[A[0]-px3*H, A[1]-py3*H];
+            const d1=[ux,uy];
+            const c1=schnitt(lp,d1,A,m0), c2=schnitt(lp,d1,B,m1);
+            const c3=schnitt(lm,d1,B,m1), c4=schnitt(lm,d1,A,m0);
+            g.save();
+            g.beginPath();
+            g.moveTo(c1[0],c1[1]); g.lineTo(c2[0],c2[1]);
+            g.lineTo(c3[0],c3[1]); g.lineTo(c4[0],c4[1]);
+            g.closePath();
+            g.clip();
+            g.translate(pts[k][0],pts[k][1]);
+            g.rotate(Math.atan2(uy,ux)-Math.PI/2);   // lokales +y laeuft den Weg entlang
+            // Kacheln stossen genau aneinander (die Vorlage ist in
+            // Laengsrichtung kachelbar) und laufen ueber Abschnittsgrenzen
+            // hinweg durch - deshalb die fortlaufende Phase
+            const off=-(phase%bw);
+            for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(img, -bw/2, yy, bw, bw);
+            g.restore();
+            phase+=L2;
+          }
+        }
+        // ---- Knotenkacheln darueber ----
+        // An einem Knick stossen zwei Steinmuster hart aneinander. Genau
+        // dafuer gibt es die Kurven- und Kreuzungskacheln: sie decken die
+        // Stossstelle mit einem Muster ab, das um die Ecke laeuft.
+        const kEnd=this.asset('road_end'), kCur=this.asset('road_cur'),
+              kY=this.asset('road_y'), kX=this.asset('road_x');
+        const js=bw*1.3;
+        // Knoten, an denen mehrere Wege zusammenstossen
+        const zaehl=new Map();
+        for(const {r} of wege) for(const nd of [r.path[0], r.path[r.path.length-1]])
+          zaehl.set(nd,(zaehl.get(nd)||0)+1);
+        const doppel=new Set([...zaehl].filter(e=>e[1]>1).map(e=>e[0]));
+        for(const [nd,arr] of links){
+          if(!arr.length) continue;
+          const [nx2,ny2]=this.doorVisualPos(nd);
+          if(nx2<wx0-60||nx2>wx1+60||ny2<wy0-60||ny2>wy1+60) continue;
+          let img=null, rot=0;
+          if(arr.length===1){ img=kEnd; rot=arr[0]-Math.PI/2; }   // Stummel zeigt zum Nachbarn
+          else if(arr.length===2){
+            // Durchgangsknoten braucht keine eigene Kachel: dort sorgt die
+            // Gehrung schon fuer eine saubere Fuge. Nur wo zwei Wege
+            // aufeinandertreffen (beide Enden, also je ein Anschluss aus
+            // zwei verschiedenen Wegen), deckt die Kurvenkachel den Stoss ab.
+            if(!doppel.has(nd)) continue;
+            let d=arr[0]-arr[1];
+            while(d> Math.PI) d-=Math.PI*2;
+            while(d<-Math.PI) d+=Math.PI*2;
+            if(Math.abs(Math.abs(d)-Math.PI)<0.35){ img=tStr; rot=arr[0]-Math.PI/2; }
+            else {
+              // Kurvenkachel: ihre Arme zeigen nach unten und nach rechts,
+              // die Winkelhalbierende also nach unten rechts (45 Grad)
+              img=kCur;
+              rot=Math.atan2(Math.sin(arr[0])+Math.sin(arr[1]), Math.cos(arr[0])+Math.cos(arr[1]))-Math.PI/4;
+            }
+          }
+          else if(arr.length===3){
+            // Y-Kachel: der Stiel zeigt nach unten. Er bekommt den Anschluss,
+            // der den beiden anderen am ehesten gegenueberliegt.
+            img=kY;
+            let best=0, bw2=-9;
+            for(let i=0;i<3;i++){
+              let sx=0, sy=0;
+              for(let j=0;j<3;j++) if(j!==i){ sx+=Math.cos(arr[j]); sy+=Math.sin(arr[j]); }
+              const s=-(Math.cos(arr[i])*sx+Math.sin(arr[i])*sy);
+              if(s>bw2){ bw2=s; best=i; }
+            }
+            rot=arr[best]-Math.PI/2;
+          }
+          else { img=kX; rot=arr[0]; }
+          if(!img) continue;
+          g.save();
+          g.translate(nx2,ny2); g.rotate(rot);
+          g.drawImage(img, -js/2, -js/2, js, js);
+          g.restore();
+        }
         g.restore();
       }
     }
@@ -2808,35 +2932,10 @@ export class Renderer {
         g.restore();
         continue;
       }
-      // Das Pflaster selbst liegt schon als durchgehender Strich im Bild
-      // (siehe oben). Hier kommen nur noch die Zutaten je Weg dazu.
-      if(patPav){
+      // Belag und Kreuzungen liegen schon im Band (siehe oben). Hier
+      // kommen nur noch die Zutaten je Weg dazu.
+      if(tStr){
         const nodes=r.path;
-        // Stufen an steilen Stücken – halbdurchsichtig, damit sie sich in
-        // den Weg legen statt als eigene Platte darauf
-        const slopeT=this.roadTile('road_slope');
-        if(slopeT) for(let k=0;k<nodes.length-1;k++){
-          const a2=nodes[k], b2=nodes[k+1];
-          if(Math.abs(m.hgt[a2]-m.hgt[b2])<=0.45) continue;
-          const [ax,ay]=this.doorVisualPos(a2), [bx,by]=this.doorVisualPos(b2);
-          const len=Math.hypot(bx-ax,by-ay)||1;
-          g.save();
-          g.globalAlpha=0.62;
-          g.translate((ax+bx)/2,(ay+by)/2);
-          g.rotate(Math.atan2(by-ay,bx-ax)-Math.PI/2);
-          g.drawImage(slopeT, -TILE*0.16, -len/2, TILE*0.32, len);
-          g.restore();
-        }
-        // Esel-Straße: doppelte Fahrspur andeuten
-        if(r.hasDonkey){
-          g.globalAlpha=0.22;
-          for(let k=0;k<nodes.length-1;k++){
-            const [ax,ay]=m.worldPos(nodes[k]), [bx,by]=m.worldPos(nodes[k+1]);
-            g.strokeStyle='rgba(90,74,52,1)'; g.lineWidth=1.4;
-            g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
-          }
-          g.globalAlpha=1;
-        }
         // Esel-Straße: doppelte Fahrspur andeuten
         if(r.hasDonkey){
           g.globalAlpha=0.22;
@@ -4820,83 +4919,6 @@ export class Renderer {
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
     return cv;
-  }
-  // Die Wegekacheln haben weiche Längsseiten, aber messerscharfe Stirn-
-  // seiten. Beim Aneinanderlegen sieht man jede Naht. Deshalb bekommen sie
-  // einmalig einen weichen Auslauf an Kopf und Fuß – danach verschmelzen
-  // zwei Stücke, statt sich zu überlappen wie hingeworfene Bretter.
-  roadTile(key){
-    const img=this.asset(key);
-    if(!img) return null;
-    if(!this._roadT) this._roadT=new Map();
-    let cv=this._roadT.get(key);
-    if(cv!==undefined) return cv;
-    const w=img.naturalWidth, h=img.naturalHeight;
-    cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-    const t=cv.getContext('2d');
-    t.drawImage(img,0,0);
-    t.globalCompositeOperation='destination-in';
-    const gr=t.createLinearGradient(0,0,0,h);
-    gr.addColorStop(0,'rgba(255,255,255,0)');
-    gr.addColorStop(0.16,'rgba(255,255,255,1)');
-    gr.addColorStop(0.84,'rgba(255,255,255,1)');
-    gr.addColorStop(1,'rgba(255,255,255,0)');
-    t.fillStyle=gr; t.fillRect(0,0,w,h);
-    t.globalCompositeOperation='source-over';
-    this._roadT.set(key,cv);
-    return cv;
-  }
-  // Aus einer Wegekachel eine NAHTLOSE Textur machen. Die Kacheln zeigen
-  // einen Weg mit ausgefransten Grasrändern; für einen durchgehenden Strich
-  // brauchen wir nur die Pflasterfläche aus der Mitte. Viermal gespiegelt
-  // aneinandergelegt passen deren Kanten zusammen – so wiederholt sich die
-  // Textur ohne sichtbares Raster.
-  roadPattern(g, key, periode, opt){
-    opt=opt||{};
-    if(!this._roadPat) this._roadPat=new Map();
-    const ck=key+'@'+periode+(opt.crop||0)+(opt.isotrop?'i':'');
-    let pat=this._roadPat.get(ck);
-    if(pat!==undefined) return pat;
-    const img=this.asset(key);
-    if(!img){ this._roadPat.set(ck,null); return null; }
-    const w=img.naturalWidth, h=img.naturalHeight;
-    // Mittelband der Kachel: dort ist der Belag deckend
-    const f=opt.crop||0.30;
-    const cw=Math.round(w*f), ch=Math.round(h*f);
-    const sx=Math.round((w-cw)/2), sy=Math.round((h-ch)/2);
-    // doppelte Auflösung, damit die Textur beim Hineinzoomen scharf bleibt
-    const S=Math.max(8, Math.round(periode));
-    const basis=document.createElement('canvas'); basis.width=S; basis.height=S;
-    const bg=basis.getContext('2d');
-    bg.drawImage(img, sx,sy,cw,ch, 0,0,S,S);
-    if(opt.isotrop){
-      // Die Kachel zeigt Fahrrillen der Länge nach. Eine weltfeste Textur
-      // kann diese Richtung nicht mitdrehen – auf einem quer laufenden Weg
-      // stünden die Rillen dann quer. Deshalb wird eine um 90° gedrehte
-      // Kopie darübergelegt: übrig bleibt richtungsloser Erdboden. Die
-      // Längsrichtung kommt weiter unten aus Strichen, die dem Weg folgen.
-      bg.save();
-      bg.globalAlpha=0.5;
-      bg.translate(S/2,S/2); bg.rotate(Math.PI/2); bg.translate(-S/2,-S/2);
-      bg.drawImage(img, sx,sy,cw,ch, 0,0,S,S);
-      bg.restore();
-    }
-    const cv=document.createElement('canvas'); cv.width=S*2; cv.height=S*2;
-    const t=cv.getContext('2d');
-    for(const [fx,fy] of [[1,1],[-1,1],[1,-1],[-1,-1]]){
-      t.save();
-      t.translate(fx<0? S*2:0, fy<0? S*2:0);
-      t.scale(fx,fy);
-      t.drawImage(basis,0,0);
-      t.restore();
-    }
-    pat=g.createPattern(cv,'repeat');
-    // Die Textur liegt in Weltkoordinaten und wird mit halber Größe
-    // eingesetzt: doppelt gebacken, halb gezeichnet = scharfe Kanten.
-    try{ if(pat && pat.setTransform) pat.setTransform(new DOMMatrix([0.5,0,0,0.5,0,0])); }
-    catch(_){ /* ältere Browser: Textur bleibt eben doppelt so grob */ }
-    this._roadPat.set(ck,pat);
-    return pat;
   }
   // Platzpflaster mit weich auslaufendem Rand. Die Kachel ist rechteckig;
   // ohne Maske stünde eine harte Raute im Gras. Ein sauberer Kreis sähe
