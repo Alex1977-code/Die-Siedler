@@ -6,7 +6,7 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v54';
+const BUILD = 'v55';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
@@ -54,9 +54,18 @@ self.addEventListener('fetch', (e)=>{
   if(e.request.method!=='GET') return;
   const url=e.request.url;
   if(isCode(url)){
-    // Netz zuerst, Cache nur als Rückfall (offline oder Serverfehler)
+    // Netz zuerst, Cache nur als Rückfall (offline oder Serverfehler).
+    // 'no-cache' heißt: immer beim Server rückfragen. Ohne das säße eine
+    // frische Veröffentlichung bis zu zehn Minuten im Browser-Cache fest
+    // (GitHub Pages liefert max-age=600) – der Serviceworker bekäme sie
+    // gar nicht zu sehen. Navigationsanfragen bleiben unangetastet, deren
+    // Modus lässt sich nicht gefahrlos umbauen.
+    let req=e.request;
+    if(req.mode!=='navigate'){
+      try{ req=new Request(e.request, {cache:'no-cache'}); }catch(_){ req=e.request; }
+    }
     e.respondWith(
-      fetch(e.request).then(res=>{
+      fetch(req).then(res=>{
         if(res.ok){
           const copy=res.clone();
           caches.open(CACHE).then(c=>c.put(e.request, copy));

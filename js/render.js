@@ -2687,61 +2687,84 @@ export class Renderer {
     for(const b of game.buildings.values())
       if(b.door!=null && b.door>=0 && m.flag[b.door] && !this._doorMap.has(b.door))
         this._doorMap.set(b.door, b);
-    // Wieviele Straßen treffen sich an welchem Knoten, und aus welcher
-    // Richtung? Daraus wählt sich unten die passende Kreuzungskachel.
-    {
-      const lk=new Map();
-      for(const r2 of game.roads.values()){
-        if(r2.isSea) continue;
-        const pp=r2.path;
-        for(let k=0;k<pp.length;k++){
-          const nd=pp[k];
-          let arr=lk.get(nd);
-          if(!arr){ arr=[]; lk.set(nd,arr); }
-          const [nx2,ny2]=this.doorVisualPos(nd);
-          for(const nb of [pp[k-1], pp[k+1]]){
-            if(nb===undefined) continue;
-            const [qx,qy]=this.doorVisualPos(nb);
-            const a3=Math.atan2(qy-ny2, qx-nx2);
-            // Richtungen zusammenfassen, damit zwei Straßen über denselben
-            // Knoten nicht doppelt zählen
-            if(!arr.some(v=>{ let d=Math.abs(v-a3); if(d>Math.PI) d=Math.PI*2-d; return d<0.25; }))
-              arr.push(a3);
-          }
-        }
-      }
-      this._roadLinks=lk;
-    }
-    // Plätze: große Lagerbauten stehen auf gepflastertem Grund. Der Platz
-    // richtet sich nach der GEZEICHNETEN Gebäudebreite, nicht nach der
-    // Kachelgröße – sonst lugt er nur an einer Seite unter dem Haus hervor.
+    // Vorplatz: vor den Toren der großen Lagerbauten liegt gepflasterter
+    // Grund. Er gehört an den EINGANG. Mittig unters Haus gelegt verschwände
+    // er darunter und lugte nur als grauer Fleck am Fuß hervor – genau das
+    // sah aus wie ein Schmutzrand statt wie ein Platz.
     {
       const pl=this.asset('road_plaza');
       if(pl) for(const b of game.buildings.values()){
         const def=BLD[b.type];
         if(!def || !def.store || b.state!=='done') continue;
-        const [px,py]=m.worldPos(b.node);
-        if(px<wx0-180||px>wx1+180||py<wy0-180||py>wy1+180) continue;
-        const key='bld_'+b.type;
-        const img=this.asset(key);
-        const legacy= b.type==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : 64;
-        const hh=this.scaleOf(key, legacy);
-        const bw= img? hh*(img.naturalWidth/img.naturalHeight) : hh;
-        // Nur die Standfläche pflastern. Die gezeichnete Breite enthält
-        // Türme und Dachüberstand – ein Platz danach wäre riesig.
-        const sz=Math.round(bw*(b.type==='hq'? 0.66 : 0.80));
-        const sp=this.plazaSprite(pl, sz);
-        if(sp){
-          g.save();
-          g.globalAlpha=0.92;
-          g.translate(px, py+9);
-          g.scale(1,0.58);                    // in die Bodenebene gekippt
-          // NICHT drehen: ein gedrehtes Quadrat wird beim Kippen zur Raute
-          // und legt sich schief neben das Haus.
-          g.drawImage(sp,-sz/2,-sz/2,sz,sz);
-          g.restore();
-          g.globalAlpha=1;
+        if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
+        const [dx,dy]=this.doorVisualPos(b.door);
+        if(dx<wx0-160||dx>wx1+160||dy<wy0-160||dy>wy1+160) continue;
+        const [bx,by]=m.worldPos(b.node);
+        // Schwerpunkt zwischen Tor und Hauswand: der Platz reicht bis unter
+        // die Schwelle, läuft aber nicht hinter dem Haus in die Wiese aus
+        const cx=dx+(bx-dx)*0.34, cy=dy+((by+6)-dy)*0.34;
+        const rw= b.type==='hq'? 56 : def.size==='M'? 38 : 31;
+        const sp=this.plazaSprite(pl, rw*2);
+        if(!sp) continue;
+        g.save();
+        g.globalAlpha=0.86;
+        g.translate(cx, cy);
+        g.scale(1, 0.52);                   // in die Bodenebene gekippt
+        g.drawImage(sp, -rw, -rw, rw*2, rw*2);
+        g.restore();
+      }
+    }
+    // ---------- Wegenetz ----------
+    // Ein Weg ist EIN durchgehender Strich, kein Stapel einzelner Kacheln.
+    // Gezeichnet wird eine Linie, deren Pinsel die Pflastertextur ist: an
+    // Knicken und Kreuzungen gibt es dadurch überhaupt keine Stoßkanten mehr.
+    // Vorher stieß Kachel an Kachel – das waren die hingeklatschten Bretter.
+    const patPav=this.roadPattern(g,'road_str',34);
+    const patDirt=this.roadPattern(g,'road_dirt',30)||patPav;
+    if(patPav){
+      const pav=new Path2D(), dirt=new Path2D(), alle=new Path2D();
+      let leer=true;
+      const legen=(P,pts)=>{
+        P.moveTo(pts[0][0],pts[0][1]);
+        for(let k=1;k<pts.length-1;k++){
+          const mx=(pts[k][0]+pts[k+1][0])/2, my=(pts[k][1]+pts[k+1][1])/2;
+          P.quadraticCurveTo(pts[k][0],pts[k][1],mx,my);
         }
+        P.lineTo(pts[pts.length-1][0],pts[pts.length-1][1]);
+      };
+      for(const r of game.roads.values()){
+        if(r.isSea) continue;
+        const pts=this.roadPts(r);
+        if(pts.length<2) continue;
+        let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+        for(const q of pts){ if(q[0]<x0)x0=q[0]; if(q[0]>x1)x1=q[0]; if(q[1]<y0)y0=q[1]; if(q[1]>y1)y1=q[1]; }
+        if(x1<wx0-40||x0>wx1+40||y1<wy0-40||y0>wy1+40) continue;
+        legen(alle,pts);
+        // Frisch gebaute Wege sind Trampelpfade; erst wenn genug Waren
+        // darübergegangen sind, ist der Boden zu Pflaster festgetreten
+        legen(((r.traffic||0)<14 && !r.hasDonkey)? dirt : pav, pts);
+        leer=false;
+      }
+      if(!leer){
+        // Ein Weg ist etwa eine Figur breit – so breit wie in Siedler 2.
+        const W=TILE*0.25;
+        g.save();
+        g.lineJoin='round'; g.lineCap='round';
+        // 1) ausgetretener Erdsaum. EIN Strich für alle Wege gemeinsam –
+        //    zwei getrennte Striche würden sich an jeder Kreuzung
+        //    überlagern und dort einen dunklen Fleck hinterlassen.
+        g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=W+13; g.stroke(alle);
+        g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=W+7;  g.stroke(alle);
+        // 2) Belag in mehreren Lagen: von außen nach innen immer schmaler
+        //    und deckender. Dadurch franst der Rand aus, statt mit einer
+        //    Lineal-Kante im Gras zu enden.
+        const lagen=[[W+5.5,0.20],[W+3,0.34],[W+1.2,0.60],[W,1]];
+        for(const [lw,al] of lagen){
+          g.globalAlpha=al;
+          g.strokeStyle=patDirt; g.lineWidth=lw*0.88; g.stroke(dirt);
+          g.strokeStyle=patPav;  g.lineWidth=lw;      g.stroke(pav);
+        }
+        g.restore();
       }
     }
     // Straßen: sanft geschwungen und gepflastert
@@ -2765,78 +2788,34 @@ export class Renderer {
         g.restore();
         continue;
       }
-      // Pflaster aus der Kachel-Textur (nahtlos), sonst prozedural
-      // ---------- Wegenetz aus Kacheln ----------
-      // Jede Verbindung zwischen zwei Knoten bekommt die gerade Pflaster-
-      // kachel, gedreht in ihre Richtung. An den Knoten überlappen sich die
-      // Kacheln – daraus entstehen Kreuzungen und Kurven von selbst.
-      const rtile=this.roadTile('road_str');
-      if(rtile){
-        const slopeT=this.roadTile('road_slope')||rtile;
-        // Frisch gebaute Wege sind Trampelpfade. Erst wenn genug Waren
-        // darüber gegangen sind, ist der Boden zu Pflaster festgetreten –
-        // eine gewachsene Handelsroute sieht man ihr an.
-        const dirtT=this.roadTile('road_dirt');
-        const worn=(r.traffic||0);
-        const baseT = (dirtT && worn<14 && !r.hasDonkey) ? dirtT : rtile;
+      // Das Pflaster selbst liegt schon als durchgehender Strich im Bild
+      // (siehe oben). Hier kommen nur noch die Zutaten je Weg dazu.
+      if(patPav){
         const nodes=r.path;
-        // Knotenteller ZUERST: an Kreuzungen ist der Boden auf ganzer Breite
-        // ausgetreten. Die geraden Kacheln legen sich danach darüber, deshalb
-        // stört es nicht, dass die Arme der Kachel nicht exakt auf den
-        // Sechseck-Winkeln liegen – sichtbar bleibt nur die breite Mitte.
-        for(let k=0;k<nodes.length;k++){
-          const nd=nodes[k];
-          const links=this._roadLinks && this._roadLinks.get(nd);
-          if(!links || !links.length) continue;
-          if(links.__done) continue;
-          links.__done=true;                       // jeder Knoten nur einmal
-          const cnt=links.length;
-          let key=null, rot=links[0];
-          if(cnt===1) key='road_end';
-          else if(cnt===2){
-            // An JEDEM Durchgangsknoten liegt ein Teller: er deckt die
-            // Stirnseiten der beiden Kacheln zu. Bei einem Knick die
-            // Kurvenkachel, sonst ein kurzes gerades Stück quer zur Naht.
-            let d=Math.abs(links[0]-links[1]);
-            if(d>Math.PI) d=Math.PI*2-d;
-            if(Math.abs(d-Math.PI)>0.5){ key='road_cur'; }
-            else { key='road_str'; rot=links[0]; }
-          }
-          else if(cnt===3) key= this.asset('road_y')? 'road_y' : 'road_t';
-          else key='road_x';
-          const jimg=key && this.asset(key);
-          if(!jimg) continue;
-          const [nx2,ny2]=this.doorVisualPos(nd);
-          const sz=TILE*(cnt>=3? 0.62 : cnt===2? 0.46 : 0.5);
+        // Stufen an steilen Stücken – halbdurchsichtig, damit sie sich in
+        // den Weg legen statt als eigene Platte darauf
+        const slopeT=this.roadTile('road_slope');
+        if(slopeT) for(let k=0;k<nodes.length-1;k++){
+          const a2=nodes[k], b2=nodes[k+1];
+          if(Math.abs(m.hgt[a2]-m.hgt[b2])<=0.45) continue;
+          const [ax,ay]=this.doorVisualPos(a2), [bx,by]=this.doorVisualPos(b2);
+          const len=Math.hypot(bx-ax,by-ay)||1;
           g.save();
-          g.translate(nx2,ny2);
-          g.rotate(rot-Math.PI/2);
-          g.drawImage(jimg, -sz/2, -sz/2, sz, sz);
+          g.globalAlpha=0.62;
+          g.translate((ax+bx)/2,(ay+by)/2);
+          g.rotate(Math.atan2(by-ay,bx-ax)-Math.PI/2);
+          g.drawImage(slopeT, -TILE*0.16, -len/2, TILE*0.32, len);
           g.restore();
         }
-        for(let k=0;k<nodes.length-1;k++){
-          const a2=nodes[k], b2=nodes[k+1];
-          // WICHTIG: die optische Position nehmen, nicht die Gitterposition.
-          // Türfahnen stehen versetzt am Gebäudeeingang (bei der Burg an der
-          // Zugbrücke); mit worldPos endete der Weg daneben im Gras.
-          const [ax,ay]=this.doorVisualPos(a2), [bx,by]=this.doorVisualPos(b2);
-          const dx=bx-ax, dy=by-ay;
-          const len=Math.hypot(dx,dy)||1;
-          // steile Verbindung -> Stufenkachel
-          const steep=Math.abs(m.hgt[a2]-m.hgt[b2])>0.45;
-          const img=steep? slopeT : baseT;
-          g.save();
-          g.translate((ax+bx)/2,(ay+by)/2);
-          g.rotate(Math.atan2(dy,dx)-Math.PI/2);     // Kachel läuft senkrecht
-          // Die Kachel zeigt einen Weg über die volle Kachelbreite. Bei
-          // voller Kachelgröße wäre das Pflaster fast drei Figuren breit –
-          // deshalb schmal ziehen, in der Länge aber den Knoten überlappen.
-          // Die Kachel hat weiche Längsseiten, aber HARTE Stirnseiten. Ohne
-          // kräftige Überlappung stoßen zwei Stücke an einem Knick mit ihren
-          // Schnittkanten aneinander – das sieht hingeklatscht aus.
-          const wq=TILE*0.46, hq=len+TILE*0.86;
-          g.drawImage(img, -wq/2, -hq/2, wq, hq);
-          g.restore();
+        // Esel-Straße: doppelte Fahrspur andeuten
+        if(r.hasDonkey){
+          g.globalAlpha=0.22;
+          for(let k=0;k<nodes.length-1;k++){
+            const [ax,ay]=m.worldPos(nodes[k]), [bx,by]=m.worldPos(nodes[k+1]);
+            g.strokeStyle='rgba(90,74,52,1)'; g.lineWidth=1.4;
+            g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.stroke();
+          }
+          g.globalAlpha=1;
         }
         // Esel-Straße: doppelte Fahrspur andeuten
         if(r.hasDonkey){
@@ -4847,9 +4826,48 @@ export class Renderer {
     this._roadT.set(key,cv);
     return cv;
   }
+  // Aus einer Wegekachel eine NAHTLOSE Textur machen. Die Kacheln zeigen
+  // einen Weg mit ausgefransten Grasrändern; für einen durchgehenden Strich
+  // brauchen wir nur die Pflasterfläche aus der Mitte. Viermal gespiegelt
+  // aneinandergelegt passen deren Kanten zusammen – so wiederholt sich die
+  // Textur ohne sichtbares Raster.
+  roadPattern(g, key, periode){
+    if(!this._roadPat) this._roadPat=new Map();
+    const ck=key+'@'+periode;
+    let pat=this._roadPat.get(ck);
+    if(pat!==undefined) return pat;
+    const img=this.asset(key);
+    if(!img){ this._roadPat.set(ck,null); return null; }
+    const w=img.naturalWidth, h=img.naturalHeight;
+    // Mittelband der Kachel: dort ist der Belag deckend
+    const cw=Math.round(w*0.30), ch=Math.round(h*0.30);
+    const sx=Math.round((w-cw)/2), sy=Math.round((h-ch)/2);
+    // doppelte Auflösung, damit die Textur beim Hineinzoomen scharf bleibt
+    const S=Math.max(8, Math.round(periode));
+    const basis=document.createElement('canvas'); basis.width=S; basis.height=S;
+    basis.getContext('2d').drawImage(img, sx,sy,cw,ch, 0,0,S,S);
+    const cv=document.createElement('canvas'); cv.width=S*2; cv.height=S*2;
+    const t=cv.getContext('2d');
+    for(const [fx,fy] of [[1,1],[-1,1],[1,-1],[-1,-1]]){
+      t.save();
+      t.translate(fx<0? S*2:0, fy<0? S*2:0);
+      t.scale(fx,fy);
+      t.drawImage(basis,0,0);
+      t.restore();
+    }
+    pat=g.createPattern(cv,'repeat');
+    // Die Textur liegt in Weltkoordinaten und wird mit halber Größe
+    // eingesetzt: doppelt gebacken, halb gezeichnet = scharfe Kanten.
+    try{ if(pat && pat.setTransform) pat.setTransform(new DOMMatrix([0.5,0,0,0.5,0,0])); }
+    catch(_){ /* ältere Browser: Textur bleibt eben doppelt so grob */ }
+    this._roadPat.set(ck,pat);
+    return pat;
+  }
   // Platzpflaster mit weich auslaufendem Rand. Die Kachel ist rechteckig;
-  // ohne Maske stünde eine harte Raute im Gras. Wird je Größe zwischen-
-  // gespeichert, damit das nicht in jedem Bild neu entsteht.
+  // ohne Maske stünde eine harte Raute im Gras. Ein sauberer Kreis sähe
+  // allerdings aus wie ein ausgestanzter Deckel – deshalb setzt sich die
+  // Maske aus mehreren versetzten Wolken zusammen und franst unregelmäßig
+  // aus. Wird je Größe zwischengespeichert.
   plazaSprite(img, sz){
     if(!img) return null;
     if(!this._plaza) this._plaza=new Map();
@@ -4859,13 +4877,29 @@ export class Renderer {
     cv=document.createElement('canvas'); cv.width=sz; cv.height=sz;
     const t=cv.getContext('2d');
     t.drawImage(img,0,0,sz,sz);
+    // Maske getrennt aufbauen: mehrere Wolken addieren sich zu einem
+    // unregelmäßigen Rand. Direkt mit 'destination-in' gefüllt würde jede
+    // Wolke die vorige wieder wegradieren.
+    const mk=document.createElement('canvas'); mk.width=sz; mk.height=sz;
+    const q=mk.getContext('2d');
+    q.globalCompositeOperation='lighter';
+    const R=sz*0.5;
+    const wolke=(cx,cy,r,a)=>{
+      const rd=q.createRadialGradient(cx,cy,r*0.30, cx,cy,r);
+      rd.addColorStop(0,`rgba(255,255,255,${a})`);
+      rd.addColorStop(0.62,`rgba(255,255,255,${a*0.8})`);
+      rd.addColorStop(1,'rgba(255,255,255,0)');
+      q.fillStyle=rd;
+      q.beginPath(); q.arc(cx,cy,r,0,7); q.fill();
+    };
+    wolke(R,R,R*0.66,0.95);
+    for(let k=0;k<7;k++){
+      const a2=k/7*6.283+hash01(k*13+5)*0.7;
+      const d=R*(0.24+hash01(k*7+1)*0.14);
+      wolke(R+Math.cos(a2)*d, R+Math.sin(a2)*d, R*(0.40+hash01(k*11+3)*0.16), 0.62);
+    }
     t.globalCompositeOperation='destination-in';
-    const rad=t.createRadialGradient(sz/2,sz/2,sz*0.20, sz/2,sz/2,sz*0.5);
-    rad.addColorStop(0,'rgba(255,255,255,1)');
-    rad.addColorStop(0.72,'rgba(255,255,255,0.92)');
-    rad.addColorStop(1,'rgba(255,255,255,0)');
-    t.fillStyle=rad;
-    t.fillRect(0,0,sz,sz);
+    t.drawImage(mk,0,0);
     t.globalCompositeOperation='source-over';
     this._plaza.set(key,cv);
     return cv;
