@@ -613,12 +613,12 @@ export class Renderer {
           g.translate(-c.ox,-c.oy);
           for(const i of coastLand){
             const [px,py]=m.worldPos(i);
-            const rad=g.createRadialGradient(px,py,4,px,py,40);
+            const rad=g.createRadialGradient(px,py,6,px,py,34);
             rad.addColorStop(0,'rgba(226,206,158,0)');
-            rad.addColorStop(0.55,'rgba(226,206,158,0.34)');
+            rad.addColorStop(0.6,'rgba(226,206,158,0.2)');
             rad.addColorStop(1,'rgba(226,206,158,0)');
             g.fillStyle=rad;
-            g.beginPath(); g.arc(px,py,40,0,7); g.fill();
+            g.beginPath(); g.arc(px,py,34,0,7); g.fill();
           }
           // Brandung: kurze helle Bögen knapp im Wasser
           g.lineCap='round';
@@ -728,7 +728,9 @@ export class Renderer {
         g.restore();
       }
     }
-    // 4) gemalte Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf
+    // 4) gemalte Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf.
+    //    terrainBrush rechnet in WELTkoordinaten -> Chunk-Versatz setzen!
+    g.save(); g.translate(-c.ox,-c.oy);
     for(let y=Math.max(0,y0+2); y<Math.min(m.h-1,y1-2); y++){
       for(let x=Math.max(0,x0+2); x<Math.min(m.w-1,x1-2); x++){
         const i=m.idx(x,y);
@@ -756,14 +758,14 @@ export class Renderer {
       }
       // weiche Farbtupfer (Wiesen-Sprenkelung)
       if(h>0.82 && h<=0.955){
-        g.fillStyle=h>0.91?'rgba(190,230,140,0.1)':'rgba(40,95,40,0.09)';
+        g.fillStyle=h>0.91?'rgba(190,230,140,0.08)':'rgba(40,95,40,0.07)';
         g.beginPath(); g.ellipse(px+o1,py+o2,15,9,h*3,0,7); g.fill();
       }
       // dichte Grasbüschel in mehreren Tönen -> liest sich als echte Wiese
-      const tones=['rgba(50,105,45,0.4)','rgba(88,150,70,0.38)','rgba(175,220,135,0.34)'];
+      const tones=['rgba(50,105,45,0.3)','rgba(88,150,70,0.28)','rgba(175,220,135,0.26)'];
       for(let c2=0;c2<3;c2++){
         const hh=hash01(i*53+c2*7);
-        if(hh>0.8) continue;
+        if(hh>0.62) continue;
         const bx0=px+(hash01(i*61+c2)-0.5)*40;
         const by0=py+(hash01(i*67+c2)-0.5)*30;
         g.strokeStyle=tones[c2];
@@ -778,19 +780,19 @@ export class Renderer {
       }
     } else if(t===TER.MOUNT){
       const hg=m.hgt[i];
-      if(h<0.34){
+      if(h<0.15){
         // Felsgrat: gezackter dunkler Zug mit Lichtkante darüber
         const zx=px+o1, zy=py+o2;
         const seg=[[-11,2],[-4,-3],[2,1],[8,-2],[13,2]];
-        g.strokeStyle='rgba(48,42,35,0.5)'; g.lineWidth=2;
+        g.strokeStyle='rgba(48,42,35,0.34)'; g.lineWidth=1.7;
         g.beginPath();
         seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx,zy+dy); else g.lineTo(zx+dx,zy+dy); });
         g.stroke();
-        g.strokeStyle='rgba(255,255,255,0.32)'; g.lineWidth=1.2;
+        g.strokeStyle='rgba(255,255,255,0.2)'; g.lineWidth=1;
         g.beginPath();
         seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx-1,zy+dy-2); else g.lineTo(zx+dx-1,zy+dy-2); });
         g.stroke();
-      } else if(h<0.58){
+      } else if(h<0.5){
         // Geröllfeld
         g.fillStyle='rgba(60,54,46,0.35)';
         for(let k=0;k<6;k++){
@@ -804,10 +806,10 @@ export class Renderer {
           g.arc(px+o1+hash01(i*17+k)*22-11, py+o2+hash01(i*19+k)*15-8, 1.1, 0, 7);
           g.fill();
         }
-      } else if(h<0.68 && hg>1.0){
+      } else if(h<0.58 && hg>1.06){
         // Schneefleck in Gipfelnähe
-        g.fillStyle='rgba(240,246,252,0.5)';
-        g.beginPath(); g.ellipse(px+o1,py+o2,8,3.4,h*3,0,7); g.fill();
+        g.fillStyle='rgba(240,246,252,0.28)';
+        g.beginPath(); g.ellipse(px+o1,py+o2,7,3,h*3,0,7); g.fill();
       }
     } else if(t===TER.DESERT && h<0.4){
       g.fillStyle='rgba(160,130,80,0.3)';
@@ -890,8 +892,8 @@ export class Renderer {
         const dh=m.hgt[n]-m.hgt[i];
         gx+=dh*ddx; gy+=dh*ddy;
       }
-      const k = t===TER.MOUNT? 0.4 : 0.11;
-      let l=1-(gx*0.7+gy)*k;
+      const k = t===TER.MOUNT? 0.22 : 0.06;   // schwächer: Hauptlicht macht der Reliefpass
+      let l=1+(gx*0.7+gy)*k;
       l=Math.max(t===TER.MOUNT?0.62:0.86, Math.min(t===TER.MOUNT?1.42:1.14, l));
       col=[col[0]*l, col[1]*l, col[2]*l];
     }
@@ -1033,8 +1035,9 @@ export class Renderer {
     }
     const t=m.terr[i];
     const k = t===TER.MOUNT? 1.5 : t===TER.WATER? 0.15 : 0.75;
-    // Sonne von oben-links: Hänge nach Nordwest hell, nach Südost dunkel
-    let l = 0.5 - (gx*0.8+gy*0.6)*k;
+    // Sonne von oben-links (wie alle Schlagschatten): nach Nordwest geneigte
+    // Hänge hell, nach Südost geneigte dunkel
+    let l = 0.5 + (gx*0.8+gy*0.6)*k;
     l = Math.max(0.08, Math.min(0.94, l));
     v = Math.round(l*255);
     scache.set(i,v);
