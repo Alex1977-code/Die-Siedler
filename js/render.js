@@ -2698,10 +2698,10 @@ export class Renderer {
           const nd=pp[k];
           let arr=lk.get(nd);
           if(!arr){ arr=[]; lk.set(nd,arr); }
-          const [nx2,ny2]=m.worldPos(nd);
+          const [nx2,ny2]=this.doorVisualPos(nd);
           for(const nb of [pp[k-1], pp[k+1]]){
             if(nb===undefined) continue;
-            const [qx,qy]=m.worldPos(nb);
+            const [qx,qy]=this.doorVisualPos(nb);
             const a3=Math.atan2(qy-ny2, qx-nx2);
             // Richtungen zusammenfassen, damit zwei Straßen über denselben
             // Knoten nicht doppelt zählen
@@ -2712,23 +2712,35 @@ export class Renderer {
       }
       this._roadLinks=lk;
     }
-    // Plätze: große Lagerbauten stehen auf gepflastertem Grund
+    // Plätze: große Lagerbauten stehen auf gepflastertem Grund. Der Platz
+    // richtet sich nach der GEZEICHNETEN Gebäudebreite, nicht nach der
+    // Kachelgröße – sonst lugt er nur an einer Seite unter dem Haus hervor.
     {
       const pl=this.asset('road_plaza');
       if(pl) for(const b of game.buildings.values()){
         const def=BLD[b.type];
         if(!def || !def.store || b.state!=='done') continue;
         const [px,py]=m.worldPos(b.node);
-        if(px<wx0-120||px>wx1+120||py<wy0-120||py>wy1+120) continue;
-        const sz=TILE*(b.type==='hq'? 2.5 : 1.9);
-        g.save();
-        g.globalAlpha=0.85;
-        g.translate(px,py+4);
-        g.scale(1,0.62);                      // flach auf den Boden gelegt
-        g.rotate(hash01(b.id)*1.6);
-        g.drawImage(pl,-sz/2,-sz/2,sz,sz);
-        g.restore();
-        g.globalAlpha=1;
+        if(px<wx0-180||px>wx1+180||py<wy0-180||py>wy1+180) continue;
+        const key='bld_'+b.type;
+        const img=this.asset(key);
+        const legacy= b.type==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : 64;
+        const hh=this.scaleOf(key, legacy);
+        const bw= img? hh*(img.naturalWidth/img.naturalHeight) : hh;
+        // Nur die Standfläche pflastern. Die gezeichnete Breite enthält
+        // Türme und Dachüberstand – ein Platz danach wäre riesig.
+        const sz=Math.round(bw*(b.type==='hq'? 0.66 : 0.80));
+        const sp=this.plazaSprite(pl, sz);
+        if(sp){
+          g.save();
+          g.globalAlpha=0.92;
+          g.translate(px, py+8);
+          g.scale(1,0.58);                    // in die Bodenebene gekippt
+          g.rotate(hash01(b.id)*1.6);
+          g.drawImage(sp,-sz/2,-sz/2,sz,sz);
+          g.restore();
+          g.globalAlpha=1;
+        }
       }
     }
     // Straßen: sanft geschwungen und gepflastert
@@ -2790,7 +2802,7 @@ export class Renderer {
           else key='road_x';
           const jimg=key && this.asset(key);
           if(!jimg) continue;
-          const [nx2,ny2]=m.worldPos(nd);
+          const [nx2,ny2]=this.doorVisualPos(nd);
           const sz=TILE*(cnt>=3? 0.62 : 0.5);
           g.save();
           g.translate(nx2,ny2);
@@ -2800,7 +2812,10 @@ export class Renderer {
         }
         for(let k=0;k<nodes.length-1;k++){
           const a2=nodes[k], b2=nodes[k+1];
-          const [ax,ay]=m.worldPos(a2), [bx,by]=m.worldPos(b2);
+          // WICHTIG: die optische Position nehmen, nicht die Gitterposition.
+          // Türfahnen stehen versetzt am Gebäudeeingang (bei der Burg an der
+          // Zugbrücke); mit worldPos endete der Weg daneben im Gras.
+          const [ax,ay]=this.doorVisualPos(a2), [bx,by]=this.doorVisualPos(b2);
           const dx=bx-ax, dy=by-ay;
           const len=Math.hypot(dx,dy)||1;
           // steile Verbindung -> Stufenkachel
@@ -4798,6 +4813,29 @@ export class Renderer {
       t.putImageData(id,0,0);
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
+    return cv;
+  }
+  // Platzpflaster mit weich auslaufendem Rand. Die Kachel ist rechteckig;
+  // ohne Maske stünde eine harte Raute im Gras. Wird je Größe zwischen-
+  // gespeichert, damit das nicht in jedem Bild neu entsteht.
+  plazaSprite(img, sz){
+    if(!img) return null;
+    if(!this._plaza) this._plaza=new Map();
+    const key=sz;
+    let cv=this._plaza.get(key);
+    if(cv!==undefined) return cv;
+    cv=document.createElement('canvas'); cv.width=sz; cv.height=sz;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0,sz,sz);
+    t.globalCompositeOperation='destination-in';
+    const rad=t.createRadialGradient(sz/2,sz/2,sz*0.20, sz/2,sz/2,sz*0.5);
+    rad.addColorStop(0,'rgba(255,255,255,1)');
+    rad.addColorStop(0.72,'rgba(255,255,255,0.92)');
+    rad.addColorStop(1,'rgba(255,255,255,0)');
+    t.fillStyle=rad;
+    t.fillRect(0,0,sz,sz);
+    t.globalCompositeOperation='source-over';
+    this._plaza.set(key,cv);
     return cv;
   }
   // Grenzpfosten: schlichter weißer Steckpfosten mit einem breiten,
