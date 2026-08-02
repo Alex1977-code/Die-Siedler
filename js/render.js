@@ -3256,7 +3256,43 @@ export class Renderer {
         g.drawImage(s.cv, px-s.w/2, py-s.h+10, s.w, s.h);
       }
       g.globalAlpha=1;
-    }
+      // Name unter dem durchsichtigen Haus und zwei Knöpfe direkt daneben.
+      // Ein Dialog am unteren Rand hatte den Platz verdeckt, um den es
+      // gerade ging – und drei Zeilen Text für eine Ja/Nein-Frage.
+      // Alle Maße in Bildschirmpunkten, deshalb durch den Zoom geteilt.
+      const u=1/Math.max(0.25, cam.z);
+      const schrift=Math.round(13*u*10)/10;
+      g.font=`600 ${schrift}px system-ui, -apple-system, sans-serif`;
+      g.textAlign='center'; g.textBaseline='middle';
+      const name=def.name;
+      const tw=g.measureText(name).width, ph=20*u, pw=tw+18*u;
+      const ty=py+15*u;
+      g.fillStyle='rgba(24,30,20,0.72)';
+      rr(g, px-pw/2, ty-ph/2, pw, ph, 6*u); g.fill();
+      g.fillStyle= ok? '#dff3cd' : '#f6cdc4';
+      g.fillText(name, px, ty+0.5*u);
+      // Haken und Kreuz: nur wenn der Platz überhaupt geht, sonst nur Abbruch
+      const R=21*u, by2=ty+ph/2+R+7*u, sp=30*u;
+      const knopf=(cx,cy,farbe,rand,zeichen)=>{
+        g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7);
+        g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
+        g.beginPath(); g.arc(cx,cy,R,0,7);
+        g.fillStyle=farbe; g.fill();
+        g.lineWidth=2*u; g.strokeStyle=rand; g.stroke();
+        g.font=`700 ${Math.round(22*u*10)/10}px system-ui, -apple-system, sans-serif`;
+        g.fillStyle='#fff';
+        g.fillText(zeichen, cx, cy+1*u);
+      };
+      if(ok){
+        knopf(px-sp, by2, '#4c8a3a', 'rgba(226,246,210,0.9)', '✓');
+        knopf(px+sp, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕');
+        this._placeBtn={ ok:[px-sp,by2], no:[px+sp,by2], r:R*1.25 };
+      } else {
+        knopf(px, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕');
+        this._placeBtn={ ok:null, no:[px,by2], r:R*1.25 };
+      }
+      g.textAlign='left'; g.textBaseline='alphabetic';
+    } else this._placeBtn=null;
     // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
     if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }
     if(this.fogDark){

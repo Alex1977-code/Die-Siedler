@@ -451,6 +451,15 @@ export class UI {
   onTap(wx,wy){
     if(!this.game || this.screen!=='game') return;
     const m=this.game.map;
+    // Haken und Kreuz zuerst: sie stehen im Bild unter dem durchsichtigen
+    // Haus und müssen auch dann gehen, wenn sie gerade über Wasser oder
+    // über dem Kartenrand liegen – dort gibt es keinen Gitterpunkt.
+    if(this.state.mode==='place' && this.renderer._placeBtn){
+      const bt=this.renderer._placeBtn;
+      const traf=(p)=> p && Math.hypot(wx-p[0], wy-p[1])<=bt.r;
+      if(traf(bt.no)){ Sound.sfx('tap'); this.cancelPlace(); return; }
+      if(traf(bt.ok)){ Sound.sfx('tap'); this.confirmPlace(); return; }
+    }
     const i=m.nearestNode(wx,wy);
     if(i<0) return;
     Sound.sfx('tap');
@@ -459,11 +468,11 @@ export class UI {
       return;
     }
     if(this.state.mode==='place'){
-      // Bauplatz antippen -> halbtransparente Vorschau + Bestätigung
       const can=this.game.canBuild(0, this.state.placeType, i);
       if(can.ok){
         this.state.placeAt=i;
-        this.placeConfirmSheet();
+        this.state.showBuildDots=true;
+        this.closeSheet();
       } else {
         this.toast(can.r||'Hier nicht möglich');
       }
@@ -659,57 +668,38 @@ export class UI {
       const can=g.canBuild(0,key,i);
       this.state.mode='place'; this.state.placeType=key;
       this.state.placeAt= can.ok? i : -1;
+      this.state.showBuildDots=true;
       if(this.state.placeAt>=0){
-        this.placeConfirmSheet();
+        // Vorschau steht schon im Bild, samt Namen, Haken und Kreuz –
+        // das Menü macht dafür den Blick frei
+        this.closeSheet();
       } else {
         this.sheet(`<div class="sh-head"><b>${BLD[key].name} platzieren</b><button class="hbtn" id="sh-x">✕</button></div>
-          <p class="note">Grüne Punkte zeigen, wo ${BLD[key].name} gebaut werden darf. Tippe einen an –
-          du siehst erst eine Vorschau und bestätigst dann.</p>`);
-        this.state.showBuildDots=true;
+          <p class="note">Grüne Punkte zeigen, wo ${BLD[key].name} gebaut werden darf.
+          Tippe einen an, dann bestätigst du mit dem Haken.</p>`);
         $('#sh-x').onclick=()=>this.cancelPlace();
       }
     });
-  }
-  sizeLabel(def){
-    return def.size==='MINE' ? 'Stollen – nur im Gebirge'
-      : def.size==='L' ? 'großer Bauplatz (5 freie Nachbarfelder)'
-      : def.size==='M' ? 'mittlerer Bauplatz (4 freie Nachbarfelder)'
-      : 'kleiner Bauplatz (1 Feld)';
   }
   cancelPlace(){
     this.state.mode='view'; this.state.placeAt=-1; this.state.placeType=null;
     this.closeSheet();
   }
-  placeConfirmSheet(){
-    const g=this.game, key=this.state.placeType, def=BLD[key];
-    const img=this.renderer.asset('bld_'+key)
-      ? `<img class="bthumb" src="assets/bld_${key}.png" alt="">` : '';
-    const cost=Object.entries(def.cost).map(([k,v])=>`${v} ${GOODS[k].name}`).join(', ')||'–';
-    this.state.showBuildDots=true;
-    this.sheet(`<div class="sh-head"><b>${def.name} – hier bauen?</b><button class="hbtn" id="sh-x">✕</button></div>
-      <div class="bitem" style="cursor:default">${img}<span class="binfo">
-        <small>${cost} · ${this.sizeLabel(def)}</small>
-        <small class="desc">Ein Bauarbeiter (freie Figur + Hammer) errichtet das Gebäude.
-        Tippe woanders hin, um den Platz zu wechseln.</small>
-      </span></div>
-      <div class="row" style="margin-top:8px">
-        <button class="mbtn primary" id="pl-ok">✓ Bauen</button>
-        <button class="mbtn back" id="pl-cancel">✕ Abbrechen</button>
-      </div>`);
-    $('#sh-x').onclick=()=>this.cancelPlace();
-    $('#pl-cancel').onclick=()=>this.cancelPlace();
-    $('#pl-ok').onclick=()=>{
-      const r=g.placeBuilding(0, key, this.state.placeAt);
-      if(r.ok){
-        Sound.sfx('place');
-        this.state.mode='view'; this.state.placeAt=-1; this.state.placeType=null; this.state.sel=-1;
-        this.closeSheet();
-        if(!this.isConnected(r.b)) this.startRoad(r.b.door,true);
-      } else {
-        this.toast(r.r||'Hier nicht mehr möglich');
-        this.state.placeAt=-1;
-      }
-    };
+  // Bestätigen über den grünen Haken im Bild – ein eigener Dialog dafür
+  // verdeckte ausgerechnet die Stelle, um die es gerade ging.
+  confirmPlace(){
+    const key=this.state.placeType;
+    if(!key || this.state.placeAt<0) return;
+    const r=this.game.placeBuilding(0, key, this.state.placeAt);
+    if(r.ok){
+      Sound.sfx('place');
+      this.state.mode='view'; this.state.placeAt=-1; this.state.placeType=null; this.state.sel=-1;
+      this.closeSheet();
+      if(!this.isConnected(r.b)) this.startRoad(r.b.door,true);
+    } else {
+      this.toast(r.r||'Hier nicht mehr möglich');
+      this.state.placeAt=-1;
+    }
   }
   openFlagSheet(i){
     const g=this.game;
