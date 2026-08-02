@@ -371,7 +371,7 @@ function clearArea(map, center, r){
       if(seen.has(n)) continue; seen.add(n); nq.push(n);
       if(map.terr[n]===TER.WATER) map.terr[n]=TER.GRASS;
       if(map.terr[n]===TER.MOUNT||map.terr[n]===TER.LAVA||map.terr[n]===TER.SWAMP) map.terr[n]=TER.GRASS;
-      if(map.obj[n]!==OBJ.TREE || d>0) map.obj[n]=OBJ.NONE;
+      map.obj[n]=OBJ.NONE;      // auch Ring 1 räumen: sonst steht die Burg im Baum
     }
     q=nq;
   }

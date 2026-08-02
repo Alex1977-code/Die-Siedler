@@ -95,6 +95,16 @@ export class Game {
     };
     this.map.bld[node] = b.id;
     this.buildings.set(b.id, b);
+    // Der Bauplatz wird geräumt. Große Häuser überdecken die Nachbarknoten
+    // optisch – ein Baum dort sähe aus, als stünde das Haus in der Krone.
+    {
+      const r = (def.size==='L'||type==='hq') ? 2 : (def.size==='M'?1:0);
+      if(r>0) for(const n of this.nodesInRange(node, r)){
+        if(n===node) continue;
+        if(Game.isTree(this.map.obj[n])){ this.map.obj[n]=OBJ.NONE; this.changedNodes.push(n); }
+      }
+      if(this.map.obj[node]!==OBJ.NONE){ this.map.obj[node]=OBJ.NONE; this.changedNodes.push(node); }
+    }
     // Tür-Fahne: freier Nachbar (bevorzugt unten)
     const door = this.pickDoor(node);
     b.door = door;

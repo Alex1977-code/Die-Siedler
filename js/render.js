@@ -2502,14 +2502,21 @@ export class Renderer {
       const i=m.idx(x,y);
       if(m.terr[i]!==TER.WATER || !m.explored[i] || m.fish[i]<2) continue;
       const [px,py]=m.worldPos(i);
+      // nur in echtem Tiefwasser – sonst ragt der Schwarm über den Strand
+      let deep=true;
+      for(const q of m.nbs(i)) if(m.terr[q]!==TER.WATER){ deep=false; break; }
+      if(!deep) continue;
       const n=Math.min(9, 3+Math.floor(m.fish[i]/1.4));
-      // der Schwarm zieht auf einer kleinen Ellipse um den Knoten
-      const t=this.time/2600 + hash01(i)*6.28;
-      const cx3=px+Math.cos(t)*15, cy3=py+Math.sin(t)*8;
-      const head=Math.atan2(Math.cos(t)*8, -Math.sin(t)*15);
+      // Der Schwarm zieht in EINE Richtung und pendelt nur leicht, statt sich
+      // um sich selbst zu drehen. Richtung fest je Fanggrund.
+      const dirA=hash01(i*3+11)*6.283;
+      const t=this.time/5200 + hash01(i)*6.28;
+      const swing=Math.sin(t)*13;
+      const cx3=px+Math.cos(dirA)*swing, cy3=py+Math.sin(dirA)*swing*0.55;
+      const head=dirA + (Math.cos(t)>=0?0:Math.PI) + Math.sin(this.time/2400+i)*0.10;
       const simg=this.asset('fx_school');
       if(simg){
-        const hh=30+Math.min(9,m.fish[i])*2.6, ww=hh*(simg.naturalWidth/simg.naturalHeight);
+        const hh=20+Math.min(9,m.fish[i])*1.6, ww=hh*(simg.naturalWidth/simg.naturalHeight);
         g.save();
         g.translate(cx3,cy3); g.rotate(head);
         g.globalAlpha=0.66;
@@ -2552,21 +2559,85 @@ export class Renderer {
         g.restore();
       }
     }
-    // Wasser-Glitzern (animiert, deterministisch pro Knoten)
-    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
-      const i=m.idx(x,y);
-      if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
-      const hsh=hash01(i);
-      if(hsh>0.3) continue;
-      const [px,py]=m.worldPos(i);
-      const ph=this.time/900 + hsh*6.28;
-      const a=0.10+0.12*Math.sin(ph);
-      if(a<=0.02) continue;
-      g.strokeStyle=`rgba(230,245,255,${a})`;
-      g.lineWidth=1.6;
-      const ox=Math.sin(ph*0.7)*6;
-      g.beginPath(); g.moveTo(px-7+ox,py); g.lineTo(px+2+ox,py); g.stroke();
-      g.beginPath(); g.moveTo(px+6-ox,py+6); g.lineTo(px+12-ox,py+6); g.stroke();
+    // Seegang: lange, langsam wandernde Lichtbänder über die ganze
+    // Wasserfläche statt einzelner Striche pro Knoten. Erst dadurch wirkt
+    // das Wasser als zusammenhängender See und nicht wie eine Kachel.
+    {
+      const drift=this.time/1000;
+      g.save();
+      g.beginPath();
+      let any=false;
+      for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+        const i=m.idx(x,y);
+        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        const [px,py]=m.worldPos(i);
+        g.moveTo(px+TILE*0.62, py);
+        g.arc(px,py,TILE*0.62,0,7);
+        any=true;
+      }
+      if(any){
+        g.clip();
+        for(let k=0;k<3;k++){
+          const amp=7+k*3, ylen=26+k*9;
+          const off=((drift*(9+k*4)) % (ylen*2)) - ylen;
+          g.strokeStyle=`rgba(226,244,255,${(0.085-k*0.021).toFixed(3)})`;
+          g.lineWidth=3.4-k*0.7;
+          for(let yy=wy0-ylen; yy<wy1+ylen; yy+=ylen*2){
+            g.beginPath();
+            for(let xx=wx0-40; xx<wx1+40; xx+=26){
+              const wy=yy+off+Math.sin((xx/110)+drift*0.6+k)*amp;
+              if(xx===wx0-40) g.moveTo(xx,wy); else g.lineTo(xx,wy);
+            }
+            g.stroke();
+          }
+        }
+        // vereinzelte Brecher mit Schaumkrone, die über den See wandern
+        for(let k=0;k<3;k++){
+          const per=9000+k*3400;
+          const ph=((this.time + k*3100) % per)/per;
+          const a2=Math.sin(ph*Math.PI);
+          if(a2<=0.02) continue;
+          const wy=wy0+((k*0.31+hash01(k*97))%1)*(wy1-wy0);
+          const wx=wx0+ph*(wx1-wx0+320)-160;
+          g.strokeStyle=`rgba(255,255,255,${(a2*0.30).toFixed(3)})`;
+          g.lineWidth=2.6;
+          g.beginPath();
+          for(let dx2=-130;dx2<=130;dx2+=14){
+            const yy=wy+Math.sin(dx2/44+ph*7)*5 + Math.abs(dx2)/130*7;
+            if(dx2===-130) g.moveTo(wx+dx2,yy); else g.lineTo(wx+dx2,yy);
+          }
+          g.stroke();
+          g.strokeStyle=`rgba(220,240,255,${(a2*0.14).toFixed(3)})`;
+          g.lineWidth=6;
+          g.stroke();
+        }
+      }
+      g.restore();
+    }
+    // Einzelfische, die gemächlich durch das offene Wasser ziehen
+    {
+      const fimg=this.asset('fx_fish');
+      if(fimg) for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+        const i=m.idx(x,y);
+        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        if(hash01(i*7+29)<0.90) continue;                 // sehr sparsam
+        let deep=true;
+        for(const q of m.nbs(i)) if(m.terr[q]!==TER.WATER){ deep=false; break; }
+        if(!deep) continue;
+        const [px,py]=m.worldPos(i);
+        const a2=hash01(i*13+5)*6.283;
+        const t=this.time/6400 + hash01(i)*6.28;
+        const sw=Math.sin(t)*17;
+        const fx2=px+Math.cos(a2)*sw, fy2=py+Math.sin(a2)*sw*0.5;
+        const hh=7.5, ww=hh*(fimg.naturalWidth/fimg.naturalHeight);
+        g.save();
+        g.translate(fx2,fy2);
+        g.rotate(a2 + (Math.cos(t)>=0?0:Math.PI) + Math.sin(this.time/700+i)*0.12);
+        g.globalAlpha=0.5;
+        g.drawImage(fimg,-ww/2,-hh/2,ww,hh);
+        g.restore();
+        g.globalAlpha=1;
+      }
     }
     // sanfter Uferschaum entlang der Küste (animiert)
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
@@ -3034,6 +3105,33 @@ export class Renderer {
       const b2=Math.round(band*0.55);
       soft(band*dpr, b2*dpr, band, b2, 1.2);
       soft(this.cv.height-(band+b2)*dpr, b2*dpr, this.vh-band-b2, b2, 1.2);
+    }
+    // Kartenrand: außerhalb der Karte liegt kein Nichts, sondern ein
+    // dunkler Saum, der weich zur Bildkante hin ausläuft. Vorher brach die
+    // Karte hart ab und darunter stand schwarze Fläche.
+    {
+      const m2=this.game.map;
+      const L=(0-cam.x)*cam.z+this.vw/2, R=(m2.w*TILE-cam.x)*cam.z+this.vw/2;
+      const T=(0-cam.y)*cam.z+this.vh/2, B=(m2.h*ROWH-cam.y)*cam.z+this.vh/2;
+      const F=Math.max(26, 78*cam.z);          // Breite des Saums
+      const band=(x0b,y0b,wb,hb,gx0,gy0,gx1,gy1)=>{
+        if(wb<=0||hb<=0) return;
+        const gr=g.createLinearGradient(gx0,gy0,gx1,gy1);
+        gr.addColorStop(0,'rgba(8,12,18,0)');
+        gr.addColorStop(0.55,'rgba(8,12,18,0.65)');
+        gr.addColorStop(1,'rgba(8,12,18,0.96)');
+        g.fillStyle=gr; g.fillRect(x0b,y0b,wb,hb);
+      };
+      // Saum nach außen, dahinter volle Deckung
+      band(L-F,0,F,this.vh, L,0,L-F,0);
+      band(R,0,F,this.vh, R,0,R+F,0);
+      band(0,T-F,this.vw,F, 0,T,0,T-F);
+      band(0,B,this.vw,F, 0,B,0,B+F);
+      g.fillStyle='rgba(8,12,18,0.96)';
+      if(L-F>0) g.fillRect(0,0,L-F,this.vh);
+      if(R+F<this.vw) g.fillRect(R+F,0,this.vw-(R+F),this.vh);
+      if(T-F>0) g.fillRect(0,0,this.vw,T-F);
+      if(B+F<this.vh) g.fillRect(0,B+F,this.vw,this.vh-(B+F));
     }
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
