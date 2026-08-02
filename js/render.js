@@ -80,6 +80,7 @@ export class Renderer {
     this.borderEdges=[];
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
+    this._snowLine=null; this._tips=null; this._bTint=null;
     this.initSheep();
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
@@ -446,11 +447,20 @@ export class Renderer {
     const key=this.chunkKey(cx,cy);
     const ver=this.chunkVer.get(key)||0;
     let c=this.chunks.get(key);
-    if(c && c.ver===ver) return c;
+    if(c && c.ver===ver){ c.used=this.time; return c; }
     const m=this.game.map;
     const pad=TILE*1.5;
     const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*3;
-    if(!c){ c={cv:document.createElement('canvas')}; c.cv.width=w; c.cv.height=h; this.chunks.set(key,c); }
+    if(!c){
+      // Speicherbremse: jeder Chunk ist ein großes Canvas – selten benutzte
+      // Chunks werden verworfen, bevor der Speicher auf dem Handy volläuft
+      if(this.chunks.size>44){
+        const olds=[...this.chunks.entries()].sort((a2,b2)=>(a2[1].used||0)-(b2[1].used||0));
+        for(let k=0;k<16 && k<olds.length;k++) this.chunks.delete(olds[k][0]);
+      }
+      c={cv:document.createElement('canvas')}; c.cv.width=w; c.cv.height=h; this.chunks.set(key,c);
+    }
+    c.used=this.time;
     c.ver=ver;
     c.ox=cx*CHUNK*TILE-pad; c.oy=cy*CHUNK*ROWH-pad-HSCALE*1.5;
     const g=c.cv.getContext('2d');
@@ -482,52 +492,240 @@ export class Renderer {
     if('filter' in g){ g.filter='blur(4px)'; }
     g.drawImage(this._tmpChunk,0,0);
     g.filter='none';
-    // 3) Foto-Textur der Kacheln: flächiges Muster (weltverankert) durch weiche
-    //    Terrainart-Masken -> keine Tupfer-Flecken, keine Nähte, auch chunkübergreifend
+    // 3) Geländetexturen geschichtet: jede Terrainart bekommt eine weich
+    //    gefiederte Maske; die Arten werden von "Untergrund" nach "Auflage"
+    //    gezeichnet, dadurch gehen sie ineinander über statt hart zu stoßen.
+    //    Anschließend färbt das (weichgezeichnete) Farbnetz die Textur ein und
+    //    ein Reliefpass aus dem Höhengradienten setzt Licht und Schatten.
     {
       const perT=new Map();
+      const snowCap=[], gorge=[];
       for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
         for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
           const i=m.idx(x,y);
           const t=m.terr[i];
           if(!perT.has(t)) perT.set(t,[]);
           perT.get(t).push(i);
+          if(t===TER.MOUNT){
+            if(m.hgt[i]>this.snowLine() && this.slopeOf(m,i)<0.55) snowCap.push(i);
+            if(this.slopeOf(m,i)>0.62) gorge.push(i);
+          }
         }
       if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
         this._texTmp=document.createElement('canvas'); this._texTmp.width=w; this._texTmp.height=h;
         this._maskTmp=document.createElement('canvas'); this._maskTmp.width=w; this._maskTmp.height=h;
+        this._shadeTmp=document.createElement('canvas'); this._shadeTmp.width=w; this._shadeTmp.height=h;
       }
-      for(const [t,nodes] of perT){
-        const tex=this._texTmp.getContext('2d');
-        const pat=this.terrainPattern(t, tex);
+      // Zeichenreihenfolge: weiche Böden zuerst, Fels/Lava zuletzt
+      const ORDER=[TER.WATER, TER.SWAMP, TER.GRASS, TER.DESERT, TER.SNOW, TER.MOUNT, TER.LAVA];
+      const layers=ORDER.filter(t=>perT.has(t)).map(t=>({key:t, nodes:perT.get(t), pat:t}));
+      if(snowCap.length) layers.push({key:'snow', nodes:snowCap, pat:TER.SNOW, soft:true});
+      const tex=this._texTmp.getContext('2d');
+      const mk=this._maskTmp.getContext('2d');
+      for(const L of layers){
+        const pat=this.terrainPattern(L.pat, tex);
         if(!pat) continue;
         // Muster in Weltkoordinaten füllen (CTM verankert es weltweit einheitlich)
+        tex.globalCompositeOperation='source-over';
         tex.clearRect(0,0,w,h);
         tex.save(); tex.translate(-c.ox,-c.oy);
         tex.fillStyle=pat;
         tex.fillRect(c.ox,c.oy,w,h);
+        // Varianz: dieselbe Kachel ein zweites Mal, größer und versetzt, als
+        // fleckige Auflage -> die Wiederholung der einen Kachel verschwindet
+        const pat2=this.terrainPattern(L.pat, tex, 1);
+        if(pat2){
+          tex.globalAlpha=0.26;
+          tex.fillStyle=pat2;
+          tex.fillRect(c.ox,c.oy,w,h);
+          tex.globalAlpha=1;
+        }
         tex.restore();
-        // weiche Maske aus überlappenden Knoten-Kreisen
-        const mk=this._maskTmp.getContext('2d');
+        // weiche Maske aus überlappenden Knotenkreisen (breiter Saum = Übergang)
+        mk.globalCompositeOperation='source-over';
         mk.clearRect(0,0,w,h);
         mk.save(); mk.translate(-c.ox,-c.oy);
-        for(const i of nodes){
+        const R = L.soft? 46 : 50;
+        for(const i of L.nodes){
           const [px,py]=m.worldPos(i);
-          const rad=mk.createRadialGradient(px,py,16,px,py,46);
-          rad.addColorStop(0,'rgba(255,255,255,0.88)');
-          rad.addColorStop(0.75,'rgba(255,255,255,0.82)');
-          rad.addColorStop(1,'rgba(255,255,255,0)');
+          const wob=1+0.14*Math.sin(i*2.399);          // leicht unrunde Ränder
+          const rad=mk.createRadialGradient(px,py,L.soft?2:10,px,py,R*wob);
+          if(L.soft){
+            // Schnee läuft sehr weich aus -> Kappe statt weißer Kugel
+            rad.addColorStop(0,'rgba(255,255,255,0.9)');
+            rad.addColorStop(0.4,'rgba(255,255,255,0.55)');
+            rad.addColorStop(0.75,'rgba(255,255,255,0.2)');
+            rad.addColorStop(1,'rgba(255,255,255,0)');
+          } else {
+            rad.addColorStop(0,'rgba(255,255,255,1)');
+            rad.addColorStop(0.52,'rgba(255,255,255,0.98)');
+            rad.addColorStop(0.82,'rgba(255,255,255,0.6)');
+            rad.addColorStop(1,'rgba(255,255,255,0)');
+          }
           mk.fillStyle=rad;
-          mk.beginPath(); mk.arc(px,py,44,0,7); mk.fill();
+          mk.beginPath(); mk.arc(px,py,R*wob,0,7); mk.fill();
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
         tex.drawImage(this._maskTmp,0,0);
         tex.globalCompositeOperation='source-over';
-        // kräftiger einblenden: die Cartoon-Kacheln sollen den Ton angeben
-        g.globalAlpha= t===TER.MOUNT?0.78:0.72;
+        g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
         g.drawImage(this._texTmp,0,0);
         g.globalAlpha=1;
+      }
+      // Farb-Lasur: das weiche Farbnetz gibt Region, Küstennähe und Höhe vor,
+      // die Kachel behält ihre Zeichnung ('color' übernimmt nur Farbton)
+      if(this._blurTmp==null || this._blurTmp.width!==w || this._blurTmp.height!==h){
+        this._blurTmp=document.createElement('canvas');
+        this._blurTmp.width=w; this._blurTmp.height=h;
+      }
+      {
+        const bg=this._blurTmp.getContext('2d');
+        bg.globalCompositeOperation='source-over';
+        bg.clearRect(0,0,w,h);
+        if('filter' in bg) bg.filter='blur(9px)';
+        bg.drawImage(this._tmpChunk,0,0);
+        bg.filter='none';
+        g.save();
+        g.globalCompositeOperation='color';
+        g.globalAlpha=0.5;
+        g.drawImage(this._blurTmp,0,0);
+        g.restore();
+      }
+      // Küstensaum: heller Sandstreifen am Ufer und eine Schaumlinie im Wasser –
+      // der stärkste Lesbarkeitsgewinn auf kleinem Display
+      {
+        const coastLand=[], coastEdges=[];
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+          for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+            const i=m.idx(x,y);
+            if(m.terr[i]===TER.WATER) continue;
+            for(const n of m.nbs(i)){
+              if(m.terr[n]!==TER.WATER) continue;
+              coastLand.push(i);
+              const [ax,ay]=m.worldPos(i), [bx,by]=m.worldPos(n);
+              coastEdges.push([(ax+bx)/2,(ay+by)/2, bx-ax, by-ay]);
+              break;
+            }
+          }
+        if(coastLand.length){
+          g.save();
+          g.translate(-c.ox,-c.oy);
+          for(const i of coastLand){
+            const [px,py]=m.worldPos(i);
+            const rad=g.createRadialGradient(px,py,4,px,py,40);
+            rad.addColorStop(0,'rgba(226,206,158,0)');
+            rad.addColorStop(0.55,'rgba(226,206,158,0.34)');
+            rad.addColorStop(1,'rgba(226,206,158,0)');
+            g.fillStyle=rad;
+            g.beginPath(); g.arc(px,py,40,0,7); g.fill();
+          }
+          // Brandung: kurze helle Bögen knapp im Wasser
+          g.lineCap='round';
+          for(const [mx2,my2,dx2,dy2] of coastEdges){
+            const L=Math.hypot(dx2,dy2)||1;
+            const ux=dx2/L, uy=dy2/L;                 // Richtung ins Wasser
+            const px2=-uy, py2=ux;
+            const cx4=mx2+ux*7, cy4=my2+uy*7;
+            g.strokeStyle='rgba(248,252,255,0.4)';
+            g.lineWidth=2.2;
+            g.beginPath();
+            g.moveTo(cx4-px2*13, cy4-py2*13);
+            g.quadraticCurveTo(cx4+ux*3, cy4+uy*3, cx4+px2*13, cy4+py2*13);
+            g.stroke();
+          }
+          g.restore();
+        }
+      }
+      // Gebirgsfuß: Schlagschatten auf das angrenzende Land – verkauft die Höhe
+      if(perT.has(TER.MOUNT)){
+        g.save();
+        g.translate(-c.ox,-c.oy);
+        for(const i of perT.get(TER.MOUNT)){
+          let edge=false;
+          for(const n of m.nbs(i)) if(m.terr[n]!==TER.MOUNT){ edge=true; break; }
+          if(!edge) continue;
+          const [px,py]=m.worldPos(i);
+          const rad=g.createRadialGradient(px+11,py+9,6,px+11,py+9,40);
+          rad.addColorStop(0,'rgba(38,34,30,0.34)');
+          rad.addColorStop(0.6,'rgba(38,34,30,0.17)');
+          rad.addColorStop(1,'rgba(38,34,30,0)');
+          g.fillStyle=rad;
+          g.beginPath(); g.ellipse(px+11,py+9,40,32,0,0,7); g.fill();
+        }
+        g.restore();
+      }
+      // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
+      // im Weichlicht-Modus aufgelegt -> Hänge, Kuppen und Senken werden sichtbar
+      {
+        const sg=this._shadeTmp.getContext('2d');
+        sg.globalCompositeOperation='source-over';
+        sg.clearRect(0,0,w,h);
+        sg.fillStyle='rgb(128,128,128)'; sg.fillRect(0,0,w,h);
+        sg.save(); sg.translate(-c.ox,-c.oy);
+        const scache=new Map();
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
+          for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+            const i=m.idx(x,y);
+            const p=y&1;
+            const iE = x+1<m.w ? m.idx(x+1,y) : i;
+            const iSW = m.inb(x-1+p,y+1)? m.idx(x-1+p,y+1) : i;
+            const iSE = m.inb(x+p,y+1)? m.idx(x+p,y+1) : i;
+            this.triShade(sg, m, scache, i, iE, iSE);
+            this.triShade(sg, m, scache, i, iSE, iSW);
+          }
+        }
+        sg.restore();
+        // nur dort belichten, wo überhaupt Gelände liegt
+        sg.globalCompositeOperation='destination-in';
+        sg.drawImage(this._tmpChunk,0,0);
+        sg.globalCompositeOperation='source-over';
+        g.save();
+        g.globalCompositeOperation='soft-light';
+        g.globalAlpha=0.95;
+        if('filter' in g) g.filter='blur(5px)';
+        g.drawImage(this._shadeTmp,0,0);
+        g.filter='none';
+        g.restore();
+        // zweiter Durchgang für kräftigere Felsplastik im Gebirge
+        if(perT.has(TER.MOUNT)){
+          g.save();
+          g.globalCompositeOperation='soft-light';
+          g.globalAlpha=0.6;
+          if('filter' in g) g.filter='blur(2px)';
+          g.drawImage(this._shadeTmp,0,0);
+          g.filter='none';
+          g.restore();
+        }
+      }
+      // Schluchten: dunkle Felsspalten in den steilen Flanken
+      if(gorge.length){
+        g.save();
+        g.translate(-c.ox,-c.oy);
+        for(const i of gorge){
+          const [px,py]=m.worldPos(i);
+          const gr=this.gradOf(m,i);
+          if(!gr) continue;
+          const hsh=hash01(i*29+7);
+          // Riss verläuft quer zum Gefälle (wie eine ausgewaschene Kluft)
+          const a=Math.atan2(gr[1],gr[0])+Math.PI/2;
+          const len=14+hsh*12;
+          const cx3=Math.cos(a), sy3=Math.sin(a)*0.55;
+          g.lineCap='round';
+          g.strokeStyle='rgba(30,26,22,0.3)';
+          g.lineWidth=2+hsh*1.6;
+          g.beginPath();
+          g.moveTo(px-cx3*len*0.5, py-sy3*len*0.5);
+          g.quadraticCurveTo(px+sy3*4, py-cx3*2.4, px+cx3*len*0.5, py+sy3*len*0.5);
+          g.stroke();
+          g.strokeStyle='rgba(236,238,240,0.16)';
+          g.lineWidth=0.9;
+          g.beginPath();
+          g.moveTo(px-cx3*len*0.5, py-sy3*len*0.5-1.6);
+          g.quadraticCurveTo(px+sy3*4, py-cx3*2.4-1.6, px+cx3*len*0.5, py+sy3*len*0.5-1.6);
+          g.stroke();
+        }
+        g.restore();
       }
     }
     // 4) gemalte Textur-Tupfer (Gras, Fels, Sand ...) scharf obendrauf
@@ -763,21 +961,96 @@ export class Renderer {
     return (this._scales && this._scales[key]) || fb;
   }
   // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
-  terrainPattern(t, g){
-    // 512er-Kacheln: größere Skalen = knuffigere, deutlich lesbare Strukturen
-    const KEY={ [TER.GRASS]:['ter_grass',0.5], [TER.DESERT]:['ter_sand',0.55], [TER.SNOW]:['ter_snow',0.55],
-                [TER.SWAMP]:['ter_swamp',0.55], [TER.MOUNT]:['ter_rock',0.7],
-                [TER.WATER]:['ter_water',0.5], [TER.LAVA]:['ter_lava',0.55] };
+  terrainPattern(t, g, variant=0){
+    // 512er-Kacheln: Grundskala je Terrainart; Variante 1 legt dieselbe Kachel
+    // größer und gedreht darüber, damit die Wiederholung verschwindet
+    const KEY={ [TER.GRASS]:['ter_grass',0.44], [TER.DESERT]:['ter_sand',0.5], [TER.SNOW]:['ter_snow',0.5],
+                [TER.SWAMP]:['ter_swamp',0.5], [TER.MOUNT]:['ter_rock',0.42],
+                [TER.WATER]:['ter_water',0.26], [TER.LAVA]:['ter_lava',0.5] };
     const e=KEY[t];
     if(!e) return null;
     if(!this._terPat) this._terPat={};
-    if(this._terPat[t]) return this._terPat[t];
+    const ck=t+'|'+variant;
+    if(this._terPat[ck]) return this._terPat[ck];
     const img=this.asset(e[0]);
     if(!img) return null;
     const pat=g.createPattern(img,'repeat');
-    if(pat.setTransform) pat.setTransform(new DOMMatrix().scale(e[1]));
-    this._terPat[t]=pat;
+    if(pat.setTransform){
+      const mtx=variant
+        ? new DOMMatrix().translate(137,229).rotate(37).scale(e[1]*1.85)
+        : new DOMMatrix().scale(e[1]);
+      pat.setTransform(mtx);
+    } else if(variant) return null;
+    this._terPat[ck]=pat;
     return pat;
+  }
+  // Schneegrenze: relativ zur höchsten Erhebung der Karte (einmal je Karte)
+  snowLine(){
+    if(this._snowLine!=null) return this._snowLine;
+    const m=this.game.map;
+    const hs=[];
+    for(let i=0;i<m.terr.length;i++) if(m.terr[i]===TER.MOUNT) hs.push(m.hgt[i]);
+    if(hs.length<40){ this._snowLine=99; return 99; }   // kaum Gebirge -> kein Schnee
+    hs.sort((a,b)=>a-b);
+    const p97=hs[Math.floor(hs.length*0.97)];
+    // nur echte Gipfel bekommen eine Schneekappe
+    this._snowLine = Math.max(1.0, p97);
+    return this._snowLine;
+  }
+  // Richtung des stärksten Gefälles
+  gradOf(m,i){
+    let gx=0, gy=0;
+    for(const n of m.nbs(i)){
+      const ddx=(m.X(n)+((m.Y(n)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
+      const ddy=m.Y(n)-m.Y(i);
+      const dh=m.hgt[n]-m.hgt[i];
+      gx+=dh*ddx; gy+=dh*ddy;
+    }
+    const L=Math.hypot(gx,gy);
+    return L>1e-4 ? [gx/L, gy/L] : null;
+  }
+  // Steigung (Betrag des Höhengradienten) – für Schluchten und Felsplastik
+  slopeOf(m,i){
+    let gx=0, gy=0;
+    for(const n of m.nbs(i)){
+      const ddx=(m.X(n)+((m.Y(n)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
+      const ddy=m.Y(n)-m.Y(i);
+      const dh=m.hgt[n]-m.hgt[i];
+      gx+=dh*ddx; gy+=dh*ddy;
+    }
+    return Math.hypot(gx,gy);
+  }
+  // Graustufen-Relief je Knoten (128 = eben, hell = der Sonne zugewandt)
+  nodeShade(m, scache, i){
+    let v=scache.get(i);
+    if(v!==undefined) return v;
+    let gx=0, gy=0;
+    for(const n of m.nbs(i)){
+      const ddx=(m.X(n)+((m.Y(n)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
+      const ddy=m.Y(n)-m.Y(i);
+      const dh=m.hgt[n]-m.hgt[i];
+      gx+=dh*ddx; gy+=dh*ddy;
+    }
+    const t=m.terr[i];
+    const k = t===TER.MOUNT? 1.5 : t===TER.WATER? 0.15 : 0.75;
+    // Sonne von oben-links: Hänge nach Nordwest hell, nach Südost dunkel
+    let l = 0.5 - (gx*0.8+gy*0.6)*k;
+    l = Math.max(0.08, Math.min(0.94, l));
+    v = Math.round(l*255);
+    scache.set(i,v);
+    return v;
+  }
+  triShade(g, m, scache, a, b, c){
+    const [ax,ay]=m.worldPos(a), [bx,by]=m.worldPos(b), [cx2,cy2]=m.worldPos(c);
+    const v=((this.nodeShade(m,scache,a)+this.nodeShade(m,scache,b)+this.nodeShade(m,scache,c))/3)|0;
+    // Schatten kühl-blau, Licht warm – wirkt deutlich plastischer als reines Grau
+    const t2=(v-128)/127;
+    const col= t2<0
+      ? [128+t2*54, 128+t2*44, 128+t2*22]        // Richtung kühles Blau
+      : [128+t2*60, 128+t2*52, 128+t2*34];       // Richtung warmes Sonnenlicht
+    g.fillStyle=`rgb(${col[0]|0},${col[1]|0},${col[2]|0})`;
+    g.beginPath(); g.moveTo(ax,ay); g.lineTo(bx,by); g.lineTo(cx2,cy2); g.closePath(); g.fill();
+    g.strokeStyle=g.fillStyle; g.lineWidth=1; g.stroke();
   }
   asset(key){
     const img=this.assets && this.assets.get(key);
