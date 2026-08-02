@@ -427,6 +427,32 @@ export class Game {
     if(def.mine) return def.mine;
     return null;
   }
+  // Bevölkerungsübersicht: freie Siedler, Spezialisten und Soldaten je Typ
+  settlerStats(pl){
+    const st={ free:0, carrier:0, geo:0, scout:0, builder:0, worker:0,
+      sword:0, spear:0, bow:0, total:0 };
+    for(const r of this.roads.values()) if(r.player===pl) st.carrier++;
+    for(const u of this.units){
+      if(u.player!==pl) continue;
+      if(u.type==='geo') st.geo++;
+      else if(u.type==='scout') st.scout++;
+      else if(u.type==='builder'||u.type==='leveler') st.builder++;
+      else if(u.type==='worker'||u.type==='settle'||u.type==='flee') st.worker++;
+      else if(u.type==='soldierMove') st[u.stype]=(st[u.stype]||0)+1;
+      else if(u.type==='attack') for(const t of u.soldiers) st[t]=(st[t]||0)+1;
+    }
+    // eingezogene Fachkräfte in den Gebäuden
+    for(const b of this.buildings.values()){
+      if(b.player!==pl) continue;
+      if(b.worker && b.worker.present) st.worker++;
+      if(b.soldiers) for(const t of b.soldiers) st[t]=(st[t]||0)+1;
+    }
+    const r=this.players[pl].recruits||{};
+    for(const t of STYPE_LIST) st[t]=(st[t]||0)+(r[t]||0);
+    st.free=st.carrier+st.worker+st.builder;
+    st.total=st.free+st.geo+st.scout+st.sword+st.spear+st.bow;
+    return st;
+  }
   recruitTotal(pl){
     const r=this.players[pl].recruits;
     return (r.sword|0)+(r.spear|0)+(r.bow|0);
@@ -564,12 +590,15 @@ export class Game {
     const b=this.buildings.get(bldId);
     if(!b || b.player===pl) return 0;
     if(!(BLD[b.type].mil || b.type==='hq')) return 0;
-    // verfügbare Angreifer: aus Militärgebäuden in Reichweite (Distanz < 30), je Gebäude bleibt 1
+    // Angreifer kommen nur aus Militärgebäuden, deren eigener Einflussbereich
+    // bis zum Ziel reicht (plus ein kurzer Marsch) – niemand zieht quer über die Karte
     let avail=0;
     for(const mb of this.buildings.values()){
       if(mb.player!==pl || !mb.soldiers || mb.state!=='done') continue;
+      const mil=BLD[mb.type].mil;
+      const reach=(mb.type==='hq'? 9 : (mil? mil.radius : 8)) + 5;
       const d=Math.hypot(this.map.X(mb.node)-this.map.X(b.node), this.map.Y(mb.node)-this.map.Y(b.node));
-      if(d>30) continue;
+      if(d>reach) continue;
       avail += Math.max(0, mb.soldiers.length-1);
     }
     return avail;
@@ -1159,7 +1188,28 @@ export class Game {
     const d=Math.hypot(dx,dy);
     const sp=speed*40; // px pro Tick (0.12 -> ~0.9 Knoten/s)
     if(d<=sp){ u.x=tx; u.y=ty; return true; }
-    u.x+=dx/d*sp; u.y+=dy/d*sp;
+    let nx=dx/d, ny=dy/d;
+    // Fahnen sind feste Hindernisse: liegt eine dicht voraus, wird sie
+    // seitlich umgangen statt durchlaufen
+    const m=this.map;
+    const an=m.nearestNode(u.x+nx*15, u.y+ny*15);
+    if(an>=0 && m.flag[an]){
+      const [fx,fy]=m.worldPos(an);
+      const tdist=Math.hypot(tx-fx, ty-fy);
+      if(tdist>16){                                  // nicht ausweichen, wenn die Fahne das Ziel ist
+        const ax=fx-u.x, ay=fy-u.y;
+        const ad=Math.hypot(ax,ay);
+        if(ad>0.01 && ad<19){
+          const side=(ax*ny-ay*nx)>0 ? -1 : 1;       // an der freien Seite vorbei
+          const ox=-ny*side, oy=nx*side;
+          const k=1.15*(1-ad/19);
+          nx+=ox*k; ny+=oy*k;
+          const nl=Math.hypot(nx,ny)||1;
+          nx/=nl; ny/=nl;
+        }
+      }
+    }
+    u.x+=nx*sp; u.y+=ny*sp;
     return false;
   }
   tickWorker(u){

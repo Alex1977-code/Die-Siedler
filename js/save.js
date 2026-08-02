@@ -48,7 +48,7 @@ export function getProgress(){
 export function setProgress(p){ localStorage.setItem(PROG_KEY, JSON.stringify(p)); }
 
 export function getOptions(){
-  try{ return Object.assign({sfx:true,music:true,speed:1}, JSON.parse(localStorage.getItem(OPT_KEY))||{}); }
-  catch(e){ return {sfx:true,music:true,speed:1}; }
+  try{ return Object.assign({sfx:true,music:true,speed:1,hudGoods:['trunk','board','stone','fish','water']}, JSON.parse(localStorage.getItem(OPT_KEY))||{}); }
+  catch(e){ return {sfx:true,music:true,speed:1,hudGoods:['trunk','board','stone','fish','water']}; }
 }
 export function setOptions(o){ localStorage.setItem(OPT_KEY, JSON.stringify(o)); }

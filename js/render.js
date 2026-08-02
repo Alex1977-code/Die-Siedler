@@ -396,15 +396,23 @@ export class Renderer {
     tg.fillStyle='#000';
     // Rand außerhalb der Karte gehört ebenfalls zum Unbekannten
     tg.fillRect(0,0,w,S); tg.fillRect(0,h-S,w,S); tg.fillRect(0,0,S,h); tg.fillRect(w-S,0,S,h);
-    // Knoten als überlappende Kreise -> keine Raster-/Sechseckkanten im Dunst
+    // Unerforschtes als unregelmäßige Schwaden: je Knoten mehrere versetzte,
+    // verschieden große Kleckse -> die Grenze franst aus statt halbrund zu sein
     tg.beginPath();
     for(let y=0;y<m.h;y++){
       const off=(y&1)*S*0.5;
       for(let x=0;x<m.w;x++){
-        if(m.explored[m.idx(x,y)]) continue;
+        const i=m.idx(x,y);
+        if(m.explored[i]) continue;
         const cx=x*S+off+S*0.5, cy=y*S+S*0.5;
-        tg.moveTo(cx+S*0.95,cy);
-        tg.arc(cx,cy,S*0.95,0,7);
+        for(let k=0;k<3;k++){
+          const hs=hash01(i*7+k*31);
+          const rx=cx+(hash01(i*13+k)-0.5)*S*1.5;
+          const ry=cy+(hash01(i*19+k)-0.5)*S*1.5;
+          const rr=S*(0.55+hs*0.7);
+          tg.moveTo(rx+rr,ry);
+          tg.arc(rx,ry,rr,0,7);
+        }
       }
     }
     tg.fill();
@@ -418,8 +426,9 @@ export class Renderer {
       g2.fillStyle=tint; g2.fillRect(0,0,w,h);
       return cv;
     };
-    this.fogDark=mk(6,'#0e1520');
-    this.fogMist=mk(15,'#9fb2c2');
+    this.fogDark=mk(11,'#05080d');       // langer Verlauf transparent -> schwarz
+    this.fogCore=mk(3,'#05080d');        // dichter Kern im Unerforschten
+    this.fogMist=mk(20,'#8ea2b4');       // vorgelagerte Nebelschwaden
   }
   resize(w,h,dpr){
     this.cv.width=w*dpr; this.cv.height=h*dpr;
@@ -747,7 +756,7 @@ export class Renderer {
     const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
     if(t===TER.GRASS){
       // Wiesen-Deko aus dem Asset-Paket (Blumen, Pilze, Distel ...), sparsam gestreut
-      if(h>0.955){
+      if(h>0.985){
         const dk=['deco_flowers','deco_grass','deco_mushroom','deco_rock','deco_thistle'][(hash01(i*31+5)*5)|0];
         const dimg=this.asset(dk);
         if(dimg){
@@ -2224,6 +2233,32 @@ export class Renderer {
       }
     const x0=Math.max(0,Math.floor(wx0/TILE)-1), x1=Math.min(m.w-1,Math.ceil(wx1/TILE)+1);
     const y0=Math.max(0,Math.floor(wy0/ROWH)-1), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+2);
+    // Fischschwärme zeigen ergiebige Fanggründe an (Anzahl = Bestand)
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=m.idx(x,y);
+      if(m.terr[i]!==TER.WATER || !m.explored[i] || m.fish[i]<2) continue;
+      const [px,py]=m.worldPos(i);
+      const n=Math.min(5, 1+Math.floor(m.fish[i]/2));
+      // der Schwarm zieht auf einer kleinen Ellipse um den Knoten
+      const t=this.time/2600 + hash01(i)*6.28;
+      const cx3=px+Math.cos(t)*15, cy3=py+Math.sin(t)*8;
+      const head=Math.atan2(Math.cos(t)*8, -Math.sin(t)*15);
+      for(let k=0;k<n;k++){
+        const off=k*0.9+hash01(i*7+k)*0.7;
+        const fx2=cx3-Math.cos(head)*off*6+(hash01(i*13+k)-0.5)*7;
+        const fy2=cy3-Math.sin(head)*off*6+(hash01(i*17+k)-0.5)*5;
+        const wig=Math.sin(this.time/220+k*1.4+i)*0.3;
+        g.save();
+        g.translate(fx2,fy2); g.rotate(head+wig);
+        g.fillStyle='rgba(38,64,86,0.5)';
+        g.beginPath(); g.ellipse(0,0,3.1,1.35,0,0,7); g.fill();      // Leib
+        g.beginPath();                                               // Schwanzflosse
+        g.moveTo(-2.8,0); g.lineTo(-4.6,-1.5); g.lineTo(-4.6,1.5); g.closePath(); g.fill();
+        g.fillStyle='rgba(190,225,240,0.3)';
+        g.beginPath(); g.ellipse(0.6,-0.4,1.7,0.6,0,0,7); g.fill();  // Lichtkante
+        g.restore();
+      }
+    }
     // Wasser-Glitzern (animiert, deterministisch pro Knoten)
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
@@ -2444,16 +2479,16 @@ export class Renderer {
       const c=r.carrier;
       const pos=this.roadPos(r, c.pos);
       // Bewegungsrichtung aus der Bilddifferenz (fürs Spiegeln/Wippen der Figur)
-      let mov=false;
       if(c._lx!==undefined){
         const ddx=pos[0]-c._lx, ddy=pos[1]-c._ly;
-        if(Math.hypot(ddx,ddy)>0.12){
+        if(Math.hypot(ddx,ddy)>0.05){
           // geglättet, damit die Blickrichtung in Kurven nicht flackert
           c._dx=c._dx===undefined?ddx:c._dx*0.75+ddx*0.25;
           c._dy=c._dy===undefined?ddy:c._dy*0.75+ddy*0.25;
-          mov=true;
+          c._movT=this.time+260;                 // Nachlauf über die Sim-Pause
         }
       }
+      const mov=(c._movT||0)>this.time;
       c._lx=pos[0]; c._ly=pos[1];
       items.push({kind:r.isSea?'ship':'carrier', pl:r.player, x:pos[0], y:pos[1],
         carrying:!!c.item, good:c.item?.good,
@@ -2462,12 +2497,13 @@ export class Renderer {
     for(const u of game.units){
       if(u._lx!==undefined){
         const ddx=u.x-u._lx, ddy=u.y-u._ly;
-        u._mov=Math.hypot(ddx,ddy)>0.12;
-        if(u._mov){
+        if(Math.hypot(ddx,ddy)>0.05){
           u._dx=u._dx===undefined?ddx:u._dx*0.75+ddx*0.25;
           u._dy=u._dy===undefined?ddy:u._dy*0.75+ddy*0.25;
+          u._movT=this.time+260;                 // Nachlauf über die Sim-Pause
         }
       }
+      u._mov=(u._movT||0)>this.time;
       u._lx=u.x; u._ly=u.y;
       items.push({kind:'unit', u, y:u.y});
     }
@@ -2603,9 +2639,11 @@ export class Renderer {
       const fw=m.w*TILE, fh=m.h*ROWH;
       const drift=Math.sin(this.time/2600)*7;
       const drift2=Math.cos(this.time/3400)*5;
-      g.globalAlpha=0.4; g.drawImage(this.fogMist, fx+drift, fy+drift2*0.5, fw, fh);
-      g.globalAlpha=0.45; g.drawImage(this.fogMist, fx-drift2, fy-drift*0.4, fw, fh);
-      g.globalAlpha=0.96; g.drawImage(this.fogDark, fx, fy, fw, fh);
+      g.globalAlpha=0.34; g.drawImage(this.fogMist, fx+drift, fy+drift2*0.5, fw, fh);
+      g.globalAlpha=0.38; g.drawImage(this.fogMist, fx-drift2, fy-drift*0.4, fw, fh);
+      g.globalAlpha=0.55; g.drawImage(this.fogDark, fx+drift*0.3, fy, fw, fh);
+      g.globalAlpha=0.85; g.drawImage(this.fogDark, fx, fy, fw, fh);
+      if(this.fogCore){ g.globalAlpha=0.95; g.drawImage(this.fogCore, fx, fy, fw, fh); }
       g.globalAlpha=1;
     }
     g.restore();
@@ -2700,12 +2738,20 @@ export class Renderer {
         // gerichteter Kernschatten (goldene Stunde, nach Südost)
         this.shadow(g,x+9*sc,y+3, 13*sc*(st/3), 3.6*sc, 0.14);
         // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
-        const sway=Math.sin(this.time/1150 + i*0.73)*0.05 + Math.sin(this.time/451 + i*1.7)*0.013;
+        // Wind bewegt nur die Blätter – der Stamm bleibt fest verwurzelt
+        const sway=Math.sin(this.time/1150 + i*0.73)*0.055 + Math.sin(this.time/451 + i*1.7)*0.014;
+        const img2=ovT||s.cv;
+        const trunkY=h*0.36;                       // unteres Drittel = Stamm
         g.save();
         g.translate(x, y+4);
+        g.drawImage(img2, 0, img2.height*(1-0.36), img2.width, img2.height*0.36,
+                    -w/2, -trunkY, w, trunkY);     // Stamm: unbewegt
+        g.restore();
+        g.save();
+        g.translate(x, y+4-trunkY);
         g.transform(1,0,sway,1,0,0);
-        if(ovT) g.drawImage(ovT, -w/2, -h, w, h);
-        else g.drawImage(s.cv, -w/2, -h, w, h);
+        g.drawImage(img2, 0, 0, img2.width, img2.height*(1-0.36),
+                    -w/2, -(h-trunkY), w, h-trunkY);   // Krone: schwingt
         g.restore();
         // Grasbüschel am Stammfuß: der Baum steht IM Gras, nicht darauf
         if(this.theme!=='winter' && this.theme!=='wueste'){
@@ -3906,24 +3952,30 @@ export class Renderer {
       }
     }
   }
-  // kleiner Grenzpfahl mit Wimpel in Spielerfarbe
+  // Grenzpfosten: weißer Pfahl mit Ringen in Spielerfarbe
   drawBorderPost(g, p){
     const {x,y,pl}=p;
     const col=PLAYER_COLORS[pl]||'#999';
-    this.shadow(g,x+1,y+1.2,3.4,1.3,0.25);
-    g.strokeStyle='#5d452a'; g.lineWidth=2;
-    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-13); g.stroke();
-    g.strokeStyle='#7d5f3a'; g.lineWidth=0.8;
-    g.beginPath(); g.moveTo(x-0.5,y-1); g.lineTo(x-0.5,y-12); g.stroke();
-    // Wimpel
-    const w=Math.sin(this.time/300+x*0.05)*1.2;
-    g.fillStyle=col;
+    this.shadow(g,x+1.4,y+1.2,3.2,1.2,0.26);
+    // Pfahl
+    g.fillStyle='#f2efe6';
     g.beginPath();
-    g.moveTo(x,y-13); g.lineTo(x+7,y-11+w); g.lineTo(x,y-9); g.closePath(); g.fill();
-    g.strokeStyle='rgba(25,18,10,0.45)'; g.lineWidth=0.8; g.stroke();
-    // Knauf
-    g.fillStyle='#c9a05a';
-    g.beginPath(); g.arc(x,y-13.6,1.2,0,7); g.fill();
+    g.moveTo(x-1.9,y); g.lineTo(x-1.9,y-13); g.lineTo(x+1.9,y-13); g.lineTo(x+1.9,y);
+    g.closePath(); g.fill();
+    g.fillStyle='rgba(150,148,138,0.45)';        // Schattenseite
+    g.fillRect(x+0.5,y-13,1.4,13);
+    g.strokeStyle='rgba(60,55,46,0.5)'; g.lineWidth=0.7;
+    g.strokeRect(x-1.9,y-13,3.8,13);
+    // zwei Streifen in Spielerfarbe
+    g.fillStyle=col;
+    g.fillRect(x-1.9,y-11.4,3.8,2.6);
+    g.fillRect(x-1.9,y-6.6,3.8,2.6);
+    // Spitze
+    g.fillStyle='#f7f5ee';
+    g.beginPath();
+    g.moveTo(x-2.2,y-13); g.lineTo(x,y-15.6); g.lineTo(x+2.2,y-13);
+    g.closePath(); g.fill();
+    g.strokeStyle='rgba(60,55,46,0.45)'; g.lineWidth=0.7; g.stroke();
   }
   // ---------- Minimap ----------
   drawMinimap(cv, cam){
@@ -3935,11 +3987,38 @@ export class Renderer {
     for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
       const i=m.idx(x,y);
       if(!m.explored[i]) continue;
+      // Gelände in Geländefarbe; eigenes/fremdes Gebiet nur leicht eingefärbt,
+      // damit man die Landschaft weiter erkennt
       let c=cols[m.terr[i]];
-      if(m.owner[i]>=0) c=PLAYER_COLORS[m.owner[i]];
-      else if((m.obj[i]&127)===OBJ.TREE) c=shade(cols[TER.GRASS],0.72);
+      if((m.obj[i]&127)===OBJ.TREE) c=shade(cols[TER.GRASS],0.72);
+      if(m.owner[i]>=0) c=mixHex(c, PLAYER_COLORS[m.owner[i]], 0.42);
       g.fillStyle=c;
       g.fillRect(x*sx,y*sy,Math.ceil(sx),Math.ceil(sy));
+    }
+    // Gebietsgrenzen kräftig in der Farbe des Besitzers
+    g.lineWidth=Math.max(1.2, sx*0.9);
+    for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
+      const i=m.idx(x,y);
+      const o=m.owner[i];
+      if(o<0 || !m.explored[i]) continue;
+      let border=false;
+      for(const n of m.nbs(i)) if(m.owner[n]!==o){ border=true; break; }
+      if(!border) continue;
+      g.fillStyle=PLAYER_COLORS[o];
+      g.fillRect(x*sx-sx*0.15, y*sy-sy*0.15, Math.ceil(sx*1.3), Math.ceil(sy*1.3));
+    }
+    // laufende Kämpfe blinken rot
+    if(this.game.battles && this.game.battles.length){
+      for(const bt of this.game.battles){
+        const b=this.game.buildings.get(bt.bldId);
+        if(!b) continue;
+        const bx=(m.X(b.node)+0.5)*sx, by=(m.Y(b.node)+0.5)*sy;
+        const pulse=0.55+0.45*Math.sin(this.time/180);
+        g.fillStyle=`rgba(255,${60+pulse*80|0},40,${0.55+pulse*0.45})`;
+        g.beginPath(); g.arc(bx,by,Math.max(3,sx*2.4),0,7); g.fill();
+        g.strokeStyle='rgba(255,240,210,0.9)'; g.lineWidth=1.2;
+        g.beginPath(); g.arc(bx,by,Math.max(3,sx*2.4)+pulse*2.6,0,7); g.stroke();
+      }
     }
     g.strokeStyle='#fff'; g.lineWidth=1;
     const vx=(cam.x/TILE)*sx, vy=(cam.y/ROWH)*sy;
@@ -3948,6 +4027,15 @@ export class Renderer {
   }
 }
 
+function toArr(c){
+  if(c[0]==='#') return hex2arr(c);
+  const m2=/rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(c);
+  return m2? [+m2[1],+m2[2],+m2[3]] : [128,128,128];
+}
+function mixHex(a,b,t){
+  const A=toArr(a), B=toArr(b);
+  return `rgb(${(A[0]+(B[0]-A[0])*t)|0},${(A[1]+(B[1]-A[1])*t)|0},${(A[2]+(B[2]-A[2])*t)|0})`;
+}
 export function goodColor(good){
   return {
     trunk:'#8a5a2c', board:'#c9a05a', stone:'#9a958c', fish:'#6fa7c7', meat:'#c26a5a',

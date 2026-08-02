@@ -200,7 +200,7 @@ export class UI {
     <div id="scr-game" class="screen hidden">
       <canvas id="cv"></canvas>
       <div id="hud-top">
-        <button id="g-menu" class="hbtn">☰</button>
+        <button id="g-menu" class="hbtn" title="Menü"></button>
         <div id="res-bar"></div>
         <button id="g-speed" class="hbtn">1×</button>
         <button id="g-pause" class="hbtn"></button>
@@ -837,6 +837,18 @@ export class UI {
     this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x">✕</button></div>
       <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>`);
     $('#sh-x').onclick=()=>this.closeSheet();
+    document.querySelectorAll('.stock-it').forEach(b=>b.onclick=()=>{
+      const k=b.dataset.good;
+      const list=(this.opts.hudGoods||[]).slice();
+      const ix=list.indexOf(k);
+      if(ix>=0) list.splice(ix,1);
+      else { list.push(k); if(list.length>6) list.shift(); }
+      this.opts.hudGoods=list;
+      SAVE.setOptions(this.opts);
+      Sound.sfx('tap');
+      this.updateHud();
+      this.openStockSheet();
+    });
   }
   confirm(txt, cb){
     const d=$('#dlg');
@@ -894,12 +906,20 @@ export class UI {
       if(autohide){ clearTimeout(this._objT); this._objT=setTimeout(()=>o.classList.add('hidden'),autohide); }
     } else o.classList.add('hidden');
   }
-  toast(txt){
+  toast(txt, type='info', node=-1){
     const t=$('#msg-toast');
-    t.textContent=txt;
+    const war=type==='war';
+    t.className=war?'war':'';
+    t.innerHTML= war
+      ? `<span class="toast-ic">⚔️</span><span>${txt}</span>${node>=0?'<span class="toast-go">Hinsehen ▸</span>':''}`
+      : `<span>${txt}</span>`;
     t.classList.remove('hidden');
+    t.onclick=()=>{
+      if(node>=0){ this.jumpTo(node); Sound.sfx('tap'); }
+      t.classList.add('hidden');
+    };
     clearTimeout(this._toastT);
-    this._toastT=setTimeout(()=>t.classList.add('hidden'),2600);
+    this._toastT=setTimeout(()=>t.classList.add('hidden'), war?6000:2600);
   }
 
   // ================= Spielschleife =================
@@ -934,17 +954,24 @@ export class UI {
     b.classList.toggle('paused', !!this.paused);
     b.title=this.paused?'Weiter':'Pause';
   }
-  // Warenleiste: kompakte Auswahl, antippen öffnet das komplette Lager
+  // Warenleiste: frei wählbare Waren + Bevölkerung, antippen öffnet das Lager
   updateHud(){
     const g=this.game; if(!g) return;
     const inv=g.invTotal(0);
-    const show=[['board','🪵'],['stone','🪨'],['trunk','🌲'],['bread','🍞'],['fish','🐟'],['meat','🍖'],
-      ['coal','⬛'],['iron','⛓️'],['coin','🟡'],['beer','🍺'],['hammer','🔨'],['pick','⛏️']];
-    const ic=(k,fallback)=> this.renderer.asset('icon_'+k) ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">`
-      : this.renderer.asset('good_'+k) ? `<img class="res-ic" src="assets/good_${k}.png" alt="">` : fallback;
-    $('#res-bar').innerHTML=show.map(([k,em])=>`<span>${ic(k,em)}${inv[k]||0}</span>`).join('')
-      +`<span>${ic('soldier','⚔️')}${g.soldierCount(0)}</span>`
-      +`<span class="res-more">📦 alle</span>`;
+    const sel=(this.opts.hudGoods&&this.opts.hudGoods.length? this.opts.hudGoods
+      : ['trunk','board','stone','fish','water']).slice(0,6);
+    const ic=(k)=> this.renderer.asset('icon_'+k) ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">`
+      : this.renderer.asset('good_'+k) ? `<img class="res-ic" src="assets/good_${k}.png" alt="">` : '';
+    const st=g.settlerStats(0);
+    $('#res-bar').innerHTML=
+      sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
+      +`<span class="res-sep"></span>`
+      +`<span title="Freie Siedler">🧑‍🌾${st.free}</span>`
+      +`<span title="Geologen">⛏️${st.geo}</span>`
+      +`<span title="Schwertkämpfer">🗡️${st.sword}</span>`
+      +`<span title="Speerkämpfer">🔱${st.spear}</span>`
+      +`<span title="Bogenschützen">🏹${st.bow}</span>`
+      +`<span class="res-more">📦</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }
   // vollständige Warenübersicht (alle 28 Waren)
@@ -953,10 +980,12 @@ export class UI {
     const inv=g.invTotal(0);
     const ic=(k)=> this.renderer.asset('good_'+k) ? `<img class="stock-ic" src="assets/good_${k}.png" alt="">`
       : this.renderer.asset('icon_'+k) ? `<img class="stock-ic" src="assets/icon_${k}.png" alt="">` : '';
-    const cells=GOOD_LIST.map(k=>`<span class="stock-it${(inv[k]||0)?'':' zero'}">${ic(k)}
-      <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></span>`).join('');
+    const sel=this.opts.hudGoods||[];
+    const cells=GOOD_LIST.map(k=>`<button class="stock-it${(inv[k]||0)?'':' zero'}${sel.includes(k)?' pinned':''}" data-good="${k}">${ic(k)}
+      <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></button>`).join('');
     const r=g.players[0].recruits;
     this.sheet(`<div class="sh-head"><b>📦 Lager &amp; Vorräte</b><button class="hbtn" id="sh-x">✕</button></div>
+      <p class="note">Tippe eine Ware an, um sie oben in der Leiste anzuzeigen (bis zu 6).</p>
       <div class="stock-grid">${cells}</div>
       <p class="note">Reserve im Hauptquartier: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}
       · Soldaten im Feld/in Gebäuden: ${g.soldierCount(0)}</p>`);
@@ -966,10 +995,17 @@ export class UI {
     const g=this.game;
     while(this.state.msgSeen<g.msgs.length){
       const msg=g.msgs[this.state.msgSeen++];
-      this.toast(msg.txt);
+      this.toast(msg.txt, msg.type, msg.node);
       if(msg.type==='war') Sound.sfx('war');
       else if(msg.type==='ok') Sound.sfx('msg');
     }
+  }
+  // springt zur Stelle auf der Karte, zu der eine Meldung gehört
+  jumpTo(node){
+    if(!this.game || node==null || node<0) return;
+    const [x,y]=this.game.map.worldPos(node);
+    this.cam.x=x; this.cam.y=y;
+    this.cam.z=Math.max(this.cam.z, 1.4);
   }
   onGameOver(){
     if(this._goHandled) { return; }
