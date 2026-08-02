@@ -660,49 +660,74 @@ export class Renderer {
           g.restore();
         }
       }
-      // Küstensaum: heller Sandstreifen am Ufer und eine Schaumlinie im Wasser –
-      // der stärkste Lesbarkeitsgewinn auf kleinem Display
+      // Geländeübergänge: gemalte Pinsel entlang jeder Geländegrenze. Der
+      // Pinsel wird so gedreht, dass seine ausgefranste Seite ins Nachbar-
+      // gelände zeigt – dadurch gehen die Arten ineinander über.
       {
-        const coastLand=[], coastEdges=[];
-        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+        const BRUSH={ [TER.DESERT]:'trans_dry', [TER.SNOW]:'trans_snow',
+                      [TER.SWAMP]:'trans_bog', [TER.MOUNT]:'trans_scree' };
+        const sandImg=this.fadedBrush('trans_sand'), foamImg=this.fadedBrush('trans_foam');
+        // Der Pinsel sitzt mit seiner geschlossenen Seite auf dem Ausgangs-
+        // gelände; nur der ausgefranste Teil ragt über die Grenze.
+        const put=(img,mx2,my2,ang,hh2,alpha,jit)=>{
+          const ww2=hh2*((img.naturalWidth||img.width)/(img.naturalHeight||img.height));
+          g.save();
+          g.translate(mx2,my2);
+          g.rotate(ang+jit);
+          g.globalAlpha=alpha;
+          g.drawImage(img, -ww2/2, -hh2*0.72, ww2, hh2);
+          g.restore();
+        };
+        let any=false;
+        g.save(); g.translate(-c.ox,-c.oy);
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
           for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
             const i=m.idx(x,y);
-            if(m.terr[i]===TER.WATER) continue;
+            const t=m.terr[i];
+            const [ax,ay]=m.worldPos(i);
             for(const n of m.nbs(i)){
-              if(m.terr[n]!==TER.WATER) continue;
-              coastLand.push(i);
-              const [ax,ay]=m.worldPos(i), [bx,by]=m.worldPos(n);
-              coastEdges.push([(ax+bx)/2,(ay+by)/2, bx-ax, by-ay]);
-              break;
+              const tn=m.terr[n];
+              if(tn===t) continue;
+              const [bx,by]=m.worldPos(n);
+              const mx2=(ax+bx)/2, my2=(ay+by)/2;
+              // Winkel so, dass die ausgefranste Unterkante nach außen zeigt
+              const ang=Math.atan2(by-ay, bx-ax)-Math.PI/2;
+              const hsh=hash01(i*17+n);
+              if(t!==TER.WATER && tn===TER.WATER){
+                const jit=(hsh-0.5)*0.5;
+                if(sandImg){ put(sandImg, mx2-(bx-ax)*0.06, my2-(by-ay)*0.06, ang, 58+hsh*18, 0.5, jit); any=true; }
+                if(foamImg){ put(foamImg, mx2+(bx-ax)*0.20, my2+(by-ay)*0.20, ang, 34+hsh*10, 0.4, -jit); any=true; }
+              } else if(t!==TER.WATER && tn!==TER.WATER){
+                const key=BRUSH[t];
+                const img=key? this.fadedBrush(key) : null;
+                if(img){ put(img, mx2, my2, ang, 46+hsh*16, 0.36, (hsh-0.5)*0.5); any=true; }
+              }
             }
           }
-        if(coastLand.length){
-          g.save();
-          g.translate(-c.ox,-c.oy);
-          for(const i of coastLand){
-            const [px,py]=m.worldPos(i);
-            const rad=g.createRadialGradient(px,py,6,px,py,34);
-            rad.addColorStop(0,'rgba(226,206,158,0)');
-            rad.addColorStop(0.6,'rgba(226,206,158,0.2)');
-            rad.addColorStop(1,'rgba(226,206,158,0)');
-            g.fillStyle=rad;
-            g.beginPath(); g.arc(px,py,34,0,7); g.fill();
+        }
+        g.restore();
+        if(!any){
+          // Rückfall ohne Pinselgrafiken: gemalter Sandsaum wie bisher
+          const coastLand=[];
+          for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+            for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+              const i=m.idx(x,y);
+              if(m.terr[i]===TER.WATER) continue;
+              if(m.nbs(i).some(n=>m.terr[n]===TER.WATER)) coastLand.push(i);
+            }
+          if(coastLand.length){
+            g.save(); g.translate(-c.ox,-c.oy);
+            for(const i of coastLand){
+              const [px,py]=m.worldPos(i);
+              const rad=g.createRadialGradient(px,py,6,px,py,34);
+              rad.addColorStop(0,'rgba(226,206,158,0)');
+              rad.addColorStop(0.6,'rgba(226,206,158,0.2)');
+              rad.addColorStop(1,'rgba(226,206,158,0)');
+              g.fillStyle=rad;
+              g.beginPath(); g.arc(px,py,34,0,7); g.fill();
+            }
+            g.restore();
           }
-          // Brandung: kurze helle Bögen knapp im Wasser
-          g.lineCap='round';
-          for(const [mx2,my2,dx2,dy2] of coastEdges){
-            const L=Math.hypot(dx2,dy2)||1;
-            const ux=dx2/L, uy=dy2/L;                 // Richtung ins Wasser
-            const px2=-uy, py2=ux;
-            const cx4=mx2+ux*7, cy4=my2+uy*7;
-            g.strokeStyle='rgba(248,252,255,0.4)';
-            g.lineWidth=2.2;
-            g.beginPath();
-            g.moveTo(cx4-px2*13, cy4-py2*13);
-            g.quadraticCurveTo(cx4+ux*3, cy4+uy*3, cx4+px2*13, cy4+py2*13);
-            g.stroke();
-          }
-          g.restore();
         }
       }
       // Gebirgsfuß: Schlagschatten auf das angrenzende Land – verkauft die Höhe
@@ -1133,6 +1158,31 @@ export class Renderer {
   // ---------- Spielerfarben auf Bilder legen ----------
   // Militärgebäude: die cremefarbenen Banner/Wimpel bekommen die Spielerfarbe.
   // Ergebnis wird je (Bild, Spieler) einmal gerendert und gecacht.
+  fadedBrush(key){
+    if(!this._fbr) this._fbr=new Map();
+    if(this._fbr.has(key)) return this._fbr.get(key);
+    const img=this.asset(key);
+    if(!img){ this._fbr.set(key,null); return null; }
+    const W=img.naturalWidth, H=img.naturalHeight;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    t.globalCompositeOperation='destination-in';
+    const gv=t.createLinearGradient(0,0,0,H);
+    gv.addColorStop(0,'rgba(0,0,0,0)');
+    gv.addColorStop(0.30,'rgba(0,0,0,1)');
+    gv.addColorStop(1,'rgba(0,0,0,1)');
+    t.fillStyle=gv; t.fillRect(0,0,W,H);
+    const gh=t.createLinearGradient(0,0,W,0);
+    gh.addColorStop(0,'rgba(0,0,0,0)');
+    gh.addColorStop(0.22,'rgba(0,0,0,1)');
+    gh.addColorStop(0.78,'rgba(0,0,0,1)');
+    gh.addColorStop(1,'rgba(0,0,0,0)');
+    t.fillStyle=gh; t.fillRect(0,0,W,H);
+    t.globalCompositeOperation='source-over';
+    this._fbr.set(key,cv);
+    return cv;
+  }
   // Turmspitzen eines Gebäudebildes finden (oberste Punkte je Turm) – dort
   // setzt das Spiel Wimpel in Spielerfarbe. Ergebnis wird je Bild gecacht.
   towerTips(img, key){
