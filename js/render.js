@@ -2732,6 +2732,8 @@ export class Renderer {
     const tStr=this.asset('road_str');
     if(tStr){
       const tDirt=this.asset('road_dirt')||tStr, tSlope=this.asset('road_slope')||tStr;
+      // Zielgroesse auf dem Schirm – danach richtet sich der Kachel-Vorrat
+      const zpx=(w2)=> w2*cam.z*(this.dpr||1);
       const BAND=TILE*0.30, half=BAND/2;
       // Die Vorlage ist auf eine ganze Gitterzelle ausgelegt: ihr Wegband
       // fuellt gut die halbe Kachel. Zeichnet man die Kachel nur so gross
@@ -2801,9 +2803,23 @@ export class Renderer {
           const t=((q1[0]-p1[0])*e1[1]-(q1[1]-p1[1])*e1[0])/den;
           return [p1[0]+d1[0]*t, p1[1]+d1[1]*t];
         };
+        // Wie stark ist ein Weg zu Pflaster festgetreten? Das war bisher eine
+        // harte Schwelle: eine Strasse kippte bei 14 Warengaengen komplett um,
+        // die Nachbarstrasse blieb Trampelpfad - daher das zusammengewuerfelte
+        // Bild. Jetzt ist das Pflaster eine ABNUTZUNGSSCHICHT ueber dem Pfad,
+        // deren Deckkraft mit dem Verkehr waechst. Der Uebergang ist damit
+        // fliessend statt sprunghaft.
+        // Eine Strasse ist eine Einheit von Fahne zu Fahne: der Belag gilt
+        // fuer ihre ganze Laenge. Kein Verlauf entlang des Weges - sonst
+        // waere ein Stueck nur deshalb gepflastert, weil dort zufaellig ein
+        // Traeger oefter hin und her gelaufen ist.
+        const pflast=(r)=> r.hasDonkey? 1 : Math.max(0, Math.min(1, ((r.traffic||0)-6)/26));
+        // Fuer die Knotenkacheln: wie ausgefahren ist es an dieser Fahne?
+        const knotenP=new Map();
+        for(const {r} of wege) for(const nd of [r.path[0], r.path[r.path.length-1]])
+          knotenP.set(nd, Math.max(knotenP.get(nd)||0, pflast(r)));
         for(const {r,pts} of wege){
-          const abgenutzt=(r.traffic||0);
-          const basis=(abgenutzt<14 && !r.hasDonkey)? tDirt : tStr;
+          const deck=pflast(r);
           const N=pts.length;
           const dirs=[];
           for(let k=0;k<N-1;k++){
@@ -2822,7 +2838,7 @@ export class Renderer {
           for(let k=0;k<N-1;k++){
             const [ux,uy,L2]=dirs[k];
             const steil=Math.abs(m.hgt[r.path[k]]-m.hgt[r.path[k+1]])>0.45;
-            const img=steil? tSlope : basis;
+            const img=steil? tSlope : tDirt;
             // An den beiden Enden eines Weges ueber den Knoten hinausziehen:
             // dort stoesst ein anderer Weg an, und ohne Ueberstand klaffte
             // im Band eine Luecke, durch die das Gras schiene.
@@ -2848,7 +2864,18 @@ export class Renderer {
             // Laengsrichtung kachelbar) und laufen ueber Abschnittsgrenzen
             // hinweg durch - deshalb die fortlaufende Phase
             const off=-(phase%bw);
-            for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(img, -bw/2, yy, bw, bw);
+            const kBasis=this.roadKachel(img, steil?'slope':'dirt', zpx(bw));
+            for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(kBasis, -bw/2, yy, bw, bw);
+            // Pflaster als zweite Lage darueber. Weil der Pfad darunter
+            // deckend ist, darf diese Lage halbdurchsichtig sein - dann
+            // schaut zwischen den Steinen noch Erde durch, wie bei einem
+            // halb ausgefahrenen Weg.
+            if(!steil && deck>0.01){
+              g.globalAlpha=deck;
+              const kPfl=this.roadKachel(tStr,'str',zpx(bw));
+              for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(kPfl, -bw/2, yy, bw, bw);
+              g.globalAlpha=1;
+            }
             g.restore();
             phase+=L2;
           }
@@ -2904,8 +2931,13 @@ export class Renderer {
           else { img=kX; rot=arr[0]; }
           if(!img) continue;
           g.save();
+          // Die Knotenkacheln gibt es nur gepflastert. An einem wenig
+          // benutzten Weg wird deshalb nur angedeutet, was an einem
+          // ausgefahrenen voll durchkommt – ein Knotenpunkt tritt sich
+          // ohnehin als Erstes fest.
+          g.globalAlpha=0.35+0.65*(knotenP.get(nd)||0);
           g.translate(nx2,ny2); g.rotate(rot);
-          g.drawImage(img, -js/2, -js/2, js, js);
+          g.drawImage(this.roadKachel(img,'k'+arr.length+(img===tStr?'s':''),zpx(js)), -js/2, -js/2, js, js);
           g.restore();
         }
         g.restore();
@@ -4918,6 +4950,25 @@ export class Renderer {
       t.putImageData(id,0,0);
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
+    return cv;
+  }
+  // Wegekachel in Zielgroesse vorhalten. Die Vorlagen sind 256 Pixel gross,
+  // gezeichnet werden sie mit rund 40 – jedes Bild neu herunterzuskalieren
+  // kostet auf dem Handy spuerbar Zeit. Die Groesse wird in Stufen von acht
+  // Pixeln gerundet, damit beim Zoomen nicht dauernd neu gerechnet wird.
+  roadKachel(img, key, px){
+    if(!img) return null;
+    const s=Math.max(8, Math.min(256, Math.round(px/8)*8));
+    if(!this._rk) this._rk=new Map();
+    const ck=key+'@'+s;
+    let cv=this._rk.get(ck);
+    if(cv) return cv;
+    cv=document.createElement('canvas'); cv.width=s; cv.height=s;
+    const t=cv.getContext('2d');
+    t.imageSmoothingQuality='high';
+    t.drawImage(img,0,0,s,s);
+    if(this._rk.size>60) this._rk.clear();       // Zoomfahrten nicht horten
+    this._rk.set(ck,cv);
     return cv;
   }
   // Platzpflaster mit weich auslaufendem Rand. Die Kachel ist rechteckig;
