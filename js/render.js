@@ -540,11 +540,12 @@ export class Renderer {
         this._shadeTmp=document.createElement('canvas'); this._shadeTmp.width=w; this._shadeTmp.height=h;
       }
       // Zeichenreihenfolge: weiche Böden zuerst, Fels/Lava zuletzt
-      const ORDER=[TER.WATER, TER.SWAMP, TER.GRASS, TER.DESERT, TER.SNOW, TER.MOUNT, TER.LAVA];
+      // Fels wird NICHT weich eingeblendet – er entsteht als flach
+      // schattiertes Facettennetz aus dem Höhenmodell (siehe Facettenpass).
+      const ORDER=[TER.WATER, TER.SWAMP, TER.GRASS, TER.DESERT, TER.SNOW, TER.LAVA];
       const layers=ORDER.filter(t=>perT.has(t)).map(t=>({key:t, nodes:perT.get(t), pat:t}));
-      // Gipfelgrate tragen Firn (fest, geriffelt), die Ebene Tiefschnee
-      if(snowCap.length) layers.push({key:'snow', nodes:snowCap,
-        pat:this.asset('ter_firn')? 'firn' : TER.SNOW, soft:true});
+      // Firn liegt auf den Schneehängen der Ebene; der Fels bekommt seinen
+      // Schnee im Facettenpass
       if(ridgeSnow.length) layers.push({key:'firn', nodes:ridgeSnow,
         pat:this.asset('ter_firn')? 'firn' : TER.SNOW});
       const tex=this._texTmp.getContext('2d');
@@ -618,112 +619,81 @@ export class Renderer {
         g.drawImage(this._blurTmp,0,0);
         g.restore();
       }
-      // Klippen: wo ein Knoten deutlich höher liegt als sein südlicher Nachbar,
-      // steht eine senkrechte Felswand – erst das macht die Höhe wirklich lesbar
+      // ---------- Fels als flach schattiertes Facettennetz ----------
+      // Siedler-2-Prinzip: das Gebirge IST das Höhennetz. Jedes Dreieck
+      // bekommt EINEN flachen Ton aus seiner Flächennormalen, und die Kante
+      // zum Gras folgt den Dreieckskanten statt einer weichen Maske.
+      // Aufgeklebte Felswände entfallen – sie wirkten wie Fremdkörper ohne
+      // Höhenbezug.
       {
-        const cliff=this.asset('ter_cliff');
-        if(cliff){
-          // drei Wandtexturen: nackter Fels, erdiger Abbruch, vereiste Wand
-          if(!this._cliffPats){
-            this._cliffPats={};
-            for(const [k,key,sc] of [['rock','ter_cliff',0.18],['earth','ter_cliffearth',0.18],
-                                     ['snow','ter_cliffsnow',0.18],['lava','ter_cliffLava',0.2],
-                                     ['tall','ter_cliffTall',0.15]]){
-              const im=this.asset(key)||cliff;
-              const p=g.createPattern(im,'repeat');
-              if(p.setTransform) p.setTransform(new DOMMatrix().scale(sc));
-              this._cliffPats[k]=p;
-            }
+        const rockOf=(n)=> m.terr[n]===TER.MOUNT||m.terr[n]===TER.SNOW||m.terr[n]===TER.LAVA;
+        if(!this._rockPats) this._rockPats={};
+        const pats=this._rockPats;
+        const patOf=(key)=>{
+          if(pats[key]!==undefined) return pats[key];
+          const im=this.asset(key);
+          let pt=null;
+          if(im){
+            pt=g.createPattern(im,'repeat');
+            if(pt.setTransform) pt.setTransform(new DOMMatrix().scale(0.30));
           }
-          const topImg=this.asset('ter_cliffTop'), footImg=this.asset('ter_cliffFoot');
-          const coneImg=this.asset('ter_screeCone');
-          // Wandtextur nach dem Gelände OBEN an der Kante. Zur Wiese hin bricht
-          // der Berg erdig ab, im Hochgebirge vereist, im Vulkan basaltig,
-          // sonst nackter Fels. Hohe Abbrüche bekommen die senkrecht
-          // geschichtete Wand – die liest sich auch über zwei Zeilen noch.
-          const wallOf=(t,soft,hi)=> t===TER.LAVA? 'lava' : t===TER.SNOW? 'snow'
-            : hi? 'tall' : soft>=3? 'earth' : 'rock';
+          pats[key]=pt;
+          return pt;
+        };
+        const base=patOf('ter_rock');
+        if(base){
+          const snowY=this.snowLine();
+          const ORE={1:'ter_ore_coal',2:'ter_ore_iron',3:'ter_ore_gold',4:'ter_ore_granite'};
+          const signs=this.game.signs;
           g.save(); g.translate(-c.ox,-c.oy);
+          const facet=(a2,b2,c2)=>{
+            let nr=0;
+            if(rockOf(a2)) nr++;
+            if(rockOf(b2)) nr++;
+            if(rockOf(c2)) nr++;
+            if(nr<2) return;
+            const A=m.worldPos(a2), B=m.worldPos(b2), C=m.worldPos(c2);
+            // Flächennormale im Kartenraum -> EIN Ton für die ganze Facette
+            const ux=m.X(b2)-m.X(a2), uy=m.Y(b2)-m.Y(a2), uz=(m.hgt[b2]-m.hgt[a2])*HSCALE/ROWH;
+            const vx=m.X(c2)-m.X(a2), vy=m.Y(c2)-m.Y(a2), vz=(m.hgt[c2]-m.hgt[a2])*HSCALE/ROWH;
+            let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
+            const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl;
+            if(nz<0){ nx=-nx; ny=-ny; nz=-nz; }
+            // Licht von links oben, in klaren Stufen statt stufenlosem Verlauf
+            let li=(-nx*0.52 - ny*0.60 + nz*0.61);
+            li=Math.max(0, Math.min(1, (li+0.18)/1.05));
+            li=Math.round(li*4)/4;
+            // Welche Kachel? Erz nur dort, wo der Geologe geschürft hat –
+            // sonst verlöre er seine Aufgabe.
+            let key='ter_rock', ore=0;
+            if(signs){
+              for(const q of [a2,b2,c2]){ const v=signs.get(q); if(v){ ore=v; break; } }
+            }
+            const hAvg=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
+            if(ore && ORE[ore]) key=ORE[ore];
+            else if(hAvg>snowY) key='ter_rock_snow';
+            else if(nz<0.62) key='ter_rock_crack';       // steile Flanke: zerklüftet
+            const pat=patOf(key)||base;
+            const path=()=>{ g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]);
+                             g.lineTo(C[0],C[1]); g.closePath(); };
+            g.fillStyle=pat; path(); g.fill();
+            const t2=(li-0.5)*2;
+            g.fillStyle = t2>=0 ? 'rgba(255,248,230,'+(t2*0.56).toFixed(3)+')'
+                                : 'rgba(22,26,40,'+(-t2*0.58).toFixed(3)+')';
+            path(); g.fill();
+            // Facettenkante andeuten, damit die Bänder lesbar bleiben
+            g.strokeStyle='rgba(40,38,34,0.18)'; g.lineWidth=1;
+            path(); g.stroke();
+          };
           for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
             for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
               const i=m.idx(x,y);
-              const ti=m.terr[i];
-              if(ti===TER.WATER) continue;
               const p2=y&1;
-              const sw2=m.inb(x-1+p2,y+1)? m.idx(x-1+p2,y+1) : -1;
-              const se2=m.inb(x+p2,y+1)? m.idx(x+p2,y+1) : -1;
-              // Fels bricht früher ab als Erde; auch Terrassen in der Ebene
-              // bekommen so eine sichtbare Kante statt einer sanften Rampe
-              // Nur Fels bricht senkrecht ab. Auf Wiese und Sand entstünde
-              // sonst mitten in der Ebene eine Lehmwand – genau der Effekt,
-              // der vorher als "braune Rampe" störte.
-              const rocky=(ti===TER.MOUNT||ti===TER.SNOW||ti===TER.LAVA);
-              if(!rocky) continue;
-              // Wie weit ragt der Fels ins Grüne? Nur am äußeren Saum des
-              // Gebirges bricht er erdig ab – mitten im Fels wäre eine
-              // Lehmwand ein Fremdkörper.
-              let soft=0;
-              for(const q of m.nbs(i)) if(m.terr[q]===TER.GRASS||m.terr[q]===TER.SWAMP) soft++;
-              for(const n of [sw2,se2]){
-                if(n<0 || m.terr[n]===TER.WATER) continue;
-                const drop=(m.hgt[i]-m.hgt[n])*HSCALE;
-                if(drop<15) continue;
-                const [ax,ay]=m.worldPos(i);
-                let [bx,by]=m.worldPos(n);
-                // Sehr große Höhenunterschiede (Berghang zur Ebene) würden
-                // eine riesige schräge Fläche ergeben, die wie eine Rampe quer
-                // über die Karte liegt. Die Wand wird deshalb auf eine
-                // glaubwürdige Absatzhöhe begrenzt – den Rest übernimmt das
-                // Gelände selbst.
-                // Fels darf hoch aufragen, der erdige Saum zum Wiesental
-                // bleibt flach – sonst steht dort eine Lehmwand in der Ebene
-                const tallWall = drop>ROWH*1.15;
-                const wk=wallOf(ti, soft, tallWall);
-                const MAXWALL= wk==='earth'? ROWH*0.95 : ROWH*2.1;
-                if(drop>MAXWALL){ const f=MAXWALL/drop; bx=ax+(bx-ax)*f; by=ay+(by-ay)*f; }
-                // die Wand bekommt eine leicht unruhige Ober- und Unterkante,
-                // sonst stapeln sich die Absätze zu einer Treppe aus Rechtecken
-                const j1=(hash01(i*31+n)-0.5)*7, j2=(hash01(n*17+i)-0.5)*7;
-                const j3=(hash01(i*53+7)-0.5)*6, j4=(hash01(n*41+3)-0.5)*6;
-                const hw=TILE*0.52;
-                const wall=()=>{
-                  g.beginPath();
-                  g.moveTo(ax-hw, ay+2+j1);
-                  g.quadraticCurveTo(ax, ay+1+j3, ax+hw, ay+2+j2);
-                  g.lineTo(bx+hw, by+2+j4);
-                  g.quadraticCurveTo(bx, by+3+j1, bx-hw, by+2+j3);
-                  g.closePath();
-                };
-                g.fillStyle=this._cliffPats[wk];
-                wall(); g.fill();
-                // Oberkante hell, Fuß dunkel -> die Wand steht im Licht
-                const gr=g.createLinearGradient(0,ay,0,by);
-                gr.addColorStop(0,'rgba(255,246,224,0.22)');
-                gr.addColorStop(0.35,'rgba(0,0,0,0)');
-                gr.addColorStop(1,'rgba(24,20,16,0.42)');
-                g.fillStyle=gr; wall(); g.fill();
-                // Abbruchkante oben und Geröllsaum unten säumen die Wand.
-                // Bewusst breiter als eine Kachel, damit benachbarte Wände
-                // einen durchgehenden Saum ergeben statt gestrichelter Striche.
-                const put=(img,mx,my,ww,al)=>{
-                  if(!img) return;
-                  const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
-                  const hp=ww*(ih/Math.max(1,iw));
-                  g.globalAlpha=al;
-                  g.drawImage(img, mx-ww/2, my-hp*0.5, ww, hp);
-                  g.globalAlpha=1;
-                };
-                // Grasnarbe nur über erdigen Abbrüchen – auf nacktem Fels
-                // lägen sonst grüne Streifen im Stein. Geröll sammelt sich
-                // dezent am Wandfuß.
-                // Grasnarbe säumt nur die Kante zum Wiesental, Geröll den Fuß
-                const grassy=(m.terr[n]===TER.GRASS||m.terr[n]===TER.SWAMP);
-                if(grassy) put(topImg, ax, ay+2, TILE*1.4, 0.7);
-                // Am Fuß hoher Wände sammelt sich ein Schuttkegel, an
-                // flachen Absätzen nur ein dünner Geröllsaum
-                if(tallWall && coneImg && hash01(i*83+n)>0.45) put(coneImg, bx, by+3, TILE*1.5, 0.8);
-                else if(drop>26) put(footImg, bx, by+3, TILE*1.3, grassy?0.55:0.4);
-              }
+              const iE = x+1<m.w ? m.idx(x+1,y) : i;
+              const iSW = m.inb(x-1+p2,y+1)? m.idx(x-1+p2,y+1) : i;
+              const iSE = m.inb(x+p2,y+1)? m.idx(x+p2,y+1) : i;
+              facet(i,iE,iSE);
+              facet(i,iSE,iSW);
             }
           }
           g.restore();
@@ -3344,6 +3314,31 @@ export class Renderer {
       g.beginPath(); g.ellipse(x,y+2, big?36:def.size==='M'?29:23, big?11:9, 0, 0, 7); g.fill();
       this.shadow(g,x+11,y+5, big?40:def.size==='M'?32:25, big?9:7, 0.24);
     }
+    // Festgetretener Boden rund um jedes Gebäude. Ohne ihn steht das Haus
+    // wie ausgeschnitten auf der Wiese; der Saum bindet es ein.
+    if(b.state==='done' || b.leveled){
+      const R = big?34 : def.size==='M'?27 : def.size==='MINE'?20 : 22;
+      const pad=g.createRadialGradient(x,y+3,R*0.30, x,y+3,R);
+      pad.addColorStop(0,'rgba(122,102,72,0.34)');
+      pad.addColorStop(0.55,'rgba(122,102,72,0.20)');
+      pad.addColorStop(1,'rgba(122,102,72,0)');
+      g.fillStyle=pad;
+      g.beginPath(); g.ellipse(x,y+3, R, R*0.42, 0,0,7); g.fill();
+      // ein paar Grasbüschel am Rand verzahnen den Saum mit der Wiese
+      if(this.theme!=='winter' && this.theme!=='wueste'){
+        for(let k=0;k<6;k++){
+          const a2=hash01(b.id*13+k)*6.283;
+          const rr=R*(0.72+hash01(b.id*17+k)*0.3);
+          const gx=x+Math.cos(a2)*rr, gy=y+3+Math.sin(a2)*rr*0.42;
+          g.strokeStyle= k%2? 'rgba(92,124,56,0.5)':'rgba(116,144,66,0.44)';
+          g.lineWidth=1.1;
+          g.beginPath();
+          g.moveTo(gx-1.2,gy+0.8); g.quadraticCurveTo(gx-1,gy-1.8,gx-0.3,gy-2.8);
+          g.moveTo(gx+0.6,gy+0.8); g.quadraticCurveTo(gx+0.9,gy-2,gx+1.6,gy-2.9);
+          g.stroke();
+        }
+      }
+    }
     // Baustellen-Phasen aus dem Asset-Paket: Planierung + 3 Baufortschritte je Größe
     const sizeKey= (def.size==='L'||b.type==='hq') ? 'l' : def.size==='S' ? 's' : 'm';
     // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
@@ -4620,100 +4615,28 @@ export class Renderer {
     }
   }
   // Grenzpfosten: weißer Pfahl mit Ringen in Spielerfarbe
-  // Der gemalte Grenzstein trägt ein weißes Wappenschild – das wird einmalig
-  // je Spieler eingefärbt und dann als fertiges Bild gezeichnet.
-  postTinted(pl){
-    const img=this.asset('obj_borderpost');
-    if(!img) return null;
-    if(!this._postT) this._postT=new Map();
-    let cv=this._postT.get(pl);
-    if(cv!==undefined) return cv;
-    const w=img.naturalWidth, h=img.naturalHeight;
-    cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-    const t=cv.getContext('2d',{willReadFrequently:true});
-    t.drawImage(img,0,0);
-    try{
-      const id=t.getImageData(0,0,w,h), d=id.data;
-      const col=toArr(PLAYER_COLORS[pl]||'#888');
-      for(let p2=0;p2<d.length;p2+=4){
-        if(d[p2+3]<8) continue;
-        const y=((p2/4)/w)|0;
-        const fy=y/h;
-        const r=d[p2], gg=d[p2+1], b=d[p2+2];
-        const l=(0.3*r+0.59*gg+0.11*b)/255;
-        // Erdhaufen am Fuß ausblenden – der Pfahl steckt einfach im Boden
-        if(fy>0.86){ d[p2+3]=Math.round(d[p2+3]*Math.max(0,(1-(fy-0.86)/0.14))); }
-        // Kappe oben und Sockel unten bleiben weiß, der Schaft trägt die
-        // Spielerfarbe – so ist der Besitzer auch von weitem lesbar
-        if(fy<0.12 || (fy>0.72 && fy<0.84)){
-          const v=Math.min(255, 190+l*90);
-          d[p2]=v; d[p2+1]=v; d[p2+2]=Math.min(255,v*0.99);
-          continue;
-        }
-        d[p2]  = Math.min(255, col[0]*(0.45+l*0.85));
-        d[p2+1]= Math.min(255, col[1]*(0.45+l*0.85));
-        d[p2+2]= Math.min(255, col[2]*(0.45+l*0.85));
-      }
-      t.putImageData(id,0,0);
-    }catch(_){ cv=null; }
-    this._postT.set(pl,cv);
-    return cv;
-  }
-  // Grenzstein: geschnitzter Holzpfahl mit Wappenschild in Spielerfarbe.
-  // Passt zum handgemalten Stil der Gebäude – kein technischer Absperrpfosten.
+  // Grenzpfosten: schlichter weißer Steckpfosten mit einem breiten,
+  // umlaufenden Band in der Farbe des Gebietsbesitzers. Bewusst einfach –
+  // er markiert die Grenze, ohne die Aufmerksamkeit zu stehlen.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
-    const tint=this.postTinted(pl);
-    if(tint){
-      const hh=this.scaleOf('obj_borderpost',26), ww=hh*(tint.width/tint.height);
-      this.shadow(g,x+2.4,y+1.2,ww*0.34,1.7,0.3);
-      g.drawImage(tint, x-ww/2, y+2-hh, ww, hh);
-      return;
-    }
     const col=PLAYER_COLORS[pl]||'#999';
-    const H=17;
-    this.shadow(g,x+2.2,y+1.4,4.2,1.6,0.28);
-    // Erdhügel, in dem der Pfahl steckt
-    g.fillStyle='rgba(84,74,52,0.55)';
-    g.beginPath(); g.ellipse(x,y+0.6,3.6,1.5,0,0,7); g.fill();
-    // Pfahl: unten breiter, oben leicht verjüngt (geschnitzt, nicht gedrechselt)
-    g.beginPath();
-    g.moveTo(x-2.3,y+0.4); g.lineTo(x-1.7,y-H); g.lineTo(x+1.7,y-H); g.lineTo(x+2.3,y+0.4);
-    g.closePath();
-    const wg=g.createLinearGradient(x-2.3,0,x+2.3,0);
-    wg.addColorStop(0,'#a9834f'); wg.addColorStop(0.42,'#8d6a3c'); wg.addColorStop(1,'#65492a');
-    g.fillStyle=wg; g.fill();
-    g.strokeStyle='rgba(48,34,20,0.55)'; g.lineWidth=0.7; g.stroke();
-    // Maserung
-    g.strokeStyle='rgba(60,42,24,0.3)'; g.lineWidth=0.5;
-    g.beginPath(); g.moveTo(x-0.5,y-1.5); g.lineTo(x-0.3,y-H+2); g.stroke();
-    // Kappe
-    g.fillStyle='#b8905a';
-    g.beginPath(); g.ellipse(x,y-H,2.2,0.9,0,0,7); g.fill();
-    g.strokeStyle='rgba(48,34,20,0.5)'; g.lineWidth=0.6; g.stroke();
-    // Wappenschild in Spielerfarbe, leicht schräg angenagelt
-    g.save();
-    g.translate(x,y-H+6.6);
-    g.rotate(0.06);
-    g.beginPath();
-    g.moveTo(-3.5,-4.2); g.lineTo(3.5,-4.2); g.lineTo(3.5,0.6);
-    g.quadraticCurveTo(3.4,3.6, 0,4.9);
-    g.quadraticCurveTo(-3.4,3.6, -3.5,0.6);
-    g.closePath();
-    g.fillStyle=col; g.fill();
-    g.strokeStyle='rgba(36,28,16,0.65)'; g.lineWidth=0.8; g.stroke();
-    // Glanzkante und heller Sparren – liest sich auch klein noch als Wappen
-    g.fillStyle='rgba(255,255,255,0.3)';
-    g.beginPath();
-    g.moveTo(-3.5,-4.2); g.lineTo(0,-4.2); g.lineTo(0,4.7);
-    g.quadraticCurveTo(-3.2,3.4,-3.5,0.6);
-    g.closePath(); g.fill();
-    g.strokeStyle='rgba(255,246,214,0.75)'; g.lineWidth=1;
-    g.beginPath(); g.moveTo(-2.4,1.1); g.lineTo(0,-1.4); g.lineTo(2.4,1.1); g.stroke();
-    // Nägel
-    g.fillStyle='rgba(60,50,34,0.7)';
-    g.beginPath(); g.arc(-2.4,-3,0.5,0,7); g.arc(2.4,-3,0.5,0,7); g.fill();
-    g.restore();
+    const H=16, W=4.4;
+    this.shadow(g, x+2, y+1.2, 3.4, 1.3, 0.28);
+    const wg=g.createLinearGradient(x-W/2,0,x+W/2,0);
+    wg.addColorStop(0,'#ffffff'); wg.addColorStop(0.55,'#f1efe7'); wg.addColorStop(1,'#c7c4b9');
+    g.fillStyle=wg;
+    g.fillRect(x-W/2, y-H, W, H);
+    // breites Band in Spielerfarbe
+    g.fillStyle=col;
+    g.fillRect(x-W/2, y-H*0.66, W, H*0.34);
+    // abgewandte Seite dunkler -> der Pfosten wirkt rund
+    g.fillStyle='rgba(0,0,0,0.20)';
+    g.fillRect(x+W*0.14, y-H*0.66, W*0.36, H*0.34);
+    g.fillStyle='#ffffff';
+    g.beginPath(); g.ellipse(x, y-H, W*0.6, W*0.3, 0,0,7); g.fill();
+    g.strokeStyle='rgba(70,68,60,0.45)'; g.lineWidth=0.7;
+    g.strokeRect(x-W/2, y-H, W, H);
   }
   // ---------- Minimap ----------
   drawMinimap(cv, cam){

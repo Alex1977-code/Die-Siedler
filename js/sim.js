@@ -164,6 +164,24 @@ export class Game {
         if(open<need) return {ok:false, r:`Zu wenig Freifläche ringsum (${open}/${need} Felder)`};
       }
     }
+    // Abstand zu bestehenden Gebäuden: große Bauten (Burg, Festung, Hof)
+    // brauchen einen Knoten mehr Luft, sonst schiebt sich der Nachbar
+    // optisch unter ihr Dach.
+    {
+      const bigSelf = def.size==='L' || type==='hq';
+      for(const n of this.nodesInRange(node, 2)){
+        if(n===node) continue;
+        const id=m.bld[n];
+        if(id<0) continue;
+        const ob=this.buildings.get(id);
+        if(!ob) continue;
+        const od=BLD[ob.type];
+        const bigOther = od && (od.size==='L' || ob.type==='hq');
+        const need = (bigSelf||bigOther) ? 2 : 1;
+        const d=m.bfsDist(node, n, 3);
+        if(d<need) return {ok:false, r:'Zu dicht am Nachbargebäude'};
+      }
+    }
     const door=this.pickDoor(node);
     if(door<0) return {ok:false, r:'Kein Platz für die Fahne'};
     return {ok:true};

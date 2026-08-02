@@ -208,10 +208,12 @@ export class UI {
       <div id="hud-top">
         <button id="g-menu" class="hbtn" title="Menü"></button>
         <div id="res-bar"></div>
-        <button id="g-speed" class="hbtn">1×</button>
         <button id="g-pause" class="hbtn"></button>
       </div>
-      <div id="unit-bar"></div>
+      <div id="goods-row">
+        <div id="unit-bar"></div>
+        <button id="g-speed" class="hbtn">1×</button>
+      </div>
       <div id="objectives" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
       <div id="minimap-wrap"><canvas id="minimap" width="140" height="140"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>

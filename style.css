@@ -107,26 +107,29 @@ h1::after{
 #scr-game{ overflow:hidden; }
 #cv{ position:absolute; inset:0; touch-action:none; }
 /* Titelbanner: blaues Wimpelband mit Goldkante, mittig über dem HUD */
+/* Titelbanner über die gesamte Breite, unten mit Wimpelzacken */
 #title-banner{
-  position:absolute; top:calc(2px + env(safe-area-inset-top)); left:50%;
-  transform:translateX(-50%); z-index:5; pointer-events:none;
-  padding:2px 26px 3px;
-  background:linear-gradient(#3f6fb4,#27497e 62%,#1d3860);
-  border:1px solid #c9a05a;
-  border-top:none;
-  border-radius:0 0 6px 6px;
-  box-shadow:0 3px 9px rgba(0,0,0,0.45), inset 0 -1px 0 rgba(255,255,255,0.14);
-  clip-path:polygon(0 0, 100% 0, 100% 100%, 88% 72%, 12% 72%, 0 100%);
+  position:absolute; top:0; left:0; right:0; z-index:5; pointer-events:none;
+  padding:calc(2px + env(safe-area-inset-top)) 0 4px;
+  text-align:center;
+  background:linear-gradient(#3f6fb4,#27497e 62%,#1b3358);
+  border-bottom:2px solid #c9a05a;
+  box-shadow:0 3px 12px rgba(0,0,0,0.5), inset 0 -1px 0 rgba(255,255,255,0.14);
 }
 #title-banner span{
   font-family:Georgia,'Times New Roman',serif;
-  font-size:15px; letter-spacing:0.20em; font-weight:700;
-  color:#f2d98c; text-shadow:0 1px 2px rgba(0,0,0,0.75);
-  display:block; padding-bottom:5px;
+  font-size:16px; letter-spacing:0.26em; font-weight:700;
+  color:#f2d98c; text-shadow:0 1px 2px rgba(0,0,0,0.8);
+  display:block;
+}
+/* Warenzeile: Leiste plus Geschwindigkeit rechts */
+#goods-row{
+  position:absolute; top:calc(72px + env(safe-area-inset-top)); left:8px; right:8px;
+  display:flex; gap:8px; align-items:center; z-index:4;
 }
 #hud-top{
   position:absolute; top:0; left:0; right:0;
-  padding:calc(30px + env(safe-area-inset-top)) 8px 6px;
+  padding:calc(28px + env(safe-area-inset-top)) 8px 6px;
   display:flex; gap:8px; align-items:center;
   background:linear-gradient(rgba(10,14,22,0.85), rgba(10,14,22,0));
   pointer-events:none;
@@ -178,13 +181,14 @@ h1::after{
 .stock-ic{ width:26px; height:26px; object-fit:contain; }
 /* untere Leiste über die volle Breite: die angehefteten Waren */
 #unit-bar{
-  position:absolute; top:calc(72px + env(safe-area-inset-top)); left:8px; right:8px;
+  flex:1; min-width:0;
   display:flex; gap:6px; align-items:center; justify-content:flex-start;
   padding:3px 7px; border-radius:11px; font-size:13px; white-space:nowrap;
   background:rgba(20,30,44,0.72); border:1px solid rgba(201,160,90,0.28);
-  overflow-x:auto; scrollbar-width:none; cursor:pointer; z-index:4;
+  overflow-x:auto; scrollbar-width:none; cursor:pointer;
   box-shadow:0 2px 8px rgba(0,0,0,0.3);
 }
+#goods-row #g-speed{ flex:0 0 auto; min-width:44px; height:32px; font-size:14px; border-radius:11px; }
 #unit-bar .res-ic{ width:15px; height:15px; }
 #unit-bar::-webkit-scrollbar{ display:none; }
 #unit-bar span{ display:inline-flex; gap:2px; align-items:center; }

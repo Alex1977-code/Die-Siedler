@@ -240,20 +240,23 @@ export function genWorld(opts){
       const X=map.X(i), Y=map.Y(i);
       hv=(e-SEA)*AMP + detail(X,Y)*2.1;                  // gewellte Ebene
       if(sp>0){
-        hv += Math.pow(sp,0.72)*9.5                       // Kammhöhe
-            + Math.pow(sp,2.2)*5.0;                       // Gipfel überhöht
+        // Deutlich flacher als zuvor: ein Knoten darf höchstens rund vier
+        // Bildzeilen nach oben rutschen, sonst schiebt sich der Berg über
+        // die Reihen dahinter und Wasser landet optisch auf dem Gipfel.
+        hv += Math.pow(sp,0.72)*4.4                       // Kammhöhe
+            + Math.pow(sp,2.2)*2.0;                       // Gipfel überhöht
       }
     }
     // Fels wird nur GANZ leicht terrassiert. Starke Rasterung ließ den Berg
     // wie ein Amphitheater aussehen; ein Grat lebt von der durchgehenden
     // Flanke, die Absätze setzt der Renderer als Klippen obendrauf.
+    // Fels rastet auf GANZE Höhenstufen ein – so wie in Siedler 2. Erst
+    // dadurch entstehen die klar getrennten Facettenbänder, aus denen das
+    // Gebirge gelesen wird; Zwischenhöhen verwischen sie.
     const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
-    const step = rocky? 1.10 : 0.42;
-    const q    = rocky? 0.34 : 0.14;
-    // Der Rasterpunkt wandert mit einem groben Rauschen – dadurch mäandern die
-    // Absätze, statt als kerzengerade Höhenlinien quer über den Berg zu laufen
-    const jit  = rocky? (sample(grids[3], map.X(i)*3.3+41, map.Y(i)*3.3+77)-0.5)*0.9 : 0;
-    map.hgt[i] = hv*(1-q) + (Math.round(hv/step + jit)-jit)*step*q;
+    const step = rocky? 0.55 : 0.42;
+    const q    = rocky? 1.00 : 0.14;
+    map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
   }
 
   // ---- Wälder ----
