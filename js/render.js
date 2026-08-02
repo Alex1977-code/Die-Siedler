@@ -2687,6 +2687,50 @@ export class Renderer {
     for(const b of game.buildings.values())
       if(b.door!=null && b.door>=0 && m.flag[b.door] && !this._doorMap.has(b.door))
         this._doorMap.set(b.door, b);
+    // Wieviele Straßen treffen sich an welchem Knoten, und aus welcher
+    // Richtung? Daraus wählt sich unten die passende Kreuzungskachel.
+    {
+      const lk=new Map();
+      for(const r2 of game.roads.values()){
+        if(r2.isSea) continue;
+        const pp=r2.path;
+        for(let k=0;k<pp.length;k++){
+          const nd=pp[k];
+          let arr=lk.get(nd);
+          if(!arr){ arr=[]; lk.set(nd,arr); }
+          const [nx2,ny2]=m.worldPos(nd);
+          for(const nb of [pp[k-1], pp[k+1]]){
+            if(nb===undefined) continue;
+            const [qx,qy]=m.worldPos(nb);
+            const a3=Math.atan2(qy-ny2, qx-nx2);
+            // Richtungen zusammenfassen, damit zwei Straßen über denselben
+            // Knoten nicht doppelt zählen
+            if(!arr.some(v=>{ let d=Math.abs(v-a3); if(d>Math.PI) d=Math.PI*2-d; return d<0.25; }))
+              arr.push(a3);
+          }
+        }
+      }
+      this._roadLinks=lk;
+    }
+    // Plätze: große Lagerbauten stehen auf gepflastertem Grund
+    {
+      const pl=this.asset('road_plaza');
+      if(pl) for(const b of game.buildings.values()){
+        const def=BLD[b.type];
+        if(!def || !def.store || b.state!=='done') continue;
+        const [px,py]=m.worldPos(b.node);
+        if(px<wx0-120||px>wx1+120||py<wy0-120||py>wy1+120) continue;
+        const sz=TILE*(b.type==='hq'? 2.5 : 1.9);
+        g.save();
+        g.globalAlpha=0.85;
+        g.translate(px,py+4);
+        g.scale(1,0.62);                      // flach auf den Boden gelegt
+        g.rotate(hash01(b.id)*1.6);
+        g.drawImage(pl,-sz/2,-sz/2,sz,sz);
+        g.restore();
+        g.globalAlpha=1;
+      }
+    }
     // Straßen: sanft geschwungen und gepflastert
     for(const r of game.roads.values()){
       const pts=this.roadPts(r);
@@ -2716,7 +2760,44 @@ export class Renderer {
       const rtile=this.asset('road_str');
       if(rtile){
         const slopeT=this.asset('road_slope')||rtile;
+        // Frisch gebaute Wege sind Trampelpfade. Erst wenn genug Waren
+        // darüber gegangen sind, ist der Boden zu Pflaster festgetreten –
+        // eine gewachsene Handelsroute sieht man ihr an.
+        const dirtT=this.asset('road_dirt');
+        const worn=(r.traffic||0);
+        const baseT = (dirtT && worn<14 && !r.hasDonkey) ? dirtT : rtile;
         const nodes=r.path;
+        // Knotenteller ZUERST: an Kreuzungen ist der Boden auf ganzer Breite
+        // ausgetreten. Die geraden Kacheln legen sich danach darüber, deshalb
+        // stört es nicht, dass die Arme der Kachel nicht exakt auf den
+        // Sechseck-Winkeln liegen – sichtbar bleibt nur die breite Mitte.
+        for(let k=0;k<nodes.length;k++){
+          const nd=nodes[k];
+          const links=this._roadLinks && this._roadLinks.get(nd);
+          if(!links || !links.length) continue;
+          if(links.__done) continue;
+          links.__done=true;                       // jeder Knoten nur einmal
+          const cnt=links.length;
+          let key=null;
+          if(cnt===1) key='road_end';
+          else if(cnt===2){
+            // Knick? Bei annähernd gerader Durchfahrt braucht es nichts.
+            let d=Math.abs(links[0]-links[1]);
+            if(d>Math.PI) d=Math.PI*2-d;
+            if(Math.abs(d-Math.PI)>0.5) key='road_cur';
+          }
+          else if(cnt===3) key= this.asset('road_y')? 'road_y' : 'road_t';
+          else key='road_x';
+          const jimg=key && this.asset(key);
+          if(!jimg) continue;
+          const [nx2,ny2]=m.worldPos(nd);
+          const sz=TILE*(cnt>=3? 0.62 : 0.5);
+          g.save();
+          g.translate(nx2,ny2);
+          g.rotate(links[0]-Math.PI/2);
+          g.drawImage(jimg, -sz/2, -sz/2, sz, sz);
+          g.restore();
+        }
         for(let k=0;k<nodes.length-1;k++){
           const a2=nodes[k], b2=nodes[k+1];
           const [ax,ay]=m.worldPos(a2), [bx,by]=m.worldPos(b2);
@@ -2724,7 +2805,7 @@ export class Renderer {
           const len=Math.hypot(dx,dy)||1;
           // steile Verbindung -> Stufenkachel
           const steep=Math.abs(m.hgt[a2]-m.hgt[b2])>0.45;
-          const img=steep? slopeT : rtile;
+          const img=steep? slopeT : baseT;
           g.save();
           g.translate((ax+bx)/2,(ay+by)/2);
           g.rotate(Math.atan2(dy,dx)-Math.PI/2);     // Kachel läuft senkrecht
