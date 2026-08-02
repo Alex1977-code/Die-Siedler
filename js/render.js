@@ -566,33 +566,33 @@ export class Renderer {
           tex.globalAlpha=1;
         }
         tex.restore();
-        // weiche Maske aus überlappenden Knotenkreisen (breiter Saum = Übergang)
+        // Maske aus den Zellen der Knoten, nicht aus Kreisen. Kreise ließen
+        // die Küste als Kette von Halbmonden erscheinen; die (verzerrten)
+        // Sechsecke stoßen lückenlos aneinander und ergeben eine
+        // durchgehende, unregelmäßige Uferlinie.
         mk.globalCompositeOperation='source-over';
         mk.clearRect(0,0,w,h);
         mk.save(); mk.translate(-c.ox,-c.oy);
-        const R = L.soft? 46 : 50;
+        mk.fillStyle='#fff';
+        const RC = L.soft? 34 : 40;                    // Zellradius (überlappt leicht)
         for(const i of L.nodes){
           const [px,py]=m.worldPos(i);
-          const wob=1+0.14*Math.sin(i*2.399);          // leicht unrunde Ränder
-          const rad=mk.createRadialGradient(px,py,L.soft?2:10,px,py,R*wob);
-          if(L.soft){
-            // Schnee läuft sehr weich aus -> Kappe statt weißer Kugel
-            rad.addColorStop(0,'rgba(255,255,255,0.9)');
-            rad.addColorStop(0.4,'rgba(255,255,255,0.55)');
-            rad.addColorStop(0.75,'rgba(255,255,255,0.2)');
-            rad.addColorStop(1,'rgba(255,255,255,0)');
-          } else {
-            rad.addColorStop(0,'rgba(255,255,255,1)');
-            rad.addColorStop(0.52,'rgba(255,255,255,0.98)');
-            rad.addColorStop(0.82,'rgba(255,255,255,0.6)');
-            rad.addColorStop(1,'rgba(255,255,255,0)');
+          mk.beginPath();
+          for(let k=0;k<7;k++){
+            const a2=k*Math.PI/3 + hash01(i*11+1)*0.6;
+            // jede Ecke einzeln ausgebeult -> die Ränder franst nie regelmäßig aus
+            const rr=RC*(0.82+hash01(i*17+k*5)*0.46);
+            const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.86;
+            if(k===0) mk.moveTo(qx,qy); else mk.lineTo(qx,qy);
           }
-          mk.fillStyle=rad;
-          mk.beginPath(); mk.arc(px,py,R*wob,0,7); mk.fill();
+          mk.closePath(); mk.fill();
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
+        // der weiche Saum entsteht beim Auftragen der Maske, nicht in der Form
+        if('filter' in tex) tex.filter= L.soft? 'blur(13px)' : 'blur(7px)';
         tex.drawImage(this._maskTmp,0,0);
+        tex.filter='none';
         tex.globalCompositeOperation='source-over';
         g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
         g.drawImage(this._texTmp,0,0);
@@ -625,17 +625,23 @@ export class Renderer {
           // drei Wandtexturen: nackter Fels, erdiger Abbruch, vereiste Wand
           if(!this._cliffPats){
             this._cliffPats={};
-            for(const [k,key] of [['rock','ter_cliff'],['earth','ter_cliffearth'],['snow','ter_cliffsnow']]){
+            for(const [k,key,sc] of [['rock','ter_cliff',0.18],['earth','ter_cliffearth',0.18],
+                                     ['snow','ter_cliffsnow',0.18],['lava','ter_cliffLava',0.2],
+                                     ['tall','ter_cliffTall',0.15]]){
               const im=this.asset(key)||cliff;
               const p=g.createPattern(im,'repeat');
-              if(p.setTransform) p.setTransform(new DOMMatrix().scale(0.18));
+              if(p.setTransform) p.setTransform(new DOMMatrix().scale(sc));
               this._cliffPats[k]=p;
             }
           }
           const topImg=this.asset('ter_cliffTop'), footImg=this.asset('ter_cliffFoot');
+          const coneImg=this.asset('ter_screeCone');
           // Wandtextur nach dem Gelände OBEN an der Kante. Zur Wiese hin bricht
-          // der Berg erdig ab, im Hochgebirge vereist, sonst nackter Fels.
-          const wallOf=(t,soft)=> t===TER.SNOW? 'snow' : soft>=3? 'earth' : 'rock';
+          // der Berg erdig ab, im Hochgebirge vereist, im Vulkan basaltig,
+          // sonst nackter Fels. Hohe Abbrüche bekommen die senkrecht
+          // geschichtete Wand – die liest sich auch über zwei Zeilen noch.
+          const wallOf=(t,soft,hi)=> t===TER.LAVA? 'lava' : t===TER.SNOW? 'snow'
+            : hi? 'tall' : soft>=3? 'earth' : 'rock';
           g.save(); g.translate(-c.ox,-c.oy);
           for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
             for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
@@ -668,7 +674,11 @@ export class Renderer {
                 // über die Karte liegt. Die Wand wird deshalb auf eine
                 // glaubwürdige Absatzhöhe begrenzt – den Rest übernimmt das
                 // Gelände selbst.
-                const MAXWALL=ROWH*1.6;
+                // Fels darf hoch aufragen, der erdige Saum zum Wiesental
+                // bleibt flach – sonst steht dort eine Lehmwand in der Ebene
+                const tallWall = drop>ROWH*1.15;
+                const wk=wallOf(ti, soft, tallWall);
+                const MAXWALL= wk==='earth'? ROWH*0.95 : ROWH*2.1;
                 if(drop>MAXWALL){ const f=MAXWALL/drop; bx=ax+(bx-ax)*f; by=ay+(by-ay)*f; }
                 // die Wand bekommt eine leicht unruhige Ober- und Unterkante,
                 // sonst stapeln sich die Absätze zu einer Treppe aus Rechtecken
@@ -683,7 +693,7 @@ export class Renderer {
                   g.quadraticCurveTo(bx, by+3+j1, bx-hw, by+2+j3);
                   g.closePath();
                 };
-                g.fillStyle=this._cliffPats[wallOf(ti, soft)];
+                g.fillStyle=this._cliffPats[wk];
                 wall(); g.fill();
                 // Oberkante hell, Fuß dunkel -> die Wand steht im Licht
                 const gr=g.createLinearGradient(0,ay,0,by);
@@ -708,7 +718,10 @@ export class Renderer {
                 // Grasnarbe säumt nur die Kante zum Wiesental, Geröll den Fuß
                 const grassy=(m.terr[n]===TER.GRASS||m.terr[n]===TER.SWAMP);
                 if(grassy) put(topImg, ax, ay+2, TILE*1.4, 0.7);
-                if(drop>26) put(footImg, bx, by+3, TILE*1.3, grassy?0.55:0.4);
+                // Am Fuß hoher Wände sammelt sich ein Schuttkegel, an
+                // flachen Absätzen nur ein dünner Geröllsaum
+                if(tallWall && coneImg && hash01(i*83+n)>0.45) put(coneImg, bx, by+3, TILE*1.5, 0.8);
+                else if(drop>26) put(footImg, bx, by+3, TILE*1.3, grassy?0.55:0.4);
               }
             }
           }
@@ -724,8 +737,11 @@ export class Renderer {
         const sandImg=this.fadedBrush('trans_sand'), foamImg=this.fadedBrush('trans_foam');
         // Der Pinsel sitzt mit seiner geschlossenen Seite auf dem Ausgangs-
         // gelände; nur der ausgefranste Teil ragt über die Grenze.
-        const put=(img,mx2,my2,ang,hh2,alpha,jit)=>{
-          const ww2=hh2*((img.naturalWidth||img.width)/(img.naturalHeight||img.height));
+        // Der Pinsel wird quer zur Grenze GESTRECHT: so entsteht ein Saum,
+        // der der Uferlinie folgt, statt einer Kette runder Kleckse.
+        const put=(img,mx2,my2,ang,hh2,alpha,jit,wide=1.85)=>{
+          const ar=(img.naturalWidth||img.width)/(img.naturalHeight||img.height);
+          const ww2=hh2*ar*wide;
           g.save();
           g.translate(mx2,my2);
           g.rotate(ang+jit);
@@ -749,13 +765,13 @@ export class Renderer {
               const ang=Math.atan2(by-ay, bx-ax)-Math.PI/2;
               const hsh=hash01(i*17+n);
               if(t!==TER.WATER && tn===TER.WATER){
-                const jit=(hsh-0.5)*0.5;
-                if(sandImg){ put(sandImg, mx2-(bx-ax)*0.06, my2-(by-ay)*0.06, ang, 58+hsh*18, 0.5, jit); any=true; }
-                if(foamImg){ put(foamImg, mx2+(bx-ax)*0.20, my2+(by-ay)*0.20, ang, 34+hsh*10, 0.4, -jit); any=true; }
+                const jit=(hsh-0.5)*0.22;              // nur leicht kippen: der Saum folgt der Kante
+                if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.55, jit, 2.3); any=true; }
+                if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 21+hsh*6, 0.45, -jit, 2.5); any=true; }
               } else if(t!==TER.WATER && tn!==TER.WATER){
                 const key=BRUSH[t];
                 const img=key? this.fadedBrush(key) : null;
-                if(img){ put(img, mx2, my2, ang, 46+hsh*16, 0.36, (hsh-0.5)*0.5); any=true; }
+                if(img){ put(img, mx2, my2, ang, 30+hsh*10, 0.4, (hsh-0.5)*0.25, 2.1); any=true; }
               }
             }
           }
@@ -2452,24 +2468,53 @@ export class Renderer {
       const i=m.idx(x,y);
       if(m.terr[i]!==TER.WATER || !m.explored[i] || m.fish[i]<2) continue;
       const [px,py]=m.worldPos(i);
-      const n=Math.min(5, 1+Math.floor(m.fish[i]/2));
+      const n=Math.min(9, 3+Math.floor(m.fish[i]/1.4));
       // der Schwarm zieht auf einer kleinen Ellipse um den Knoten
       const t=this.time/2600 + hash01(i)*6.28;
       const cx3=px+Math.cos(t)*15, cy3=py+Math.sin(t)*8;
       const head=Math.atan2(Math.cos(t)*8, -Math.sin(t)*15);
+      const simg=this.asset('fx_school');
+      if(simg){
+        const hh=17+Math.min(9,m.fish[i])*1.5, ww=hh*(simg.naturalWidth/simg.naturalHeight);
+        g.save();
+        g.translate(cx3,cy3); g.rotate(head);
+        g.globalAlpha=0.72;
+        g.drawImage(simg,-ww/2,-hh/2,ww,hh);
+        g.restore();
+        g.globalAlpha=1;
+        continue;
+      }
+      // Schwarmschatten: die Gruppe steht erkennbar UNTER der Oberflaeche
+      const sh=g.createRadialGradient(cx3,cy3,2,cx3,cy3,7+n*2.1);
+      sh.addColorStop(0,'rgba(12,34,50,0.28)');
+      sh.addColorStop(1,'rgba(12,34,50,0)');
+      g.fillStyle=sh;
+      g.save(); g.translate(cx3,cy3); g.rotate(head); g.scale(1.5,0.8);
+      g.beginPath(); g.arc(0,0,7+n*2.1,0,7); g.fill();
+      g.restore();
       for(let k=0;k<n;k++){
-        const off=k*0.9+hash01(i*7+k)*0.7;
-        const fx2=cx3-Math.cos(head)*off*6+(hash01(i*13+k)-0.5)*7;
-        const fy2=cy3-Math.sin(head)*off*6+(hash01(i*17+k)-0.5)*5;
-        const wig=Math.sin(this.time/220+k*1.4+i)*0.3;
+        // gestaffelte Formation statt Kette: breiter, lebendiger Schwarm
+        const row=(k/3)|0, col=(k%3)-1;
+        const fx2=cx3-Math.cos(head)*row*5.4 - Math.sin(head)*col*4.6 + (hash01(i*13+k)-0.5)*3.4;
+        const fy2=cy3-Math.sin(head)*row*5.4 + Math.cos(head)*col*4.6 + (hash01(i*17+k)-0.5)*3;
+        const wig=Math.sin(this.time/190+k*1.7+i)*0.34;
         g.save();
         g.translate(fx2,fy2); g.rotate(head+wig);
-        g.fillStyle='rgba(38,64,86,0.5)';
-        g.beginPath(); g.ellipse(0,0,3.1,1.35,0,0,7); g.fill();      // Leib
-        g.beginPath();                                               // Schwanzflosse
-        g.moveTo(-2.8,0); g.lineTo(-4.6,-1.5); g.lineTo(-4.6,1.5); g.closePath(); g.fill();
-        g.fillStyle='rgba(190,225,240,0.3)';
-        g.beginPath(); g.ellipse(0.6,-0.4,1.7,0.6,0,0,7); g.fill();  // Lichtkante
+        // Leib: schlank, silbrig, nach hinten spitz zulaufend
+        g.fillStyle='rgba(70,110,132,0.62)';
+        g.beginPath();
+        g.moveTo(3.4,0);
+        g.quadraticCurveTo(1.2,-1.5, -2.2,-0.9);
+        g.quadraticCurveTo(-3.2,0, -2.2,0.9);
+        g.quadraticCurveTo(1.2,1.5, 3.4,0);
+        g.closePath(); g.fill();
+        // Schwanzflosse mit Kerbe
+        g.beginPath();
+        g.moveTo(-2.2,0); g.lineTo(-4.4,-1.6); g.lineTo(-3.4,0); g.lineTo(-4.4,1.6);
+        g.closePath(); g.fill();
+        // Rueckenlinie hell -> liest sich durch das Wasser als Fisch
+        g.strokeStyle='rgba(206,236,248,0.5)'; g.lineWidth=0.7;
+        g.beginPath(); g.moveTo(2.4,-0.35); g.quadraticCurveTo(0,-1.05,-1.8,-0.5); g.stroke();
         g.restore();
       }
     }
@@ -2566,11 +2611,27 @@ export class Renderer {
           if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12));
         }
         g.lineJoin='round'; g.lineCap='round';
-        // ausgetretener Pfad: breiter, weich auslaufender Erdsaum, darin ein
-        // festgetretener Kern – der Weg wächst aus der Wiese, statt aufzuliegen
-        trace(); g.strokeStyle='rgba(96,82,60,0.09)'; g.lineWidth=17; g.stroke();
-        trace(); g.strokeStyle='rgba(86,72,54,0.16)'; g.lineWidth=13; g.stroke();
-        trace(); g.strokeStyle='rgba(78,65,48,0.3)';  g.lineWidth=9.4; g.stroke();
+        // Ausgetretener Pfad: der Erdsaum wird als Fläche mit UNREGELMÄSSIGER
+        // Breite gezeichnet. Ein gleichmäßig breiter Strich trennt den Weg
+        // wie mit dem Lineal von der Wiese – so franst er aus und wächst hinein.
+        const verge=(base,amp,seed)=>{
+          const L=pts.length;
+          const off=(k,side)=>{
+            const p0=pts[Math.max(0,k-1)], p1=pts[Math.min(L-1,k+1)];
+            let dx=p1[0]-p0[0], dy=p1[1]-p0[1];
+            const dl=Math.hypot(dx,dy)||1; dx/=dl; dy/=dl;
+            const wob=base+ (hash01(r.id*131+k*7+seed)-0.5)*amp
+                    + Math.sin(k*1.7+r.id)*amp*0.22;
+            return [pts[k][0]-dy*wob*side, pts[k][1]+dx*wob*side];
+          };
+          g.beginPath();
+          for(let k=0;k<L;k++){ const q=off(k,1); if(k===0) g.moveTo(q[0],q[1]); else g.lineTo(q[0],q[1]); }
+          for(let k=L-1;k>=0;k--){ const q=off(k,-1); g.lineTo(q[0],q[1]); }
+          g.closePath();
+        };
+        verge(8.4,5.2,0);  g.fillStyle='rgba(96,82,60,0.11)'; g.fill();
+        verge(6.2,3.6,17); g.fillStyle='rgba(86,72,54,0.17)'; g.fill();
+        verge(4.7,2.2,41); g.fillStyle='rgba(78,65,48,0.3)';  g.fill();
         g.globalAlpha=0.62;                           // Untergrund schimmert durch
         trace(); g.strokeStyle=this._cobPat; g.lineWidth=6.2; g.stroke();
         g.globalAlpha=1;
@@ -2688,6 +2749,10 @@ export class Renderer {
       const i=m.idx(x,y);
       const o=m.obj[i]&127;
       if(o!==OBJ.NONE) items.push({kind:'obj', i, o, y:m.worldPos(i)[1]});
+      // Felsnadeln und Blöcke brechen die waagerechte Terrassenstruktur auf
+      else if((m.terr[i]===TER.MOUNT||m.terr[i]===TER.SNOW) && m.bld[i]<0 && !m.flag[i]
+              && hash01(i*97+13)>0.9)
+        items.push({kind:'spire', i, y:m.worldPos(i)[1]});
       if(m.bld[i]>=0){ const b=game.buildings.get(m.bld[i]); if(b) items.push({kind:'bld', b, y:m.worldPos(i)[1]}); }
       if(m.flag[i]) items.push({kind:'flag', i, y:m.worldPos(i)[1]+2});
       if(game.signs && game.signs.has(i) && m.bld[i]<0) items.push({kind:'sign', i, ore:game.signs.get(i), y:m.worldPos(i)[1]+1});
@@ -2732,6 +2797,7 @@ export class Renderer {
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
+      else if(it.kind==='spire') this.drawSpire(g, m, it.i);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
@@ -2960,7 +3026,9 @@ export class Renderer {
         const treeKey=this.treeKindOf(m,i,st,hsh);
         const species=treeKey==='tree_conifer'||treeKey==='tree_spruce'?0:1;
         const ovT=this.tintedTree(treeKey);
-        const grow=(treeKey==='tree_sapling')?1:(st===3?1:st===2?0.78:0.5);
+        // Jungbaum ist deutlich kleiner als der ausgewachsene Stamm, der
+        // Setzling bringt seine eigene (kleine) Grafik mit
+        const grow=(treeKey==='tree_sapling')?1:(st===3?1:st===2?0.52:0.34);
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=this.scaleOf(treeKey,74)*sc*(ovT?grow:1);
         const w=ovT? h*(ovT.width/ovT.height) : 56*sc;
@@ -3118,6 +3186,22 @@ export class Renderer {
       }
     }
   }
+  // Felsnadel / Felsblock auf dem Gebirge
+  drawSpire(g, m, i){
+    const KEYS=['obj_spire1','obj_spire2','obj_spire3'];
+    const k=KEYS[(hash01(i*29+5)*KEYS.length)|0];
+    const img=this.asset(k);
+    if(!img) return;
+    const [x,y]=m.worldPos(i);
+    const sc=0.75+hash01(i*43+7)*0.5;
+    const hh=this.scaleOf(k,60)*sc, ww=hh*(img.naturalWidth/img.naturalHeight);
+    const ox=(hash01(i*13+3)-0.5)*22, oy=(hash01(i*19+11)-0.5)*12;
+    this.shadow(g, x+ox+ww*0.22, y+oy+3, ww*0.42, hh*0.13, 0.26);
+    g.save();
+    if(hash01(i*7+1)>0.5){ g.translate(x+ox,0); g.scale(-1,1); g.translate(-(x+ox),0); }
+    g.drawImage(img, x+ox-ww/2, y+oy+4-hh, ww, hh);
+    g.restore();
+  }
   drawBld(g, m, b){
     const [x,y]=m.worldPos(b.node);
     const s=this.bldSprite(b.type, b.player, b.state==='build'?'build':'done');
@@ -3200,7 +3284,22 @@ export class Renderer {
           g.beginPath(); g.ellipse(rx,ry,4.5,2.4,0,0,7); g.fill();
         }
       } else {
-        g.drawImage(ov, x-ww/2, y-hh+(def.size==='MINE'?8:10), ww, hh);
+        // Küstenbauten rücken über die Uferlinie, damit Steg und Rumpf im
+        // Wasser stehen statt auf der Wiese zu kleben
+        let sx=0, sy=0;
+        if(def.coastal){
+          if(b._wx===undefined){
+            let wx=0, wy=0, n2=0;
+            for(const q of m.nbs(b.node)) if(m.terr[q]===TER.WATER){
+              const [qx,qy]=m.worldPos(q); wx+=qx-x; wy+=qy-y; n2++;
+            }
+            const L=n2? Math.hypot(wx,wy)||1 : 1;
+            b._wx=n2? (wx/L)*TILE*0.34 : 0;
+            b._wy=n2? (wy/L)*TILE*0.24 : 0;
+          }
+          sx=b._wx; sy=b._wy;
+        }
+        g.drawImage(ov, x+sx-ww/2, y+sy-hh+(def.size==='MINE'?8:10), ww, hh);
       }
       // Militärbauten und Hauptburg: Wimpel in Spielerfarbe auf den Turmspitzen
       if((def.mil||b.type==='hq') && b.state==='done'){
@@ -4347,10 +4446,48 @@ export class Renderer {
     }
   }
   // Grenzpfosten: weißer Pfahl mit Ringen in Spielerfarbe
+  // Der gemalte Grenzstein trägt ein weißes Wappenschild – das wird einmalig
+  // je Spieler eingefärbt und dann als fertiges Bild gezeichnet.
+  postTinted(pl){
+    const img=this.asset('obj_borderpost');
+    if(!img) return null;
+    if(!this._postT) this._postT=new Map();
+    let cv=this._postT.get(pl);
+    if(cv!==undefined) return cv;
+    const w=img.naturalWidth, h=img.naturalHeight;
+    cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+    const t=cv.getContext('2d',{willReadFrequently:true});
+    t.drawImage(img,0,0);
+    try{
+      const id=t.getImageData(0,0,w,h), d=id.data;
+      const col=toArr(PLAYER_COLORS[pl]||'#888');
+      for(let p2=0;p2<d.length;p2+=4){
+        if(d[p2+3]<8) continue;
+        const r=d[p2], gg=d[p2+1], b=d[p2+2];
+        const mx=Math.max(r,gg,b), mn=Math.min(r,gg,b);
+        // Schild = hell und farblos; das Holz ist warm und gesättigt
+        if(mn<176 || mx-mn>26) continue;
+        const l=mn/255;                              // Helligkeit als Schattierung
+        d[p2]  = Math.min(255, col[0]*l*1.06);
+        d[p2+1]= Math.min(255, col[1]*l*1.06);
+        d[p2+2]= Math.min(255, col[2]*l*1.06);
+      }
+      t.putImageData(id,0,0);
+    }catch(_){ cv=null; }
+    this._postT.set(pl,cv);
+    return cv;
+  }
   // Grenzstein: geschnitzter Holzpfahl mit Wappenschild in Spielerfarbe.
   // Passt zum handgemalten Stil der Gebäude – kein technischer Absperrpfosten.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
+    const tint=this.postTinted(pl);
+    if(tint){
+      const hh=this.scaleOf('obj_borderpost',26), ww=hh*(tint.width/tint.height);
+      this.shadow(g,x+2.4,y+1.2,ww*0.34,1.7,0.3);
+      g.drawImage(tint, x-ww/2, y+2-hh, ww, hh);
+      return;
+    }
     const col=PLAYER_COLORS[pl]||'#999';
     const H=17;
     this.shadow(g,x+2.2,y+1.4,4.2,1.6,0.28);

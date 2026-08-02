@@ -275,5 +275,13 @@
  "unit_woodcutter_walk.png",
  "unit_worker_atk.png",
  "unit_worker_idle.png",
- "unit_worker_walk.png"
+ "unit_worker_walk.png",
+ "ter_cliffTall.png",
+ "ter_cliffLava.png",
+ "ter_cliffCorner.png",
+ "ter_screeCone.png",
+ "obj_spire1.png",
+ "obj_spire2.png",
+ "obj_spire3.png",
+ "obj_borderpost.png"
 ]

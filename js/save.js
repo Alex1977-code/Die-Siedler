@@ -47,8 +47,10 @@ export function getProgress(){
 }
 export function setProgress(p){ localStorage.setItem(PROG_KEY, JSON.stringify(p)); }
 
+// Standardbelegung der Warenleiste: Baustoffe, Nahrung und Werkzeug
+export const HUD_DEFAULT=['trunk','board','stone','fish','meat','grain','water','shovel','hammer','axe','saw'];
 export function getOptions(){
-  try{ return Object.assign({sfx:true,music:true,speed:1,hudGoods:['trunk','board','stone','fish','water']}, JSON.parse(localStorage.getItem(OPT_KEY))||{}); }
-  catch(e){ return {sfx:true,music:true,speed:1,hudGoods:['trunk','board','stone','fish','water']}; }
+  try{ return Object.assign({sfx:true,music:true,speed:1,hudGoods:HUD_DEFAULT}, JSON.parse(localStorage.getItem(OPT_KEY))||{}); }
+  catch(e){ return {sfx:true,music:true,speed:1,hudGoods:HUD_DEFAULT}; }
 }
 export function setOptions(o){ localStorage.setItem(OPT_KEY, JSON.stringify(o)); }

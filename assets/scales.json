@@ -129,6 +129,10 @@
  "tree_dead": 60,
  "tree_willow": 62,
  "tree_palm": 66,
- "tree_sapling": 26,
- "tree_stump": 17
+ "tree_sapling": 18,
+ "tree_stump": 17,
+ "obj_spire1": 74,
+ "obj_spire2": 58,
+ "obj_spire3": 46,
+ "obj_borderpost": 26
 }

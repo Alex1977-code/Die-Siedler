@@ -13,6 +13,11 @@ const el=(tag,cls,html)=>{ const e=document.createElement(tag); if(cls) e.classN
 
 const CATS=[['basis','Holz & Stein'],['nahrung','Nahrung'],['industrie','Industrie'],['militaer','Militär'],['lager','Lager'],['schmuck','Schmuck']];
 
+// Warenleiste: Standardbelegung kommt aus save.js (auch für neue Profile),
+// HUD_MAX begrenzt, wie viele Waren angeheftet werden können
+const HUD_DEFAULT=SAVE.HUD_DEFAULT;
+const HUD_MAX=12;
+
 export class UI {
   constructor(){
     this.opts=SAVE.getOptions();
@@ -490,38 +495,55 @@ export class UI {
     // bewusst kompakt: nur die zwei Aktionen + eine Statuszeile
     this.sheet(`<div class="sh-head"><b>🛤️ Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="row">
-      <button class="mbtn primary" id="road-connect">🔗 Verbinden</button>
-      <button class="mbtn" id="road-done">🚩 Fahne &amp; fertig</button>
-      <button class="mbtn back" id="road-cancel">✕</button></div>
-      <p class="note" id="road-status">${autoHint?'Verbinde das Gebäude mit deinem Wegenetz – ':''}Wegpunkte antippen, Ziel-Fahne/Gebäude antippen = anschließen.</p>`);
+      <button class="mbtn primary" id="road-connect">🔗 Kürzester Anschluss</button>
+      <button class="mbtn back" id="road-cancel">✕ Abbrechen</button></div>
+      <p class="note" id="road-status">${autoHint?'Verbinde das Gebäude mit deinem Wegenetz – ':''}Wegpunkte antippen, Ziel-Fahne/Weg/Gebäude antippen = anschließen.</p>`);
     $('#sh-x').onclick=()=>this.cancelRoad();
     $('#road-cancel').onclick=()=>this.cancelRoad();
     $('#road-connect').onclick=()=>this.autoConnect();
-    $('#road-done').onclick=()=>{
-      const nodes=this.state.roadNodes;
-      if(!nodes || nodes.length<2){ this.toast('Erst Wegpunkte antippen'); return; }
-      if(this.game.buildRoad(0,nodes)){ Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad(); }
-      else this.toast('Hier ist keine Fahne möglich (Abstand!)');
-    };
   }
   cancelRoad(){ this.state.mode='view'; this.state.roadNodes=null; this.closeSheet(); }
   // sucht selbst den nächsten sinnvollen Anschluss (auch über kurze Distanz)
+  // Verbinden: sucht den KÜRZESTEN Anschluss ans eigene Wegenetz – das kann
+  // mitten auf einer Straße liegen (dort wird eine Fahne gesetzt, die den Weg
+  // teilt) und muss nicht die nächste bestehende Fahne sein.
   autoConnect(){
     const g=this.game, m=g.map;
     const from=this.state.roadNodes[this.state.roadNodes.length-1];
+    const mine=new Set(this.state.roadNodes);
     const cands=[];
-    for(let i=0;i<m.flag.length;i++){
-      if(!m.flag[i] || m.owner[i]!==0 || i===from) continue;
-      if(this.state.roadNodes.includes(i)) continue;
+    const add=(i,isFlag)=>{
+      if(i===from || mine.has(i) || m.owner[i]!==0) return;
       const d=Math.hypot(m.X(i)-m.X(from), m.Y(i)-m.Y(from));
-      if(d<=24) cands.push({i,d});
+      if(d<=26) cands.push({i,d,isFlag});
+    };
+    // jeder Knoten einer eigenen Straße ist ein möglicher Anschlusspunkt
+    const onRoad=new Set();
+    for(const r of g.roads.values()){
+      if(r.player!==0 || r.isSea) continue;
+      for(const n of r.path){ onRoad.add(n); add(n, !!m.flag[n]); }
     }
-    cands.sort((a,b)=>a.d-b.d);
-    for(const c of cands.slice(0,16)){
+    for(let i=0;i<m.flag.length;i++) if(m.flag[i] && !onRoad.has(i)) add(i,true);
+    // nach echter Weglänge sortieren, nicht nach Luftlinie
+    const scored=[];
+    for(const c of cands){
       const seg=g.roadPath(0, from, c.i);
       if(!seg) continue;
-      const p=[...this.state.roadNodes, ...seg.slice(1)];
-      if(g.buildRoad(0,p)){ Sound.sfx('road'); this.cancelRoad(); return true; }
+      // Anschluss mitten im Weg kostet eine Fahne -> minimal schlechter bewertet,
+      // damit bei Gleichstand die vorhandene Fahne gewinnt
+      scored.push({...c, seg, cost: seg.length + (c.isFlag?0:0.5)});
+      if(scored.length>=40) break;
+    }
+    scored.sort((a,b)=>a.cost-b.cost);
+    for(const c of scored.slice(0,20)){
+      const p=[...this.state.roadNodes, ...c.seg.slice(1)];
+      if(c.isFlag){
+        if(g.buildRoad(0,p)){ Sound.sfx('road'); this.cancelRoad(); return true; }
+      } else if(g.canPlaceFlag(c.i,0)){
+        if(g.placeFlag(c.i,0) && g.buildRoad(0,p)){
+          Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad(); return true;
+        }
+      }
     }
     this.toast('Kein Anschluss in Reichweite – Wegpunkte antippen');
     return false;
@@ -820,18 +842,20 @@ export class UI {
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
       ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;
     }
-    // Arbeitsbetrieb: stilllegen und Essen zuteilen (nur fertige Produktionsstätten)
+    // Arbeitsbetrieb: pausieren und Essen zuteilen (nur fertige Produktionsstätten)
     const works=b.state==='done' && (def.prod||def.mine||def.gather);
     const canFeed=works && !def.foodBoost && !def.mine;
-    this.sheet(`<div class="sh-head"><b>${def.name}</b><button class="hbtn" id="sh-x">✕</button></div>
+    const status= b.state==='build' ? 'Im Bau'
+      : b.paused ? 'Pausiert'
+      : b.worker && !b.worker.present ? 'Wartet auf Fachkraft'
+      : 'In Betrieb';
+    this.sheet(`${this.sheetHead(def.name, status, 'bld_'+b.type)}
       ${body}
-      ${works?`<div class="row">
-        <button class="mbtn${b.paused?' primary':''}" id="bd-pause">${b.paused?'▶️ Weiterarbeiten':'⏸️ Stilllegen'}</button>
-        ${canFeed?`<button class="mbtn${b.foodPrio?' primary':''}" id="bd-food">🍖 Essen ${b.foodPrio?'zugeteilt':'zuteilen'}</button>`:''}
-      </div>`:''}
-      <div class="row">
-        <button class="mbtn" id="bd-road">🛤️ Straße ab Fahne</button>
-        ${b.type!=='hq'?'<button class="mbtn back" id="bd-del">🔥 Abreißen</button>':''}
+      <div class="sh-acts">
+        ${this.actBtn('bd-road','🛤️','Straße')}
+        ${works? this.actBtn('bd-pause', b.paused?'▶️':'⏸️', b.paused?'Weiter':'Pausieren', b.paused):''}
+        ${canFeed? this.actBtn('bd-food','🍖','Essen', b.foodPrio):''}
+        ${b.type!=='hq'? this.actBtn('bd-del','🔥','Abreißen', false, true):''}
       </div>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#bd-road').onclick=()=>this.startRoad(b.door);
@@ -851,6 +875,18 @@ export class UI {
         g.demolish(b.id); Sound.sfx('place'); this.state.sel=-1; this.closeSheet();
       });
     };
+  }
+  // Kopfzeile eines Sheets: Gebäudebild, Name, Statuszeile
+  sheetHead(title, status, imgKey){
+    const img= imgKey && this.renderer.asset(imgKey) ? `<img class="sh-ic" src="assets/${imgKey}.png" alt="">` : '';
+    return `<div class="sh-head">${img}
+      <div class="sh-title"><b>${title}</b>${status?`<small>${status}</small>`:''}</div>
+      <button class="hbtn" id="sh-x">✕</button></div>`;
+  }
+  // Aktionsknopf: Symbol oben, Beschriftung darunter – überall gleich groß
+  actBtn(id, icon, label, on=false, danger=false){
+    return `<button class="abtn${on?' on':''}${danger?' danger':''}" id="${id}">
+      <i>${icon}</i><span>${label}</span></button>`;
   }
   // kleiner Balken für das verbleibende Erzvorkommen
   oreBar(n){
@@ -991,23 +1027,23 @@ export class UI {
     const g=this.game; if(!g) return;
     const inv=g.invTotal(0);
     const sel=(this.opts.hudGoods&&this.opts.hudGoods.length? this.opts.hudGoods
-      : ['trunk','board','stone','fish','water']).slice(0,6);
+      : HUD_DEFAULT).slice(0,HUD_MAX);
     const ic=(k)=> this.renderer.asset('icon_'+k) ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">`
       : this.renderer.asset('good_'+k) ? `<img class="res-ic" src="assets/good_${k}.png" alt="">` : '';
     const st=g.settlerStats(0);
+    // Oben zwischen den Knöpfen stehen die Siedler, darunter über die volle
+    // Breite die Waren – dort ist Platz für alle angehefteten Waren.
     $('#res-bar').innerHTML=
-      sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
-      +`<span class="res-more">📦</span>`;
-    // Siedlerleiste als eigene Zeile – auf dem Handy wäre sie in der
-    // Warenleiste nach rechts aus dem Bild gescrollt
-    const ub=$('#unit-bar');
-    if(ub) ub.innerHTML=
       this.unitChip('icon_settler','🧑‍🌾','Freie Siedler',st.free)
       +this.unitChip('icon_geo','⛏️','Geologen',st.geo)
       +`<span class="res-sep"></span>`
       +this.unitChip('icon_sword','🗡️','Schwertkämpfer',st.sword)
       +this.unitChip('icon_spear','🔱','Speerkämpfer',st.spear)
       +this.unitChip('icon_bow','🏹','Bogenschützen',st.bow);
+    const ub=$('#unit-bar');
+    if(ub) ub.innerHTML=
+      sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
+      +`<span class="res-more">📦</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }
   // vollständige Warenübersicht (alle 28 Waren)
@@ -1017,13 +1053,13 @@ export class UI {
     const ic=(k)=> this.renderer.asset('good_'+k) ? `<img class="stock-ic" src="assets/good_${k}.png" alt="">`
       : this.renderer.asset('icon_'+k) ? `<img class="stock-ic" src="assets/icon_${k}.png" alt="">` : '';
     const sel=(this.opts.hudGoods&&this.opts.hudGoods.length? this.opts.hudGoods
-      : ['trunk','board','stone','fish','water']);
+      : HUD_DEFAULT);
     const cells=GOOD_LIST.map(k=>`<button class="stock-it${(inv[k]||0)?'':' zero'}${sel.includes(k)?' pinned':''}" data-good="${k}">${ic(k)}
       <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></button>`).join('');
     const r=g.players[0].recruits;
     this.sheet(`<div class="sh-head"><b>📦 Lager &amp; Vorräte</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">Antippen heftet eine Ware oben an die Leiste (max. 6) – nochmal antippen nimmt sie wieder weg.
-      Angeheftet: <b id="pin-n">${sel.length}</b>/6 <button class="lnk" id="pin-clr">alle lösen</button></p>
+      <p class="note">Antippen heftet eine Ware oben an die Leiste (max. ${HUD_MAX}) – nochmal antippen nimmt sie wieder weg.
+      Angeheftet: <b id="pin-n">${sel.length}</b>/${HUD_MAX} <button class="lnk" id="pin-clr">alle lösen</button></p>
       <div class="stock-grid">${cells}</div>
       <p class="note">Reserve im Hauptquartier: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}
       · Soldaten im Feld/in Gebäuden: ${g.soldierCount(0)}</p>`);
@@ -1041,7 +1077,7 @@ export class UI {
       const list=sel.slice();
       const ix=list.indexOf(k);
       if(ix>=0) list.splice(ix,1);                 // abwählen
-      else { list.push(k); if(list.length>6) list.shift(); }
+      else { list.push(k); if(list.length>HUD_MAX) list.shift(); }
       setPins(list);
     });
   }

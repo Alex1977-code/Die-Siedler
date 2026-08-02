@@ -149,6 +149,20 @@ export class Game {
         for(const n of m.nbs(node)) if(m.bld[n]<0 && m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA && m.terr[n]!==TER.MOUNT) free++;
         if(free < (def.size==='L'?5:4)) return {ok:false, r:'Zu wenig Platz (größeres Gebäude)'};
       }
+      // Betriebe mit Freiflächenbedarf: Bauernhof braucht Äcker, die
+      // Schweinezucht ihre Koppel. Ohne freies Umland arbeiten sie nie.
+      if(def.space){
+        let open=0, need= def.space===2? 9 : 5;
+        for(const n of this.nodesInRange(node, def.space+1)){
+          if(n===node) continue;
+          if(m.bld[n]>=0 || m.flag[n]) continue;
+          if(!m.terrOkBuild(n)) continue;
+          const o=m.obj[n]&127;
+          if(o!==OBJ.NONE && o!==OBJ.FIELD0 && o!==OBJ.FIELD1 && o!==OBJ.FIELD2) continue;
+          open++;
+        }
+        if(open<need) return {ok:false, r:`Zu wenig Freifläche ringsum (${open}/${need} Felder)`};
+      }
     }
     const door=this.pickDoor(node);
     if(door<0) return {ok:false, r:'Kein Platz für die Fahne'};
@@ -283,6 +297,24 @@ export class Game {
       this.roadObjOk(n) && (!onRoad.has(n) || n===to) ;
     if(!okNode(to) && !m.flag[to]) return null;
     const h=(n)=>{ const dx=m.X(n)-m.X(to), dy=m.Y(n)-m.Y(to); return Math.sqrt(dx*dx+dy*dy); };
+    // Wegebau wie in echt: der billigste Weg ist der ebene durch freies Land.
+    // Steigungen, Sumpf, Fels und dichter Baumbestand kosten extra – dadurch
+    // schmiegt sich die Straße an das Gelände, statt schnurgerade
+    // durchzuschneiden.
+    const stepCost=(a,b2)=>{
+      let c=1;
+      c += Math.min(2.4, Math.abs(m.hgt[a]-m.hgt[b2])*1.5);      // Steigung
+      const t=m.terr[b2];
+      if(t===TER.SWAMP) c+=1.4;
+      if(t===TER.MOUNT) c+=1.0;
+      if(Game.isTree(m.obj[b2])) c+=0.9;                          // Baum muss fallen
+      // an Objekten vorbei ist enger -> leicht meiden, damit der Weg nicht
+      // an Felsen und Stämmen entlangschrammt
+      let tight=0;
+      for(const q of m.nbs(b2)) if((m.obj[q]&127)!==OBJ.NONE || m.bld[q]>=0) tight++;
+      c += tight*0.16;
+      return c;
+    };
     const open=new MinHeap(); open.push(h(from), from);
     const g=new Map([[from,0]]), par=new Map();
     let found=false;
@@ -296,7 +328,7 @@ export class Game {
         } else if(n===to){
           if(!okNode(n) && !m.flag[n]) continue;
         }
-        const ng=g.get(cur)+1;
+        const ng=g.get(cur)+stepCost(cur,n);
         if(ng < (g.get(n)??1e9)){ g.set(n,ng); par.set(n,cur); open.push(ng+h(n), n); }
       }
       if(g.size>2600) break;
@@ -1228,6 +1260,18 @@ export class Game {
           nx/=nl; ny/=nl;
         }
       }
+    }
+    // Wasser ist kein Untergrund: liegt der nächste Schritt im See, wird am
+    // Ufer entlang ausgewichen statt hindurchzulaufen
+    const wet=(px,py)=>{ const n=m.nearestNode(px,py); return n>=0 && (m.terr[n]===TER.WATER||m.terr[n]===TER.LAVA); };
+    if(wet(u.x+nx*sp*1.6, u.y+ny*sp*1.6)){
+      let found=false;
+      for(const a2 of [0.7,-0.7,1.4,-1.4,2.1,-2.1]){
+        const ca=Math.cos(a2), sa=Math.sin(a2);
+        const rx=nx*ca-ny*sa, ry=nx*sa+ny*ca;
+        if(!wet(u.x+rx*sp*1.6, u.y+ry*sp*1.6)){ nx=rx; ny=ry; found=true; break; }
+      }
+      if(!found) return false;                    // eingekeilt: diesen Tick warten
     }
     u.x+=nx*sp; u.y+=ny*sp;
     return false;
