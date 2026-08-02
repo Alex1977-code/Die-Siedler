@@ -173,8 +173,15 @@ export class UI {
         <b>Speerkämpfer</b> (Speer) und <b>Bogenschützen</b> (Bogen – schießen vor jedem
         Nahkampf eine Pfeilsalve). Es gilt: Schwert schlägt Speer, Speer schlägt Bogen,
         Bogen schlägt Schwert. Münzen aus der Prägerei sind Sold: Sie stärken die Verteidiger
-        des Militärgebäudes, in dem sie lagern. Zum Angriff: feindliches Militärgebäude
-        antippen, Truppenstärke wählen. Fällt das feindliche Hauptquartier, ist der Gegner besiegt.</p>
+        des Militärgebäudes, in dem sie lagern.</p>
+        <h3>So greifst du an</h3>
+        <p>1. Baue <b>Militärgebäude in Richtung des Feindes</b> – nur Soldaten aus Gebäuden
+        in Reichweite können angreifen.<br>
+        2. Über jedem erreichbaren Feindgebäude erscheint ein <b>⚔️ Schwerter-Zeichen</b>.<br>
+        3. <b>Tippe das Feindgebäude an</b>, wähle mit dem Regler die Truppenstärke und
+        bestätige mit „Angriff!“.<br>
+        Angreifbar sind nur <b>Militärgebäude und das Hauptquartier</b>. Fällt das feindliche
+        Hauptquartier, ist der Gegner besiegt.</p>
         <h3>Missionen</h3>
         <p>Die Kampagne erzählt in 10 Missionen die Geschichte von Königin Maras Volk – mit
         unterschiedlichen Landschaften und Zielen. Fortschritt wird automatisch gespeichert.</p>
@@ -248,6 +255,7 @@ export class UI {
     };
     // HUD
     $('#g-menu').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(true); };
+    $('#res-bar').onclick=()=>{ Sound.sfx('tap'); this.openStockSheet(); };
     $('#gm-resume').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); };
     $('#gm-save').onclick=()=>{ Sound.sfx('tap'); this.saveDialog(); };
     $('#gm-export').onclick=()=>{ if(this.game) SAVE.exportSave(this.game); };
@@ -266,7 +274,7 @@ export class UI {
     $('#g-pause').onclick=()=>{
       Sound.sfx('tap');
       this.paused=!this.paused;
-      $('#g-pause').textContent=this.paused?'▶':'';
+      this.syncPauseBtn();
     };
     $('#minimap').addEventListener('pointerdown',(e)=>{
       if(!this.game) return;
@@ -359,7 +367,7 @@ export class UI {
     const hq=game.buildings.get(game.players[0].hq);
     if(hq){ const [x,y]=game.map.worldPos(hq.node); this.cam.x=x; this.cam.y=y; this.cam.z=1.1; }
     $('#g-speed').textContent=this.opts.speed+'×';
-    $('#g-pause').textContent='';
+    this.syncPauseBtn();
     this.closeSheet();
     this.showScreen('game');
     if(game.objectives.length) this.toggleObjectives(true, 4000);
@@ -479,11 +487,13 @@ export class UI {
     // bewusst kompakt: nur die zwei Aktionen + eine Statuszeile
     this.sheet(`<div class="sh-head"><b>🛤️ Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
       <div class="row">
-      <button class="mbtn primary" id="road-done">🚩 Fahne setzen &amp; fertig</button>
-      <button class="mbtn back" id="road-cancel">✕ Abbrechen</button></div>
+      <button class="mbtn primary" id="road-connect">🔗 Verbinden</button>
+      <button class="mbtn" id="road-done">🚩 Fahne &amp; fertig</button>
+      <button class="mbtn back" id="road-cancel">✕</button></div>
       <p class="note" id="road-status">${autoHint?'Verbinde das Gebäude mit deinem Wegenetz – ':''}Wegpunkte antippen, Ziel-Fahne/Gebäude antippen = anschließen.</p>`);
     $('#sh-x').onclick=()=>this.cancelRoad();
     $('#road-cancel').onclick=()=>this.cancelRoad();
+    $('#road-connect').onclick=()=>this.autoConnect();
     $('#road-done').onclick=()=>{
       const nodes=this.state.roadNodes;
       if(!nodes || nodes.length<2){ this.toast('Erst Wegpunkte antippen'); return; }
@@ -492,12 +502,47 @@ export class UI {
     };
   }
   cancelRoad(){ this.state.mode='view'; this.state.roadNodes=null; this.closeSheet(); }
+  // sucht selbst den nächsten sinnvollen Anschluss (auch über kurze Distanz)
+  autoConnect(){
+    const g=this.game, m=g.map;
+    const from=this.state.roadNodes[this.state.roadNodes.length-1];
+    const cands=[];
+    for(let i=0;i<m.flag.length;i++){
+      if(!m.flag[i] || m.owner[i]!==0 || i===from) continue;
+      if(this.state.roadNodes.includes(i)) continue;
+      const d=Math.hypot(m.X(i)-m.X(from), m.Y(i)-m.Y(from));
+      if(d<=24) cands.push({i,d});
+    }
+    cands.sort((a,b)=>a.d-b.d);
+    for(const c of cands.slice(0,16)){
+      const seg=g.roadPath(0, from, c.i);
+      if(!seg) continue;
+      const p=[...this.state.roadNodes, ...seg.slice(1)];
+      if(g.buildRoad(0,p)){ Sound.sfx('road'); this.cancelRoad(); return true; }
+    }
+    this.toast('Kein Anschluss in Reichweite – Wegpunkte antippen');
+    return false;
+  }
   roadTap(i){
-    const g=this.game;
+    const g=this.game, m=g.map;
     // Zielgebäude angetippt? -> automatisch dessen Türfahne anpeilen
-    if(g.map.bld[i]>=0){
-      const tb=g.buildings.get(g.map.bld[i]);
-      if(tb && tb.player===0 && tb.door>=0 && g.map.flag[tb.door]) i=tb.door;
+    if(m.bld[i]>=0){
+      const tb=g.buildings.get(m.bld[i]);
+      if(tb && tb.player===0 && tb.door>=0 && m.flag[tb.door]) i=tb.door;
+    }
+    // Weg angetippt: dort teilen – und wenn dort keine Fahne erlaubt ist
+    // (Mindestabstand bei kurzen Wegen), auf die nächste Fahne des Wegs ausweichen
+    if(!m.flag[i]){
+      const r0=g.roadAt(i);
+      if(r0 && r0.player===0 && !g.canPlaceFlag(i,0)){
+        const ends=[r0.path[0], r0.path[r0.path.length-1]].filter(n=>m.flag[n]);
+        let best=-1, bd=1e9;
+        for(const e of ends){
+          const d=Math.hypot(m.X(e)-m.X(i), m.Y(e)-m.Y(i));
+          if(d<bd){ bd=d; best=e; }
+        }
+        if(best>=0) i=best;
+      }
     }
     const cur=this.state.roadNodes[this.state.roadNodes.length-1];
     if(i===cur) return;
@@ -882,16 +927,40 @@ export class UI {
     };
     requestAnimationFrame(frame);
   }
+  syncPauseBtn(){
+    const b=$('#g-pause');
+    if(!b) return;
+    b.textContent='';
+    b.classList.toggle('paused', !!this.paused);
+    b.title=this.paused?'Weiter':'Pause';
+  }
+  // Warenleiste: kompakte Auswahl, antippen öffnet das komplette Lager
   updateHud(){
     const g=this.game; if(!g) return;
     const inv=g.invTotal(0);
-    const show=[['board','🪵'],['stone','🪨'],['bread','🍞'],['fish','🐟'],['coal','⬛'],['iron','⛓️'],['coin','🟡']];
-    // Asset-Überschreibung (Stilguide §14/G): icon_<ware>.png ersetzt das Emoji
-    const ic=(k,fallback)=> this.renderer.asset('icon_'+k)
-      ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">` : fallback;
+    const show=[['board','🪵'],['stone','🪨'],['trunk','🌲'],['bread','🍞'],['fish','🐟'],['meat','🍖'],
+      ['coal','⬛'],['iron','⛓️'],['coin','🟡'],['beer','🍺'],['hammer','🔨'],['pick','⛏️']];
+    const ic=(k,fallback)=> this.renderer.asset('icon_'+k) ? `<img class="res-ic" src="assets/icon_${k}.png" alt="">`
+      : this.renderer.asset('good_'+k) ? `<img class="res-ic" src="assets/good_${k}.png" alt="">` : fallback;
     $('#res-bar').innerHTML=show.map(([k,em])=>`<span>${ic(k,em)}${inv[k]||0}</span>`).join('')
-      +`<span>${ic('soldier','⚔️')}${g.soldierCount(0)}</span>`;
+      +`<span>${ic('soldier','⚔️')}${g.soldierCount(0)}</span>`
+      +`<span class="res-more">📦 alle</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
+  }
+  // vollständige Warenübersicht (alle 28 Waren)
+  openStockSheet(){
+    const g=this.game; if(!g) return;
+    const inv=g.invTotal(0);
+    const ic=(k)=> this.renderer.asset('good_'+k) ? `<img class="stock-ic" src="assets/good_${k}.png" alt="">`
+      : this.renderer.asset('icon_'+k) ? `<img class="stock-ic" src="assets/icon_${k}.png" alt="">` : '';
+    const cells=GOOD_LIST.map(k=>`<span class="stock-it${(inv[k]||0)?'':' zero'}">${ic(k)}
+      <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></span>`).join('');
+    const r=g.players[0].recruits;
+    this.sheet(`<div class="sh-head"><b>📦 Lager &amp; Vorräte</b><button class="hbtn" id="sh-x">✕</button></div>
+      <div class="stock-grid">${cells}</div>
+      <p class="note">Reserve im Hauptquartier: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}
+      · Soldaten im Feld/in Gebäuden: ${g.soldierCount(0)}</p>`);
+    $('#sh-x').onclick=()=>this.closeSheet();
   }
   pollMsgs(){
     const g=this.game;

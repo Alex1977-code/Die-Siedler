@@ -53,10 +53,23 @@ new GLTFLoader().load(`./models/${MODEL}.glb`, (g)=>{
     for(let k=0;k<8;k++){ mixer.setTime(clips[0].duration*k/8); measure(); }
     act.stop();
   } else measure();
+  applyFrame(box);
+  document.getElementById('log').textContent=
+    'Clips: '+clips.map(c=>`${c.name} (${c.duration.toFixed(2)}s)`).join(' · ');
+  window.__ready=true;
+}, undefined, (e)=>{ window.__err=String(e); document.getElementById('log').textContent='FEHLER '+e; });
+
+window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
+
+// Bildausschnitt festlegen: HÖHEN-dominant (eine breite Arbeitspose darf die
+// Figur nicht schrumpfen) und so verschoben, dass die FÜSSE knapp über dem
+// unteren Bildrand sitzen -> im Spiel steht die Figur exakt auf ihrem Schatten.
+const FOOT=0.04;                        // Restluft unter den Füßen (Anteil)
+function applyFrame(box){
   const h=(box.max.y-box.min.y);
   const w=Math.max(box.max.x-box.min.x, box.max.z-box.min.z);
-  const span=Math.max(h*1.18, w*1.12);   // Reserve für ausgreifende Schrittposen
-  frame={ h:span, cy:box.min.y+h*0.5 };
+  const span=Math.max(h*1.30, w*1.05)*1.06;
+  frame={ h:span, cy:box.min.y+span*(0.5-FOOT) };
   cam.left=-span/2; cam.right=span/2;
   cam.top=span/2; cam.bottom=-span/2;
   // Kamera: ~38° von schräg oben (Spielperspektive)
@@ -64,12 +77,25 @@ new GLTFLoader().load(`./models/${MODEL}.glb`, (g)=>{
   cam.position.set(0, frame.cy+Math.sin(el)*d, Math.cos(el)*d);
   cam.lookAt(0, frame.cy, 0);
   cam.updateProjectionMatrix();
-  document.getElementById('log').textContent=
-    'Clips: '+clips.map(c=>`${c.name} (${c.duration.toFixed(2)}s)`).join(' · ');
-  window.__ready=true;
-}, undefined, (e)=>{ window.__err=String(e); document.getElementById('log').textContent='FEHLER '+e; });
-
-window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
+}
+// Rahmen anhand EINES Clips (i.d.R. Gehen) neu vermessen – für alle Sets gleich
+window.setFrame=(clipName)=>{
+  const clip=clips.find(c=>c.name===clipName)||clips[0];
+  const box=new THREE.Box3();
+  mixer.stopAllAction();
+  if(clip){
+    const act=mixer.clipAction(clip); act.play();
+    for(let k=0;k<10;k++){
+      mixer.setTime(clip.duration*k/10);
+      recenter();
+      box.union(skinnedBox());
+    }
+    act.stop();
+  } else { recenter(); box.union(skinnedBox()); }
+  applyFrame(box);
+  return { h:frame.h, cy:frame.cy };
+};
+window.footFrac=()=>FOOT;
 
 // Root-Motion ausgleichen: geskinnte Bounding-Box (echte Vertexlagen unter
 // Bone-Verformung) berechnen und die Figur horizontal auf den Ursprung ziehen

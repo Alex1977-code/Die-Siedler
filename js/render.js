@@ -181,9 +181,9 @@ export class Renderer {
     const panim=this.animFrame('unit_pig', walk?[p.tx-p.x,p.ty-p.y]:null, walk);
     if(panim){
       this.shadow(g,p.x+1,p.y+3.6,5.4,2,0.22);
-      const hh=11, ww=hh*(panim.sw/panim.sh);
+      const hh=12, ww=hh*(panim.sw/panim.sh);
       g.save();
-      g.translate(p.x, p.y+3.6);
+      g.translate(p.x, p.y+3.6+hh*0.04);
       if(panim.flip) g.scale(-1,1);
       g.drawImage(panim.img, panim.sx, panim.sy, panim.sw, panim.sh, -ww/2, -hh, ww, hh);
       g.restore();
@@ -229,11 +229,11 @@ export class Renderer {
     this._animSeed=(a.id||0)*1.3;
     const anim=this.animFrame('unit_'+a.kind, adir, walk);
     if(anim){
-      const hh=a.kind==='hare'?11: a.kind==='boar'?15:20;
+      const hh=a.kind==='hare'?12: a.kind==='boar'?17:22;
       const ww=hh*(anim.sw/anim.sh);
       this.shadow(g,a.x,a.y+3.9,hh*0.36,2.2,0.2);
       g.save();
-      g.translate(a.x, a.y+4);
+      g.translate(a.x, a.y+3.9+hh*0.04);
       if(anim.flip) g.scale(-1,1);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
       g.restore();
@@ -313,9 +313,9 @@ export class Renderer {
     const sanim=this.animFrame('unit_sheep', walk?[s.tx-s.x,s.ty-s.y]:null, walk);
     if(sanim){
       this.shadow(g,s.x+2,s.y+4,7,2.6,0.22);
-      const hh=14, ww=hh*(sanim.sw/sanim.sh);
+      const hh=16, ww=hh*(sanim.sw/sanim.sh);
       g.save();
-      g.translate(s.x, s.y+5);
+      g.translate(s.x, s.y+4.6+hh*0.04);
       if(sanim.flip) g.scale(-1,1);
       g.drawImage(sanim.img, sanim.sx, sanim.sy, sanim.sw, sanim.sh, -ww/2, -hh, ww, hh);
       g.restore();
@@ -782,6 +782,114 @@ export class Renderer {
   asset(key){
     const img=this.assets && this.assets.get(key);
     return (img && img.complete && img.naturalWidth>0) ? img : null;
+  }
+  // ---------- Spielerfarben auf Bilder legen ----------
+  // Militärgebäude: die cremefarbenen Banner/Wimpel bekommen die Spielerfarbe.
+  // Ergebnis wird je (Bild, Spieler) einmal gerendert und gecacht.
+  // Turmspitzen eines Gebäudebildes finden (oberste Punkte je Turm) – dort
+  // setzt das Spiel Wimpel in Spielerfarbe. Ergebnis wird je Bild gecacht.
+  towerTips(img, key){
+    if(!this._tips) this._tips=new Map();
+    if(this._tips.has(key)) return this._tips.get(key);
+    let tips=[];
+    try{
+      const W=img.naturalWidth, H=img.naturalHeight;
+      const cv=document.createElement('canvas');
+      cv.width=W; cv.height=H;
+      const t=cv.getContext('2d',{willReadFrequently:true});
+      t.drawImage(img,0,0);
+      const d=t.getImageData(0,0,W,H).data;
+      const top=new Float32Array(W).fill(H+1);
+      for(let x=0;x<W;x++){
+        for(let y=0;y<H;y++){ if(d[(y*W+x)*4+3]>150){ top[x]=y; break; } }
+      }
+      const valid=[...top].filter(v=>v<=H);
+      if(!valid.length){ this._tips.set(key,[]); return []; }
+      valid.sort((a2,b2)=>a2-b2);
+      const med=valid[valid.length>>1];
+      const win=Math.max(3, Math.round(W*0.04));
+      const cand=[];
+      for(let x=win;x<W-win;x++){
+        if(top[x]>H) continue;
+        if(top[x] > med-H*0.06) continue;           // nur deutlich herausragende Spitzen
+        let isMin=true;
+        for(let k=1;k<=win;k++){
+          if(top[x-k]<top[x] || top[x+k]<top[x]){ isMin=false; break; }
+        }
+        if(isMin) cand.push({x, y:top[x]});
+      }
+      // dicht beieinander liegende Kandidaten zusammenfassen
+      const merged=[];
+      for(const c of cand){
+        const near=merged.find(mm=>Math.abs(mm.x-c.x)<W*0.08);
+        if(near){ if(c.y<near.y){ near.x=c.x; near.y=c.y; } }
+        else merged.push({...c});
+      }
+      // Die vorhandenen Wimpel wehen nach rechts: eine Spitze, die rechts neben
+      // und knapp unter einer anderen liegt, ist die Tuchspitze – kein zweiter Turm
+      for(let a2=merged.length-1;a2>=0;a2--){
+        const c=merged[a2];
+        if(merged.some(o=>o!==c && o.x<c.x && c.x-o.x<W*0.24 && c.y>o.y && c.y-o.y<H*0.07))
+          merged.splice(a2,1);
+      }
+      merged.sort((p1,p2)=>p1.y-p2.y);
+      tips=merged.slice(0,6).map(c=>[c.x/W, c.y/H]);
+    }catch(_){ tips=[]; }
+    this._tips.set(key,tips);
+    return tips;
+  }
+  // Wimpel in Spielerfarbe an einer Turmspitze
+  drawTowerFlag(g, x, y, size, pl, phase){
+    const col=PLAYER_COLORS[pl]||'#999';
+    const w=Math.sin(this.time/240+phase)*size*0.12;
+    g.strokeStyle='#4a3826'; g.lineWidth=Math.max(1, size*0.09);
+    g.beginPath(); g.moveTo(x,y+size*0.15); g.lineTo(x,y-size*0.62); g.stroke();
+    g.fillStyle=col;
+    g.beginPath();
+    g.moveTo(x, y-size*0.60);
+    g.quadraticCurveTo(x+size*0.45, y-size*0.56+w, x+size*0.86, y-size*0.40+w);
+    g.lineTo(x+size*0.52, y-size*0.28+w*0.6);
+    g.lineTo(x+size*0.80, y-size*0.14+w*0.5);
+    g.quadraticCurveTo(x+size*0.40, y-size*0.20+w*0.5, x, y-size*0.16);
+    g.closePath(); g.fill();
+    g.strokeStyle='rgba(25,18,10,0.5)'; g.lineWidth=Math.max(0.7,size*0.05); g.stroke();
+    g.fillStyle='rgba(255,255,255,0.22)';
+    g.beginPath();
+    g.moveTo(x, y-size*0.60);
+    g.quadraticCurveTo(x+size*0.45, y-size*0.56+w, x+size*0.86, y-size*0.40+w);
+    g.lineTo(x+size*0.74, y-size*0.36+w);
+    g.quadraticCurveTo(x+size*0.42, y-size*0.50+w, x, y-size*0.52);
+    g.closePath(); g.fill();
+    g.fillStyle='#c9a05a';
+    g.beginPath(); g.arc(x, y-size*0.66, Math.max(0.9,size*0.07), 0, 7); g.fill();
+  }
+  // Soldaten: Umhang/Helmbusch (blaue Flächen) als Maske, im Spiel eingefärbt
+  unitMask(img){
+    if(!this._uMask) this._uMask=new Map();
+    const key=img.src;
+    if(this._uMask.has(key)) return this._uMask.get(key);
+    let out=null;
+    try{
+      const cv=document.createElement('canvas');
+      cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+      const t=cv.getContext('2d',{willReadFrequently:true});
+      t.drawImage(img,0,0);
+      const id=t.getImageData(0,0,cv.width,cv.height), d=id.data;
+      let n=0;
+      for(let p=0;p<d.length;p+=4){
+        const r=d[p], gg=d[p+1], b=d[p+2], a=d[p+3];
+        const blue = a>50 && b>r*1.22 && b>gg*1.1 && (b-Math.min(r,gg))>24;
+        if(blue){
+          const l=0.299*r+0.587*gg+0.114*b;
+          const v=Math.min(255, 96+l*0.85);            // Graustufe = Schattierung
+          d[p]=v; d[p+1]=v; d[p+2]=v;
+          n++;
+        } else d[p+3]=0;
+      }
+      if(n>40){ t.putImageData(id,0,0); out=cv; }
+    }catch(_){ out=null; }
+    this._uMask.set(key,out);
+    return out;
   }
   // Baumbilder einmalig an die Wiesenpalette anpassen + zum Boden hin abdunkeln
   tintedTree(key){
@@ -1888,12 +1996,16 @@ export class Renderer {
     }
     // Territorium-Grenzen
     if(this.lastTerritoryVer!==game.territoryVer){ this.computeBorders(); this.lastTerritoryVer=game.territoryVer; }
+    // dezente Linie als Orientierung ...
     for(const e of this.borderEdges){
       if(e.x2<wx0||e.x1>wx1||e.y2<wy0-60||e.y1>wy1+60) continue;
-      g.strokeStyle='rgba(255,255,255,0.35)'; g.lineWidth=3.6;
+      g.strokeStyle=PLAYER_COLORS[e.pl]+'55'; g.lineWidth=1.6;
       g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
-      g.strokeStyle=PLAYER_COLORS[e.pl]+'cc'; g.lineWidth=2;
-      g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
+    }
+    // ... und Grenzpfosten mit Wimpel in Spielerfarbe als eigentliche Markierung
+    if(this.borderPosts) for(const p of this.borderPosts){
+      if(p.x<wx0-20||p.x>wx1+20||p.y<wy0-40||p.y>wy1+40) continue;
+      this.drawBorderPost(g, p);
     }
     // Zuordnung Türfahne -> Gebäude (für die Eingangs-Position der Fahnen)
     this._doorMap=new Map();
@@ -1929,13 +2041,34 @@ export class Renderer {
           if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12));
         }
         g.lineJoin='round'; g.lineCap='round';
-        // weicher Erdsaum -> der Weg wächst aus der Wiese statt darauf zu liegen
-        trace(); g.strokeStyle='rgba(74,62,46,0.14)'; g.lineWidth=13.5; g.stroke();
-        trace(); g.strokeStyle='rgba(80,66,50,0.3)'; g.lineWidth=9.6; g.stroke();
-        g.globalAlpha=0.8;                            // Untergrund schimmert leicht durch
-        trace(); g.strokeStyle=this._cobPat; g.lineWidth=6.8; g.stroke();
+        // ausgetretener Pfad: breiter, weich auslaufender Erdsaum, darin ein
+        // festgetretener Kern – der Weg wächst aus der Wiese, statt aufzuliegen
+        trace(); g.strokeStyle='rgba(96,82,60,0.09)'; g.lineWidth=17; g.stroke();
+        trace(); g.strokeStyle='rgba(86,72,54,0.16)'; g.lineWidth=13; g.stroke();
+        trace(); g.strokeStyle='rgba(78,65,48,0.3)';  g.lineWidth=9.4; g.stroke();
+        g.globalAlpha=0.62;                           // Untergrund schimmert durch
+        trace(); g.strokeStyle=this._cobPat; g.lineWidth=6.2; g.stroke();
         g.globalAlpha=1;
-        trace(); g.strokeStyle='rgba(94,80,62,0.18)'; g.lineWidth=2.4; g.stroke();  // Fahrspur
+        // zwei blasse Fahrspuren statt einer harten Mittellinie
+        g.save();
+        g.globalAlpha=0.5;
+        g.strokeStyle='rgba(104,88,66,0.5)'; g.lineWidth=1.5;
+        g.translate(-1.4,0.5); trace(); g.stroke();
+        g.translate(2.8,-0.2); trace(); g.stroke();
+        g.restore();
+        // vereinzelte Kiesel am Rand
+        if(cam.z>0.85){
+          for(let k=0;k<pts.length-1;k++){
+            const hsh=hash01(r.id*17+k*5+3);
+            if(hsh<0.45) continue;
+            const [x1,y1]=pts[k], [x2,y2]=pts[k+1];
+            const dx=x2-x1, dy=y2-y1, L=Math.hypot(dx,dy)||1;
+            const t=0.2+hsh*0.6, side=(k%2?-1:1)*(3.6+hsh*2.4);
+            const px2=x1+dx*t+(-dy/L)*side, py2=y1+dy*t+(dx/L)*side;
+            g.fillStyle='rgba(120,110,96,0.5)';
+            g.beginPath(); g.ellipse(px2,py2,1.5+hsh*0.9,1+hsh*0.6,hsh*3,0,7); g.fill();
+          }
+        }
         // Grasbüschel verzahnen die Ränder mit der Wiese
         if(cam.z>0.7 && this.theme!=='winter' && this.theme!=='wueste'){
           for(let k=0;k<pts.length-1;k++){
@@ -2477,9 +2610,10 @@ export class Renderer {
     }
     let ov, ovKey=typeKey;
     if(b.state==='build'){
-      // Baufortschritt in 3 sichtbaren Stufen
+      // Baustelle zeigt bewusst NUR das eckige Holzgerüst (Phase 1/2),
+      // nie das fast fertige Haus – das erscheint erst beim Umschalten auf 'done'
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
-      const ph=1+Math.min(2, Math.floor((b.progress/total)*3));
+      const ph=(b.progress/total)<0.55 ? 1 : 2;
       ovKey=`bld_build_${sizeKey}_${ph}`;
       ov=this.asset(ovKey) || this.asset(typeKey+'_build') || this.asset('bld_baustelle');
       if(!this.asset(ovKey)) ovKey=null;
@@ -2491,6 +2625,7 @@ export class Renderer {
       const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
       const hh=this.scaleOf(ovKey||typeKey, legacy);
       const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+
       // Bergwerke: neue Bilder bringen ihren Felshügel mit, alte brauchen den Felskragen
       if(def.size==='MINE' && !this.scaleOf(typeKey, null)){
         const rk=g.createRadialGradient(x,y-hh*0.45,4, x,y-hh*0.45, ww*0.75);
@@ -2508,6 +2643,15 @@ export class Renderer {
       } else {
         g.drawImage(ov, x-ww/2, y-hh+(def.size==='MINE'?8:10), ww, hh);
       }
+      // Militärbauten und Hauptburg: Wimpel in Spielerfarbe auf den Turmspitzen
+      if((def.mil||b.type==='hq') && b.state==='done'){
+        const tips=this.towerTips(ov, ovKey||typeKey);
+        const fs=Math.max(9, Math.min(22, hh*0.135));
+        const ox=x-ww/2, oy=y-hh+(def.size==='MINE'?8:10);
+        tips.forEach(([fx,fy],k)=>{
+          this.drawTowerFlag(g, ox+fx*ww, oy+fy*hh+fs*0.10, fs, b.player, k*1.7+b.id);
+        });
+      }
     } else {
       g.drawImage(s.cv, x-s.w/2, y-s.h+10, s.w, s.h);
     }
@@ -2516,6 +2660,30 @@ export class Renderer {
       g.fillStyle='rgba(15,20,12,0.55)'; g.fillRect(x-17,y+7,34,6);
       g.fillStyle='#ffd54a'; g.fillRect(x-16,y+8,32*Math.min(1,b.progress/total),4);
       g.strokeStyle='rgba(255,255,255,0.35)'; g.lineWidth=1; g.strokeRect(x-17,y+7,34,6);
+    }
+    // Angriffs-Hinweis: feindliche Militärbauten/HQ, die du erreichen kannst,
+    // tragen ein pulsierendes Schwerter-Zeichen ("hier antippen zum Angriff")
+    if(b.player>0 && (def.mil||b.type==='hq') && this.game.players[0] && !this.game.players[0].defeated){
+      if(!this._atkC || this.time-this._atkC.t>1200) this._atkC={t:this.time, m:new Map()};
+      let n=this._atkC.m.get(b.id);
+      if(n===undefined){ n=this.game.attackable(0,b.id); this._atkC.m.set(b.id,n); }
+      if(n>0){
+        const hh2=this.scaleOf(typeKey, big?96:64);
+        const by=y-hh2-6, pulse=0.75+0.25*Math.sin(this.time/320);
+        const md=this.asset('ui_tab_militaer');
+        g.globalAlpha=pulse;
+        if(md){
+          const s2=19, w2=s2*(md.naturalWidth/md.naturalHeight);
+          g.drawImage(md, x-w2/2, by-s2, w2, s2);
+        } else {
+          g.fillStyle='rgba(20,26,34,0.8)';
+          g.beginPath(); g.arc(x,by-9,9,0,7); g.fill();
+          g.strokeStyle='#e8e2d4'; g.lineWidth=2;
+          g.beginPath(); g.moveTo(x-5,by-14); g.lineTo(x+5,by-4);
+          g.moveTo(x+5,by-14); g.lineTo(x-5,by-4); g.stroke();
+        }
+        g.globalAlpha=1;
+      }
     }
     if(b.soldiers && b.state==='done'){
       const n=b.soldiers.length;
@@ -2642,29 +2810,29 @@ export class Renderer {
   drawFlag(g, m, game, i){
     const [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
     const pl=m.owner[i];
-    this.shadow(g,x+1,y+1.6,5,2,0.3);
-    // Mast
-    g.strokeStyle='#3d2c18'; g.lineWidth=2.8;
-    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-19); g.stroke();
-    g.strokeStyle='#7a5b35'; g.lineWidth=1.2;
-    g.beginPath(); g.moveTo(x-0.6,y-1); g.lineTo(x-0.6,y-18); g.stroke();
-    g.fillStyle='#c9a05a'; g.beginPath(); g.arc(x,y-19.6,1.7,0,7); g.fill();
+    this.shadow(g,x+1,y+1.4,4,1.6,0.28);
+    // Mast (etwas kleiner, damit er die Figuren nicht überragt)
+    g.strokeStyle='#3d2c18'; g.lineWidth=2.2;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-15); g.stroke();
+    g.strokeStyle='#7a5b35'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(x-0.5,y-1); g.lineTo(x-0.5,y-14); g.stroke();
+    g.fillStyle='#c9a05a'; g.beginPath(); g.arc(x,y-15.5,1.4,0,7); g.fill();
     // wehender Ritter-Wimpel mit Schwalbenschwanz
     const col=pl>=0?PLAYER_COLORS[pl]:'#999';
-    const w1=Math.sin(this.time/260+i)*1.8, w2=Math.sin(this.time/260+i+1.4)*2.6;
+    const w1=Math.sin(this.time/260+i)*1.4, w2=Math.sin(this.time/260+i+1.4)*2;
     g.fillStyle=col;
     g.beginPath();
-    g.moveTo(x,y-19);
-    g.quadraticCurveTo(x+7,y-20+w1, x+14,y-17.6+w2);   // Oberkante
-    g.lineTo(x+9.5,y-15.6+w2*0.8);                      // Kerbe innen
-    g.lineTo(x+14,y-13+w2*0.7);                         // untere Spitze
-    g.quadraticCurveTo(x+7,y-14.4+w1, x,y-12);
+    g.moveTo(x,y-15);
+    g.quadraticCurveTo(x+5.5,y-15.8+w1, x+11,y-13.8+w2);
+    g.lineTo(x+7.5,y-12.2+w2*0.8);
+    g.lineTo(x+11,y-10.2+w2*0.7);
+    g.quadraticCurveTo(x+5.5,y-11.3+w1, x,y-9.4);
     g.closePath(); g.fill();
-    g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=1.1; g.stroke();
+    g.strokeStyle='rgba(30,20,10,0.5)'; g.lineWidth=0.9; g.stroke();
     g.fillStyle='rgba(255,255,255,0.25)';
     g.beginPath();
-    g.moveTo(x,y-19); g.quadraticCurveTo(x+7,y-20+w1, x+14,y-17.6+w2);
-    g.lineTo(x+13,y-16.6+w2); g.quadraticCurveTo(x+6.5,y-18.6+w1,x,y-17.4);
+    g.moveTo(x,y-15); g.quadraticCurveTo(x+5.5,y-15.8+w1, x+11,y-13.8+w2);
+    g.lineTo(x+10.2,y-13+w2); g.quadraticCurveTo(x+5,y-14.6+w1,x,y-13.7);
     g.closePath(); g.fill();
     // wartende Waren als kleiner Stapel (Bild-Assets, sonst Kistchen)
     const items=game.flagItems.get(i);
@@ -2711,6 +2879,28 @@ export class Renderer {
         }
         g.restore();
         g.globalAlpha=1;
+      } else if(f.type==='dust'){
+        // Staubwölkchen bei jedem Hammerschlag auf der Baustelle
+        if(age>16) continue;
+        const t=age/16;
+        const di=this.asset('fx_smoke');
+        if(di){
+          const hh=(9+t*15), ww=hh*(di.naturalWidth/di.naturalHeight);
+          g.globalAlpha=(1-t)*0.5;
+          g.drawImage(di, f.x-ww/2, f.y-hh*0.85-t*5, ww, hh);
+          g.globalAlpha=1;
+        } else {
+          g.globalAlpha=(1-t)*0.45;
+          g.fillStyle='#c3b49a';
+          for(let k=0;k<4;k++){
+            const an=k*1.6+(f.t0%6);
+            const r=2+t*9;
+            g.beginPath();
+            g.arc(f.x+Math.cos(an)*r, f.y-t*6+Math.sin(an)*r*0.4, 1.8+t*2.6, 0, 7);
+            g.fill();
+          }
+          g.globalAlpha=1;
+        }
       } else if(f.type==='impact'){
         if(age>18) continue;
         const t=age/18;
@@ -2948,7 +3138,7 @@ export class Renderer {
       // stehend: zuletzt gelaufene Richtung beibehalten
       dirKey=st.dirKey; flip=st.flip;
     }
-    const COLS={ walk:8, idle:10, atk:6 };
+    const COLS={ walk:12, idle:12, atk:8 };
     let set= fight!=null && this.asset(baseKey+'_atk') ? 'atk'
       : mov? 'walk' : (this.asset(baseKey+'_idle')? 'idle':'walk');
     let img=this.asset(baseKey+'_'+set);
@@ -2958,9 +3148,10 @@ export class Renderer {
     const row={r:0, fr:1, f:2, br:3, b:4}[dirKey]||0;
     let k;
     if(set==='walk'){
-      k=Math.floor(this.time/85 + (this._animSeed||0))%n;
+      // 12 Frames -> kürzere Frame-Zeit, damit der Schritt flüssig bleibt
+      k=Math.floor(this.time/62 + (this._animSeed||0))%n;
     } else if(set==='atk'){
-      k=Math.floor(this.time/95 + (fight||0)*2.1)%n;
+      k=Math.floor(this.time/85 + (fight||0)*2.1)%n;
     } else {
       // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine
       // Geste (Fußtippen, Umschauen, Recken – aus dem Warte-Clip)
@@ -2978,9 +3169,9 @@ export class Renderer {
     const anim=this.animFrame('unit_donkey', dir, mov);
     if(anim){
       this.shadow(g,x+1,y+5.4,7,2.4,0.24);
-      const hh=18, ww=hh*(anim.sw/anim.sh);
+      const hh=20, ww=hh*(anim.sw/anim.sh);
       g.save();
-      g.translate(x,y+5);
+      g.translate(x, y+5+hh*0.04);
       if(anim.flip) g.scale(-1,1);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
       g.restore();
@@ -3104,12 +3295,33 @@ export class Renderer {
       g.lineWidth=1.4; g.globalAlpha=0.8;
       g.beginPath(); g.ellipse(x,y+6.8,5,2,0,0,7); g.stroke();
       g.globalAlpha=1;
-      // Größenanker: Figur ≈ halbe Wohnhaushöhe (klassische Lesbarkeit)
-      const hh=32, ww=hh*(anim.sw/anim.sh);
+      // Größenanker: Figur ≈ halbe Wohnhaushöhe (klassische Lesbarkeit).
+      // FOOT=4% Restluft unter den Füßen im gebackenen Sheet ausgleichen,
+      // damit die Figur exakt auf ihrem Schatten steht (kein Schweben).
+      const hh=30, ww=hh*(anim.sw/anim.sh);
       g.save();
-      g.translate(x,y+8);
+      g.translate(x, y+7.4+hh*0.04);
       if(anim.flip) g.scale(-1,1);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      // Umhang/Helmbusch der Soldaten in Spielerfarbe einfärben
+      if(kind==='soldier'){
+        const mk=this.unitMask(anim.img);
+        if(mk){
+          const sc=this._tintScratch || (this._tintScratch=document.createElement('canvas'));
+          if(sc.width!==anim.sw||sc.height!==anim.sh){ sc.width=anim.sw; sc.height=anim.sh; }
+          const tc=sc.getContext('2d');
+          tc.globalCompositeOperation='source-over';
+          tc.clearRect(0,0,sc.width,sc.height);
+          tc.drawImage(mk, anim.sx, anim.sy, anim.sw, anim.sh, 0,0, sc.width,sc.height);
+          tc.globalCompositeOperation='multiply';
+          tc.fillStyle=PLAYER_COLORS[pl]||'#888';
+          tc.fillRect(0,0,sc.width,sc.height);
+          tc.globalCompositeOperation='destination-in';
+          tc.drawImage(mk, anim.sx, anim.sy, anim.sw, anim.sh, 0,0, sc.width,sc.height);
+          tc.globalCompositeOperation='source-over';
+          g.drawImage(sc, -ww/2, -hh, ww, hh);
+        }
+      }
       g.restore();
       if(good) this.drawGood(g, good, x, y-22, 8);
       return;
@@ -3393,6 +3605,8 @@ export class Renderer {
   computeBorders(){
     const m=this.game.map;
     this.borderEdges=[];
+    this.borderPosts=[];
+    const seen=new Set();
     for(let i=0;i<m.owner.length;i++){
       const o=m.owner[i];
       if(o<0) continue;
@@ -3405,8 +3619,35 @@ export class Renderer {
         const L=Math.hypot(dx,dy)||1;
         const px=-dy/L, py=dx/L;
         this.borderEdges.push({pl:o, x1:mx-px*12, y1:my-py*12, x2:mx+px*12, y2:my+py*12});
+        // Grenzpfosten: ausgedünnt auf ein grobes Raster, damit sie als Reihe
+        // von Wegmarken lesbar bleiben statt als Zaun
+        const gx=Math.round(mx/34), gy=Math.round(my/30);
+        const key=gx+','+gy;
+        if(!seen.has(key)){
+          seen.add(key);
+          this.borderPosts.push({pl:o, x:mx, y:my});
+        }
       }
     }
+  }
+  // kleiner Grenzpfahl mit Wimpel in Spielerfarbe
+  drawBorderPost(g, p){
+    const {x,y,pl}=p;
+    const col=PLAYER_COLORS[pl]||'#999';
+    this.shadow(g,x+1,y+1.2,3.4,1.3,0.25);
+    g.strokeStyle='#5d452a'; g.lineWidth=2;
+    g.beginPath(); g.moveTo(x,y); g.lineTo(x,y-13); g.stroke();
+    g.strokeStyle='#7d5f3a'; g.lineWidth=0.8;
+    g.beginPath(); g.moveTo(x-0.5,y-1); g.lineTo(x-0.5,y-12); g.stroke();
+    // Wimpel
+    const w=Math.sin(this.time/300+x*0.05)*1.2;
+    g.fillStyle=col;
+    g.beginPath();
+    g.moveTo(x,y-13); g.lineTo(x+7,y-11+w); g.lineTo(x,y-9); g.closePath(); g.fill();
+    g.strokeStyle='rgba(25,18,10,0.45)'; g.lineWidth=0.8; g.stroke();
+    // Knauf
+    g.fillStyle='#c9a05a';
+    g.beginPath(); g.arc(x,y-13.6,1.2,0,7); g.fill();
   }
   // ---------- Minimap ----------
   drawMinimap(cv, cam){

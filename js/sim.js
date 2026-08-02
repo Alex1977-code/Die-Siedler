@@ -112,12 +112,12 @@ export class Game {
       .sort((a,b)=>Math.abs(m.X(a)-mx)-Math.abs(m.X(b)-mx));
     for(const n of lower){
       if(m.flag[n]) return n;                                    // vorhandene Fahne nutzen
-      if(m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE && !this.roadAt(n)) return n;
+      if(m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n)) return n;
     }
     // Notfall (sollte durch canBuild nicht vorkommen): restliche Nachbarn
     for(const n of nbs){
       if(m.flag[n]) return n;
-      if(m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE) return n;
+      if(m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n)) return n;
     }
     return nbs[0] ?? -1;
   }
@@ -138,7 +138,7 @@ export class Game {
       // Eingang liegt unten: dort muss eine Türfahne möglich sein
       const my=m.Y(node);
       const doorOk=m.nbs(node).some(n=> m.Y(n)>my &&
-        (m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && m.obj[n]===OBJ.NONE && !this.roadAt(n))));
+        (m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))));
       if(!doorOk) return {ok:false, r:'Kein Platz für den Eingang (unterhalb)'};
     }
     if(def.size!=='MINE'){
@@ -226,15 +226,25 @@ export class Game {
   }
 
   // ---------- Fahnen & Straßen ----------
+  // Wege dürfen durch den Wald geschlagen werden: Bäume auf der Trasse
+  // werden gefällt, statt die Verbindung zu blockieren.
+  static isTree(o){ const t=o&127; return t===OBJ.TREE||t===OBJ.TREE2||t===OBJ.SAPLING; }
+  roadObjOk(i){ const o=this.map.obj[i]; return (o&127)===OBJ.NONE || Game.isTree(o); }
+  clearForRoad(i){
+    if(Game.isTree(this.map.obj[i])){
+      this.map.obj[i]=OBJ.NONE;
+      this.changedNodes.push(i);
+    }
+  }
   canPlaceFlag(i, player){
     const m=this.map;
     if(m.owner[i]!==player) return false;
-    if(m.flag[i] || m.bld[i]>=0 || m.obj[i]!==OBJ.NONE) return false;
+    if(m.flag[i] || m.bld[i]>=0 || !this.roadObjOk(i)) return false;
     if(!m.terrOkRoad(i)) return false;
     for(const n of m.nbs(i)) if(m.flag[n]) return false; // Mindestabstand wie im Klassiker
     return true;
   }
-  addFlag(i){ this.map.flag[i]=1; if(!this.flagItems.has(i)) this.flagItems.set(i,[]); this.routeVer++; this.changedNodes.push(i); }
+  addFlag(i){ this.clearForRoad(i); this.map.flag[i]=1; if(!this.flagItems.has(i)) this.flagItems.set(i,[]); this.routeVer++; this.changedNodes.push(i); }
   placeFlag(i, player){
     if(!this.canPlaceFlag(i,player)) return false;
     this.addFlag(i);
@@ -268,7 +278,7 @@ export class Game {
     const onRoad=new Set();
     for(const r of this.roads.values()) r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
     const okNode=(n)=> m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 &&
-      (m.obj[n]===OBJ.NONE) && (!onRoad.has(n) || n===to) ;
+      this.roadObjOk(n) && (!onRoad.has(n) || n===to) ;
     if(!okNode(to) && !m.flag[to]) return null;
     const h=(n)=>{ const dx=m.X(n)-m.X(to), dy=m.Y(n)-m.Y(to); return Math.sqrt(dx*dx+dy*dy); };
     const open=new MinHeap(); open.push(h(from), from);
@@ -298,6 +308,7 @@ export class Game {
   }
   createRoad(player, path){
     const id=NEXT_ID++;
+    for(const n of path) this.clearForRoad(n);      // Schneise durch den Wald
     this.roads.set(id, { id, player, path,
       carrier:{ pos:0, state:'idle', item:null, dir:1 } });
     if(!this.map.flag[path[0]]) this.addFlag(path[0]);
@@ -1720,10 +1731,11 @@ export class Game {
     if(u.state==='toSite'){
       if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
-      if(this.moveToward(u,tx-10,ty+6,WALK_SPEED)){ u.state='work'; b.levelT=0; }
+      if(this.moveToward(u,tx-8,ty+13,WALK_SPEED)){ u.state='work'; b.levelT=0; }
     } else if(u.state==='work'){
+      // Bogen VOR dem Bauplatz – der Planierer läuft nie durch das Gebäude
       const [bx,by]=m.worldPos(b.node);
-      const spots=[[bx-12,by+6],[bx+12,by+4],[bx,by-6],[bx-8,by-2]];
+      const spots=[[bx-15,by+11],[bx-5,by+15],[bx+6,by+15],[bx+15,by+11]];
       const [tx,ty]=spots[u.pt%spots.length];
       if(this.moveToward(u,tx,ty,WALK_SPEED*0.5)) u.pt++;
       b.levelT=(b.levelT||0)+1;
@@ -1753,19 +1765,22 @@ export class Game {
     if(u.state==='toSite'){
       if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
-      if(this.moveToward(u,tx+12,ty+6,WALK_SPEED)){ u.state='work'; u.pt=0; }
+      if(this.moveToward(u,tx+10,ty+13,WALK_SPEED)){ u.state='work'; u.pt=0; }
     } else if(u.state==='work'){
-      // um die Baustelle pendeln und hämmern
+      // vor der Baustelle pendeln und hämmern (kein Durchlaufen des Gebäudes)
       const [bx,by]=m.worldPos(b.node);
-      const spots=[[bx-15,by+7],[bx+15,by+7],[bx+18,by-3],[bx-17,by-1]];
+      const spots=[[bx-16,by+12],[bx-5,by+16],[bx+6,by+16],[bx+16,by+12]];
       const [tx,ty]=spots[u.pt%spots.length];
       if(this.moveToward(u,tx,ty,WALK_SPEED*0.55)) u.pt++;
       u.swing++;
       if(u.swing%16===0){
         // nur hämmern, wenn Material da ist (sonst wartet er sichtbar)
         const def=BLD[b.type];
-        if((b.stock.board||0)>=(def.cost.board||0) && (b.stock.stone||0)>=(def.cost.stone||0))
+        if((b.stock.board||0)>=(def.cost.board||0) && (b.stock.stone||0)>=(def.cost.stone||0)){
           this.onHammer && this.onHammer(u);
+          // Staub wirbelt bei jedem Schlag auf
+          this.fx.push({type:'dust', x:u.x+(this.rng()*10-5), y:u.y+3, t0:this.t});
+        }
       }
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);

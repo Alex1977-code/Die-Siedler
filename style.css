@@ -101,8 +101,9 @@ h1::after{
 }
 #g-pause{
   background:url('assets/ui_btn_pause.png') center/cover no-repeat, rgba(28,38,54,0.4);
-  color:#fff; font-size:16px;
+  color:transparent; font-size:0;
 }
+#g-pause.paused{ background:url('assets/ui_btn_play.png') center/cover no-repeat, rgba(28,38,54,0.4); }
 #g-menu{
   background:url('assets/ui_btn_menu.png') center/cover no-repeat, rgba(28,38,54,0.4);
   color:#efe4cd; font-size:16px;
@@ -116,6 +117,20 @@ h1::after{
 }
 #res-bar span{ display:inline-flex; gap:2px; align-items:center; }
 .res-ic{ width:17px; height:17px; object-fit:contain; }
+#res-bar{ cursor:pointer; }
+.res-more{ opacity:0.85; font-size:12.5px; padding-left:2px; }
+.stock-grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(74px,1fr)); gap:6px;
+  max-height:46vh; overflow-y:auto;
+}
+.stock-it{
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:6px 3px; border-radius:9px; border:1px solid #4a5a70; background:#26364b;
+}
+.stock-it.zero{ opacity:0.4; }
+.stock-it b{ font-size:14px; color:#f2d98c; }
+.stock-it small{ font-size:10px; opacity:0.85; text-align:center; line-height:1.15; }
+.stock-ic{ width:26px; height:26px; object-fit:contain; }
 #objectives{
   position:absolute; top:calc(58px + env(safe-area-inset-top)); left:8px;
   background:url('assets/ui_parchment.png') center/cover, #d9c49a;
