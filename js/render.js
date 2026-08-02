@@ -1179,7 +1179,7 @@ export class Renderer {
           const img=new Image();
           const key=name.replace(/\.png$/i,'');
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
-          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{ this._terPat=null; this._cobPat=null; this.chunks.clear(); };
+          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{ this._terPat=null; this.chunks.clear(); };
           img.src='assets/'+name;
           this.assets.set(key, img);
         }
@@ -2744,6 +2744,24 @@ export class Renderer {
       const band=new Path2D();
       const wege=[];
       const links=new Map();               // Knoten -> Richtungen der Anschluesse
+      // Torstummel: das Stueck von der Tuerfahne bis an die Schwelle. Es lag
+      // frueher als duenner Faden neben der Strasse - eine 16 Pixel breite
+      // Fahrbahn endete an der Fahne, und weiter ging es mit fuenf Pixeln.
+      // Genau das sah nicht "aus einem Guss" aus. Jetzt ist es ein Abschnitt
+      // wie jeder andere: gleiche Breite, gleiche Kacheln, gleiche Form.
+      const stummel=[];
+      for(const b of game.buildings.values()){
+        if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
+        // Die Burg betritt man ueber die Zugbruecke; Pflaster darueber saehe
+        // aus wie ein Weg im Wassergraben
+        if(b.type==='hq' && this.asset('bld_hq')) continue;
+        const [bx,by]=m.worldPos(b.node);
+        if(bx<wx0-120||bx>wx1+120||by<wy0-120||by>wy1+120) continue;
+        const [fx3,fy3]=this.doorVisualPos(b.door);
+        const sw=[bx+(fx3-bx)*0.20, by+7];          // Schwelle am Hausfuss
+        if(Math.hypot(sw[0]-fx3, sw[1]-fy3)<2) continue;
+        stummel.push({a:[fx3,fy3], b:sw, nd:b.door});
+      }
       for(const r of game.roads.values()){
         if(r.isSea) continue;
         const pts=this.roadPts(r);
@@ -2776,7 +2794,14 @@ export class Renderer {
           }
         }
       }
-      if(wege.length){
+      for(const st of stummel){
+        const dx=st.b[0]-st.a[0], dy=st.b[1]-st.a[1], L2=Math.hypot(dx,dy)||1;
+        const nx=-dy/L2*half, ny=dx/L2*half;
+        band.moveTo(st.a[0]-nx,st.a[1]-ny); band.lineTo(st.b[0]-nx,st.b[1]-ny);
+        band.lineTo(st.b[0]+nx,st.b[1]+ny); band.lineTo(st.a[0]+nx,st.a[1]+ny); band.closePath();
+        band.moveTo(st.b[0]+half,st.b[1]); band.arc(st.b[0],st.b[1],half,0,6.2832);
+      }
+      if(wege.length || stummel.length){
         // ausgetretener Erdsaum UNTER dem Band: er allein macht den
         // Uebergang zur Wiese weich, das Band selbst hat eine klare Kante
         g.save();
@@ -2786,6 +2811,7 @@ export class Renderer {
           saum.moveTo(pts[0][0],pts[0][1]);
           for(let k=1;k<pts.length;k++) saum.lineTo(pts[k][0],pts[k][1]);
         }
+        for(const st of stummel){ saum.moveTo(st.a[0],st.a[1]); saum.lineTo(st.b[0],st.b[1]); }
         g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=BAND+13; g.stroke(saum);
         g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=BAND+6;  g.stroke(saum);
         g.restore();
@@ -2879,6 +2905,25 @@ export class Renderer {
             g.restore();
             phase+=L2;
           }
+        }
+        // Torstummel bekommen dieselben Kacheln wie die Strasse, die an
+        // dieser Fahne ankommt - dadurch laeuft der Belag ohne Bruch bis an
+        // die Schwelle.
+        for(const st of stummel){
+          const dx=st.b[0]-st.a[0], dy=st.b[1]-st.a[1], L2=Math.hypot(dx,dy)||1;
+          const deck=knotenP.get(st.nd)||0;
+          g.save();
+          g.translate(st.a[0],st.a[1]);
+          g.rotate(Math.atan2(dy,dx)-Math.PI/2);
+          const kD=this.roadKachel(tDirt,'dirt',zpx(bw));
+          for(let yy=-bw*0.6; yy<L2+bw; yy+=bw) g.drawImage(kD, -bw/2, yy, bw, bw);
+          if(deck>0.01){
+            g.globalAlpha=deck;
+            const kP=this.roadKachel(tStr,'str',zpx(bw));
+            for(let yy=-bw*0.6; yy<L2+bw; yy+=bw) g.drawImage(kP, -bw/2, yy, bw, bw);
+            g.globalAlpha=1;
+          }
+          g.restore();
         }
         // ---- Knotenkacheln darueber ----
         // An einem Knick stossen zwei Steinmuster hart aneinander. Genau
@@ -3023,37 +3068,6 @@ export class Renderer {
       }
       // ausgetretene Wegmitte
       trace(); g.strokeStyle='rgba(94,80,62,0.22)'; g.lineWidth=2.6; g.stroke();
-    }
-    // Eingangswege: kurzer Pflasterstummel vom Gebäude zur Türfahne
-    {
-      const cob2=this.asset('ter_cobble');
-      for(const b of game.buildings.values()){
-        if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
-        // Die Burg hat ihre eigene Zugbrücke – ein Pflasterstummel darüber
-        // sähe aus wie ein Weg im Wassergraben
-        if(b.type==='hq' && this.asset('bld_hq')) continue;
-        const [bx,by]=m.worldPos(b.node);
-        const [fx3,fy3]=this.doorVisualPos(b.door);
-        if(bx<wx0-80||bx>wx1+80||by<wy0-80||by>wy1+80) continue;
-        const sx=bx+(fx3-bx)*0.22, sy=by+7;      // Ansatz am unteren Gebäuderand
-        const mx2=(sx+fx3)/2, my2=(sy+fy3)/2+1.5;
-        const stub=()=>{
-          g.beginPath();
-          g.moveTo(sx,sy);
-          g.quadraticCurveTo(mx2,my2,fx3,fy3);
-        };
-        g.lineJoin='round'; g.lineCap='round';
-        stub(); g.strokeStyle='rgba(74,62,46,0.14)'; g.lineWidth=10; g.stroke();
-        stub(); g.strokeStyle='rgba(80,66,50,0.28)'; g.lineWidth=7; g.stroke();
-        if(cob2){
-          if(!this._cobPat) { this._cobPat=g.createPattern(cob2,'repeat'); if(this._cobPat.setTransform) this._cobPat.setTransform(new DOMMatrix().scale(0.12)); }
-          g.globalAlpha=0.8;
-          stub(); g.strokeStyle=this._cobPat; g.lineWidth=5.2; g.stroke();
-          g.globalAlpha=1;
-        } else {
-          stub(); g.strokeStyle='#b3a68c'; g.lineWidth=5; g.stroke();
-        }
-      }
     }
     // Straßen-Vorschau
     if(ui.roadPreview && ui.roadPreview.length>1){
@@ -3691,6 +3705,17 @@ export class Renderer {
       const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
       const hh=this.scaleOf(ovKey||typeKey, legacy);
       const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      // Die tatsächlichen Bildmaße an die Simulation melden: sie sperrt damit
+      // Straßen, die sonst unter dem Haus hindurchliefen. Nur der Zeichner
+      // kennt die Maßstäbe aus scales.json.
+      if(b.state==='done'){
+        if(!this.game.bldFoot) this.game.bldFoot={};
+        const vor=this.game.bldFoot[b.type];
+        if(!vor || Math.abs(vor[0]-ww)>0.5 || Math.abs(vor[1]-hh)>0.5){
+          this.game.bldFoot[b.type]=[ww,hh];
+          this.game.bldVer=(this.game.bldVer||0)+1;    // Bauschatten neu rechnen
+        }
+      }
 
       // Bergwerke: neue Bilder bringen ihren Felshügel mit, alte brauchen den Felskragen
       if(def.size==='MINE' && !this.scaleOf(typeKey, null)){

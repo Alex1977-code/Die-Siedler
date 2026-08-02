@@ -76,6 +76,7 @@ export class Game {
 
   // ---------- Gebäude ----------
   spawnBuilding(player, type, node, instant=false){
+    this.bldVer=(this.bldVer||0)+1;      // Bauschatten neu berechnen lassen
     const def = BLD[type];
     const b = {
       id: NEXT_ID++, type, player, node,
@@ -208,6 +209,7 @@ export class Game {
   }
   burnBuilding(b, byWar=true){
     if(!this.buildings.has(b.id)) return;
+    this.bldVer=(this.bldVer||0)+1;
     this.map.bld[b.node] = -1;
     this.buildings.delete(b.id);
     this.changedNodes.push(b.node);
@@ -315,6 +317,40 @@ export class Game {
     for(const r of this.roads.values()) if(r.path.includes(node)) return r;
     return null;
   }
+  // Ein Haus belegt im Gitter nur EINEN Punkt, gezeichnet ist es aber viel
+  // größer. Eine Straße knapp daneben verschwand deshalb optisch unter dem
+  // Gebäude – bei der Burg besonders auffällig. Hier wird geprüft, ob ein
+  // Punkt unter dem gezeichneten Bild liegt. Der Zeichner meldet die
+  // tatsächlichen Bildmaße über bldFoot; ohne ihn (Tests) greift die
+  // Notmaße-Tabelle.
+  static FOOT={ hq:[200,190], L:[126,112], M:[100,84], S:[84,66], MINE:[86,64] };
+  // Die verdeckten Punkte werden EINMAL je Bauzustand gesammelt. Die
+  // Wegsuche fragt sie tausendfach ab; jedesmal alle Häuser durchzugehen
+  // hat die Bildrate spürbar gekostet.
+  bauSchatten(){
+    if(this._schatten && this._schatten.ver===this.bldVer) return this._schatten.set;
+    const m=this.map, set=new Set();
+    for(const b of this.buildings.values()){
+      const def=BLD[b.type];
+      if(!def) continue;
+      const f=(this.bldFoot && this.bldFoot[b.type])
+           || Game.FOOT[b.type==='hq'?'hq':(def.size||'M')] || Game.FOOT.M;
+      const [bx,by]=m.worldPos(b.node);
+      // Reichweite: halbe Bildbreite bzw. Bildhöhe in Gitterschritten
+      const R=Math.max(2, Math.ceil(Math.max(f[0]*0.40/52, f[1]*0.78/44))+1);
+      for(const n of this.nodesInRange(b.node, R)){
+        if(n===b.node || n===b.door) continue;
+        const [nx,ny]=m.worldPos(n);
+        // Das Bild steht mit dem Fuß knapp unter dem Gitterpunkt und ragt
+        // nach oben. Etwas knapper gefasst als gezeichnet: lieber eine
+        // Straße zu wenig sperren als eine zu viel.
+        if(Math.abs(nx-bx) < f[0]*0.40 && ny < by+14 && ny > by-f[1]*0.78) set.add(n);
+      }
+    }
+    this._schatten={ver:this.bldVer, set};
+    return set;
+  }
+  unterHaus(n){ return this.bauSchatten().has(n); }
   // A*-Straßenpfad von Fahne zu Ziel (nur eigenes Gebiet, passierbar, keine Gebäude, kein Kreuzen anderer Straßen außer an Fahnen)
   roadPath(player, from, to){
     const m=this.map;
@@ -322,7 +358,7 @@ export class Game {
     const onRoad=new Set();
     for(const r of this.roads.values()) r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
     const okNode=(n)=> m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 &&
-      this.roadObjOk(n) && (!onRoad.has(n) || n===to) ;
+      this.roadObjOk(n) && !this.unterHaus(n) && (!onRoad.has(n) || n===to) ;
     if(!okNode(to) && !m.flag[to]) return null;
     const h=(n)=>{ const dx=m.X(n)-m.X(to), dy=m.Y(n)-m.Y(to); return Math.sqrt(dx*dx+dy*dy); };
     // Wegebau wie in echt: der billigste Weg ist der ebene durch freies Land.
@@ -1167,7 +1203,8 @@ export class Game {
   findGatherJob(b){
     const m=this.map, def=BLD[b.type];
     const R=def.range;
-    const nodes=this.nodesInRange(b.node, R);
+    // ausdrücklich nur erreichbare Knoten – siehe nodesWalkable
+    const nodes=this.nodesWalkable(b.node, R);
     const un=(o)=>o&127;
     switch(def.gather){
       case 'tree': {
@@ -1196,9 +1233,13 @@ export class Game {
         // echtes Wild in Reichweite suchen (nächstes, noch nicht bejagtes Tier)
         const [bx,by]=m.worldPos(b.node);
         const maxD=R*40;
+        // dasselbe wie beim Holzfäller: nur Wild, zu dem der Jäger auch
+        // hinkommt – jenseits eines Sees wartet er sonst ewig
+        const erreichbar=new Set(nodes);
         let best=null, bd=1e9;
         for(const a of this.animals){
           if(a.hunted) continue;
+          if(!erreichbar.has(a.node)) continue;
           const d=Math.hypot(a.x-bx, a.y-by);
           if(d<maxD && d<bd){ bd=d; best=a; }
         }
@@ -1229,6 +1270,25 @@ export class Game {
       q=nq;
     }
     // nach Distanz sortiert ist es schon (BFS)
+    return out;
+  }
+  // Wie nodesInRange, aber nur was der Arbeiter zu FUSS erreicht: über
+  // Wasser und Lava geht es nicht weiter. Ohne diese Prüfung schickt der
+  // Holzfäller seinen Mann zu einem Baum auf der anderen Seite des Sees –
+  // Luftlinie stimmt, ankommen tut er nie, und das Haus steht still.
+  nodesWalkable(center, R){
+    const m=this.map, out=[], seen=new Set([center]);
+    const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
+    let q=[center];
+    for(let d=0; d<R; d++){
+      const nq=[];
+      for(const i of q) for(const n of m.nbs(i)){
+        if(seen.has(n)) continue;
+        seen.add(n); out.push(n);
+        if(fest(n)) nq.push(n);       // nur über Land geht es weiter
+      }
+      q=nq;
+    }
     return out;
   }
 
