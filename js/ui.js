@@ -226,6 +226,7 @@ export class UI {
           <button id="gm-objectives" class="mbtn">🎯 Missionsziele</button>
           <button id="gm-export" class="mbtn">📤 Spielstand exportieren</button>
           <button id="gm-quit" class="mbtn back">Zum Hauptmenü</button>
+          <p class="note" id="gm-build" style="text-align:center;opacity:0.5">Fassung –</p>
         </div>
       </div>
       <div id="dlg" class="hidden"></div>

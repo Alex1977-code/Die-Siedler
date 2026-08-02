@@ -1,18 +1,34 @@
 // Neuland – Serviceworker: Offline-Cache
-const CACHE = 'neuland-v53';
+//
+// Wichtig für Updates: der Programmcode wird NETZ-ZUERST geladen, die
+// Grafiken CACHE-ZUERST. Vorher galt cache-first für alles – dadurch blieb
+// nach einer Veröffentlichung die alte Fassung im Bild hängen, obwohl der
+// Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
+// HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
+// Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
+const BUILD = 'v54';
+const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-mask.png',
   './js/main.js', './js/ui.js', './js/sim.js', './js/render.js', './js/map.js',
   './js/core.js', './js/sound.js', './js/input.js', './js/save.js', './js/levels.js',
 ];
+// Alles, was Programm oder Layout ist – hier zählt Aktualität, nicht Tempo
+const isCode = (url)=> /\.(js|css|html|json|webmanifest)$/i.test(url) || url.endsWith('/');
+
 self.addEventListener('install', (e)=>{
   e.waitUntil(caches.open(CACHE).then(async (c)=>{
-    await c.addAll(FILES);
+    // am Browser-Cache vorbei: sonst landen die alten Bytes im neuen Cache
+    await Promise.all(FILES.map(f=>
+      fetch(new Request(f, {cache:'reload'}))
+        .then(r=> r.ok? c.put(f, r) : null)
+        .catch(()=>null)
+    ));
     // HD-Grafik-Assets zusätzlich vorladen – Fehler einzelner Dateien
     // blockieren die Installation nicht (prozedurale Sprites als Fallback)
     try{
-      const r=await fetch('./assets/manifest.json');
+      const r=await fetch(new Request('./assets/manifest.json', {cache:'reload'}));
       if(r.ok){
         const list=await r.clone().json();
         await c.put('./assets/manifest.json', r);
@@ -21,13 +37,36 @@ self.addEventListener('install', (e)=>{
     }catch(_){ /* offline/fehlend: Spiel läuft prozedural weiter */ }
   }).then(()=>self.skipWaiting()));
 });
+
 self.addEventListener('activate', (e)=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(
     keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
   )).then(()=>self.clients.claim()));
 });
+
+// Die Seite kann die laufende Fassung erfragen – so lässt sich im Spiel
+// ablesen, ob wirklich die neue Version aktiv ist.
+self.addEventListener('message', (e)=>{
+  if(e.data && e.data.type==='version' && e.source) e.source.postMessage({type:'version', build:BUILD});
+});
+
 self.addEventListener('fetch', (e)=>{
   if(e.request.method!=='GET') return;
+  const url=e.request.url;
+  if(isCode(url)){
+    // Netz zuerst, Cache nur als Rückfall (offline oder Serverfehler)
+    e.respondWith(
+      fetch(e.request).then(res=>{
+        if(res.ok){
+          const copy=res.clone();
+          caches.open(CACHE).then(c=>c.put(e.request, copy));
+        }
+        return res;
+      }).catch(()=> caches.match(e.request).then(hit=> hit || caches.match('./index.html')))
+    );
+    return;
+  }
+  // Grafiken und Töne: Cache zuerst, das spart auf dem Handy viel Datenvolumen
   e.respondWith(
     caches.match(e.request).then(hit=> hit || fetch(e.request).then(res=>{
       if(res.ok){
