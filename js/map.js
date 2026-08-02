@@ -102,8 +102,15 @@ export function genWorld(opts){
   // ohne die Geländeverteilung (und damit das Spielgefühl) zu verändern
   const detail = (x,y)=> sample(grids[3],x*9.1+29,y*9.1+19)*0.62
                        + sample(grids[2],x*4.6+61,y*4.6+37)*0.38 - 0.5;
-  // Gratrauschen für Bergkämme (scharfe Rücken statt runder Kuppen)
-  const ridge = (x,y)=> 1-Math.abs(sample(grids[2],x*2.6+91,y*2.6+53)*2-1);
+  // Gratrauschen: 1-|2n-1| hat sein Maximum auf einer LINIE, nicht auf einer
+  // Fläche. Mehrere Oktaven übereinander ergeben ein verästeltes Kammnetz –
+  // daraus entstehen schmale Gebirgszüge statt breiter Hochebenen.
+  const ridgeAt = (x,y)=>
+      (1-Math.abs(sample(grids[2],x*1.35+91,y*1.35+53)*2-1))*0.58
+    + (1-Math.abs(sample(grids[1],x*2.9+17, y*2.9+29 )*2-1))*0.28
+    + (1-Math.abs(sample(grids[3],x*5.7+61, y*5.7+11 )*2-1))*0.14;
+  // sanft ansteigendes Vorland um jeden Kamm
+  const foothill = (x,y)=> sample(grids[0], x*1.1+37, y*1.1+83);
 
   // Inselmaske: Rand fällt ab
   const edge = (x,y)=>{
@@ -122,13 +129,41 @@ export function genWorld(opts){
   }
 
   const SEA = theme==='inseln'?0.34: theme==='gebirge'?0.24: 0.30;
-  const MNT = theme==='gebirge'?0.58: 0.66;
   const AMP = 4.2;                       // Reliefüberhöhung (Höhe -> Bildversatz)
+  // Anteil der Landfläche, der Fels werden soll. Die Schwelle auf dem
+  // Gratrauschen wird daraus BERECHNET statt geraten – sonst kippt eine
+  // Karte je nach Startwert zwischen "kein Fels" und "alles Fels".
+  const ROCK_SHARE = { gebirge:0.42, winter:0.20, vulkan:0.26, wueste:0.13,
+                       sumpf:0.11, inseln:0.13, gruen:0.17 }[theme] ?? 0.17;
   const raw = Float32Array.from(map.hgt);
+  // Kammstärke je Knoten: 0 = flaches Land, 1 = Gipfelgrat
+  const spine = new Float32Array(w*h);
+  const rawSpine = new Float32Array(w*h);
+  const landVals=[];
+  for(let i=0;i<w*h;i++){
+    const X=map.X(i), Y=map.Y(i);
+    const r=ridgeAt(X,Y);
+    // Gebirge wächst nur dort, wo das Land ohnehin schon höher liegt –
+    // sonst stünde ein Grat mitten in der Küstenebene
+    const land=Math.max(0, Math.min(1, (raw[i]-SEA)/0.34));
+    const lift=0.55+0.45*foothill(X,Y);
+    const v=r*lift*(0.45+0.55*land);
+    rawSpine[i]=v;
+    if(raw[i]>=SEA) landVals.push(v);
+  }
+  landVals.sort((a,b)=>a-b);
+  const T  = landVals.length? landVals[Math.floor(landVals.length*(1-ROCK_SHARE))] : 1;
+  const HI = landVals.length? landVals[landVals.length-1] : 1;
+  const span = Math.max(1e-4, HI-T);
+  for(let i=0;i<w*h;i++) spine[i]=Math.max(0,(rawSpine[i]-T)/span);
   for(let i=0;i<w*h;i++){
     const e=raw[i];
+    const sp=spine[i];
     if(e < SEA){ map.terr[i]=TER.WATER; }
-    else if(e > MNT){ map.terr[i] = (theme==='winter'&&e>MNT+0.12)?TER.SNOW : TER.MOUNT; }
+    else if(sp > 0){
+      // der Kamm selbst ist Fels, in der Höhe vereist
+      map.terr[i] = (sp>0.66 && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
+    }
     else {
       map.terr[i]=TER.GRASS;
       const m = sample(grids[2], map.X(i)*1.9+53, map.Y(i)*1.9+29);
@@ -138,28 +173,28 @@ export function genWorld(opts){
       if(theme==='winter' && m>0.45) map.terr[i]=TER.SNOW;
       if(theme==='vulkan'){ if(m>0.84) map.terr[i]=TER.LAVA; else if(m>0.6) map.terr[i]=TER.DESERT; }
     }
-    // Darstellungshöhe: Ebene sanft gewellt, Gebirge türmt sich steil auf,
-    // leichte Terrassierung erzeugt die typischen Geländestufen
+    // Darstellungshöhe: Ebene sanft gewellt, der Grat türmt sich schmal auf.
+    // Die Kammstärke geht mit einer Potenz ein -> die Flanken fallen steil ab,
+    // der Gipfel bleibt eine Linie und keine Platte.
     let hv;
     if(map.terr[i]===TER.WATER) hv=-0.10;                 // Wasserspiegel unter Land
     else {
       const X=map.X(i), Y=map.Y(i);
       hv=(e-SEA)*AMP + detail(X,Y)*2.1;                  // gewellte Ebene
-      if(map.terr[i]===TER.MOUNT || (map.terr[i]===TER.SNOW && e>MNT)){
-        const over=Math.max(0,e-MNT);
-        hv += over*4.5 + ridge(X,Y)*over*5.5;             // Flanken und Kämme
+      if(sp>0){
+        hv += Math.pow(sp,0.72)*9.5                       // Kammhöhe
+            + Math.pow(sp,2.2)*5.0;                       // Gipfel überhöht
       }
     }
-    // Fels wird auf Terrassen gerastert (Siedler-2-Prinzip): innerhalb einer
-    // Stufe ist der Boden eben, dazwischen steht eine echte Felswand. Wiese
-    // und Sand bleiben weich gewellt, damit die Ebene nicht wie eine Treppe
-    // aussieht.
+    // Fels wird nur GANZ leicht terrassiert. Starke Rasterung ließ den Berg
+    // wie ein Amphitheater aussehen; ein Grat lebt von der durchgehenden
+    // Flanke, die Absätze setzt der Renderer als Klippen obendrauf.
     const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
-    const step = rocky? 1.55 : 0.42;
-    const q    = rocky? 0.92 : 0.16;
+    const step = rocky? 1.10 : 0.42;
+    const q    = rocky? 0.34 : 0.14;
     // Der Rasterpunkt wandert mit einem groben Rauschen – dadurch mäandern die
     // Absätze, statt als kerzengerade Höhenlinien quer über den Berg zu laufen
-    const jit  = rocky? (sample(grids[3], map.X(i)*3.3+41, map.Y(i)*3.3+77)-0.5)*0.7 : 0;
+    const jit  = rocky? (sample(grids[3], map.X(i)*3.3+41, map.Y(i)*3.3+77)-0.5)*0.9 : 0;
     map.hgt[i] = hv*(1-q) + (Math.round(hv/step + jit)-jit)*step*q;
   }
 

@@ -106,9 +106,27 @@ h1::after{
 /* ---------- Spiel-HUD ---------- */
 #scr-game{ overflow:hidden; }
 #cv{ position:absolute; inset:0; touch-action:none; }
+/* Titelbanner: blaues Wimpelband mit Goldkante, mittig über dem HUD */
+#title-banner{
+  position:absolute; top:calc(2px + env(safe-area-inset-top)); left:50%;
+  transform:translateX(-50%); z-index:5; pointer-events:none;
+  padding:2px 26px 3px;
+  background:linear-gradient(#3f6fb4,#27497e 62%,#1d3860);
+  border:1px solid #c9a05a;
+  border-top:none;
+  border-radius:0 0 6px 6px;
+  box-shadow:0 3px 9px rgba(0,0,0,0.45), inset 0 -1px 0 rgba(255,255,255,0.14);
+  clip-path:polygon(0 0, 100% 0, 100% 100%, 88% 72%, 12% 72%, 0 100%);
+}
+#title-banner span{
+  font-family:Georgia,'Times New Roman',serif;
+  font-size:15px; letter-spacing:0.20em; font-weight:700;
+  color:#f2d98c; text-shadow:0 1px 2px rgba(0,0,0,0.75);
+  display:block; padding-bottom:5px;
+}
 #hud-top{
   position:absolute; top:0; left:0; right:0;
-  padding:calc(6px + env(safe-area-inset-top)) 8px 6px;
+  padding:calc(30px + env(safe-area-inset-top)) 8px 6px;
   display:flex; gap:8px; align-items:center;
   background:linear-gradient(rgba(10,14,22,0.85), rgba(10,14,22,0));
   pointer-events:none;
@@ -160,7 +178,7 @@ h1::after{
 .stock-ic{ width:26px; height:26px; object-fit:contain; }
 /* untere Leiste über die volle Breite: die angehefteten Waren */
 #unit-bar{
-  position:absolute; top:calc(48px + env(safe-area-inset-top)); left:8px; right:8px;
+  position:absolute; top:calc(72px + env(safe-area-inset-top)); left:8px; right:8px;
   display:flex; gap:6px; align-items:center; justify-content:flex-start;
   padding:3px 7px; border-radius:11px; font-size:13px; white-space:nowrap;
   background:rgba(20,30,44,0.72); border:1px solid rgba(201,160,90,0.28);
@@ -172,7 +190,7 @@ h1::after{
 #unit-bar span{ display:inline-flex; gap:2px; align-items:center; }
 #unit-bar:empty{ display:none; }
 #objectives{
-  position:absolute; top:calc(86px + env(safe-area-inset-top)); left:8px;
+  position:absolute; top:calc(110px + env(safe-area-inset-top)); left:8px;
   background:url('assets/ui_parchment.png') center/cover, #d9c49a;
   color:#3a2c16; border:1px solid #8a6f4a; border-radius:10px;
   padding:10px 14px; font-size:13.5px; line-height:1.55; max-width:75vw; z-index:5;
@@ -180,7 +198,7 @@ h1::after{
 }
 /* Meldungen: kleine Pergamentnotiz statt grauer Systemblase */
 #msg-toast{
-  position:absolute; top:calc(88px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
+  position:absolute; top:calc(112px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
   background:url('assets/ui_parchment.png') center/cover, #dcc79d;
   color:#3d2b14; border:1px solid #8a6f4a; border-radius:12px;
   padding:9px 16px; font-size:14px; z-index:6; max-width:88vw; text-align:center;
@@ -257,6 +275,23 @@ h1::after{
   flex-shrink:0; filter:drop-shadow(0 2px 3px rgba(0,0,0,0.45));
 }
 /* Aktionsleiste im Gebäude-Sheet: gleich große Holzkacheln statt Textknöpfe */
+/* einzeilige Straßenbau-Leiste – verdeckt kaum Karte */
+.roadbar{ display:flex; align-items:center; gap:9px; }
+.roadbar b{ font-size:19px; }
+.roadbar span{ flex:1; font-size:13px; opacity:0.85; }
+.roadbar .mbtn{ padding:9px 14px; font-size:14.5px; }
+.roadbar .hbtn{ min-width:38px; height:38px; font-size:15px; }
+/* Produktwahl in den Schmieden */
+.pickrow{ display:flex; gap:6px; overflow-x:auto; padding:8px 0 2px; scrollbar-width:none; }
+.pickrow::-webkit-scrollbar{ display:none; }
+.pick{
+  flex:0 0 auto; width:54px; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:5px 2px; border-radius:10px; border:1px solid #4a5a70; background:#26364b;
+  color:#e8e4d8; cursor:pointer;
+}
+.pick img{ width:24px; height:24px; object-fit:contain; }
+.pick small{ font-size:9px; line-height:1.1; text-align:center; opacity:0.8; }
+.pick.on{ border-color:#f2d98c; background:linear-gradient(#4a6b3e,#33512c); }
 .sh-acts{
   display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; margin-top:11px;
 }

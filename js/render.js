@@ -419,9 +419,7 @@ export class Renderer {
     const mk=(blur,tint)=>{
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       const g2=cv.getContext('2d');
-      if('filter' in g2) g2.filter=`blur(${blur}px)`;
-      g2.drawImage(tmp,0,0);
-      g2.filter='none';
+      this.blurInto(g2, tmp, blur);
       g2.globalCompositeOperation='source-in';
       g2.fillStyle=tint; g2.fillRect(0,0,w,h);
       return cv;
@@ -513,10 +511,8 @@ export class Renderer {
     }
     tg.restore();
     tg.globalCompositeOperation='source-over';
-    // 2) leicht weichgezeichnet übernehmen (die Fläche ist bereits stufenlos)
-    if('filter' in g){ g.filter='blur(2px)'; }
+    // 2) direkt übernehmen – die Gouraud-Fläche ist bereits stufenlos
     g.drawImage(this._tmpChunk,0,0);
-    g.filter='none';
     // 3) Geländetexturen geschichtet: jede Terrainart bekommt eine weich
     //    gefiederte Maske; die Arten werden von "Untergrund" nach "Auflage"
     //    gezeichnet, dadurch gehen sie ineinander über statt hart zu stoßen.
@@ -574,25 +570,26 @@ export class Renderer {
         mk.clearRect(0,0,w,h);
         mk.save(); mk.translate(-c.ox,-c.oy);
         mk.fillStyle='#fff';
-        const RC = L.soft? 34 : 40;                    // Zellradius (überlappt leicht)
+        const RC = L.soft? 30 : 36;                    // Zellradius (überlappt leicht)
         for(const i of L.nodes){
           const [px,py]=m.worldPos(i);
-          mk.beginPath();
-          for(let k=0;k<7;k++){
-            const a2=k*Math.PI/3 + hash01(i*11+1)*0.6;
-            // jede Ecke einzeln ausgebeult -> die Ränder franst nie regelmäßig aus
-            const rr=RC*(0.82+hash01(i*17+k*5)*0.46);
-            const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.86;
-            if(k===0) mk.moveTo(qx,qy); else mk.lineTo(qx,qy);
-          }
-          mk.closePath(); mk.fill();
+          const path=()=>{
+            mk.beginPath();
+            for(let k=0;k<7;k++){
+              const a2=k*Math.PI/3 + hash01(i*11+1)*0.6;
+              // jede Ecke einzeln ausgebeult -> der Rand franst nie regelmäßig aus
+              const rr=RC*(0.82+hash01(i*17+k*5)*0.46);
+              const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.86;
+              if(k===0) mk.moveTo(qx,qy); else mk.lineTo(qx,qy);
+            }
+            mk.closePath();
+          };
+          // weicher Saum direkt in der Form – funktioniert ohne ctx.filter
+          this.softShape(mk, path, px, py, L.soft? 7 : 5);
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
-        // der weiche Saum entsteht beim Auftragen der Maske, nicht in der Form
-        if('filter' in tex) tex.filter= L.soft? 'blur(13px)' : 'blur(7px)';
         tex.drawImage(this._maskTmp,0,0);
-        tex.filter='none';
         tex.globalCompositeOperation='source-over';
         g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
         g.drawImage(this._texTmp,0,0);
@@ -608,9 +605,7 @@ export class Renderer {
         const bg=this._blurTmp.getContext('2d');
         bg.globalCompositeOperation='source-over';
         bg.clearRect(0,0,w,h);
-        if('filter' in bg) bg.filter='blur(9px)';
-        bg.drawImage(this._tmpChunk,0,0);
-        bg.filter='none';
+        this.blurInto(bg, this._tmpChunk, 9);
         g.save();
         g.globalCompositeOperation='color';
         g.globalAlpha=0.3;
@@ -848,19 +843,14 @@ export class Renderer {
         sg.globalCompositeOperation='source-over';
         g.save();
         g.globalCompositeOperation='soft-light';
-        g.globalAlpha=1;
-        if('filter' in g) g.filter='blur(3px)';
         g.drawImage(this._shadeTmp,0,0);
-        g.filter='none';
         g.restore();
         // zweiter Durchgang für kräftigere Felsplastik im Gebirge
         if(perT.has(TER.MOUNT)){
           g.save();
           g.globalCompositeOperation='soft-light';
           g.globalAlpha=0.75;
-          if('filter' in g) g.filter='blur(2px)';
           g.drawImage(this._shadeTmp,0,0);
-          g.filter='none';
           g.restore();
         }
       }
@@ -920,9 +910,17 @@ export class Renderer {
         const dk=POOL[(hash01(i*31+5)*POOL.length)|0];
         const dimg=this.asset(dk);
         if(dimg){
-          const dh=this.scaleOf(dk,20)*(0.8+hash01(i*37)*0.4);
+          const dh=this.scaleOf(dk,20)*(0.62+hash01(i*37)*0.34);
           const dw=dh*(dimg.naturalWidth/dimg.naturalHeight);
-          g.drawImage(dimg, px+o1-dw/2, py+o2-dh+3, dw, dh);
+          const dx=px+o1, dy=py+o2;
+          // Bodenschatten: ohne ihn kleben Pilz und Blume wie aufgemalt
+          // auf der Wiese statt darin zu stehen
+          const sh=g.createRadialGradient(dx+1.5,dy+2.4,0.5, dx+1.5,dy+2.4, dw*0.62);
+          sh.addColorStop(0,'rgba(28,44,20,0.34)');
+          sh.addColorStop(1,'rgba(28,44,20,0)');
+          g.fillStyle=sh;
+          g.beginPath(); g.ellipse(dx+1.5,dy+2.4, dw*0.62, dw*0.24, 0,0,7); g.fill();
+          g.drawImage(dimg, dx-dw/2, dy-dh+3, dw, dh);
         }
       }
       // weiche Farbtupfer (Wiesen-Sprenkelung)
@@ -1068,6 +1066,64 @@ export class Renderer {
     }
     ncache.set(i,col);
     return col;
+  }
+  // ---------- Weichzeichnen ohne ctx.filter ----------
+  // Ältere iOS-Safari kennen CanvasRenderingContext2D.filter nicht. Ohne
+  // Ersatz bleiben alle Masken hartkantig: die Wiese franst zackig aus, an
+  // den Chunk-Grenzen stehen Linien und die Schneekappen liegen als weiße
+  // Sechsecke im Fels. Deshalb wird grundsätzlich selbst weichgezeichnet.
+  static get CANFILTER(){
+    if(Renderer._cf===undefined){
+      try{
+        const c=document.createElement('canvas').getContext('2d');
+        c.filter='blur(2px)';
+        Renderer._cf = c.filter!=='none' && c.filter!=='';
+      }catch(_){ Renderer._cf=false; }
+    }
+    return Renderer._cf;
+  }
+  // Verkleinern und wieder vergrößern: die bilineare Interpolation der GPU
+  // ergibt eine sehr brauchbare Unschärfe und läuft überall.
+  blurInto(dst, src, radius, alpha=1){
+    const w=src.width, h=src.height;
+    if(Renderer.CANFILTER){
+      dst.save();
+      dst.filter=`blur(${radius}px)`;
+      dst.globalAlpha=alpha;
+      dst.drawImage(src,0,0);
+      dst.restore();
+      dst.filter='none';
+      return;
+    }
+    const f=Math.max(2, Math.round(radius*1.35));
+    const sw=Math.max(1,Math.round(w/f)), sh=Math.max(1,Math.round(h/f));
+    if(!this._blurA) this._blurA=document.createElement('canvas');
+    const a2=this._blurA;
+    if(a2.width!==sw||a2.height!==sh){ a2.width=sw; a2.height=sh; }
+    const ag=a2.getContext('2d');
+    ag.globalCompositeOperation='copy';
+    ag.imageSmoothingEnabled=true; ag.imageSmoothingQuality='high';
+    ag.drawImage(src,0,0,sw,sh);
+    ag.globalCompositeOperation='source-over';
+    dst.save();
+    dst.globalAlpha=alpha;
+    dst.imageSmoothingEnabled=true; dst.imageSmoothingQuality='high';
+    dst.drawImage(a2,0,0,sw,sh,0,0,w,h);
+    dst.restore();
+  }
+  // Weiche Kante direkt in die Form gezeichnet: die Kontur wird mehrfach in
+  // abnehmender Größe gefüllt. Braucht keinen Filter und keine Zwischenfläche.
+  softShape(g, path, cx, cy, steps=6){
+    for(let k=0;k<steps;k++){
+      const sc=1.18-k*(0.42/steps);
+      g.save();
+      g.translate(cx,cy); g.scale(sc,sc); g.translate(-cx,-cy);
+      g.globalAlpha=k===steps-1? 1 : 0.30;
+      path();
+      g.fill();
+      g.restore();
+    }
+    g.globalAlpha=1;
   }
   // Gouraud-Schattierung: die drei Eckfarben werden über die Dreiecksfläche
   // interpoliert. Jede baryzentrische Gewichtung ist linear und damit exakt
@@ -2629,11 +2685,19 @@ export class Renderer {
           for(let k=L-1;k>=0;k--){ const q=off(k,-1); g.lineTo(q[0],q[1]); }
           g.closePath();
         };
-        verge(8.4,5.2,0);  g.fillStyle='rgba(96,82,60,0.11)'; g.fill();
-        verge(6.2,3.6,17); g.fillStyle='rgba(86,72,54,0.17)'; g.fill();
-        verge(4.7,2.2,41); g.fillStyle='rgba(78,65,48,0.3)';  g.fill();
-        g.globalAlpha=0.62;                           // Untergrund schimmert durch
-        trace(); g.strokeStyle=this._cobPat; g.lineWidth=6.2; g.stroke();
+        verge(9.0,5.6,0);  g.fillStyle='rgba(96,82,60,0.10)'; g.fill();
+        verge(7.0,3.8,17); g.fillStyle='rgba(86,72,54,0.16)'; g.fill();
+        verge(5.4,2.4,41); g.fillStyle='rgba(78,65,48,0.26)'; g.fill();
+        // Pflaster: von außen nach innen immer deckender – so gibt es keine
+        // harte Kante zwischen Stein und Wiese, das Pflaster wächst heraus
+        g.strokeStyle=this._cobPat;
+        for(const [wd,al] of [[8.0,0.20],[6.6,0.34],[5.0,0.55],[3.4,0.78]]){
+          g.globalAlpha=al; trace(); g.lineWidth=wd; g.stroke();
+        }
+        g.globalAlpha=1;
+        // schmaler heller Grat auf der Mitte: die Steine fangen das Licht
+        g.globalAlpha=0.16;
+        trace(); g.strokeStyle='rgba(255,244,214,1)'; g.lineWidth=1.6; g.stroke();
         g.globalAlpha=1;
         // zwei blasse Fahrspuren statt einer harten Mittellinie
         g.save();
@@ -2764,9 +2828,12 @@ export class Renderer {
       if(c._lx!==undefined){
         const ddx=pos[0]-c._lx, ddy=pos[1]-c._ly;
         if(Math.hypot(ddx,ddy)>0.05){
-          // geglättet, damit die Blickrichtung in Kurven nicht flackert
-          c._dx=c._dx===undefined?ddx:c._dx*0.75+ddx*0.25;
-          c._dy=c._dy===undefined?ddy:c._dy*0.75+ddy*0.25;
+          // geglättet, damit die Blickrichtung in Kurven nicht flackert –
+          // bei einer Kehrtwende aber SOFORT umdrehen, sonst läuft die Figur
+          // nach dem Abladen ein Stück rückwärts
+          const turn = c._dx!==undefined && (c._dx*ddx + c._dy*ddy) < 0;
+          if(c._dx===undefined || turn){ c._dx=ddx; c._dy=ddy; }
+          else { c._dx=c._dx*0.75+ddx*0.25; c._dy=c._dy*0.75+ddy*0.25; }
           c._movT=this.time+260;                 // Nachlauf über die Sim-Pause
         }
       }
@@ -2780,8 +2847,9 @@ export class Renderer {
       if(u._lx!==undefined){
         const ddx=u.x-u._lx, ddy=u.y-u._ly;
         if(Math.hypot(ddx,ddy)>0.05){
-          u._dx=u._dx===undefined?ddx:u._dx*0.75+ddx*0.25;
-          u._dy=u._dy===undefined?ddy:u._dy*0.75+ddy*0.25;
+          const turn = u._dx!==undefined && (u._dx*ddx + u._dy*ddy) < 0;
+          if(u._dx===undefined || turn){ u._dx=ddx; u._dy=ddy; }
+          else { u._dx=u._dx*0.75+ddx*0.25; u._dy=u._dy*0.75+ddy*0.25; }
           u._movT=this.time+260;                 // Nachlauf über die Sim-Pause
         }
       }
@@ -2954,18 +3022,36 @@ export class Renderer {
     g.fillStyle='rgba(255,190,120,0.16)';
     g.fillRect(0,0,this.vw,this.vh);
     g.globalCompositeOperation='source-over';
-    // Tilt-Shift: weiche Unschärfebänder oben/unten -> Diorama-Gefühl
-    if('filter' in g){
+    // Tilt-Shift: weiche Unschärfebänder oben/unten -> Diorama-Gefühl.
+    // Ohne ctx.filter über Verkleinern/Vergrößern, damit es überall wirkt.
+    {
       const dpr=this.dpr, band=Math.round(this.vh*0.14);
-      g.save();
-      g.filter='blur(2.4px)';
-      g.drawImage(this.cv, 0,0,this.cv.width,band*dpr, 0,0,this.vw,band);
-      g.drawImage(this.cv, 0,this.cv.height-band*dpr,this.cv.width,band*dpr, 0,this.vh-band,this.vw,band);
-      g.filter='blur(1.2px)';
+      const soft=(sy,sh,dy,dh,f)=>{
+        if(sh<=0) return;
+        if(Renderer.CANFILTER){
+          g.save(); g.filter=`blur(${f}px)`;
+          g.drawImage(this.cv, 0,sy,this.cv.width,sh, 0,dy,this.vw,dh);
+          g.restore(); g.filter='none';
+          return;
+        }
+        const k=Math.max(2,Math.round(f*1.6));
+        const sw2=Math.max(1,Math.round(this.vw/k)), sh2=Math.max(1,Math.round(dh/k));
+        if(!this._tsTmp) this._tsTmp=document.createElement('canvas');
+        const t=this._tsTmp;
+        if(t.width!==sw2||t.height!==sh2){ t.width=sw2; t.height=sh2; }
+        const tg2=t.getContext('2d');
+        tg2.globalCompositeOperation='copy';
+        tg2.imageSmoothingQuality='high';
+        tg2.drawImage(this.cv, 0,sy,this.cv.width,sh, 0,0,sw2,sh2);
+        tg2.globalCompositeOperation='source-over';
+        g.imageSmoothingQuality='high';
+        g.drawImage(t, 0,0,sw2,sh2, 0,dy,this.vw,dh);
+      };
+      soft(0, band*dpr, 0, band, 2.4);
+      soft(this.cv.height-band*dpr, band*dpr, this.vh-band, band, 2.4);
       const b2=Math.round(band*0.55);
-      g.drawImage(this.cv, 0,band*dpr,this.cv.width,b2*dpr, 0,band,this.vw,b2);
-      g.drawImage(this.cv, 0,this.cv.height-(band+b2)*dpr,this.cv.width,b2*dpr, 0,this.vh-band-b2,this.vw,b2);
-      g.restore();
+      soft(band*dpr, b2*dpr, band, b2, 1.2);
+      soft(this.cv.height-(band+b2)*dpr, b2*dpr, this.vh-band-b2, b2, 1.2);
     }
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);
@@ -3465,9 +3551,14 @@ export class Renderer {
           const hh=16+ph*26, ww=hh*(smi.naturalWidth/smi.naturalHeight);
           const sway=Math.sin((this.time/900+b.id+off*3))*5;
           g.globalAlpha=(white?0.75:0.6)*(1-ph);
-          if(white && 'filter' in g) g.filter='brightness(2.1)';
           g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*26-hh, ww, hh);
-          if(white && 'filter' in g) g.filter='none';
+          // Mehlstaub: zweite, hellere Lage statt Helligkeitsfilter
+          if(white){
+            g.globalCompositeOperation='lighter';
+            g.globalAlpha=0.35*(1-ph);
+            g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*26-hh, ww, hh);
+            g.globalCompositeOperation='source-over';
+          }
         }
         g.globalAlpha=1;
       } else for(const off of [0,0.45]){
@@ -3871,7 +3962,12 @@ export class Renderer {
       return;
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
-    if(u.type==='geo'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo',null,udir,!!u._mov); return; }
+    if(u.type==='geo'){
+      // beim Proben schlägt er mit der Spitzhacke auf den Fels
+      const picking = u.state==='probe' && !u._mov;
+      this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo', picking?(u.id%5):null, udir,!!u._mov);
+      return;
+    }
     if(u.type==='settle'||u.type==='flee'){
       // Flüchtende laufen vornübergebeugt und schneller
       const act= u.type==='flee' ? {set:'flee'} : null;
@@ -3899,7 +3995,7 @@ export class Renderer {
     if(u.type==='donkey'){ this.drawDonkey(g,u.x,u.y,udir,!!u._mov); return; }
     if(u.type==='builder'){
       // beim Hämmern die gebackene Arbeitsgeste nutzen (fight-Kanal = Arbeitszyklus)
-      const working=u.state==='work' && !u._mov && this.asset('unit_builder_atk');
+      const working=u.state==='work' && u.atSpot && this.asset('unit_builder_atk');
       this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'builder', working? (u.id%5):null, udir,!!u._mov);
       // Hammer-Overlay nur für die Prozeduralfigur (GLB-Modell bringt ihn mit)
       if(!this.asset('unit_builder_walk')){
@@ -4504,14 +4600,22 @@ export class Renderer {
       const col=toArr(PLAYER_COLORS[pl]||'#888');
       for(let p2=0;p2<d.length;p2+=4){
         if(d[p2+3]<8) continue;
+        const y=((p2/4)/w)|0;
+        const fy=y/h;
         const r=d[p2], gg=d[p2+1], b=d[p2+2];
-        const mx=Math.max(r,gg,b), mn=Math.min(r,gg,b);
-        // Schild = hell und farblos; das Holz ist warm und gesättigt
-        if(mn<176 || mx-mn>26) continue;
-        const l=mn/255;                              // Helligkeit als Schattierung
-        d[p2]  = Math.min(255, col[0]*l*1.06);
-        d[p2+1]= Math.min(255, col[1]*l*1.06);
-        d[p2+2]= Math.min(255, col[2]*l*1.06);
+        const l=(0.3*r+0.59*gg+0.11*b)/255;
+        // Erdhaufen am Fuß ausblenden – der Pfahl steckt einfach im Boden
+        if(fy>0.86){ d[p2+3]=Math.round(d[p2+3]*Math.max(0,(1-(fy-0.86)/0.14))); }
+        // Kappe oben und Sockel unten bleiben weiß, der Schaft trägt die
+        // Spielerfarbe – so ist der Besitzer auch von weitem lesbar
+        if(fy<0.12 || (fy>0.72 && fy<0.84)){
+          const v=Math.min(255, 190+l*90);
+          d[p2]=v; d[p2+1]=v; d[p2+2]=Math.min(255,v*0.99);
+          continue;
+        }
+        d[p2]  = Math.min(255, col[0]*(0.45+l*0.85));
+        d[p2+1]= Math.min(255, col[1]*(0.45+l*0.85));
+        d[p2+2]= Math.min(255, col[2]*(0.45+l*0.85));
       }
       t.putImageData(id,0,0);
     }catch(_){ cv=null; }

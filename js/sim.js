@@ -90,7 +90,7 @@ export class Game {
       leveled: instant,                          // Planierer muss den Platz erst ebnen
       worker: def.gather||def.mine||def.prod||def.cata ? { present: instant, state:'in', timer:0, target:-1, x:0,y:0 } : null,
       prodT: 0, foodT: 0, burnT: 0,
-      paused:false, foodPrio:false,
+      paused:false, foodPrio:false, makeGood:null,
       garrison: def.mil? def.mil.cap : 0,
     };
     this.map.bld[node] = b.id;
@@ -1053,9 +1053,13 @@ export class Game {
         // Werkzeugschmiede: schmiedet bedarfsgesteuert – ist alles ausreichend
         // vorhanden, ruht sie (spart Eisen)
         if(b.type==='toolsmith' && b.prodT===0){
-          b.chosenTool=this.toolsmithChoose(b.player);
+          // Hat der Spieler ein Werkzeug fest eingestellt, wird nur das
+          // geschmiedet; sonst entscheidet der Bedarf.
+          b.chosenTool = b.makeGood || this.toolsmithChoose(b.player);
           if(!b.chosenTool) continue;
         }
+        // Waffenschmiede: feste Waffenwahl des Spielers
+        if(b.type==='armory' && b.prodT===0 && b.makeGood) b.chosenTool=b.makeGood;
         // mit zugeteiltem Essen arbeitet ein Betrieb deutlich schneller
         const fed=(def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
         b.prodT += fed? 2 : 1;
@@ -1901,13 +1905,21 @@ export class Game {
       const [tx,ty]=m.worldPos(b.node);
       if(this.moveToward(u,tx+10,ty+13,WALK_SPEED)){ u.state='work'; u.pt=0; }
     } else if(u.state==='work'){
-      // vor der Baustelle pendeln und hämmern (kein Durchlaufen des Gebäudes)
+      // Am Gerüst wird STEHEND gehämmert. Erst nach einer Weile wechselt der
+      // Bauarbeiter die Seite – vorher tänzelte er ununterbrochen ums Haus.
       const [bx,by]=m.worldPos(b.node);
       const spots=[[bx-16,by+12],[bx-5,by+16],[bx+6,by+16],[bx+16,by+12]];
       const [tx,ty]=spots[u.pt%spots.length];
-      if(this.moveToward(u,tx,ty,WALK_SPEED*0.55)) u.pt++;
+      if(u.hammerT>0){
+        u.hammerT--;                                  // steht und schlägt zu
+        u.atSpot=true;
+      } else if(this.moveToward(u,tx,ty,WALK_SPEED*0.55)){
+        u.pt++;
+        u.hammerT=60+((this.rng()*40)|0);              // ~6-10 s am selben Platz
+        u.atSpot=true;
+      } else u.atSpot=false;
       u.swing++;
-      if(u.swing%16===0){
+      if(u.atSpot && u.swing%16===0){
         // nur hämmern, wenn Material da ist (sonst wartet er sichtbar)
         const def=BLD[b.type];
         if((b.stock.board||0)>=(def.cost.board||0) && (b.stock.stone||0)>=(def.cost.stone||0)){
@@ -2215,6 +2227,7 @@ export class Game {
     for(const b of g.buildings.values()){
       if(b.leveled===undefined) b.leveled=true;
       if(b.paused===undefined) b.paused=false;
+      if(b.makeGood===undefined) b.makeGood=null;
       if(b.foodPrio===undefined) b.foodPrio=false;
       if(b.garrison===undefined && BLD[b.type] && BLD[b.type].mil) b.garrison=BLD[b.type].mil.cap;
       if(b.state==='done' && b.worker && b.worker.present===undefined) b.worker.present=true;

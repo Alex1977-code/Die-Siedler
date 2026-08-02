@@ -204,6 +204,7 @@ export class UI {
     </div>
     <div id="scr-game" class="screen hidden">
       <canvas id="cv"></canvas>
+      <div id="title-banner"><span>Neuland</span></div>
       <div id="hud-top">
         <button id="g-menu" class="hbtn" title="Menü"></button>
         <div id="res-bar"></div>
@@ -493,12 +494,13 @@ export class UI {
     this.state.roadNodes=[fromFlag];
     this.closeSheet();
     // bewusst kompakt: nur die zwei Aktionen + eine Statuszeile
-    this.sheet(`<div class="sh-head"><b>🛤️ Straße bauen</b><button class="hbtn" id="sh-x">✕</button></div>
-      <div class="row">
-      <button class="mbtn primary" id="road-connect">🔗 Kürzester Anschluss</button>
-      <button class="mbtn back" id="road-cancel">✕ Abbrechen</button></div>
-      <p class="note" id="road-status">${autoHint?'Verbinde das Gebäude mit deinem Wegenetz – ':''}Wegpunkte antippen, Ziel-Fahne/Weg/Gebäude antippen = anschließen.</p>`);
-    $('#sh-x').onclick=()=>this.cancelRoad();
+    // bewusst einzeilig: das Sheet soll möglichst wenig Karte verdecken
+    this.sheet(`<div class="roadbar">
+      <b>🛤️</b>
+      <span id="road-status">${autoHint?'Ziel antippen':'Weg antippen'}</span>
+      <button class="mbtn primary" id="road-connect">🔗 Verbinden</button>
+      <button class="hbtn" id="road-cancel">✕</button>
+    </div>`);
     $('#road-cancel').onclick=()=>this.cancelRoad();
     $('#road-connect').onclick=()=>this.autoConnect();
   }
@@ -590,7 +592,7 @@ export class UI {
     }
     this.state.roadNodes=newPath;
     const st=$('#road-status');
-    if(st) st.textContent=`${newPath.length-1} Wegstück${newPath.length>2?'e':''} geplant.`;
+    if(st) st.textContent=`${newPath.length-1} Stück`;
     // Endpunkt könnte Fahne werden: Doppeltipp = abschließen
     if(g.canPlaceFlag(i,0)){
       if(this.lastRoadEnd===i){
@@ -599,7 +601,7 @@ export class UI {
         return;
       }
       this.lastRoadEnd=i;
-      if(st) st.textContent=`${newPath.length-1} Wegstücke – nochmal tippen für Fahne + fertig.`;
+      if(st) st.textContent=`${newPath.length-1} Stück · nochmal tippen = fertig`;
     }
   }
 
@@ -787,7 +789,7 @@ export class UI {
     }
     if(b.type==='chapel' && b.state==='done') Sound.sfx('bell');
     if(b.type==='market' && b.state==='done') Sound.sfx('market');
-    let body='';
+    let body='', body_extra='';
     if(b.state==='build'){
       const needB=def.cost.board||0, needS=def.cost.stone||0;
       body=`<p class="note">Baustelle · Bretter ${b.stock.board||0}/${needB} · Steine ${b.stock.stone||0}/${needS}</p>
@@ -807,6 +809,16 @@ export class UI {
       if(def.prod){
         for(const k in def.prod.inputs) rows.push(`${GOODS[k].name}: ${b.stock[k]||0}`);
         rows.push(`Fertig: ${b.out||0}`);
+      }
+      // Schmieden: der Spieler bestimmt, was gerade auf den Amboss kommt
+      if(def.prod && def.prod.outs){
+        const cur=b.makeGood||null;
+        rows.push(`Schmiedet: <b>${cur? GOODS[cur].name : 'nach Bedarf'}</b>`);
+        body_extra=`<div class="pickrow" id="mk-row">
+          <button class="pick${cur?'':' on'}" data-mk="">🎯<small>Bedarf</small></button>
+          ${def.prod.outs.map(o=>`<button class="pick${cur===o?' on':''}" data-mk="${o}" title="${GOODS[o].name}">
+            ${this.goodIcon(o)}<small>${GOODS[o].name}</small></button>`).join('')}
+        </div>`;
       }
       if(def.mine){
         const left=g.oreLeft(b)||0;
@@ -851,6 +863,7 @@ export class UI {
       : 'In Betrieb';
     this.sheet(`${this.sheetHead(def.name, status, 'bld_'+b.type)}
       ${body}
+      ${body_extra}
       <div class="sh-acts">
         ${this.actBtn('bd-road','🛤️','Straße')}
         ${works? this.actBtn('bd-pause', b.paused?'▶️':'⏸️', b.paused?'Weiter':'Pausieren', b.paused):''}
@@ -863,6 +876,11 @@ export class UI {
     if(pz) pz.onclick=()=>{ b.paused=!b.paused; Sound.sfx('tap'); this.openBuildingSheet(b); };
     const fd=$('#bd-food');
     if(fd) fd.onclick=()=>{ b.foodPrio=!b.foodPrio; Sound.sfx('tap'); this.openBuildingSheet(b); };
+    document.querySelectorAll('#mk-row .pick').forEach(p=> p.onclick=()=>{
+      b.makeGood = p.dataset.mk || null;
+      b.chosenTool = b.makeGood || b.chosenTool;
+      Sound.sfx('tap'); this.openBuildingSheet(b);
+    });
     document.querySelectorAll('#gar-pips .pip').forEach(p=> p.onclick=()=>{
       const n=+p.dataset.n;
       // erneutes Antippen der aktuellen Stärke setzt wieder auf volle Besatzung
@@ -875,6 +893,12 @@ export class UI {
         g.demolish(b.id); Sound.sfx('place'); this.state.sel=-1; this.closeSheet();
       });
     };
+  }
+  // kleines Warenbild für Knöpfe und Listen
+  goodIcon(k){
+    return this.renderer.asset('good_'+k) ? `<img src="assets/good_${k}.png" alt="">`
+         : this.renderer.asset('icon_'+k) ? `<img src="assets/icon_${k}.png" alt="">`
+         : `<span>${(GOODS[k]?GOODS[k].name:k).slice(0,2)}</span>`;
   }
   // Kopfzeile eines Sheets: Gebäudebild, Name, Statuszeile
   sheetHead(title, status, imgKey){
@@ -1076,8 +1100,15 @@ export class UI {
       const k=btn.dataset.good;
       const list=sel.slice();
       const ix=list.indexOf(k);
-      if(ix>=0) list.splice(ix,1);                 // abwählen
-      else { list.push(k); if(list.length>HUD_MAX) list.shift(); }
+      if(ix>=0){ list.splice(ix,1); setPins(list); return; }   // abwählen
+      // Ist die Leiste voll, muss der Spieler bewusst etwas abwählen –
+      // sonst verschwände unbemerkt die älteste Ware.
+      if(list.length>=HUD_MAX){
+        Sound.sfx('tap');
+        this.toast(`Leiste voll (${HUD_MAX}) – erst eine Ware abwählen`);
+        return;
+      }
+      list.push(k);
       setPins(list);
     });
   }
