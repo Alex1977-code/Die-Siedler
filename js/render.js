@@ -2719,8 +2719,12 @@ export class Renderer {
     // Gezeichnet wird eine Linie, deren Pinsel die Pflastertextur ist: an
     // Knicken und Kreuzungen gibt es dadurch überhaupt keine Stoßkanten mehr.
     // Vorher stieß Kachel an Kachel – das waren die hingeklatschten Bretter.
-    const patPav=this.roadPattern(g,'road_str',34);
-    const patDirt=this.roadPattern(g,'road_dirt',30)||patPav;
+    // Als Belag taugt nur eine RICHTUNGSLOSE Textur: sie liegt in der Welt
+    // fest und dreht sich nicht mit dem Weg mit. road_plaza ist ein
+    // ungerichtetes Kopfsteinfeld, der Trampelpfad wird eigens richtungslos
+    // gemacht. Die Längsstruktur kommt danach aus Bordkante und Spurrinnen.
+    const patPav=this.roadPattern(g,'road_plaza',26,{crop:0.34});
+    const patDirt=this.roadPattern(g,'road_dirt',26,{crop:0.30, isotrop:true})||patPav;
     if(patPav){
       const pav=new Path2D(), dirt=new Path2D(), alle=new Path2D();
       let leer=true;
@@ -2755,15 +2759,31 @@ export class Renderer {
         //    überlagern und dort einen dunklen Fleck hinterlassen.
         g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=W+13; g.stroke(alle);
         g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=W+7;  g.stroke(alle);
-        // 2) Belag in mehreren Lagen: von außen nach innen immer schmaler
-        //    und deckender. Dadurch franst der Rand aus, statt mit einer
-        //    Lineal-Kante im Gras zu enden.
-        const lagen=[[W+5.5,0.20],[W+3,0.34],[W+1.2,0.60],[W,1]];
-        for(const [lw,al] of lagen){
+        // 2) weicher Auslauf zur Wiese: der Belag zweimal breiter als die
+        //    Fahrbahn und halbdurchsichtig, damit der Rand ausfranst statt
+        //    mit einer Lineal-Kante im Gras zu enden
+        for(const [lw,al] of [[W+5.5,0.20],[W+3,0.36]]){
           g.globalAlpha=al;
           g.strokeStyle=patDirt; g.lineWidth=lw*0.88; g.stroke(dirt);
           g.strokeStyle=patPav;  g.lineWidth=lw;      g.stroke(pav);
         }
+        g.globalAlpha=1;
+        // 3) Bordkante: ein dunkler Strich in voller Breite, auf den sich
+        //    gleich die schmalere Fahrbahn legt. Übrig bleibt beidseits ein
+        //    Saum, der dem Weg folgt – die Längsrichtung, die eine weltfest
+        //    liegende Textur niemals mitdrehen kann.
+        g.strokeStyle='rgba(70,55,34,0.50)'; g.lineWidth=W;      g.stroke(pav);
+        g.strokeStyle='rgba(74,56,32,0.34)'; g.lineWidth=W*0.88; g.stroke(dirt);
+        // 4) Fahrbahn, deckend und schmaler als die Bordkante
+        g.strokeStyle=patPav;  g.lineWidth=W-3.2;      g.stroke(pav);
+        g.strokeStyle=patDirt; g.lineWidth=W*0.88-3.2; g.stroke(dirt);
+        // Das Kopfsteinfeld ist kühlgrau, die Wiese warm – ein dünner
+        // warmer Schleier bindet den Weg in die Landschaft ein, statt ihn
+        // als graues Band darauf liegen zu lassen.
+        g.strokeStyle='rgba(158,124,78,0.16)'; g.lineWidth=W-3.2; g.stroke(pav);
+        // 5) Trampelpfad: aufgehellte Mitte. Zusammen mit den dunklen
+        //    Rändern liest sich das als zwei ausgefahrene Spurrinnen.
+        g.strokeStyle='rgba(206,178,128,0.15)'; g.lineWidth=W*0.30; g.stroke(dirt);
         g.restore();
       }
     }
@@ -4831,21 +4851,36 @@ export class Renderer {
   // brauchen wir nur die Pflasterfläche aus der Mitte. Viermal gespiegelt
   // aneinandergelegt passen deren Kanten zusammen – so wiederholt sich die
   // Textur ohne sichtbares Raster.
-  roadPattern(g, key, periode){
+  roadPattern(g, key, periode, opt){
+    opt=opt||{};
     if(!this._roadPat) this._roadPat=new Map();
-    const ck=key+'@'+periode;
+    const ck=key+'@'+periode+(opt.crop||0)+(opt.isotrop?'i':'');
     let pat=this._roadPat.get(ck);
     if(pat!==undefined) return pat;
     const img=this.asset(key);
     if(!img){ this._roadPat.set(ck,null); return null; }
     const w=img.naturalWidth, h=img.naturalHeight;
     // Mittelband der Kachel: dort ist der Belag deckend
-    const cw=Math.round(w*0.30), ch=Math.round(h*0.30);
+    const f=opt.crop||0.30;
+    const cw=Math.round(w*f), ch=Math.round(h*f);
     const sx=Math.round((w-cw)/2), sy=Math.round((h-ch)/2);
     // doppelte Auflösung, damit die Textur beim Hineinzoomen scharf bleibt
     const S=Math.max(8, Math.round(periode));
     const basis=document.createElement('canvas'); basis.width=S; basis.height=S;
-    basis.getContext('2d').drawImage(img, sx,sy,cw,ch, 0,0,S,S);
+    const bg=basis.getContext('2d');
+    bg.drawImage(img, sx,sy,cw,ch, 0,0,S,S);
+    if(opt.isotrop){
+      // Die Kachel zeigt Fahrrillen der Länge nach. Eine weltfeste Textur
+      // kann diese Richtung nicht mitdrehen – auf einem quer laufenden Weg
+      // stünden die Rillen dann quer. Deshalb wird eine um 90° gedrehte
+      // Kopie darübergelegt: übrig bleibt richtungsloser Erdboden. Die
+      // Längsrichtung kommt weiter unten aus Strichen, die dem Weg folgen.
+      bg.save();
+      bg.globalAlpha=0.5;
+      bg.translate(S/2,S/2); bg.rotate(Math.PI/2); bg.translate(-S/2,-S/2);
+      bg.drawImage(img, sx,sy,cw,ch, 0,0,S,S);
+      bg.restore();
+    }
     const cv=document.createElement('canvas'); cv.width=S*2; cv.height=S*2;
     const t=cv.getContext('2d');
     for(const [fx,fy] of [[1,1],[-1,1],[1,-1],[-1,-1]]){
