@@ -426,6 +426,18 @@ export class Renderer {
       g2.fillStyle=tint; g2.fillRect(0,0,w,h);
       return cv;
     };
+    // Ankerpunkte für gemalte Nebelschwaden entlang der Sichtgrenze
+    this.borderFog=[];
+    for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
+      const i=m.idx(x,y);
+      if(m.explored[i]) continue;
+      let edge=false;
+      for(const n of m.nbs(i)) if(m.explored[n]){ edge=true; break; }
+      if(!edge) continue;
+      if(hash01(i*13+3)>0.34) continue;              // ausgedünnt
+      const [px,py]=m.worldPos(i);
+      this.borderFog.push({x:px, y:py, s:hash01(i)*6.28});
+    }
     this.fogDark=mk(11,'#05080d');       // langer Verlauf transparent -> schwarz
     this.fogCore=mk(3,'#05080d');        // dichter Kern im Unerforschten
     this.fogMist=mk(20,'#8ea2b4');       // vorgelagerte Nebelschwaden
@@ -601,6 +613,53 @@ export class Renderer {
         g.drawImage(this._blurTmp,0,0);
         g.restore();
       }
+      // Klippen: wo ein Knoten deutlich höher liegt als sein südlicher Nachbar,
+      // steht eine senkrechte Felswand – erst das macht die Höhe wirklich lesbar
+      {
+        const cliff=this.asset('ter_cliff'), cliffE=this.asset('ter_cliffearth');
+        if(cliff){
+          if(!this._cliffPat){
+            this._cliffPat=g.createPattern(cliff,'repeat');
+            if(this._cliffPat.setTransform) this._cliffPat.setTransform(new DOMMatrix().scale(0.18));
+            if(cliffE){
+              this._cliffPatE=g.createPattern(cliffE,'repeat');
+              if(this._cliffPatE.setTransform) this._cliffPatE.setTransform(new DOMMatrix().scale(0.18));
+            }
+          }
+          g.save(); g.translate(-c.ox,-c.oy);
+          for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
+            for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+              const i=m.idx(x,y);
+              if(m.terr[i]===TER.WATER) continue;
+              const p2=y&1;
+              const sw2=m.inb(x-1+p2,y+1)? m.idx(x-1+p2,y+1) : -1;
+              const se2=m.inb(x+p2,y+1)? m.idx(x+p2,y+1) : -1;
+              // nur echte Felsstufen im Gebirge – in der Ebene wirkt eine
+              // senkrechte Wand wie ein Fremdkörper
+              if(m.terr[i]!==TER.MOUNT) continue;
+              for(const n of [sw2,se2]){
+                if(n<0 || m.terr[n]===TER.WATER) continue;
+                const drop=(m.hgt[i]-m.hgt[n])*HSCALE;
+                if(drop<24) continue;                       // erst ab deutlicher Stufe
+                const [ax,ay]=m.worldPos(i), [bx,by]=m.worldPos(n);
+                g.fillStyle=this._cliffPat;
+                g.beginPath();
+                g.moveTo(ax-TILE*0.5, ay+2); g.lineTo(ax+TILE*0.5, ay+2);
+                g.lineTo(bx+TILE*0.5, by+2); g.lineTo(bx-TILE*0.5, by+2);
+                g.closePath();
+                g.fill();
+                // Oberkante hell, Fuß dunkel -> die Wand steht im Licht
+                const gr=g.createLinearGradient(0,ay,0,by);
+                gr.addColorStop(0,'rgba(255,246,224,0.22)');
+                gr.addColorStop(0.35,'rgba(0,0,0,0)');
+                gr.addColorStop(1,'rgba(24,20,16,0.42)');
+                g.fillStyle=gr; g.fill();
+              }
+            }
+          }
+          g.restore();
+        }
+      }
       // Küstensaum: heller Sandstreifen am Ufer und eine Schaumlinie im Wasser –
       // der stärkste Lesbarkeitsgewinn auf kleinem Display
       {
@@ -756,8 +815,11 @@ export class Renderer {
     const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
     if(t===TER.GRASS){
       // Wiesen-Deko aus dem Asset-Paket (Blumen, Pilze, Distel ...), sparsam gestreut
-      if(h>0.985){
-        const dk=['deco_flowers','deco_grass','deco_mushroom','deco_rock','deco_thistle'][(hash01(i*31+5)*5)|0];
+      if(h>0.97){
+        const water=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
+        const POOL=water? ['deco_reed','deco_fern','deco_flowers']
+          : ['deco_flowers','deco_fern','deco_mushroom','deco_moss','deco_thistle'];
+        const dk=POOL[(hash01(i*31+5)*POOL.length)|0];
         const dimg=this.asset(dk);
         if(dimg){
           const dh=this.scaleOf(dk,20)*(0.8+hash01(i*37)*0.4);
@@ -1176,6 +1238,25 @@ export class Renderer {
     this._uMask.set(key,out);
     return out;
   }
+  // Welcher Baum steht hier? Landschaft, Nachbarschaft und Wachstumsstufe
+  treeKindOf(m,i,st,hsh){
+    if(st===1 && this.asset('tree_sapling')) return 'tree_sapling';
+    const th=this.theme;
+    const nearWater=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
+    if(nearWater && this.asset('tree_willow') && hsh<0.55) return 'tree_willow';
+    const SETS={
+      gruen:  ['tree_oak','tree_beech','tree_birch','tree_spruce','tree_conifer'],
+      inseln: ['tree_oak','tree_beech','tree_palm','tree_birch'],
+      winter: ['tree_winter','tree_spruce','tree_conifer','tree_dead'],
+      wueste: ['tree_palm','tree_dead','tree_stump'],
+      vulkan: ['tree_dead','tree_conifer','tree_stump'],
+      sumpf:  ['tree_willow','tree_birch','tree_dead','tree_beech'],
+      gebirge:['tree_spruce','tree_conifer','tree_birch'],
+    };
+    const list=(SETS[th]||SETS.gruen).filter(k=>this.asset(k));
+    if(!list.length) return this.asset('tree_leaf')?'tree_leaf':'tree_conifer';
+    return list[Math.floor(hsh*list.length)%list.length];
+  }
   // Baumbilder einmalig an die Wiesenpalette anpassen + zum Boden hin abdunkeln
   tintedTree(key){
     const img=this.asset(key);
@@ -1188,10 +1269,7 @@ export class Renderer {
     const t=cv.getContext('2d');
     t.drawImage(img,0,0);
     t.globalCompositeOperation='source-atop';
-    if(key!=='tree_winter'){
-      t.fillStyle='rgba(96,116,60,0.1)';          // warmer Wiesenton
-      t.fillRect(0,0,cv.width,cv.height);
-    }
+    // die neuen Bäume sind bereits farblich abgestimmt – kein Farbstich mehr
     const gr=t.createLinearGradient(0,cv.height*0.72,0,cv.height);
     gr.addColorStop(0,'rgba(40,54,28,0)');        // unten leicht verschattet -> verwurzelt
     gr.addColorStop(1,'rgba(40,54,28,0.3)');
@@ -2641,6 +2719,18 @@ export class Renderer {
       const drift2=Math.cos(this.time/3400)*5;
       g.globalAlpha=0.34; g.drawImage(this.fogMist, fx+drift, fy+drift2*0.5, fw, fh);
       g.globalAlpha=0.38; g.drawImage(this.fogMist, fx-drift2, fy-drift*0.4, fw, fh);
+      // gemalte Schwaden entlang der Grenze zum Unerforschten
+      const fimg=this.asset('fx_fog');
+      if(fimg && this.borderFog){
+        const fh2=64, fw2=fh2*(fimg.naturalWidth/fimg.naturalHeight);
+        for(const p of this.borderFog){
+          if(p.x<wx0-90||p.x>wx1+90||p.y<wy0-70||p.y>wy1+70) continue;
+          const ph=this.time/2400+p.s;
+          g.globalAlpha=0.42+0.18*Math.sin(ph);
+          g.drawImage(fimg, p.x-fw2/2+Math.sin(ph)*9, p.y-fh2*0.6, fw2, fh2);
+        }
+        g.globalAlpha=1;
+      }
       g.globalAlpha=0.55; g.drawImage(this.fogDark, fx+drift*0.3, fy, fw, fh);
       g.globalAlpha=0.85; g.drawImage(this.fogDark, fx, fy, fw, fh);
       if(this.fogCore){ g.globalAlpha=0.95; g.drawImage(this.fogCore, fx, fy, fw, fh); }
@@ -2715,15 +2805,12 @@ export class Renderer {
       case OBJ.SAPLING: case OBJ.TREE2: case OBJ.TREE: {
         const st=o===OBJ.SAPLING?1:o===OBJ.TREE2?2:3;
         const hsh=hash01(i);
-        // Nadel / Laub grün / Laub herbstlich (Amber & Rost, nur außerhalb des Winters)
-        const species=hsh<0.5?0: (hsh<0.86||this.theme==='winter')?1:2;
         const sc=0.85+hash01(i*7+1)*0.3;
-        // Asset-Überschreibung (Stilguide §14): tree_conifer/tree_leaf/tree_autumn.png
-        // Im Winter: eigenes tree_winter.png, sonst prozedural verschneit
-        const treeKey=this.theme==='winter' ? 'tree_winter'
-          : (species===0?'tree_conifer':species===2?'tree_autumn':'tree_leaf');
+        // Baumarten je Landschaft; Setzlinge und Jungbäume haben eigene Bilder
+        const treeKey=this.treeKindOf(m,i,st,hsh);
+        const species=treeKey==='tree_conifer'||treeKey==='tree_spruce'?0:1;
         const ovT=this.tintedTree(treeKey);
-        const grow=st===3?1:st===2?0.72:0.45;
+        const grow=(treeKey==='tree_sapling')?1:(st===3?1:st===2?0.78:0.5);
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=this.scaleOf(treeKey,74)*sc*(ovT?grow:1);
         const w=ovT? h*(ovT.width/ovT.height) : 56*sc;

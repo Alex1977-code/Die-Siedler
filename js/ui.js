@@ -910,6 +910,7 @@ export class UI {
     const t=$('#msg-toast');
     const war=type==='war';
     t.className=war?'war':'';
+    if(war && this.renderer.asset('ui_warframe')) t.classList.add('framed');
     t.innerHTML= war
       ? `<span class="toast-ic">⚔️</span><span>${txt}</span>${node>=0?'<span class="toast-go">Hinsehen ▸</span>':''}`
       : `<span>${txt}</span>`;
@@ -947,6 +948,11 @@ export class UI {
     };
     requestAnimationFrame(frame);
   }
+  unitChip(key, fallback, title, n){
+    const ic=this.renderer.asset(key)
+      ? `<img class="res-ic unit-ic" src="assets/${key}.png" alt="">` : fallback;
+    return `<span title="${title}">${ic}${n}</span>`;
+  }
   syncPauseBtn(){
     const b=$('#g-pause');
     if(!b) return;
@@ -966,11 +972,11 @@ export class UI {
     $('#res-bar').innerHTML=
       sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
       +`<span class="res-sep"></span>`
-      +`<span title="Freie Siedler">🧑‍🌾${st.free}</span>`
-      +`<span title="Geologen">⛏️${st.geo}</span>`
-      +`<span title="Schwertkämpfer">🗡️${st.sword}</span>`
-      +`<span title="Speerkämpfer">🔱${st.spear}</span>`
-      +`<span title="Bogenschützen">🏹${st.bow}</span>`
+      +this.unitChip('icon_settler','🧑‍🌾','Freie Siedler',st.free)
+      +this.unitChip('icon_geo','⛏️','Geologen',st.geo)
+      +this.unitChip('icon_sword','🗡️','Schwertkämpfer',st.sword)
+      +this.unitChip('icon_spear','🔱','Speerkämpfer',st.spear)
+      +this.unitChip('icon_bow','🏹','Bogenschützen',st.bow)
       +`<span class="res-more">📦</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }
