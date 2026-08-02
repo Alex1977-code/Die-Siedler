@@ -58,6 +58,64 @@ export class WorldMap {
   terrOkBuild(i){ const t=this.terr[i]; return t===TER.GRASS || t===TER.DESERT || t===TER.SNOW; }
   terrOkMine(i){ return this.terr[i]===TER.MOUNT; }
   terrOkRoad(i){ const t=this.terr[i]; return t===TER.GRASS||t===TER.DESERT||t===TER.SNOW||t===TER.MOUNT||t===TER.SWAMP; }
+  // Pässe: Sattelstellen, an denen ein Gebirgszug durchquerbar ist. Sie
+  // ergeben sich eindeutig aus Gelände und Höhe und werden deshalb nach dem
+  // Erzeugen UND nach dem Laden neu berechnet – kein zusätzliches Speicherfeld.
+  computePasses(){
+    const n=this.w*this.h;
+    this.pass=new Uint8Array(n);
+    const rocky=(q)=> this.terr[q]===TER.MOUNT||this.terr[q]===TER.SNOW;
+    const score=new Float32Array(n);
+    for(let i=0;i<n;i++){
+      if(this.terr[i]!==TER.MOUNT) continue;
+      const x=this.X(i), y=this.Y(i), p=y&1;
+      // am Kartenrand fällt das Gelände ohnehin ab – dort ist kein echter Pass
+      if(x<4||y<4||x>this.w-5||y>this.h-5) continue;
+      // Nachbarn als gegenüberliegende Paare: West/Ost, NW/SO, NO/SW
+      const at=(nx,ny)=> this.inb(nx,ny)? this.idx(nx,ny) : -1;
+      const PAIRS=[[at(x-1,y), at(x+1,y)],
+                   [at(x-1+p,y-1), at(x+p,y+1)],
+                   [at(x+p,y-1), at(x-1+p,y+1)]];
+      for(let k=0;k<3;k++){
+        const [a2,b2]=PAIRS[k];
+        if(a2<0||b2<0) continue;
+        // Durchgang: BEIDE Seiten offen und tiefer als der Sattel
+        if(rocky(a2)||rocky(b2)) continue;
+        if(this.hgt[a2]>this.hgt[i]-0.25 || this.hgt[b2]>this.hgt[i]-0.25) continue;
+        // Schultern: die vier übrigen Nachbarn müssen Fels sein und
+        // deutlich aufragen – sonst ist es kein Sattel, sondern eine Lücke
+        let sh=0, lift=0;
+        for(let j=0;j<3;j++){
+          if(j===k) continue;
+          for(const q of PAIRS[j]){
+            if(q<0 || !rocky(q)) continue;
+            const d=this.hgt[q]-this.hgt[i];
+            if(d>0.6){ sh++; lift+=d; }
+          }
+        }
+        if(sh>=2) score[i]=Math.max(score[i], lift);
+      }
+    }
+    // nur die markantesten Sattel behalten und weiträumig ausdünnen
+    const cand=[];
+    for(let i=0;i<n;i++) if(score[i]>0) cand.push(i);
+    cand.sort((a2,b2)=>score[b2]-score[a2]);
+    const blocked=new Uint8Array(n);
+    let kept=0;
+    const MAXP=Math.max(2, Math.round(n/900));      // ~1 Pass je 900 Knoten
+    for(const i of cand){
+      if(blocked[i] || kept>=MAXP) continue;
+      this.pass[i]=1; kept++;
+      // Sperrradius 4, damit Pässe eines Zuges nicht aneinanderkleben
+      let ring=[i]; blocked[i]=1;
+      for(let d=0; d<4; d++){
+        const nx=[];
+        for(const q of ring) for(const r of this.nbs(q))
+          if(!blocked[r]){ blocked[r]=1; nx.push(r); }
+        ring=nx;
+      }
+    }
+  }
   bfsDist(a,b,maxD){
     if(a===b) return 0;
     const seen=new Map([[a,0]]); let q=[a];
@@ -297,6 +355,7 @@ export function genWorld(opts){
     }
     if(best>=0){ gate=best; clearArea(map,best,1); map.obj[best]=OBJ.GATE; }
   }
+  map.computePasses();
   return { map, starts, gate };
 }
 

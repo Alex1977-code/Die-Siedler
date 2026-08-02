@@ -520,7 +520,7 @@ export class Renderer {
     //    ein Reliefpass aus dem Höhengradienten setzt Licht und Schatten.
     {
       const perT=new Map();
-      const snowCap=[], gorge=[];
+      const snowCap=[], gorge=[], ridgeSnow=[];
       for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
         for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
           const i=m.idx(x,y);
@@ -531,6 +531,8 @@ export class Renderer {
             if(m.hgt[i]>this.snowLine() && this.slopeOf(m,i)<0.55) snowCap.push(i);
             if(this.slopeOf(m,i)>0.62) gorge.push(i);
           }
+          // Schnee AUF dem Grat ist Firn, nicht die weiche Winterdecke
+          if(t===TER.SNOW && this.slopeOf(m,i)>0.30) ridgeSnow.push(i);
         }
       if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
         this._texTmp=document.createElement('canvas'); this._texTmp.width=w; this._texTmp.height=h;
@@ -540,7 +542,11 @@ export class Renderer {
       // Zeichenreihenfolge: weiche Böden zuerst, Fels/Lava zuletzt
       const ORDER=[TER.WATER, TER.SWAMP, TER.GRASS, TER.DESERT, TER.SNOW, TER.MOUNT, TER.LAVA];
       const layers=ORDER.filter(t=>perT.has(t)).map(t=>({key:t, nodes:perT.get(t), pat:t}));
-      if(snowCap.length) layers.push({key:'snow', nodes:snowCap, pat:TER.SNOW, soft:true});
+      // Gipfelgrate tragen Firn (fest, geriffelt), die Ebene Tiefschnee
+      if(snowCap.length) layers.push({key:'snow', nodes:snowCap,
+        pat:this.asset('ter_firn')? 'firn' : TER.SNOW, soft:true});
+      if(ridgeSnow.length) layers.push({key:'firn', nodes:ridgeSnow,
+        pat:this.asset('ter_firn')? 'firn' : TER.SNOW});
       const tex=this._texTmp.getContext('2d');
       const mk=this._maskTmp.getContext('2d');
       for(const L of layers){
@@ -1220,7 +1226,9 @@ export class Renderer {
     // größer und gedreht darüber, damit die Wiederholung verschwindet
     const KEY={ [TER.GRASS]:['ter_grass',0.44], [TER.DESERT]:['ter_sand',0.5], [TER.SNOW]:['ter_snow',0.5],
                 [TER.SWAMP]:['ter_swamp',0.5], [TER.MOUNT]:['ter_rock',0.42],
-                [TER.WATER]:['ter_water',0.26], [TER.LAVA]:['ter_lava',0.5] };
+                [TER.WATER]:['ter_water',0.26], [TER.LAVA]:['ter_lava',0.5],
+                // Firn liegt auf den Gipfelgraten: härter und windgeriffelt
+                firn:['ter_firn',0.4] };
     const e=KEY[t];
     if(!e) return null;
     if(!this._terPat) this._terPat={};
@@ -2813,6 +2821,9 @@ export class Renderer {
       const i=m.idx(x,y);
       const o=m.obj[i]&127;
       if(o!==OBJ.NONE) items.push({kind:'obj', i, o, y:m.worldPos(i)[1]});
+      // Pässe: zwei Felsschultern rahmen die Sattelstelle
+      else if(m.pass && m.pass[i] && m.bld[i]<0)
+        items.push({kind:'pass', i, y:m.worldPos(i)[1]});
       // Felsnadeln und Blöcke brechen die waagerechte Terrassenstruktur auf
       else if((m.terr[i]===TER.MOUNT||m.terr[i]===TER.SNOW) && m.bld[i]<0 && !m.flag[i]
               && hash01(i*97+13)>0.9)
@@ -2866,6 +2877,7 @@ export class Renderer {
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
       else if(it.kind==='spire') this.drawSpire(g, m, it.i);
+      else if(it.kind==='pass') this.drawPass(g, m, it.i);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
       else if(it.kind==='flag') this.drawFlag(g, m, game, it.i);
@@ -3271,6 +3283,31 @@ export class Renderer {
         break;
       }
     }
+  }
+  // Gebirgspass: die Grafik bringt beide Felsschultern und das Geröll
+  // dazwischen mit. Sie wird auf die Durchgangsrichtung ausgerichtet.
+  drawPass(g, m, i){
+    const img=this.asset('obj_pass');
+    if(!img) return;
+    const [x,y]=m.worldPos(i);
+    // Richtung des Durchgangs: dorthin, wo es NICHT Fels ist
+    let ox=0, oy=0, n=0;
+    for(const q of m.nbs(i)){
+      const rocky=m.terr[q]===TER.MOUNT||m.terr[q]===TER.SNOW;
+      if(rocky) continue;
+      const [qx,qy]=m.worldPos(q);
+      ox+=qx-x; oy+=qy-y; n++;
+    }
+    const hh=this.scaleOf('obj_pass',56)*(0.9+hash01(i*31+3)*0.25);
+    const ww=hh*(img.naturalWidth/img.naturalHeight);
+    this.shadow(g, x+ww*0.14, y+4, ww*0.42, hh*0.16, 0.26);
+    g.save();
+    g.translate(x, y);
+    // Der Durchgang zeigt zur offenen Seite: liegt sie links, wird gespiegelt.
+    // Gedreht wird nicht – ein gekippter Fels sähe aus, als fiele er um.
+    if(n && ox<0){ g.scale(-1,1); }
+    g.drawImage(img, -ww/2, 6-hh, ww, hh);
+    g.restore();
   }
   // Felsnadel / Felsblock auf dem Gebirge
   drawSpire(g, m, i){

@@ -306,7 +306,7 @@ export class Game {
       c += Math.min(2.4, Math.abs(m.hgt[a]-m.hgt[b2])*1.5);      // Steigung
       const t=m.terr[b2];
       if(t===TER.SWAMP) c+=1.4;
-      if(t===TER.MOUNT) c+=1.0;
+      if(t===TER.MOUNT) c+= (m.pass && m.pass[b2]) ? 0.1 : 1.0;   // durch den Pass ist es leicht
       if(Game.isTree(m.obj[b2])) c+=0.9;                          // Baum muss fallen
       // an Objekten vorbei ist enger -> leicht meiden, damit der Weg nicht
       // an Felsen und Stämmen entlangschrammt
@@ -2188,6 +2188,7 @@ export class Game {
     m.fish=dec(md.fish,Uint8Array); m.owner=Int8Array.from(md.owner);
     m.flag=dec(md.flag,Uint8Array); m.explored=dec(md.explored,Uint8Array);
     m.bld=new Int32Array(md.w*md.h).fill(-1);
+    m.computePasses();                       // aus Gelände+Höhe ableitbar
     g.map=m; g.gate=data.gate; g.t=data.t;
     g.over=data.over; g.winner=data.winner;
     g.msgs=data.msgs||[]; g.changedNodes=[];
