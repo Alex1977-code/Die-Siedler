@@ -2423,26 +2423,13 @@ export class Renderer {
       }
       return;
     }
-    if(h<0.075){ // Blümchen
-      const cols=['#ffffff','#ffd9e8','#ffe08a','#cfe0ff'];
-      const c=cols[(hash01(i*7+3)*cols.length)|0];
-      g.strokeStyle='rgba(60,110,55,0.8)'; g.lineWidth=1.2;
-      g.beginPath(); g.moveTo(x+ox,y+oy); g.lineTo(x+ox,y+oy-4.6); g.stroke();
-      g.fillStyle=c;
-      for(let k=0;k<5;k++){
-        const a=k/5*6.28;
-        g.beginPath(); g.arc(x+ox+Math.cos(a)*2.1, y+oy-4.6+Math.sin(a)*2.1, 1.4, 0, 7); g.fill();
-      }
-      g.fillStyle='#f2c94c'; g.beginPath(); g.arc(x+ox,y+oy-4.6,1.2,0,7); g.fill();
-    } else if(h<0.105){ // Pilz
-      g.fillStyle='#efe6d2';
-      g.fillRect(x+ox-1.1,y+oy-3.6,2.2,3.6);
-      g.fillStyle='#c05a3a';
-      g.beginPath(); g.arc(x+ox,y+oy-3.6,3,Math.PI,0); g.fill();
-      g.strokeStyle='rgba(80,40,25,0.5)'; g.lineWidth=0.8; g.stroke();
-      g.fillStyle='rgba(255,255,255,0.85)';
-      g.beginPath(); g.arc(x+ox-1.2,y+oy-4.6,0.6,0,7); g.arc(x+ox+1,y+oy-5,0.5,0,7); g.fill();
-    } else if(h<0.14){ // Beerenstrauch
+    // Gemaltes Bluemchen und gemalter Pilz sind entfallen: dafuer gibt es
+    // jetzt die Deko-Bilder (deco_flowers, deco_mushroom ...), die weiter
+    // oben gestreut werden. Zwei Sorten Blumen nebeneinander sahen aus wie
+    // zwei verschiedene Spiele. Der Bereich bleibt bewusst leer, damit die
+    // Wiese nicht plötzlich mit Beerenstraeuchern zuwaechst.
+    if(h<0.105){ /* frei - hier uebernimmt die Deko-Grafik */ }
+    else if(h<0.14){ // Beerenstrauch
       g.fillStyle='#3f7d3a';
       g.beginPath(); g.arc(x+ox,y+oy-2.5,4,0,7); g.arc(x+ox+3.4,y+oy-1.5,3,0,7); g.arc(x+ox-3.4,y+oy-1.5,3,0,7); g.fill();
       g.fillStyle='#68a552';
@@ -2687,6 +2674,109 @@ export class Renderer {
     for(const b of game.buildings.values())
       if(b.door!=null && b.door>=0 && m.flag[b.door] && !this._doorMap.has(b.door))
         this._doorMap.set(b.door, b);
+    // ---------- Getreideäcker ----------
+    // Getreide wächst nicht in Beeten, sondern auf einer zusammenhängenden
+    // Fläche. Gezeichnet wird deshalb nicht Knoten für Knoten ein Kästchen,
+    // sondern je Acker EINE Fläche: Kreise auf den Feldpunkten, dazwischen
+    // Verbindungsstücke, alles als eine Form gefüllt und als Maske gesetzt.
+    // Innerhalb liegen Furchen und Halme durch – über Knotengrenzen hinweg,
+    // damit der Acker wie ein Stück wirkt und nicht wie ein Flickenteppich.
+    {
+      const istFeld=(n)=>{ const o=m.obj[n]&127; return o===OBJ.FIELD0||o===OBJ.FIELD1||o===OBJ.FIELD2; };
+      const gesehen=new Set();
+      const aecker=[];
+      const fy0=Math.max(0, Math.floor((wy0-120)/ROWH)), fy1=Math.min(m.h-1, Math.ceil((wy1+120)/ROWH));
+      const fx0=Math.max(0, Math.floor((wx0-120)/TILE)), fx1=Math.min(m.w-1, Math.ceil((wx1+120)/TILE));
+      for(let yy=fy0; yy<=fy1; yy++) for(let xx=fx0; xx<=fx1; xx++){
+        const n=m.idx(xx,yy);
+        if(gesehen.has(n) || !istFeld(n)) continue;
+        // zusammenhängende Feldpunkte einsammeln
+        const grp=[], stapel=[n];
+        gesehen.add(n);
+        while(stapel.length){
+          const c=stapel.pop(); grp.push(c);
+          for(const q of m.nbs(c)) if(!gesehen.has(q) && istFeld(q)){ gesehen.add(q); stapel.push(q); }
+        }
+        aecker.push(grp);
+      }
+      for(const grp of aecker){
+        const RX=TILE*0.44, RY=ROWH*0.48;
+        const pos=grp.map(n=>m.worldPos(n));
+        // Eine Form aus Kreisen und Verbindungsstuecken. WICHTIG: alle
+        // Teilstuecke im selben Umlaufsinn, sonst loeschen sie sich bei der
+        // Nonzero-Fuellung gegenseitig aus.
+        const bauForm=(ex,ey)=>{
+          const f=new Path2D();
+          for(const [px2,py2] of pos){
+            f.moveTo(px2+RX+ex,py2);
+            f.ellipse(px2,py2,RX+ex,RY+ey,0,0,6.2832);
+          }
+          for(let a=0;a<grp.length;a++) for(let b2=a+1;b2<grp.length;b2++){
+            if(!m.nbs(grp[a]).includes(grp[b2])) continue;
+            const [ax,ay]=pos[a], [bx,by]=pos[b2];
+            const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+            const nx=-dy/L2*(RY+ey), ny=dx/L2*(RY+ey);
+            f.moveTo(ax-nx,ay-ny); f.lineTo(bx-nx,by-ny);
+            f.lineTo(bx+nx,by+ny); f.lineTo(ax+nx,ay+ny); f.closePath();
+          }
+          return f;
+        };
+        const form=bauForm(0,0);
+        let x0=1e9,y0=1e9,x1b=-1e9,y1b=-1e9;
+        for(const [px2,py2] of pos){
+          if(px2-RX<x0)x0=px2-RX; if(px2+RX>x1b)x1b=px2+RX;
+          if(py2-RY<y0)y0=py2-RY; if(py2+RY>y1b)y1b=py2+RY;
+        }
+        // Feldrain: eine zweite, etwas groessere Form in Erdton. Ein Strich
+        // um die Form herum ginge nicht - der zeichnet auch alle INNEREN
+        // Kanten der Kreise nach und legt ein Netz ueber den Acker.
+        g.save();
+        g.fillStyle='rgba(104,80,48,0.42)';
+        g.fill(bauForm(5,4.5));
+        g.restore();
+        g.save();
+        g.clip(form);
+        g.fillStyle='#7d5a37';                       // gepfluegte Erde
+        g.fillRect(x0-8,y0-8,x1b-x0+16,y1b-y0+16);
+        // Furchen quer ueber den GANZEN Acker, nicht je Kaestchen
+        g.strokeStyle='rgba(58,40,24,0.30)'; g.lineWidth=1.3;
+        for(let yy=Math.floor(y0/7)*7; yy<y1b+8; yy+=7){
+          g.beginPath(); g.moveTo(x0-8,yy); g.lineTo(x1b+8,yy); g.stroke();
+        }
+        g.strokeStyle='rgba(154,120,78,0.24)'; g.lineWidth=1;
+        for(let yy=Math.floor(y0/7)*7+3.5; yy<y1b+8; yy+=7){
+          g.beginPath(); g.moveTo(x0-8,yy); g.lineTo(x1b+8,yy); g.stroke();
+        }
+        // Halme ueber die ganze Flaeche in durchgehenden Reihen. Der
+        // Reifegrad kommt vom naechstgelegenen Feldpunkt - so laeuft das
+        // Getreide ueber Knotengrenzen hinweg statt in Kaestchen zu stehen.
+        for(let yy=Math.floor(y0/7)*7; yy<y1b+6; yy+=7){
+          const versatz=(Math.round(yy/7)&1)?3.5:0;
+          for(let sx=Math.floor((x0-8)/7)*7+versatz; sx<x1b+8; sx+=7){
+            // naechster Feldpunkt
+            let best=-1, bd=1e9;
+            for(let k=0;k<pos.length;k++){
+              const d=Math.hypot(sx-pos[k][0], (yy-pos[k][1])*1.35);
+              if(d<bd){ bd=d; best=k; }
+            }
+            if(best<0) continue;
+            const o=m.obj[grp[best]]&127;
+            if(o===OBJ.FIELD0) continue;             // frisch bestellt: nur Erde
+            const reif=(o===OBJ.FIELD2);
+            const hoch=reif?9:5;
+            const j=hash01(Math.round(sx)*17+Math.round(yy)*7)*1.6-0.8;
+            g.strokeStyle= reif? 'rgba(206,166,66,0.95)' : 'rgba(126,170,74,0.95)';
+            g.lineWidth=1.5;
+            g.beginPath(); g.moveTo(sx,yy+1); g.lineTo(sx+j, yy+1-hoch); g.stroke();
+            if(reif){
+              g.fillStyle='#e2c56a';
+              g.beginPath(); g.ellipse(sx+j, yy+1-hoch, 1.5, 2.2, j*0.3, 0, 7); g.fill();
+            }
+          }
+        }
+        g.restore();
+      }
+    }
     // Vorplatz: vor den Toren der großen Lagerbauten liegt gepflasterter
     // Grund. Er gehört an den EINGANG. Mittig unters Haus gelegt verschwände
     // er darunter und lugte nur als grauer Fleck am Fuß hervor – genau das
@@ -3273,7 +3363,15 @@ export class Renderer {
       g.fillText(name, px, ty+0.5*u);
       // Haken und Kreuz: nur wenn der Platz überhaupt geht, sonst nur Abbruch
       const R=21*u, by2=ty+ph/2+R+7*u, sp=30*u;
-      const knopf=(cx,cy,farbe,rand,zeichen)=>{
+      // Liegen gemalte Knöpfe im Asset-Paket (ui_ok / ui_cancel), werden die
+      // genommen; sonst zeichnet der Code einen schlichten Ersatz.
+      const knopf=(cx,cy,farbe,rand,zeichen,key)=>{
+        const bild=this.asset(key);
+        if(bild){
+          const d2=R*2.3;
+          g.drawImage(bild, cx-d2/2, cy-d2/2, d2, d2);
+          return;
+        }
         g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7);
         g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
         g.beginPath(); g.arc(cx,cy,R,0,7);
@@ -3284,11 +3382,11 @@ export class Renderer {
         g.fillText(zeichen, cx, cy+1*u);
       };
       if(ok){
-        knopf(px-sp, by2, '#4c8a3a', 'rgba(226,246,210,0.9)', '✓');
-        knopf(px+sp, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕');
+        knopf(px-sp, by2, '#4c8a3a', 'rgba(226,246,210,0.9)', '✓', 'ui_ok');
+        knopf(px+sp, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕', 'ui_cancel');
         this._placeBtn={ ok:[px-sp,by2], no:[px+sp,by2], r:R*1.25 };
       } else {
-        knopf(px, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕');
+        knopf(px, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕', 'ui_cancel');
         this._placeBtn={ ok:null, no:[px,by2], r:R*1.25 };
       }
       g.textAlign='left'; g.textBaseline='alphabetic';
@@ -3522,30 +3620,12 @@ export class Renderer {
         g.beginPath(); g.moveTo(x+1,y-8); g.lineTo(x+6,y-9); g.lineTo(x+9,y-4); g.closePath(); g.fill();
         break;
       }
-      case OBJ.FIELD0: case OBJ.FIELD1: case OBJ.FIELD2: {
-        // Ackerfläche – Wachstumsstufen aus dem Asset-Pack (gepflügt/grün/reif)
-        const fkey=o===OBJ.FIELD0?'obj_field0':o===OBJ.FIELD1?'obj_field1':'obj_field2';
-        const ovF=this.asset(fkey);
-        if(ovF){
-          const hh=this.scaleOf(fkey,40), ww=hh*(ovF.naturalWidth/ovF.naturalHeight);
-          g.drawImage(ovF, x-ww/2, y+13-hh, ww, hh);
-          break;
-        }
-        g.fillStyle='rgba(122,95,61,0.55)';
-        g.beginPath(); g.ellipse(x,y,19,10,0,0,7); g.fill();
-        g.strokeStyle='rgba(90,66,40,0.35)'; g.lineWidth=1; g.stroke();
-        const hgt=o===OBJ.FIELD0?3.5:o===OBJ.FIELD1?7:11;
-        const ripe=o===OBJ.FIELD2;
-        g.strokeStyle=ripe?'#dfbc4f':'#8fbe58';
-        g.lineWidth=1.8;
-        for(let k=-2;k<=2;k++){
-          for(const dy of [-3.4,2.6]){
-            g.beginPath(); g.moveTo(x+k*6.4, y+dy+3); g.lineTo(x+k*6.4, y+dy+3-hgt); g.stroke();
-            if(ripe){ g.fillStyle='#e8ce6a'; g.beginPath(); g.arc(x+k*6.4,y+dy+3-hgt,1.7,0,7); g.fill(); }
-          }
-        }
+      case OBJ.FIELD0: case OBJ.FIELD1: case OBJ.FIELD2:
+        // Äcker werden nicht mehr Knoten für Knoten als Kästchen gezeichnet,
+        // sondern weiter oben je Fläche am Stück (siehe "Getreideäcker").
+        // Die Beet-Bilder obj_field0..2 zeigen ein Hochbeet mit Rand – als
+        // Getreidefeld aneinandergereiht sah das aus wie ein Gemüsegarten.
         break;
-      }
       case OBJ.RUIN: {
         // verkohlte Brandruine: Aschehügel, geborstene Balken, Reststein
         this.shadow(g,x,y+2,15,4.6,0.2);
@@ -3761,7 +3841,7 @@ export class Renderer {
         rk.addColorStop(1,'rgba(90,84,74,0)');
         g.fillStyle=rk;
         g.beginPath(); g.ellipse(x,y-hh*0.42, ww*0.72, hh*0.62, 0, 0, 7); g.fill();
-        g.drawImage(ov, x-ww/2, y-hh+6, ww, hh);
+        g.drawImage(this.solidBld(ovKey||typeKey, ov), x-ww/2, y-hh+6, ww, hh);
         g.fillStyle='rgba(96,90,80,0.5)';
         for(let k=0;k<5;k++){
           const rx=x-ww*0.4+k*ww*0.2, ry=y+4+((k*13)%5);
@@ -3783,7 +3863,7 @@ export class Renderer {
           }
           sx=b._wx; sy=b._wy;
         }
-        g.drawImage(ov, x+sx-ww/2, y+sy-hh+(def.size==='MINE'?8:10), ww, hh);
+        g.drawImage(this.solidBld(ovKey||typeKey, ov), x+sx-ww/2, y+sy-hh+(def.size==='MINE'?8:10), ww, hh);
       }
       // Militärbauten und Hauptburg: Wimpel in Spielerfarbe auf den Turmspitzen
       if((def.mil||b.type==='hq') && b.state==='done'){
@@ -3877,14 +3957,26 @@ export class Renderer {
       const mimg=this.asset('bld_mill');
       const hh=this.scaleOf('bld_mill',92);
       const ww=hh*(mimg? mimg.naturalWidth/mimg.naturalHeight : 0.5);
-      // Nabenzapfen sitzt links oben am Kegeldach (aus dem Turmbild vermessen)
-      const hubX=x-ww/2+ww*0.357, hubY=y-hh+10+hh*0.238;
-      const span=hh*0.92;                    // Flügelspannweite
+      // Nabe an der Kappe, knapp unter der Dachspitze, leicht nach vorn.
+      // Vorher saß sie auf dem linken Dachrand und die Spannweite war fast
+      // so groß wie der ganze Turm – die Flügel lagen wie ein Aufkleber quer
+      // über dem Dach.
+      const hubX=x-ww/2+ww*0.50, hubY=y-hh+10+hh*0.225;
+      const span=hh*0.62;                    // Flügelspannweite
       const ang= working? this.time/650 : (b.id%6.28);
       g.save();
       g.translate(hubX,hubY);
-      g.scale(0.86,1);                       // Flügelebene leicht zur Seite geneigt
+      // Die Flügelebene steht schräg zur Kamera: waagerecht gestaucht und
+      // etwas gekippt, damit sie sich in die Bauperspektive einfügt statt
+      // frontal davorzustehen.
+      g.transform(0.80, 0.13, 0, 1, 0, 0);
       g.rotate(ang);
+      // weicher Schatten aufs Dach, damit die Flügel aufliegen statt zu schweben
+      g.save();
+      g.globalAlpha=0.22;
+      g.translate(span*0.045, span*0.05);
+      g.drawImage(sails, -span/2, -span/2, span, span);
+      g.restore();
       g.drawImage(sails, -span/2, -span/2, span, span);
       g.restore();
     }
@@ -5012,6 +5104,65 @@ export class Renderer {
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
     return cv;
+  }
+  // Beim Freistellen vor weissem Hintergrund haben helle INNENflaechen Alpha
+  // eingebuesst – der weisse Muehlenturm und das helle Reetdach schimmern im
+  // Spiel durch. Hier wird alles innerhalb der Silhouette wieder deckend
+  // gemacht; der weiche Aussenrand (zwei Punkte breit) bleibt unangetastet,
+  // sonst bekaeme das Gebaeude eine harte Treppchenkante.
+  solidBld(key, img){
+    if(!img) return img;
+    if(!this._solid) this._solid=new Map();
+    const hit=this._solid.get(key);
+    if(hit!==undefined) return hit||img;
+    let cv=null;
+    try{
+      const w=img.naturalWidth, h=img.naturalHeight;
+      cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      const t=cv.getContext('2d');
+      t.drawImage(img,0,0);
+      const id=t.getImageData(0,0,w,h), d=id.data;
+      // 1) Flutfuellung vom Rand her ueber alles Durchsichtige: so ist klar,
+      //    was aussen liegt und was ein heller Fleck INNERHALB des Hauses ist
+      const aussen=new Uint8Array(w*h);
+      const stapel=[];
+      const pruef=(x,y)=>{
+        const k=y*w+x;
+        if(aussen[k] || d[(k<<2)+3]>=16) return;
+        aussen[k]=1; stapel.push(k);
+      };
+      for(let x=0;x<w;x++){ pruef(x,0); pruef(x,h-1); }
+      for(let y=0;y<h;y++){ pruef(0,y); pruef(w-1,y); }
+      while(stapel.length){
+        const k=stapel.pop(), x=k%w, y=(k/w)|0;
+        if(x>0) pruef(x-1,y);
+        if(x<w-1) pruef(x+1,y);
+        if(y>0) pruef(x,y-1);
+        if(y<h-1) pruef(x,y+1);
+      }
+      // 2) Aussenbereich um zwei Punkte verbreitern = der Saum, der weich
+      //    bleiben soll
+      const saum=new Uint8Array(aussen);
+      for(let r=0;r<2;r++){
+        const vor=new Uint8Array(saum);
+        for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+          if(vor[y*w+x]) continue;
+          if((x>0&&vor[y*w+x-1])||(x<w-1&&vor[y*w+x+1])||(y>0&&vor[(y-1)*w+x])||(y<h-1&&vor[(y+1)*w+x]))
+            saum[y*w+x]=1;
+        }
+      }
+      // 3) alles Uebrige deckend machen
+      let geaendert=0;
+      for(let k=0;k<w*h;k++){
+        if(saum[k]) continue;
+        const a=d[(k<<2)+3];
+        if(a>=24 && a<255){ d[(k<<2)+3]=255; geaendert++; }
+      }
+      if(!geaendert){ this._solid.set(key,null); return img; }
+      t.putImageData(id,0,0);
+    }catch(_){ cv=null; }
+    this._solid.set(key, cv);
+    return cv||img;
   }
   // Wegekachel in Zielgroesse vorhalten. Die Vorlagen sind 256 Pixel gross,
   // gezeichnet werden sie mit rund 40 – jedes Bild neu herunterzuskalieren

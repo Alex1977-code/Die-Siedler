@@ -1250,14 +1250,55 @@ export class Game {
         const ripe=nodes.find(i=> m.obj[i]===OBJ.FIELD2);
         if(ripe!==undefined) return {node:ripe, kind:'harvest', reserve:false};
         if(b.out<2){
-          const empty=nodes.find(i=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i]
-            && m.owner[i]===b.player && !this.roadAt(i));
-          if(empty!==undefined) return {node:empty, kind:'sow', reserve:false};
+          const ziel=this.ackerZiel(b, nodes);
+          if(ziel!==undefined) return {node:ziel, kind:'sow', reserve:false};
         }
         return null;
       }
     }
     return null;
+  }
+  // Getreide wächst nicht in Beeten kreuz und quer, sondern auf einem Acker.
+  // Ein Bauernhof legt deshalb bis zu drei zusammenhängende Flächen an: der
+  // erste Halm bestimmt die Mitte, danach wird immer an eine schon bestellte
+  // Stelle ANGEBAUT. Ist eine Fläche ausgewachsen, beginnt die nächste.
+  static ACKER_MAX=7;        // Punkte je Fläche (Mitte + Ring)
+  static ACKER_N=3;          // höchstens drei Flächen je Hof
+  ackerZiel(b, nodes){
+    const m=this.map;
+    const frei=(i)=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0
+      && !m.flag[i] && m.owner[i]===b.player && !this.roadAt(i);
+    if(!b.aecker) b.aecker=[];
+    // Flächen aufräumen: was nicht mehr bestellbar ist, fällt heraus
+    b.aecker=b.aecker.filter(a=>a.length);
+    // 1) Brachliegende Stelle INNERHALB einer Fläche zuerst wieder bestellen –
+    //    so bleibt der Acker ein Acker und wandert nicht über die Wiese
+    for(const a of b.aecker){
+      const nach=a.find(i=>frei(i));
+      if(nach!==undefined) return nach;
+    }
+    // 2) Eine noch nicht ausgewachsene Fläche erweitern: nur direkt daneben,
+    //    und niemals auf eine andere Fläche zu. Ohne diese Sperre wachsen
+    //    drei Äcker zu einem einzigen großen Feld zusammen und die
+    //    Höchstgröße ist wirkungslos.
+    for(const a of b.aecker){
+      if(a.length>=Game.ACKER_MAX) continue;
+      const fremd=new Set();
+      for(const o of b.aecker){ if(o===a) continue; for(const i of o){ fremd.add(i); for(const q of m.nbs(i)) fremd.add(q); } }
+      for(const i of a){
+        const nb=m.nbs(i).find(n=> frei(n) && !a.includes(n) && !fremd.has(n) && nodes.includes(n));
+        if(nb!==undefined){ a.push(nb); return nb; }
+      }
+    }
+    // 3) Alle Flächen ausgewachsen? Dann eine neue anfangen – mit Abstand,
+    //    sonst wachsen zwei Äcker zu einem Klumpen zusammen
+    if(b.aecker.length>=Game.ACKER_N) return undefined;
+    const belegt=new Set(b.aecker.flat());
+    const start=nodes.find(i=> frei(i) && !belegt.has(i)
+      && !m.nbs(i).some(n=>belegt.has(n)));
+    if(start===undefined) return undefined;
+    b.aecker.push([start]);
+    return start;
   }
   nodesInRange(center, R){
     const m=this.map, out=[], seen=new Set([center]);

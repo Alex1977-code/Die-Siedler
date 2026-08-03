@@ -136,7 +136,10 @@ export class WorldMap {
 // ---------------- Kartengenerator ----------------
 // theme: gruen | winter | wueste | vulkan | sumpf | inseln | gebirge
 export function genWorld(opts){
-  const sizes = { S:[44,44], M:[58,58], L:[74,74] };
+  // Kartengroessen. Vorher war selbst "Gross" nach wenigen Gebaeuden
+  // ausgereizt - eine Siedlung braucht Luft zum Wachsen und Platz fuer
+  // Nachbarn, Gebirge und Kueste.
+  const sizes = { S:[62,62], M:[84,84], L:[110,110] };
   const [w,h] = Array.isArray(opts.size) ? opts.size : (sizes[opts.size]||sizes.M);
   const rng = mulberry32(opts.seed>>>0);
   const map = new WorldMap(w,h);

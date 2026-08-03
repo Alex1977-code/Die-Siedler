@@ -172,7 +172,10 @@ h1::after{
   display:flex; flex-direction:column; align-items:center; gap:1px;
   padding:6px 3px; border-radius:9px; border:1px solid #4a5a70; background:#26364b;
 }
-.stock-it.zero{ opacity:0.4; }
+/* Waren mit Bestand 0 werden NICHT ausgegraut: sie lassen sich genauso
+   anheften, und ein leeres Lager ist gerade der Grund hinzuschauen. Nur
+   die Null selbst steht gedaempft da. */
+.stock-it.zero b{ color:#8fa2bb; }
 .stock-it{ cursor:pointer; }
 .stock-it.pinned{ border-color:#f2d98c; box-shadow:0 0 0 1px #f2d98c inset; }
 .res-sep{ width:1px; height:18px; background:rgba(201,160,90,0.45); margin:0 2px; }
