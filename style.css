@@ -206,18 +206,15 @@ h1::after{
 /* Meldungen: kleine Pergamentnotiz statt grauer Systemblase */
 #msg-toast{
   position:absolute; top:calc(112px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
-  background:url('assets/ui_parchment.png') center/cover, #dcc79d;
-  color:#3d2b14; border:1px solid #8a6f4a; border-radius:12px;
-  padding:9px 16px; font-size:14px; z-index:6; max-width:88vw; text-align:center;
+  /* gemalte Holztafel: Rahmen aus den Bildraendern, Mitte streckt sich */
+  border:22px solid transparent;
+  border-image:url('assets/ui_toast.png') 90 fill / 22px stretch;
+  color:#3d2b14; border-radius:0;
+  padding:0 6px; font-size:14px; z-index:6; max-width:88vw; text-align:center;
   display:flex; gap:8px; align-items:center; cursor:pointer;
   font-family:Georgia,'Times New Roman',serif; letter-spacing:0.01em;
-  box-shadow:0 5px 16px rgba(0,0,0,0.42), inset 0 0 0 1px rgba(255,248,225,0.35);
+  filter:drop-shadow(0 5px 10px rgba(0,0,0,0.4));
   animation:toastin 0.22s ease-out;
-}
-/* leicht schiefes Blatt mit Eselsohr-Anmutung */
-#msg-toast::before{
-  content:''; position:absolute; inset:3px; border-radius:8px; pointer-events:none;
-  border:1px dashed rgba(122,91,53,0.35);
 }
 @keyframes toastin{
   from{ opacity:0; transform:translateX(-50%) translateY(-7px) scale(0.97); }

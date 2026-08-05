@@ -1309,8 +1309,11 @@ export class Game {
     //    sonst wachsen zwei Äcker zu einem Klumpen zusammen
     if(b.aecker.length>=Game.ACKER_N) return undefined;
     const belegt=new Set(b.aecker.flat());
-    const start=nodes.find(i=> frei(i) && !belegt.has(i)
-      && !m.nbs(i).some(n=>belegt.has(n)));
+    // Abstand von ZWEI Reihen zum naechsten Acker: die Felder werden als
+    // eckige Flaechen gezeichnet, die etwas ueber ihre Zellen hinausreichen -
+    // mit nur einer Reihe Abstand kleben sie im Bild aneinander
+    const nahBelegt=(i)=> m.nbs(i).some(n=> belegt.has(n) || m.nbs(n).some(q=>belegt.has(q)));
+    const start=nodes.find(i=> frei(i) && !belegt.has(i) && !nahBelegt(i));
     if(start===undefined) return undefined;
     b.aecker.push([start]);
     return start;

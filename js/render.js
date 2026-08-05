@@ -3035,80 +3035,90 @@ export class Renderer {
         aecker.push(grp);
       }
       for(const grp of aecker){
-        const RX=TILE*0.44, RY=ROWH*0.48;
+        // Ein Acker ist ein ECKIGES Stueck Land: ein Quadrat in der
+        // Spielperspektive, also ein Parallelogramm mit waagerechter Ober-
+        // und Unterkante und schraegen Seiten (die beiden Gitterachsen
+        // u=(TILE,0) und v=(TILE/2,ROWH)). Nicht je Zelle eine Form -
+        // hochkant stehende Rauten sahen aus wie Wimpel, nicht wie Felder.
         const pos=grp.map(n=>m.worldPos(n));
-        // Eine Form aus Kreisen und Verbindungsstuecken. WICHTIG: alle
-        // Teilstuecke im selben Umlaufsinn, sonst loeschen sie sich bei der
-        // Nonzero-Fuellung gegenseitig aus.
-        const bauForm=(ex,ey)=>{
-          const f=new Path2D();
-          for(const [px2,py2] of pos){
-            f.moveTo(px2+RX+ex,py2);
-            f.ellipse(px2,py2,RX+ex,RY+ey,0,0,6.2832);
-          }
-          for(let a=0;a<grp.length;a++) for(let b2=a+1;b2<grp.length;b2++){
-            if(!m.nbs(grp[a]).includes(grp[b2])) continue;
-            const [ax,ay]=pos[a], [bx,by]=pos[b2];
-            const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
-            const nx=-dy/L2*(RY+ey), ny=dx/L2*(RY+ey);
-            f.moveTo(ax-nx,ay-ny); f.lineTo(bx-nx,by-ny);
-            f.lineTo(bx+nx,by+ny); f.lineTo(ax+nx,ay+ny); f.closePath();
-          }
-          return f;
-        };
-        const form=bauForm(0,0);
-        let x0=1e9,y0=1e9,x1b=-1e9,y1b=-1e9;
+        let cx=0, cy=0;
+        for(const [px2,py2] of pos){ cx+=px2; cy+=py2; }
+        cx/=pos.length; cy/=pos.length;
+        // Ausdehnung in Gitterachsen messen
+        let su=0.45, sv=0.45;
         for(const [px2,py2] of pos){
-          if(px2-RX<x0)x0=px2-RX; if(px2+RX>x1b)x1b=px2+RX;
-          if(py2-RY<y0)y0=py2-RY; if(py2+RY>y1b)y1b=py2+RY;
+          const pv=(py2-cy)/ROWH, pu=((px2-cx)-TILE*0.5*pv)/TILE;
+          su=Math.max(su, Math.abs(pu)+0.45);
+          sv=Math.max(sv, Math.abs(pv)+0.45);
         }
-        // Feldrain: eine zweite, etwas groessere Form in Erdton. Ein Strich
-        // um die Form herum ginge nicht - der zeichnet auch alle INNEREN
-        // Kanten der Kreise nach und legt ein Netz ueber den Acker.
+        const ecke=(fu,fv)=>[cx+fu*su*TILE + fv*sv*TILE*0.5, cy + fv*sv*ROWH];
+        const viereck=(f, u0,u1,v0,v1)=>{
+          const A=[cx+u0*TILE+v0*TILE*0.5, cy+v0*ROWH];
+          const B=[cx+u1*TILE+v0*TILE*0.5, cy+v0*ROWH];
+          const C=[cx+u1*TILE+v1*TILE*0.5, cy+v1*ROWH];
+          const D=[cx+u0*TILE+v1*TILE*0.5, cy+v1*ROWH];
+          f.moveTo(A[0],A[1]); f.lineTo(B[0],B[1]); f.lineTo(C[0],C[1]); f.lineTo(D[0],D[1]); f.closePath();
+        };
+        const form=new Path2D();
+        viereck(form, -su, su, -sv, sv);
+        // Feldrain: schmaler Erdstreifen rundum, gleiche eckige Form
+        const rain=new Path2D();
+        viereck(rain, -su-0.10, su+0.10, -sv-0.10, sv+0.10);
         g.save();
-        g.fillStyle='rgba(104,80,48,0.42)';
-        g.fill(bauForm(5,4.5));
+        g.fillStyle='rgba(96,74,44,0.55)';
+        g.fill(rain);
         g.restore();
         g.save();
         g.clip(form);
-        g.fillStyle='#7d5a37';                       // gepfluegte Erde
-        g.fillRect(x0-8,y0-8,x1b-x0+16,y1b-y0+16);
-        // Furchen quer ueber den GANZEN Acker, nicht je Kaestchen
-        g.strokeStyle='rgba(58,40,24,0.30)'; g.lineWidth=1.3;
-        for(let yy=Math.floor(y0/7)*7; yy<y1b+8; yy+=7){
-          g.beginPath(); g.moveTo(x0-8,yy); g.lineTo(x1b+8,yy); g.stroke();
-        }
-        g.strokeStyle='rgba(154,120,78,0.24)'; g.lineWidth=1;
-        for(let yy=Math.floor(y0/7)*7+3.5; yy<y1b+8; yy+=7){
-          g.beginPath(); g.moveTo(x0-8,yy); g.lineTo(x1b+8,yy); g.stroke();
-        }
-        // Halme ueber die ganze Flaeche in durchgehenden Reihen. Der
-        // Reifegrad kommt vom naechstgelegenen Feldpunkt - so laeuft das
-        // Getreide ueber Knotengrenzen hinweg statt in Kaestchen zu stehen.
-        for(let yy=Math.floor(y0/7)*7; yy<y1b+6; yy+=7){
-          const versatz=(Math.round(yy/7)&1)?3.5:0;
-          for(let sx=Math.floor((x0-8)/7)*7+versatz; sx<x1b+8; sx+=7){
-            // naechster Feldpunkt
-            let best=-1, bd=1e9;
-            for(let k=0;k<pos.length;k++){
-              const d=Math.hypot(sx-pos[k][0], (yy-pos[k][1])*1.35);
-              if(d<bd){ bd=d; best=k; }
+        const tex=[this.asset('ter_field_0'), this.asset('ter_field_1'), this.asset('ter_field_2')];
+        if(tex[0]&&tex[1]&&tex[2]){
+          if(!this._fieldPat) this._fieldPat=new Map();
+          const pat=(ix)=>{
+            let pp=this._fieldPat.get(ix);
+            if(!pp){
+              pp=g.createPattern(tex[ix],'repeat');
+              try{ if(pp&&pp.setTransform) pp.setTransform(new DOMMatrix([104/512,0,0,88/512,0,0])); }catch(_){}
+              this._fieldPat.set(ix,pp);
             }
-            if(best<0) continue;
-            const o=m.obj[grp[best]]&127;
-            if(o===OBJ.FIELD0) continue;             // frisch bestellt: nur Erde
-            const reif=(o===OBJ.FIELD2);
-            const hoch=reif?9:5;
-            const j=hash01(Math.round(sx)*17+Math.round(yy)*7)*1.6-0.8;
-            g.strokeStyle= reif? 'rgba(206,166,66,0.95)' : 'rgba(126,170,74,0.95)';
-            g.lineWidth=1.5;
-            g.beginPath(); g.moveTo(sx,yy+1); g.lineTo(sx+j, yy+1-hoch); g.stroke();
-            if(reif){
-              g.fillStyle='#e2c56a';
-              g.beginPath(); g.ellipse(sx+j, yy+1-hoch, 1.5, 2.2, j*0.3, 0, 7); g.fill();
-            }
+            return pp;
+          };
+          // Grundlage: gepfluegte Erde
+          const p0=pat(0);
+          try{ if(p0&&p0.setTransform) p0.setTransform(new DOMMatrix([104/512,0,0,88/512,0,0])); }catch(_){}
+          g.fillStyle=p0;
+          g.fillRect(cx-su*TILE-sv*TILE*0.5, cy-sv*ROWH, (su*TILE+sv*TILE*0.5)*2, sv*ROWH*2);
+          // Wachstum als durchlaufende Baender von unten nach oben: der Hof
+          // saet der Reihe nach, entsprechend reift das Feld in Streifen.
+          const n1=grp.filter(n=>(m.obj[n]&127)===OBJ.FIELD1).length;
+          const n2=grp.filter(n=>(m.obj[n]&127)===OBJ.FIELD2).length;
+          const f12=(n1+n2)/grp.length, f2=n2/grp.length;
+          const wPh=this.time/900 + (grp[0]%17);
+          const band=(stufe, anteil)=>{
+            if(anteil<=0.001) return;
+            const teil=new Path2D();
+            viereck(teil, -su, su, sv-2*sv*anteil, sv);
+            const pp=pat(stufe);
+            const wob=Math.sin(wPh)*(stufe===2?1.0:0.5);
+            try{ if(pp&&pp.setTransform) pp.setTransform(new DOMMatrix([104/512, 0, 0.05*wob, 88/512, 2.2*wob, 0])); }catch(_){}
+            g.fillStyle=pp; g.fill(teil);
+            g.globalAlpha=0.20; g.strokeStyle='rgba(58,40,24,1)'; g.lineWidth=1.3;
+            g.stroke(teil); g.globalAlpha=1;
+          };
+          band(1, f12);
+          band(2, f2);
+        } else {
+          g.fillStyle='#7d5a37';
+          g.fillRect(cx-su*TILE-sv*TILE*0.5, cy-sv*ROWH, (su*TILE+sv*TILE*0.5)*2, sv*ROWH*2);
+          g.strokeStyle='rgba(58,40,24,0.30)'; g.lineWidth=1.3;
+          for(let yy=Math.floor((cy-sv*ROWH)/7)*7; yy<cy+sv*ROWH; yy+=7){
+            g.beginPath(); g.moveTo(cx-su*TILE-sv*TILE, yy); g.lineTo(cx+su*TILE+sv*TILE, yy); g.stroke();
           }
         }
+        g.restore();
+        // eckige Kante des Ackers
+        g.save();
+        g.strokeStyle='rgba(70,52,30,0.4)'; g.lineWidth=1.6;
+        g.stroke(form);
         g.restore();
       }
     }
@@ -3398,7 +3408,13 @@ export class Renderer {
             }
             rot=arr[best]-Math.PI/2;
           }
-          else { img=kX; rot=arr[0]; }
+          else {
+            // Sechswege-Nabe: ihre Arme liegen fest im 60-Grad-Raster des
+            // Gitters - deshalb NICHT drehen, sie passt in jeder Lage
+            const hub=this.asset('road_hub');
+            if(hub){ img=hub; rot=0; }
+            else { img=kX; rot=arr[0]; }
+          }
           if(!img) continue;
           g.save();
           // Die Knotenkacheln gibt es nur gepflastert. An einem wenig
@@ -4105,8 +4121,8 @@ export class Renderer {
     // gewinnt automatisch das.
     const TURMFORM=['watchtower','chapel','mill','guardhouse','well'];
     const sizeKey= (def.size==='L'||b.type==='hq') ? 'l'
-      : def.size==='MINE' ? 's'
-      : TURMFORM.includes(b.type) ? 's'
+      : def.size==='MINE' ? (this.asset('bld_build_mine_1')?'mine':'s')
+      : TURMFORM.includes(b.type) ? (this.asset('bld_build_turm_1')?'turm':'s')
       : def.size==='S' ? 's' : 'm';
     // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
     if(b.state==='build' && !b.leveled){
@@ -4141,7 +4157,9 @@ export class Renderer {
       // Baustelle zeigt bewusst NUR das eckige Holzgerüst (Phase 1/2),
       // nie das fast fertige Haus – das erscheint erst beim Umschalten auf 'done'
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
-      const ph=(b.progress/total)<0.55 ? 1 : 2;
+      const drei=(sizeKey==='turm'||sizeKey==='mine');
+      const f2=b.progress/total;
+      const ph= drei ? (f2<0.4?1: f2<0.75?2:3) : (f2<0.55?1:2);
       ovKey=`bld_build_${b.type}_${ph}`;
       if(!this.asset(ovKey)) ovKey=`bld_build_${sizeKey}_${ph}`;
       ov=this.asset(ovKey) || this.asset(typeKey+'_build') || this.asset('bld_baustelle');
@@ -4294,7 +4312,9 @@ export class Renderer {
       // Vorher saß sie auf dem linken Dachrand und die Spannweite war fast
       // so groß wie der ganze Turm – die Flügel lagen wie ein Aufkleber quer
       // über dem Dach.
-      const hubX=x-ww/2+ww*0.50, hubY=y-hh+10+hh*0.225;
+      // Achszapfen sitzt links vorn am Kegeldach (im Turmbild vermessen:
+      // die kleine graue Lagerplatte mit Haken)
+      const hubX=x-ww/2+ww*0.355, hubY=y-hh+10+hh*0.235;
       const span=hh*0.62;                    // Flügelspannweite
       const ang= working? this.time/650 : (b.id%6.28);
       g.save();
@@ -4302,7 +4322,9 @@ export class Renderer {
       // Die Flügelebene steht schräg zur Kamera: waagerecht gestaucht und
       // etwas gekippt, damit sie sich in die Bauperspektive einfügt statt
       // frontal davorzustehen.
-      g.transform(0.80, 0.13, 0, 1, 0, 0);
+      // Die neue Fluegelgrafik ist bereits leicht aus der Aufsicht gemalt -
+      // nur noch ein Hauch Neigung, sonst wirkt sie doppelt gekippt.
+      g.transform(0.92, 0.07, 0, 1, 0, 0);
       g.rotate(ang);
       // weicher Schatten aufs Dach, damit die Flügel aufliegen statt zu schweben
       g.save();
@@ -5456,9 +5478,26 @@ export class Renderer {
   // damit Schrift und Knöpfe bei jedem Zoom gleich groß bleiben.
   uiSchild(g, cx, cy, u, text, gut){
     g.save();
-    g.font=`600 ${Math.round(13*u*10)/10}px system-ui, -apple-system, sans-serif`;
+    g.font=`600 ${Math.round(13*u*10)/10}px Georgia, serif`;
     g.textAlign='center'; g.textBaseline='middle';
-    const tw=g.measureText(text).width, ph=20*u, pw=tw+18*u;
+    const tw=g.measureText(text).width;
+    const bild=this.asset('ui_schild');
+    if(bild){
+      // gemaltes Schild in drei Teilen: beide Enden unverzerrt, die Mitte
+      // streckt sich auf die Textbreite
+      const ph=26*u, sc=ph/bild.naturalHeight;
+      const endB=Math.round(bild.naturalWidth*0.22);
+      const eb=endB*sc, mw=Math.max(tw+8*u, 10*u);
+      const x0=cx-mw/2-eb, y0=cy-ph/2;
+      g.drawImage(bild, 0,0,endB,bild.naturalHeight, x0,y0, eb,ph);
+      g.drawImage(bild, endB,0,bild.naturalWidth-endB*2,bild.naturalHeight, x0+eb,y0, mw,ph);
+      g.drawImage(bild, bild.naturalWidth-endB,0,endB,bild.naturalHeight, x0+eb+mw,y0, eb,ph);
+      g.fillStyle= gut? '#f4e6c4' : '#f6cdc4';
+      g.fillText(text, cx, cy+0.5*u);
+      g.restore();
+      return;
+    }
+    const ph=20*u, pw=tw+18*u;
     g.fillStyle='rgba(24,30,20,0.72)';
     rr(g, cx-pw/2, cy-ph/2, pw, ph, 6*u); g.fill();
     g.fillStyle= gut? '#dff3cd' : '#f6cdc4';
