@@ -3552,6 +3552,7 @@ export class Renderer {
     }
     // Objekte + Gebäude + Fahnen + Einheiten sammeln, nach y sortieren
     const items=[];
+    const figs=[];                 // Figuren fürs gegenseitige Ausweichen
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
       const o=m.obj[i]&127;
@@ -3587,9 +3588,12 @@ export class Renderer {
       }
       const mov=(c._movT||0)>this.time;
       c._lx=pos[0]; c._ly=pos[1];
-      items.push({kind:r.isSea?'ship':'carrier', pl:r.player, x:pos[0], y:pos[1],
+      const cit={kind:r.isSea?'ship':'carrier', pl:r.player, x:pos[0], y:pos[1],
         carrying:!!c.item, good:c.item?.good,
-        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov, seed:r.id*2.7, road:r});
+        dir:c._dx!==undefined?[c._dx,c._dy]:null, mov, seed:r.id*2.7, road:r};
+      items.push(cit);
+      // Träger nehmen am Ausweichen teil (Schiffe nicht - breite See)
+      if(!r.isSea) figs.push({o:c, it:cit, x:pos[0], y:pos[1], mov, dx:c._dx, dy:c._dy});
     }
     for(const u of game.units){
       if(u._lx!==undefined){
@@ -3604,6 +3608,17 @@ export class Renderer {
       u._mov=(u._movT||0)>this.time;
       u._lx=u.x; u._ly=u.y;
       items.push({kind:'unit', u, y:u.y});
+      // alles außer Katapult-Geschossen weicht einander aus
+      if(u.type!=='boulder') figs.push({o:u, it:null, x:u.x, y:u.y, mov:!!u._mov, dx:u._dx, dy:u._dy});
+    }
+    // Weiches gegenseitiges Ausweichen: rein OPTISCHER Versatz nach rechts,
+    // wenn eine andere Figur dicht voraus ist. Die Sim-Positionen bleiben
+    // unangetastet (Ankommen/Reichweiten kippen nicht); der Versatz wird
+    // sanft ein- und ausgeblendet und NACH der Takt-Überblendung gezeichnet.
+    this.dodgePass(figs, dtMs);
+    for(const f of figs){
+      if(!f.it) continue;                        // Einheiten versetzt drawUnit selbst
+      f.it.x+=f.o._doX||0; f.it.y+=f.o._doY||0;
     }
     // Schafe & Schweine in die Tiefensortierung einreihen
     if(this.sheep) for(const sh of this.sheep) items.push({kind:'sheep', sh, y:sh.y+4});
@@ -4798,13 +4813,63 @@ export class Renderer {
       }
     }
   }
+  // Lokales Ausweichen der Figuren: wer läuft und eine andere Figur dicht
+  // voraus hat, versetzt sich leicht nach RECHTS (quer zur Laufrichtung) -
+  // zwei Entgegenkommende weichen so automatisch auf verschiedene Seiten
+  // aus, wie Fußgänger. KEIN Pfadfinden, kein Eingriff in die Simulation:
+  // der Versatz existiert nur im Bild und klingt weich wieder ab.
+  // Abstandsgitter hält den Paarvergleich billig (typisch <100 Figuren).
+  dodgePass(figs, dtMs){
+    const R=13, A=4.5;                          // Sichtradius / max. Versatz (px)
+    const sm=1-Math.pow(0.82, (dtMs||16.7)/16.7);   // ~18 % Annäherung je 60-Hz-Bild
+    const grid=new Map();
+    const cell=(x,y)=> ((x/16)|0)*100003 + ((y/16)|0);
+    for(const f of figs){
+      const k=cell(f.x,f.y);
+      let b=grid.get(k); if(!b){ b=[]; grid.set(k,b); }
+      b.push(f);
+    }
+    for(const f of figs){
+      let txo=0, tyo=0;
+      const dl=f.dx!==undefined? Math.hypot(f.dx,f.dy) : 0;
+      if(f.mov && dl>0.01){
+        const nx=f.dx/dl, ny=f.dy/dl;
+        const gx=(f.x/16)|0, gy=(f.y/16)|0;
+        outer:
+        for(let cy=gy-1;cy<=gy+1;cy++) for(let cx=gx-1;cx<=gx+1;cx++){
+          const b=grid.get(cx*100003+cy);
+          if(!b) continue;
+          for(const q of b){
+            if(q===f || q.o===f.o) continue;
+            const rx=q.x-f.x, ry=q.y-f.y;
+            const d=Math.hypot(rx,ry);
+            if(d>=R) continue;
+            if(rx*nx+ry*ny < -4) continue;       // deutlich hinter mir: egal
+            const w=1-d/R;
+            txo+=-ny*w; tyo+=nx*w;               // nach rechts ausweichen
+            if(Math.hypot(txo,tyo)>1.5) break outer;   // reicht - früh abbrechen
+          }
+        }
+        const l=Math.hypot(txo,tyo);
+        if(l>1){ txo/=l; tyo/=l; }
+        txo*=A; tyo*=A;
+      }
+      const o=f.o;
+      o._doX=(o._doX||0)+(txo-(o._doX||0))*sm;
+      o._doY=(o._doY||0)+(tyo-(o._doY||0))*sm;
+    }
+  }
   drawUnit(g,u){
     // Zwischen zwei Sim-Takten überblenden: die Simulation springt nur alle
     // 100 ms, gezeichnet wird mit jedem Bild. Ohne die Überblendung ruckeln
     // alle Figuren im Takt - bei gemächlichem Tempo besonders sichtbar.
-    if(u._px!==undefined && (u._px!==u.x || u._py!==u.y)){
-      const a=this.game.lerpA? this.game.lerpA() : 1;
-      const ox=(u._px+(u.x-u._px)*a)-u.x, oy=(u._py+(u.y-u._py)*a)-u.y;
+    // Der Ausweich-Versatz (dodgePass) kommt oben drauf - NACH der
+    // Überblendung, damit er das Takt-Lerp nicht verfälscht.
+    const a=this.game.lerpA? this.game.lerpA() : 1;
+    let ox=(u._px!==undefined)? (u._px+(u.x-u._px)*a)-u.x : 0;
+    let oy=(u._py!==undefined)? (u._py+(u.y-u._py)*a)-u.y : 0;
+    ox+=u._doX||0; oy+=u._doY||0;
+    if(Math.abs(ox)>0.01 || Math.abs(oy)>0.01){
       g.save(); g.translate(ox,oy);
       this.drawUnitRaw(g,u);
       g.restore();
@@ -4854,8 +4919,10 @@ export class Renderer {
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
     if(u.type==='geo'){
-      // beim Proben schlägt er mit der Spitzhacke auf den Fels
-      const picking = u.state==='probe' && !u._mov;
+      // beim Proben schlägt er mit der Spitzhacke auf den Fels. Maßgeblich
+      // ist der SIM-Zustand, nicht die Bewegungserkennung: die läuft nach
+      // dem Ankommen noch kurz nach und zeigte solange Marschieren.
+      const picking = u.state==='probe';
       this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'geo', picking?(u.id%5):null, udir,!!u._mov);
       return;
     }
@@ -4867,8 +4934,10 @@ export class Renderer {
     }
     if(u.type==='scout'){ this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'scout',null,udir,!!u._mov); return; }
     if(u.type==='leveler'){
-      // beim Ebnen die gebackene Schaufel-Geste spielen
-      const lw= u.state==='work' && !u._mov && this.asset('unit_leveler_atk');
+      // beim Ebnen die gebackene Schaufel-Geste spielen. atSpot ist der
+      // Sim-Zustand "steht und gräbt" - er schaltet die Geste sofort ein,
+      // während die Bewegungserkennung (_mov) noch ~250 ms nachliefe.
+      const lw= u.state==='work' && u.atSpot && this.asset('unit_leveler_atk');
       this.drawFigure(g,u.x,u.y,u.player,null,'worker',0,'leveler', lw? (u.id%5):null, udir,!!u._mov);
       // Schaufel-Overlay nur für die Prozeduralfigur (GLB-Modell bringt sie mit)
       if(!this.asset('unit_leveler_walk')){
@@ -4985,8 +5054,10 @@ export class Renderer {
     } else if(set==='cheer'){
       k=Math.floor(this.time/95 + (this._animSeed||0))%n;
     } else if(set==='walk'){
-      // 12 Frames -> kürzere Frame-Zeit, damit der Schritt flüssig bleibt
-      k=Math.floor(this.time/62 + (this._animSeed||0))%n;
+      // 12 Frames -> kürzere Frame-Zeit, damit der Schritt flüssig bleibt.
+      // OHNE Bewegung (Lauf-Set nur als Rückfall, weil kein Warte-Set da
+      // ist) wird Frame 0 eingefroren - niemand marschiert auf der Stelle.
+      k= mov ? Math.floor(this.time/62 + (this._animSeed||0))%n : 0;
     } else if(set==='atk'){
       k=Math.floor(this.time/85 + (fight||0)*2.1)%n;
     } else {

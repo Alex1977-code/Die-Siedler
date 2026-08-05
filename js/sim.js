@@ -1433,10 +1433,40 @@ export class Game {
     const dx=tx-u.x, dy=ty-u.y;
     const d=Math.hypot(dx,dy);
     const sp=speed*40; // px pro Tick (0.12 -> ~0.9 Knoten/s)
-    if(d<=sp){ u.x=tx; u.y=ty; return true; }
+    if(d<=sp){ u.x=tx; u.y=ty; u._det=null; return true; }
+    // Läuft gerade ein Umweg über das Knotennetz? Dann Wegpunkt für Wegpunkt
+    // abarbeiten (die Knoten sind Land - kein weiteres Ausweichen nötig).
+    if(u._det){
+      if(Math.hypot(u._detTx-tx, u._detTy-ty)>12) u._det=null; // Ziel gewechselt
+      else {
+        const [wx,wy]=u._det[0];
+        const dxw=wx-u.x, dyw=wy-u.y, dw=Math.hypot(dxw,dyw);
+        if(dw<=sp){ u.x=wx; u.y=wy; u._det.shift(); if(!u._det.length) u._det=null; }
+        else { u.x+=dxw/dw*sp; u.y+=dyw/dw*sp; }
+        return false;
+      }
+    }
+    // Fortschritts-Wächter: kommt die Figur ihrem Ziel ~2 s lang nicht
+    // näher (Bucht, Engstelle, Fahnengewirr), wird EINMAL ein echter
+    // Landweg über die Knoten gesucht statt weiter lokal auszuweichen.
+    // Ohne diesen Ausstieg blieb z.B. der Planierer am Ufer einer Bucht
+    // hängen und "tanzte" dort endlos.
+    if(u._mtx===undefined || Math.hypot(u._mtx-tx, u._mty-ty)>12){
+      u._mtx=tx; u._mty=ty; u._btD=d; u._stl=0;
+    } else if(d<u._btD-1.5){ u._btD=d; u._stl=0; }
+    else if((u._stl=(u._stl||0)+1)>18){
+      u._stl=0;
+      const det=this.landDetour(u, tx, ty);
+      if(det && det.length){ u._det=det; u._detTx=tx; u._detTy=ty; return false; }
+    }
     let nx=dx/d, ny=dy/d;
     // Fahnen sind feste Hindernisse: liegt eine dicht voraus, wird sie
-    // seitlich umgangen statt durchlaufen
+    // seitlich umgangen statt durchlaufen.
+    // WICHTIG: Die Ausweichseite muss je Fahne FEST bleiben und der Schub
+    // darf den Vortrieb nie übertönen. Vorher wechselte die Seite mit jedem
+    // Takt (Vorzeichen des Kreuzprodukts kippte hin und her) - die Figur
+    // geriet in einen stabilen Pendelkreis um die Fahne und erreichte ihr
+    // Ziel NIE. Genau das war der "Tanz" des Planierers um den Bauplatz.
     const m=this.map;
     const an=m.nearestNode(u.x+nx*15, u.y+ny*15);
     if(an>=0 && m.flag[an]){
@@ -1446,29 +1476,73 @@ export class Game {
         const ax=fx-u.x, ay=fy-u.y;
         const ad=Math.hypot(ax,ay);
         if(ad>0.01 && ad<19){
-          const side=(ax*ny-ay*nx)>0 ? -1 : 1;       // an der freien Seite vorbei
-          const ox=-ny*side, oy=nx*side;
-          const k=1.15*(1-ad/19);
-          nx+=ox*k; ny+=oy*k;
-          const nl=Math.hypot(nx,ny)||1;
-          nx/=nl; ny/=nl;
+          const fwd=(ax*nx+ay*ny)/ad;                // liegt die Fahne wirklich VORAUS?
+          if(fwd>0.2){
+            // Seite einmal wählen und für diese Fahne beibehalten
+            let side=(ax*ny-ay*nx)>0 ? -1 : 1;
+            if(u._avF===an && u._avS!==undefined) side=u._avS;
+            u._avF=an; u._avS=side;
+            const ox=-ny*side, oy=nx*side;
+            // gedeckelt und mit dem Voraus-Anteil gewichtet: seitlich heißt
+            // schwächer schieben, damit die Figur an der Fahne VORBEIkommt
+            const k=Math.min(0.8, 1.15*(1-ad/19))*fwd;
+            nx+=ox*k; ny+=oy*k;
+            const nl=Math.hypot(nx,ny)||1;
+            nx/=nl; ny/=nl;
+          }
         }
       }
     }
     // Wasser ist kein Untergrund: liegt der nächste Schritt im See, wird am
-    // Ufer entlang ausgewichen statt hindurchzulaufen
+    // Ufer entlang ausgewichen statt hindurchzulaufen.
+    // Die Drehrichtung wird GEMERKT (u._wS): vorher wurde jeden Takt neu
+    // entschieden - an einer Bucht sprang die Figur zwischen "geradeaus"
+    // und "scharf zurückdrehen" hin und her und kam nie ums Wasser herum
+    // (zweite Ursache des Planierer-Tanzes). Mit fester Seite folgt sie dem
+    // Ufer stetig in eine Richtung, bis der direkte Weg wieder frei ist.
     const wet=(px,py)=>{ const n=m.nearestNode(px,py); return n>=0 && (m.terr[n]===TER.WATER||m.terr[n]===TER.LAVA); };
     if(wet(u.x+nx*sp*1.6, u.y+ny*sp*1.6)){
       let found=false;
-      for(const a2 of [0.7,-0.7,1.4,-1.4,2.1,-2.1]){
+      const s=u._wS||1;
+      for(const a2 of [0.7*s,1.4*s,2.1*s,-0.7*s,-1.4*s,-2.1*s]){
         const ca=Math.cos(a2), sa=Math.sin(a2);
         const rx=nx*ca-ny*sa, ry=nx*sa+ny*ca;
-        if(!wet(u.x+rx*sp*1.6, u.y+ry*sp*1.6)){ nx=rx; ny=ry; found=true; break; }
+        if(!wet(u.x+rx*sp*1.6, u.y+ry*sp*1.6)){
+          nx=rx; ny=ry; found=true;
+          u._wS = a2>0? s : -s;                   // erfolgreiche Seite beibehalten
+          break;
+        }
       }
       if(!found) return false;                    // eingekeilt: diesen Tick warten
     }
     u.x+=nx*sp; u.y+=ny*sp;
     return false;
+  }
+  // Kürzester Fußweg über LAND-Knoten (BFS, begrenzt) - der Notausstieg,
+  // wenn die gierige Luftlinie in moveToward nicht weiterkommt. Liefert
+  // Weltpunkte oder null (Ziel unerreichbar/zu weit).
+  landDetour(u, tx, ty){
+    const m=this.map;
+    const from=m.nearestNode(u.x,u.y), to=m.nearestNode(tx,ty);
+    if(from<0 || to<0 || from===to) return null;
+    const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
+    if(!fest(to)) return null;
+    const prev=new Map([[from,-1]]);
+    const q=[from];
+    let end=-1;
+    for(let qi=0; qi<q.length && qi<700; qi++){
+      const cur=q[qi];
+      if(cur===to){ end=cur; break; }
+      for(const nb of m.nbs(cur)){
+        if(prev.has(nb) || !fest(nb)) continue;
+        prev.set(nb,cur); q.push(nb);
+      }
+    }
+    if(end<0) return null;
+    const nodes=[]; let c=end;
+    while(c!==-1){ nodes.push(c); c=prev.get(c); }
+    nodes.reverse();
+    return nodes.slice(1).map(n=>m.worldPos(n));   // Startknoten weglassen
   }
   tickWorker(u){
     const m=this.map;
@@ -2059,7 +2133,15 @@ export class Game {
     if(u.state==='toSite'){
       if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
-      if(this.moveToward(u,tx-8,ty+13,WALK_SPEED)){ u.state='work'; b.levelT=0; }
+      // Geduldsfaden: erreicht er den Punkt vor dem Haus trotz Nähe lange
+      // nicht (Hindernis-Ausweichen lenkt ab), fängt er dort an, wo er steht.
+      // Das Ebnen hängt nicht am exakten Punkt - ewiges Herumtippeln fiele
+      // dagegen sofort auf.
+      const nah=Math.hypot(tx-8-u.x, ty+13-u.y)<80;
+      if(nah) u.stallT=(u.stallT||0)+1;
+      if(this.moveToward(u,tx-8,ty+13,WALK_SPEED) || (nah && u.stallT>60)){
+        u.state='work'; b.levelT=0; u.stallT=0;
+      }
     } else if(u.state==='work'){
       // Vier Stellen VOR dem Bauplatz (nie durch das Gebäude). An jeder wird
       // eine Weile GEGRABEN, erst dann geht es zur nächsten. Vorher lief der
@@ -2069,7 +2151,9 @@ export class Game {
       const spots=[[bx-15,by+11],[bx-5,by+15],[bx+6,by+15],[bx+15,by+11]];
       const [tx,ty]=spots[u.pt%spots.length];
       if(!u.atSpot){
-        if(this.moveToward(u,tx,ty,WALK_SPEED*0.5)) u.atSpot=true;
+        // auch hier: lieber an Ort und Stelle graben als endlos tänzeln
+        u.stallT=(u.stallT||0)+1;
+        if(this.moveToward(u,tx,ty,WALK_SPEED*0.5) || u.stallT>30){ u.atSpot=true; u.stallT=0; }
         return;
       }
       b.levelT=(b.levelT||0)+1;
@@ -2110,10 +2194,13 @@ export class Game {
       if(u.hammerT>0){
         u.hammerT--;                                  // steht und schlägt zu
         u.atSpot=true;
-      } else if(this.moveToward(u,tx,ty,WALK_SPEED*0.55)){
+      } else if(this.moveToward(u,tx,ty,WALK_SPEED*0.55) || (u.stallT=(u.stallT||0)+1)>30){
+        // angekommen - oder nach 3 s Tänzeln um ein Hindernis: dann wird
+        // eben HIER gehämmert (Geduldsfaden wie beim Planierer)
         u.pt++;
         u.hammerT=60+((this.rng()*40)|0);              // ~6-10 s am selben Platz
         u.atSpot=true;
+        u.stallT=0;
       } else u.atSpot=false;
       u.swing++;
       if(u.atSpot && u.swing%16===0){
