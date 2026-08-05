@@ -779,7 +779,16 @@ export class Game {
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       const [tx,ty]=hq? m.worldPos(hq.node):[u.x,u.y];
-      if(this.moveToward(u,tx,ty,WALK_SPEED)) u.dead=true;
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+        u.dead=true;
+        // Wie der Planierer seine Schaufel bringt der Geologe seine
+        // Spitzhacke zurück ins Lager. Vorher VERBRAUCHTE jeder Einsatz die
+        // Hacke – zusammen mit dem Kreislauf Eisenbergwerk braucht Hacke ->
+        // Werkzeugschmiede braucht Eisen -> Eisen braucht Eisenbergwerk
+        // konnte das die Partie unheilbar festfahren (Spitzhacken-
+        // Todesspirale aus dem Kritikbericht, Seed 42/run3).
+        if(hq && hq.inv) hq.inv.pick=(hq.inv.pick||0)+1;
+      }
     }
   }
 

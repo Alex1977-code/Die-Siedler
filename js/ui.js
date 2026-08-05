@@ -169,7 +169,8 @@ export class UI {
         Gebäude sichtbar (Hinweis im Gebäudemenü). Bei Zerstörung oder Abriss rettet die Fachkraft
         ihr Werkzeug zurück ins Lager. Jede Baustelle braucht erst einen <b>Planierer mit
         Schaufel</b>, dann einen <b>Bauarbeiter mit Hammer</b> (beide bringen ihr Werkzeug danach
-        zurück). Jeder Geologen-Einsatz verbraucht seine Spitzhacke.</p>
+        zurück). Auch der <b>Geologe</b> nimmt eine Spitzhacke mit und bringt sie nach seinem
+        Einsatz zurück ins Lager.</p>
         <h3>Jagd & Tiere</h3>
         <p>In den Wäldern streift <b>Wild</b> umher: Rehe, Hasen und Wildschweine. Der <b>Jäger</b>
         pirscht sich an ein echtes Tier heran und erlegt es mit dem Bogen – ohne Wild in Reichweite
