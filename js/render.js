@@ -1404,7 +1404,13 @@ export class Renderer {
         const water=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
         const POOL=water? ['deco_reed','deco_fern','deco_flowers']
           : ['deco_flowers','deco_fern','deco_mushroom','deco_moss','deco_thistle'];
-        const dk=POOL[(hash01(i*31+5)*POOL.length)|0];
+        let dk=POOL[(hash01(i*31+5)*POOL.length)|0];
+        // Der Blumen-Dreierstreifen ist in drei Einzelbuescheln zerlegt - je
+        // Knoten eines davon, sonst stand dieselbe Dreierreihe auf jeder Wiese.
+        if(dk==='deco_flowers'){
+          const v=(hash01(i*5+2)*3)|0;
+          if(v>0 && this.asset('deco_flowers'+(v+1))) dk='deco_flowers'+(v+1);
+        }
         const dimg=this.asset(dk);
         if(dimg){
           const dh=this.scaleOf(dk,20)*(0.62+hash01(i*37)*0.34);
