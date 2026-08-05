@@ -147,6 +147,31 @@ export class Game {
     }
     if(def.coastal && !m.nbs(node).some(n=>m.terr[n]===TER.WATER))
       return {ok:false, r:'Nur direkt am Wasser'};
+    // Die Tuerfahne braucht einen Platz UND einen Ausgang. Ohne diese
+    // Pruefung liessen sich Haeuser bauen, deren Tuer von Wasser und
+    // Nachbargebaeuden eingeschlossen ist - der Verbinden-Knopf lehnt dann
+    // korrekt ab, aber das Haus haengt fuer immer ohne Strasse in der Luft.
+    {
+      const my=m.Y(node), mx=m.X(node);
+      const lower=m.nbs(node).filter(n=>m.Y(n)>my)
+        .sort((a,b2)=>Math.abs(m.X(a)-mx)-Math.abs(m.X(b2)-mx));
+      let tuer=-1;
+      for(const n of lower){
+        if(m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))){ tuer=n; break; }
+      }
+      if(tuer<0) return {ok:false, r:'Kein Platz für die Türfahne'};
+      // Ausgang: von der Fahne muss ein Weg wegfuehren koennen - eine
+      // bestehende Fahne/Strasse daneben zaehlt, sonst ein begehbarer Knoten
+      const ausgang=m.nbs(tuer).some(q=> q!==node &&
+        (m.flag[q] || this.roadAt(q) || (m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q))));
+      if(!ausgang) return {ok:false, r:'Eingang wäre eingeschlossen'};
+    }
+    // Fischer: ohne erreichbares Ufer in Gehweite faengt dort nie jemand
+    // etwas - solche Plaetze werden gar nicht erst angeboten. Die Antwort
+    // kommt aus einer einmal je Karte berechneten Erreichbarkeitsmaske
+    // (Wasser aendert sich im Spielverlauf nicht).
+    if(def.gather==='fish' && !this.fischNah()[node])
+      return {ok:false, r:'Kein Fischgrund in Gehweite'};
     {
       // Eingang liegt unten: dort muss eine Türfahne möglich sein
       const my=m.Y(node);
@@ -1378,6 +1403,29 @@ export class Game {
   // Wasser und Lava geht es nicht weiter. Ohne diese Prüfung schickt der
   // Holzfäller seinen Mann zu einem Baum auf der anderen Seite des Sees –
   // Luftlinie stimmt, ankommen tut er nie, und das Haus steht still.
+  // Maske: von welchen Landknoten aus ist ein Ufer in Gehweite des Fischers
+  // erreichbar? Einmal je Karte per Breitensuche von allen Uferknoten aus -
+  // canBuild fragt sie fuer jeden Punktevorschlag ab, da muss es O(1) sein.
+  fischNah(){
+    if(this._fischNah) return this._fischNah;
+    const m=this.map, R=BLD.fisher.range;
+    const maske=new Uint8Array(m.terr.length);
+    let front=[];
+    for(let i=0;i<m.terr.length;i++){
+      if(m.terr[i]===TER.WATER || m.terr[i]===TER.LAVA) continue;
+      if(m.nbs(i).some(n=>m.terr[n]===TER.WATER)){ maske[i]=1; front.push(i); }
+    }
+    for(let d=1; d<=R && front.length; d++){
+      const nf=[];
+      for(const i of front) for(const n of m.nbs(i)){
+        if(maske[n] || m.terr[n]===TER.WATER || m.terr[n]===TER.LAVA) continue;
+        maske[n]=1; nf.push(n);
+      }
+      front=nf;
+    }
+    this._fischNah=maske;
+    return maske;
+  }
   nodesWalkable(center, R){
     const m=this.map, out=[], seen=new Set([center]);
     const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
