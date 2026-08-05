@@ -4696,21 +4696,31 @@ export class Renderer {
       const hubX=x-ww/2+ww*0.30, hubY=y-hh+10+hh*0.205;
       const span=hh*0.62;                    // Flügelspannweite
       const ang= working? this.time/650 : (b.id%6.28);
+      // Das Fluegelbild ist jetzt exakt rotationssymmetrisch und FRONTAL
+      // (orthografisch, Nabe in der Bildmitte). Die frueher eingebackene
+      // Schraegsicht (oberer Fluegel kuerzer als der untere) drehte sich
+      // beim Rotieren mit - der kurze Fluegel wanderte im Kreis und das Rad
+      // "eierte". Die Schraegsicht kommt darum komplett zur Laufzeit:
+      // erst die FESTE Kippmatrix (bleibt in Bildschirmrichtung stehen),
+      // DANN die Rotation - so bleibt die Radebene stabil und das Rad
+      // laeuft rund, leicht gekippt wie ein echtes Muehlrad von schraeg vorn.
+      // Kippmatrix = reine Stauchung auf 0.86 laengs der Achsrichtung des
+      // Zapfens am Kegeldach (zeigt auf dem Turmbild nach links und ca. 10
+      // Grad nach unten): M = I - 0.14*u*uT mit u=(cos-10, sin-10).
       g.save();
       g.translate(hubX,hubY);
-      // Die Flügelebene steht schräg zur Kamera: waagerecht gestaucht und
-      // etwas gekippt, damit sie sich in die Bauperspektive einfügt statt
-      // frontal davorzustehen.
-      // Die neue Fluegelgrafik ist bereits leicht aus der Aufsicht gemalt -
-      // nur noch ein Hauch Neigung, sonst wirkt sie doppelt gekippt.
-      g.transform(0.92, 0.07, 0, 1, 0, 0);
-      g.rotate(ang);
-      // weicher Schatten aufs Dach, damit die Flügel aufliegen statt zu schweben
+      // weicher Schatten aufs Dach, damit die Flügel aufliegen statt zu
+      // schweben. Der Versatz passiert VOR der Kippung, also in fester
+      // Bildschirmrichtung - sonst kreist der Schatten mit dem Rad.
       g.save();
       g.globalAlpha=0.22;
       g.translate(span*0.045, span*0.05);
+      g.transform(0.8642, 0.0239, 0.0239, 0.9958, 0, 0);
+      g.rotate(ang);
       g.drawImage(sails, -span/2, -span/2, span, span);
       g.restore();
+      g.transform(0.8642, 0.0239, 0.0239, 0.9958, 0, 0);
+      g.rotate(ang);
       g.drawImage(sails, -span/2, -span/2, span, span);
       g.restore();
     }
