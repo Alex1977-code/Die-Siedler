@@ -546,8 +546,13 @@ export class Renderer {
             if(this.slopeOf(m,i)>0.62 && m.hgt[i]<=this.firnLine()-1.2
                && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn[n])) gorge.push(i);
           }
-          // Schnee AUF dem Hang der Ebene ist Firn, nicht die weiche Winterdecke
-          if(t===TER.SNOW && this.slopeOf(m,i)>0.30) ridgeSnow.push(i);
+          // Schnee AUF dem Hang der Ebene ist Firn, nicht die weiche Winter-
+          // decke. NUR mit Nachbar-Stützung: einzelne Knoten knapp über der
+          // Schwelle standen sonst als Ketten heller Einzelblasen ("Perlen")
+          // parallel zu jedem Geländeanstieg im Schnee
+          if(t===TER.SNOW && this.slopeOf(m,i)>0.42
+             && m.nbs(i).some(q=>m.terr[q]===TER.SNOW && this.slopeOf(m,q)>0.42))
+            ridgeSnow.push(i);
         }
       if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
         this._texTmp=document.createElement('canvas'); this._texTmp.width=w; this._texTmp.height=h;
@@ -733,7 +738,10 @@ export class Renderer {
             // Dreiecke) bleiben im Halblicht – dort soll die WAND lesbar
             // sein, nicht ein schwarzer Zahn.
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
-            li=Math.max(spanY>ROWH*1.7? 0.3 : 0.16, Math.min(0.97, li));
+            // Licht oben bei 0.88 kappen: bei 0.97 wurden zusammenhängende
+            // Nordwest-Wandzüge im hard-light beinahe weiß und lagen als
+            // durchscheinende "Folien"-Dreiecke auf dem Fels
+            li=Math.max(spanY>ROWH*1.7? 0.3 : 0.16, Math.min(0.88, li));
             // wenige klare Tonstufen statt Verlauf – daraus liest sich das
             // Facettenrelief; minimales Zittern verhindert sterile Bänder
             li=Math.round((li+hash01(a2*31+b2)*0.07-0.035)*5)/5;
@@ -815,9 +823,21 @@ export class Renderer {
                 sg2.fill();
               }
               sg2.restore();
+              // minimal weichzeichnen (3px): an Steilstufen kippen Auf- und
+              // Ab-Dreiecke trotz gemittelter Eckgradienten in verschiedene
+              // Tonstufen – die Kante wurde zur Zahnreihe ("VVVV"), besonders
+              // störend, wo sie auf die Bergfuß-Grenze trifft. Der Mini-Blur
+              // schmilzt nur die Facettenkanten, die Flächen bleiben flach.
+              // (_blurTmp ist ab hier frei – die Farb-Lasur ist längst gelegt)
+              {
+                const bg2=this._blurTmp.getContext('2d');
+                bg2.globalCompositeOperation='source-over';
+                bg2.clearRect(0,0,w,h);
+                this.blurInto(bg2, this._shadeTmp, 3);
+              }
               g.globalCompositeOperation='hard-light';
               g.globalAlpha=0.8;
-              g.drawImage(this._shadeTmp, c.ox, c.oy);
+              g.drawImage(this._blurTmp, c.ox, c.oy);
               g.globalAlpha=1;
               g.globalCompositeOperation='source-over';
             }
@@ -855,23 +875,46 @@ export class Renderer {
                   // ergäben fleckige Überlappungen statt einer Firnkante
                   let sn=(m.hgt[i]-(firnY-0.4))/0.8;
                   // Winterwelt: Schnee liegt überall, wo er liegen BLEIBT –
-                  // flache Bergpartien sind zu, nur Steilwände apern aus
-                  if(this.theme==='winter') sn=Math.max(sn, 1.15-this.slopeOf(m,i)*1.5);
+                  // flache Bergpartien sind zu, nur Steilwände apern aus.
+                  // Steilheit über die NACHBARSCHAFT gemittelt: der rohe
+                  // Knotenwert kippt von Knoten zu Knoten – statt zusammen-
+                  // hängender Schneefelder standen Reihen einzelner weißer
+                  // Blasen ("Perlenketten") entlang jedes Hangs
+                  if(this.theme==='winter'){
+                    let sAvg=this.slopeOf(m,i), nn2=1;
+                    for(const q2 of m.nbs(i)){ sAvg+=this.slopeOf(m,q2); nn2++; }
+                    sn=Math.max(sn, 1.15-(sAvg/nn2)*1.5);
+                  }
                   if(m.terr[i]===TER.SNOW) sn=Math.max(sn,0.85); // Gipfel-Eis: immer zu
                   else sn += (fnoise(x,y)-0.5)*0.9 + (hash01(i*13+7)-0.5)*0.2;
                   sn -= Math.max(0, this.slopeOf(m,i)-0.95)*0.35;
-                  if(sn<=0.15) continue;
+                  // Schwelle nicht zu tief: knapp qualifizierte EINZELknoten
+                  // ohne qualifizierte Nachbarn stünden als einzelne weiße
+                  // Perlen im Abstand des Gitters auf dem Fels
+                  if(sn<=0.34) continue;
+                  // Auf der RANDreihe des Massivs keine Teildeckung: halbe
+                  // Zellen zerfielen dort zur Perlenkette über dem Bergfuß –
+                  // den Übergang zur Ebene macht die Schneewehe des
+                  // Geröllband-Passes, nicht die Firndecke
+                  if(sn<0.9 && m.nbs(i).some(q=>!isMassif(q))) continue;
                   sn=Math.min(1,sn);
                   anySnow=true;
                   const [px,py]=m.worldPos(i);
                   // großzügiger Radius: an Steilstufen rücken die Zeilen auf
                   // dem Bildschirm auseinander – zu kleine Zellen ließen dort
-                  // Lücken, durch die der dunkle Fels als Pfeil sticht
+                  // Lücken, durch die der dunkle Fels als Pfeil sticht.
+                  // Der Deckungsgrad steuert vor allem, OB eine Zelle kommt
+                  // (Schwelle oben); die Größe schrumpft nur moderat – stark
+                  // geschrumpfte Randzellen rissen auseinander und standen
+                  // als Ketten einzelner eckiger Weißkleckse auf dem Fels
+                  // 9 Ecken MIT Winkel-Jitter: bei nur 7 gleichmäßig verteilten
+                  // Ecken blieben ~40px lange schnurgerade Polygonseiten – die
+                  // Firnkante las sich als Papierschnitt
                   const path=()=>{
                     mk2.beginPath();
-                    for(let k=0;k<7;k++){
-                      const a3=k*Math.PI/3 + hash01(i*11+1)*0.6;
-                      const rr2=46*(0.78+hash01(i*17+k*5)*0.42)*(0.34+0.66*sn);
+                    for(let k=0;k<9;k++){
+                      const a3=k*0.698 + hash01(i*11+1)*0.6 + (hash01(i*19+k*7)-0.5)*0.42;
+                      const rr2=46*(0.80+hash01(i*17+k*5)*0.38)*(0.70+0.30*sn);
                       const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.95;
                       if(k===0) mk2.moveTo(qx,qy); else mk2.lineTo(qx,qy);
                     }
@@ -921,8 +964,11 @@ export class Renderer {
       // Pinsel wird so gedreht, dass seine ausgefranste Seite ins Nachbar-
       // gelände zeigt – dadurch gehen die Arten ineinander über.
       {
+        // Fels taucht hier bewusst NICHT auf: den Bergfuß malt unten das
+        // Geröllband – dünn gestempelte trans_scree-Abdrücke lasen sich nur
+        // als gleichmäßiger grauer Schleier um den ganzen Berg.
         const BRUSH={ [TER.DESERT]:'trans_dry', [TER.SNOW]:'trans_snow',
-                      [TER.SWAMP]:'trans_bog', [TER.MOUNT]:'trans_scree' };
+                      [TER.SWAMP]:'trans_bog' };
         const sandImg=this.fadedBrush('trans_sand'), foamImg=this.fadedBrush('trans_foam');
         // Der Pinsel sitzt mit seiner geschlossenen Seite auf dem Ausgangs-
         // gelände; nur der ausgefranste Teil ragt über die Grenze.
@@ -958,28 +1004,13 @@ export class Renderer {
                 if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.55, jit, 2.3); any=true; }
                 if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 21+hsh*6, 0.45, -jit, 2.5); any=true; }
               } else if(t!==TER.WATER && tn!==TER.WATER){
-                // Grenzen INNERHALB des Massivs (Fels an Gipfel-Eis/Lava)
-                // malt der Massiv-Pass selbst – kein Pinsel quer über den Berg
-                if(isMassif(i) && isMassif(n)) continue;
-                // Bergfuß an Schnee-Ebenen: Schneewehe statt grauem Schutt –
-                // Geröll auf weißem Grund läse sich als Schmutzfleck
-                const key=(t===TER.MOUNT && tn===TER.SNOW)? 'trans_snow' : BRUSH[t];
-                const img=key? this.fadedBrush(key) : null;
-                if(img){ put(img, mx2, my2, ang, t===TER.MOUNT? 26+hsh*8 : 30+hsh*10, t===TER.MOUNT? 0.26 : 0.4, (hsh-0.5)*0.25, 2.1); any=true; }
-                // Bergfuß: ein zweites, versetztes Schuttband plus einzelne
-                // Brocken – die Fels/Gras-Grenze wird ein Geröllsaum statt
-                // einer harten Dreieckskante
-                if(t===TER.MOUNT && tn!==TER.SNOW && img){
-                  put(img, mx2+(by-ay)*0.16, my2-(bx-ax)*0.16*0.6, ang, 17+hsh*7, 0.24, (hsh-0.5)*0.5, 1.7);
-                  g.fillStyle='rgba(96,88,78,0.42)';
-                  for(let k=0;k<3;k++){
-                    const sx2=mx2+(bx-ax)*(0.14+hash01(i*7+n+k)*0.3)+(hash01(i*29+k)-0.5)*16;
-                    const sy2=my2+(by-ay)*(0.14+hash01(i*7+n+k)*0.3)+(hash01(i*37+k)-0.5)*10;
-                    g.beginPath();
-                    g.ellipse(sx2, sy2, 1.6+hash01(i*11+k)*2.2, 1.2+hash01(i*13+k)*1.5, hash01(i+k)*3, 0, 7);
-                    g.fill();
-                  }
-                }
+                // Die GESAMTE Berggrenze gehört dem Geröllband unten – weder
+                // stempelt der Fels nach außen noch die Ebene auf den Fels
+                // (Schnee-Stempel AUF dem Massiv gäben zusammen mit der
+                // Schneewehe des Bands doppelte, versetzte Weißsäume).
+                if(t===TER.MOUNT || isMassif(n)) continue;
+                const img=BRUSH[t]? this.fadedBrush(BRUSH[t]) : null;
+                if(img){ put(img, mx2, my2, ang, 30+hsh*10, 0.4, (hsh-0.5)*0.25, 2.1); any=true; }
               }
             }
           }
@@ -1009,25 +1040,262 @@ export class Renderer {
           }
         }
       }
-      // Gebirgsfuß: Schlagschatten auf das angrenzende Land – verkauft die Höhe
-      if(perT.has(TER.MOUNT)){
-        g.save();
-        g.translate(-c.ox,-c.oy);
-        for(const i of perT.get(TER.MOUNT)){
-          // nur der äußere Bergfuß wirft Schatten aufs Land – Grenzen zum
-          // Gipfel-Eis liegen mitten im Massiv und bekommen keinen
-          let edge=false;
-          for(const n of m.nbs(i)) if(!isMassif(n)){ edge=true; break; }
-          if(!edge) continue;
-          const [px,py]=m.worldPos(i);
-          const rad=g.createRadialGradient(px+11,py+9,6,px+11,py+9,40);
-          rad.addColorStop(0,'rgba(38,34,30,0.34)');
-          rad.addColorStop(0.6,'rgba(38,34,30,0.17)');
-          rad.addColorStop(1,'rgba(38,34,30,0)');
-          g.fillStyle=rad;
-          g.beginPath(); g.ellipse(px+11,py+9,40,32,0,0,7); g.fill();
+      // ---------- Bergfuß: Geröllband, trockener Saum, Brocken, Schatten ----------
+      // Spielerkritik: "der Übergang der Gebirge an z.B. Wiese passt nicht".
+      // Vorher endete der Massiv-Beschnitt an rohen Dreieckskanten (Sägezahn),
+      // darüber lagen fast unsichtbare Pinsel-Stempel und ein Rundum-
+      // Schlagschatten je Randknoten – zusammen ein gleichmäßiger grauer
+      // Nebelrahmen mit Zackenkante um den ganzen Berg.
+      // Jetzt nach Siedler-2-Vorbild: der Fels läuft über ein ZUSAMMEN-
+      // HÄNGENDES Geröllband aus (eine Maskenform mit Textur darin, Technik
+      // wie beim Straßenband). Das Band deckt innen die Dreieckszähne des
+      // Beschnitts, atmet in der Breite mit örtlich korreliertem Rauschen
+      // (kein Stempel-Rahmen) und schickt Zungen der Falllinie nach in die
+      // Wiese. Außen hält ein schmaler trockener Saum das satte Wiesengrün
+      // von der Felskante fern, einzelne Brocken streuen noch weiter hinaus.
+      // An Schnee-Ebenen übernimmt eine Schneewehe die Rolle des Bands –
+      // graues Geröll auf Weiß läse sich als Schmutzfleck.
+      {
+        const eScree=[], eSnow=[];
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+          for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+            const i=m.idx(x,y);
+            if(m.terr[i]!==TER.MOUNT) continue;
+            const [ax,ay]=m.worldPos(i);
+            for(const n of m.nbs(i)){
+              const tn=m.terr[n];
+              if(isMassif(n) || tn===TER.WATER || tn===TER.LAVA) continue;
+              const [bx,by]=m.worldPos(n);
+              let ux=bx-ax, uy=by-ay;
+              const L2=Math.hypot(ux,uy)||1; ux/=L2; uy/=L2;
+              (tn===TER.SNOW? eSnow : eScree).push({i,n,tn,mx:(ax+bx)/2,my:(ay+by)/2,ux,uy});
+            }
+          }
+        if(eScree.length || eSnow.length){
+          // korreliertes Breitenrauschen: das Band schwillt über MEHRERE
+          // Zellen an und ab. Weißes Rauschen je Kante gäbe nur eine
+          // Zitterkante, konstante Breite den kritisierten Stempel-Rahmen.
+          const sm2=(u)=>u*u*(3-2*u);
+          const vn=(xx,yy)=>hash01((Math.imul(xx,40503)^Math.imul(yy,87119)^0x2f3a)|0);
+          const bno=(X,Y)=>{
+            const gx0=X/3.6, gy0=Y/3.6;
+            const x2=Math.floor(gx0), y2=Math.floor(gy0);
+            const fx=sm2(gx0-x2), fy=sm2(gy0-y2);
+            return (vn(x2,y2)*(1-fx)+vn(x2+1,y2)*fx)*(1-fy)
+                 + (vn(x2,y2+1)*(1-fx)+vn(x2+1,y2+1)*fx)*fy;
+          };
+          const mk3=this._maskTmp.getContext('2d');
+          const tex3=this._texTmp.getContext('2d');
+          // unregelmäßige Bandzelle (verbeulter Siebeneck-Klecks) mit weichem
+          // Rand – softShape statt ctx.filter (iPhone)
+          // 9 Ecken mit Winkel-Jitter: gleichmäßig verteilte Ecken ließen
+          // gerade Polygonseiten stehen (Papierschnitt-Kante)
+          const cell=(gctx,e,cx4,cy4,r,steps)=>{
+            const path=()=>{
+              gctx.beginPath();
+              for(let k=0;k<9;k++){
+                const a4=k*0.698 + hash01(e.i*11+e.n*3+1)*0.7 + (hash01(e.i*29+e.n+k*13)-0.5)*0.4;
+                const rr=r*(0.76+hash01(e.i*17+e.n+k*5)*0.48);
+                const qx=cx4+Math.cos(a4)*rr, qy=cy4+Math.sin(a4)*rr*0.82;
+                if(k===0) gctx.moveTo(qx,qy); else gctx.lineTo(qx,qy);
+              }
+              gctx.closePath();
+            };
+            this.softShape(gctx, path, cx4, cy4, steps);
+          };
+          // ---- 1) trockener Saum außen, nur gegen Wiese (im Winter liegt
+          //         dort ohnehin Schnee statt Dürre) ----
+          const dryE=eScree.filter(e=>e.tn===TER.GRASS);
+          if(dryE.length && this.theme!=='winter'){
+            mk3.globalCompositeOperation='source-over';
+            mk3.clearRect(0,0,w,h);
+            mk3.save(); mk3.translate(-c.ox,-c.oy);
+            mk3.fillStyle='#fff';
+            for(const e of dryE){
+              const wn=bno(m.X(e.n)+7, m.Y(e.n)+3);
+              cell(mk3, e, e.mx+e.ux*(13+wn*13), e.my+e.uy*(11+wn*11), 20+wn*11, 5);
+            }
+            mk3.restore();
+            tex3.globalCompositeOperation='source-over';
+            tex3.clearRect(0,0,w,h);
+            // ausgedörrter Boden: flacher fahler Ton plus Sandkorn; die halbe
+            // Deckkraft lässt die Graszeichnung durchscheinen -> vertrocknetes
+            // Gras statt aufgemalter Farbstreifen
+            tex3.fillStyle='#b7a26a';
+            tex3.fillRect(0,0,w,h);
+            const sp=this.terrainPattern(TER.DESERT, tex3);
+            if(sp){
+              tex3.save(); tex3.translate(-c.ox,-c.oy);
+              tex3.globalAlpha=0.5; tex3.fillStyle=sp;
+              tex3.fillRect(c.ox,c.oy,w,h);
+              tex3.restore(); tex3.globalAlpha=1;
+            }
+            tex3.globalCompositeOperation='destination-in';
+            tex3.drawImage(this._maskTmp,0,0);
+            tex3.globalCompositeOperation='source-over';
+            g.globalAlpha=0.42;
+            g.drawImage(this._texTmp,0,0);
+            g.globalAlpha=1;
+          }
+          // ---- 2) Geröllband über der Grenze ----
+          if(eScree.length){
+            mk3.globalCompositeOperation='source-over';
+            mk3.clearRect(0,0,w,h);
+            mk3.save(); mk3.translate(-c.ox,-c.oy);
+            mk3.fillStyle='#fff';
+            for(const e of eScree){
+              const wn=bno(m.X(e.n), m.Y(e.n));
+              const h4=hash01(e.i*13+e.n*7);
+              // wenige weiche Stufen (2-3): die Kante wird durch die FORM
+              // unruhig, nicht durch einen breiten Alphaverlauf – ein zu
+              // weiter Verlauf läse sich wieder als grauer Nebel auf der Wiese
+              // innen: deckt die Wurzeln der Dreieckszähne des Beschnitts
+              cell(mk3, e, e.mx-e.ux*13, e.my-e.uy*11, 17+h4*5, 2);
+              // Mitte: Hauptmasse, Breite atmet mit dem Rauschen
+              cell(mk3, e, e.mx+e.ux*(2+wn*6), e.my+e.uy*(2+wn*5), 19+wn*9+h4*4, 3);
+              // Zunge hangabwärts – Geröll fließt der Falllinie nach
+              if(h4<0.5){
+                let dx4=e.ux, dy4=e.uy;
+                const gr=this.gradOf(m,e.n);
+                if(gr){ dx4=-gr[0]; dy4=-gr[1]; }
+                // nur wenn die Zunge vom Berg WEG zeigt
+                if(dx4*e.ux+dy4*e.uy>0.1)
+                  cell(mk3, e, e.mx+e.ux*6+dx4*(12+h4*24), e.my+e.uy*5+dy4*(10+h4*19), 9+h4*7, 3);
+              }
+            }
+            mk3.restore();
+            tex3.globalCompositeOperation='source-over';
+            tex3.clearRect(0,0,w,h);
+            tex3.save(); tex3.translate(-c.ox,-c.oy);
+            const tile=this.screeTile();
+            if(tile){
+              // weltverankert wie die Felsdecke; Muster einmal erzeugt und
+              // über Chunks wiederverwendet
+              if(!this._screePatC){
+                this._screePatC=tex3.createPattern(tile,'repeat');
+                if(this._screePatC.setTransform)
+                  this._screePatC.setTransform(new DOMMatrix().scale(0.66));
+              }
+              tex3.fillStyle=this._screePatC;
+            } else tex3.fillStyle='#8b857c';   // Bild (noch) nicht da: neutraler Schutt
+            tex3.fillRect(c.ox,c.oy,w,h);
+            tex3.restore();
+            tex3.globalCompositeOperation='destination-in';
+            tex3.drawImage(this._maskTmp,0,0);
+            tex3.globalCompositeOperation='source-atop';
+            // Farbangleich: die hellen trans_scree-Steine werden zur
+            // Felsfarbe des Themas hingezogen – sonst steht ein fast weißes
+            // Schuttband grell vor dem dunkelbraunen Massiv
+            {
+              const rc=hex2arr(cols[TER.MOUNT]||'#8a8177');
+              tex3.fillStyle='rgba('+(rc[0]|0)+','+(rc[1]|0)+','+(rc[2]|0)+',0.34)';
+              tex3.fillRect(0,0,w,h);
+            }
+            // Kontaktschatten der Felswand auf dem Schutt: die Innenseite des
+            // Bands liegt im Schatten des Massivs – erst dadurch liegt das
+            // Band UNTER dem Fels statt daneben
+            tex3.save(); tex3.translate(-c.ox,-c.oy);
+            for(const e of eScree){
+              const sx5=e.mx-e.ux*15, sy5=e.my-e.uy*12;
+              const rg=tex3.createRadialGradient(sx5,sy5,2, sx5,sy5,30);
+              rg.addColorStop(0,'rgba(38,34,28,0.30)');
+              rg.addColorStop(1,'rgba(38,34,28,0)');
+              tex3.fillStyle=rg;
+              // LÄNGS der Grenze ausgerichtet und gestreckt: runde Einzel-
+              // kleckse lasen sich auf geraden Grenzstücken als Perlenkette
+              tex3.beginPath();
+              tex3.ellipse(sx5,sy5,30,14,Math.atan2(e.ux,-e.uy),0,7);
+              tex3.fill();
+            }
+            tex3.restore();
+            tex3.globalCompositeOperation='source-over';
+            g.globalAlpha=0.94;
+            g.drawImage(this._texTmp,0,0);
+            g.globalAlpha=1;
+          }
+          // ---- 3) Schneewehe an Schnee-Ebenen (Winterwelt) ----
+          if(eSnow.length){
+            mk3.globalCompositeOperation='source-over';
+            mk3.clearRect(0,0,w,h);
+            mk3.save(); mk3.translate(-c.ox,-c.oy);
+            mk3.fillStyle='#fff';
+            // Schnee auf dunklem Fels zeigt jede Alphastufe gnadenlos: also
+            // wenige weiche Stufen (2) und stattdessen LÜCKENLOSE Deckung –
+            // drei Zellen je Kante, die äußere verschwindet nahtlos in der
+            // ohnehin weißen Ebene. Große Fransstufen läsen sich als Ketten
+            // eckiger Weißkleckse (genau das stand vorher da).
+            // ZWEI satte Zellen je Kante statt dreier kleiner: eine isolierte
+            // Außenzelle ohne Überlappung zur Nachbarkante stand als einzelner
+            // Wattebausch auf dem Fels
+            for(const e of eSnow){
+              const wn=bno(m.X(e.n), m.Y(e.n));
+              const h4=hash01(e.i*13+e.n*7);
+              // Innenzelle satt: auf schmalen Felsrippen treffen sich die
+              // Wehen beider Seiten – zu kleine Zellen blieben Einzelperlen
+              cell(mk3, e, e.mx-e.ux*12, e.my-e.uy*10, 23+h4*6, 2);
+              cell(mk3, e, e.mx+e.ux*(4+wn*5), e.my+e.uy*(3+wn*4), 26+wn*9, 3);
+            }
+            mk3.restore();
+            tex3.globalCompositeOperation='source-over';
+            tex3.clearRect(0,0,w,h);
+            tex3.save(); tex3.translate(-c.ox,-c.oy);
+            const sp2=this.terrainPattern(TER.SNOW, tex3);
+            tex3.fillStyle=sp2||'#e8edf4';
+            tex3.fillRect(c.ox,c.oy,w,h);
+            tex3.restore();
+            tex3.globalCompositeOperation='destination-in';
+            tex3.drawImage(this._maskTmp,0,0);
+            tex3.globalCompositeOperation='source-over';
+            g.globalAlpha=0.97;
+            g.drawImage(this._texTmp,0,0);
+            g.globalAlpha=1;
+          }
+          // ---- 4) Schlagschatten NUR auf der lichtabgewandten Südostseite ----
+          // Sonne steht wie beim Facettenlicht im Nordwesten. Der alte
+          // Rundum-Schatten machte aus jedem Randknoten einen Grauklecks –
+          // zusammen der kritisierte Nebelrahmen.
+          g.save(); g.translate(-c.ox,-c.oy);
+          for(const arr of [eScree,eSnow]) for(const e of arr){
+            const fac=e.ux*0.55+e.uy*0.83;
+            if(fac<=0.05) continue;
+            // zurückhaltend: an stark gewundenen Grenzen stapeln sich die
+            // Kleckse benachbarter Kanten – zu viel Alpha gäbe Schmutzflecken
+            const al=0.22*Math.min(1,fac);
+            const sx5=e.mx+e.ux*10+5, sy5=e.my+e.uy*8+6;
+            const rg=g.createRadialGradient(sx5,sy5,3, sx5,sy5,30);
+            rg.addColorStop(0,'rgba(38,34,30,'+al.toFixed(3)+')');
+            rg.addColorStop(0.65,'rgba(38,34,30,'+(al*0.45).toFixed(3)+')');
+            rg.addColorStop(1,'rgba(38,34,30,0)');
+            g.fillStyle=rg;
+            g.beginPath(); g.ellipse(sx5,sy5,30,24,0,0,7); g.fill();
+          }
+          g.restore();
+          // ---- 5) einzelne Brocken laufen in die Ebene aus ----
+          // nicht auf Schnee (dunkler Punkt im Weiß = Schmutz) – dort deckt
+          // die Wehe alles zu
+          g.save(); g.translate(-c.ox,-c.oy);
+          for(const e of eScree){
+            const h5=hash01(e.i*43+e.n*11);
+            if(h5>0.34) continue;
+            const nB=1+((h5*29|0)&1);
+            for(let k=0;k<nB;k++){
+              const d5=26+hash01(e.i*7+e.n+k*13)*46;
+              const sw5=(hash01(e.i*19+e.n+k*29)-0.5)*30;
+              const bx5=e.mx+e.ux*d5-e.uy*sw5, by5=e.my+e.uy*d5*0.8+e.ux*sw5*0.8;
+              const r5=2.2+hash01(e.i*23+e.n+k*17)*3.4;
+              // Bodenschatten zuerst – ohne ihn klebt der Stein AUF der Wiese
+              g.fillStyle='rgba(30,28,24,0.3)';
+              g.beginPath(); g.ellipse(bx5+r5*0.25,by5+r5*0.5,r5*1.15,r5*0.55,0,0,7); g.fill();
+              const tone=96+(hash01(e.i*31+k)*44|0);
+              g.fillStyle='rgb('+tone+','+(tone-4)+','+(tone-10)+')';
+              g.beginPath(); g.ellipse(bx5,by5,r5,r5*0.78,hash01(e.i+k)*0.8-0.4,0,7); g.fill();
+              // Lichtkante oben links, passend zum Facettenlicht des Massivs
+              g.fillStyle='rgba(228,226,218,0.4)';
+              g.beginPath(); g.ellipse(bx5-r5*0.3,by5-r5*0.32,r5*0.5,r5*0.3,-0.5,0,7); g.fill();
+            }
+          }
+          g.restore();
         }
-        g.restore();
       }
       // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
       // im Weichlicht-Modus aufgelegt -> Hänge, Kuppen und Senken werden sichtbar
@@ -1056,9 +1324,28 @@ export class Renderer {
         sg.globalCompositeOperation='destination-in';
         sg.drawImage(this._tmpChunk,0,0);
         sg.globalCompositeOperation='source-over';
+        // Additiv-Überlauf kappen: an hohen Steilwänden überlappen sich die
+        // PROJIZIERTEN Dreiecke (die obere Geländeetage schiebt sich auf dem
+        // Bildschirm über die untere). Im Modus 'lighter' addierte sich das
+        // doppelt Überdeckte zu gleißendem Weiß – es lag als durchscheinende
+        // "Folien"-Dreiecke auf dem Fels. Der 'darken'-Deckel begrenzt jeden
+        // Kanal auf das hellste LEGITIME shadeCol-Licht (188/180/162); die
+        // Alphamaske wird danach wiederhergestellt, sonst färbte der Deckel
+        // auch das Nicht-Gelände ein.
+        {
+          const bg2=this._blurTmp.getContext('2d');
+          bg2.globalCompositeOperation='copy';
+          bg2.drawImage(this._shadeTmp,0,0);
+          bg2.globalCompositeOperation='darken';
+          bg2.fillStyle='rgb(188,180,162)';
+          bg2.fillRect(0,0,w,h);
+          bg2.globalCompositeOperation='destination-in';
+          bg2.drawImage(this._shadeTmp,0,0);
+          bg2.globalCompositeOperation='source-over';
+        }
         g.save();
         g.globalCompositeOperation='soft-light';
-        g.drawImage(this._shadeTmp,0,0);
+        g.drawImage(this._blurTmp,0,0);
         g.restore();
         // KEIN zweiter Durchgang mehr fürs Gebirge: die Felsplastik kommt
         // jetzt aus der Facettenschattierung des Massiv-Passes – doppelt
@@ -1165,17 +1452,22 @@ export class Renderer {
       const msn2=this.massifSnow();
       if(m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn2[n])) return;
       if(h<0.15){
-        // Felsgrat: gezackter dunkler Zug mit Lichtkante darüber
+        // Felsnase: kleine Gruppe plastischer Brocken (Schatten, Körper,
+        // Lichtkante wie die Brocken am Bergfuß). Der alte Zickzack-Strich
+        // mit weißer Gegenlinie las sich bei Zoom als Kritzelei ("WWW").
         const zx=px+o1, zy=py+o2;
-        const seg=[[-11,2],[-4,-3],[2,1],[8,-2],[13,2]];
-        g.strokeStyle='rgba(48,42,35,0.34)'; g.lineWidth=1.7;
-        g.beginPath();
-        seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx,zy+dy); else g.lineTo(zx+dx,zy+dy); });
-        g.stroke();
-        g.strokeStyle='rgba(255,255,255,0.2)'; g.lineWidth=1;
-        g.beginPath();
-        seg.forEach(([dx,dy],k)=>{ if(k===0) g.moveTo(zx+dx-1,zy+dy-2); else g.lineTo(zx+dx-1,zy+dy-2); });
-        g.stroke();
+        for(let k=0;k<3;k++){
+          const bx=zx+(hash01(i*7+k*11)-0.5)*22;
+          const by=zy+(hash01(i*13+k*17)-0.5)*14;
+          const r=2.4+hash01(i*19+k)*3.0;
+          g.fillStyle='rgba(30,27,23,0.32)';
+          g.beginPath(); g.ellipse(bx+r*0.3,by+r*0.45,r*1.05,r*0.5,0,0,7); g.fill();
+          const tone=88+(hash01(i*23+k)*40|0);
+          g.fillStyle='rgb('+tone+','+(tone-3)+','+(tone-8)+')';
+          g.beginPath(); g.ellipse(bx,by,r,r*0.72,(hash01(i*29+k)-0.5)*1.2,0,7); g.fill();
+          g.fillStyle='rgba(230,228,220,0.32)';
+          g.beginPath(); g.ellipse(bx-r*0.3,by-r*0.3,r*0.45,r*0.26,-0.5,0,7); g.fill();
+        }
       } else if(h<0.5){
         // Geröllfeld
         g.fillStyle='rgba(60,54,46,0.35)';
@@ -1422,8 +1714,13 @@ export class Renderer {
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
           // (auch die abgeleiteten Fels-Muster und Erzflecken verwerfen, sonst
           // bleibt ein vor dem Laden gemerktes "Bild fehlt" für immer hängen)
-          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{
-            this._terPat=null; this._rockPats=null; this._oreBlobs=null; this.chunks.clear();
+          // trans_-Pinsel gehören dazu: Chunks, die VOR dem Laden gebaut
+          // wurden, haben sonst für immer ein leeres Geröllband/Sandufer
+          // (fadedBrush/screeTile merken sich "Bild fehlt")
+          if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')) img.onload=()=>{
+            this._terPat=null; this._rockPats=null; this._oreBlobs=null;
+            this._screeTile=null; this._screePatC=null; this._fbr=null;
+            this.chunks.clear();
           };
           img.src='assets/'+name;
           this.assets.set(key, img);
@@ -1556,6 +1853,35 @@ export class Renderer {
     this._oreBlobs.set(key,cv);
     return cv;
   }
+  // Nahtlose Geröll-Kachel, prozedural aus trans_scree: der Pinsel selbst ist
+  // nicht kachelbar (er franst nach unten aus). Aus seiner DICHTEN Oberkante
+  // werden zufällig gedrehte Ausschnitte mit Umgriff (±Kachelmaß in beide
+  // Richtungen) übereinandergeworfen – das Ergebnis kachelt nahtlos und
+  // liefert dem Geröllband am Bergfuß echte Einzelsteine statt Grauschleier.
+  screeTile(){
+    if(this._screeTile) return this._screeTile;
+    const img=this.asset('trans_scree');
+    if(!img) return null;                 // noch nicht geladen -> später erneut
+    const S=256;
+    const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+    const t=cv.getContext('2d');
+    const W=img.naturalWidth, H=img.naturalHeight;
+    for(let k=0;k<46;k++){
+      const sw=Math.min(W, 70+hash01(k*7+1)*60);
+      const sh=Math.min(H*0.38, 50+hash01(k*13+5)*40);
+      const sx=hash01(k*29+11)*(W-sw);
+      const sy=hash01(k*37+3)*Math.max(1, H*0.40-sh);
+      const dx=hash01(k*17+9)*S, dy=hash01(k*23+13)*S;
+      const rot=(hash01(k*41+2)-0.5)*3.2;
+      for(const ox of [-S,0,S]) for(const oy of [-S,0,S]){
+        t.save(); t.translate(dx+ox,dy+oy); t.rotate(rot);
+        t.drawImage(img, sx,sy,sw,sh, -sw/2,-sh/2, sw,sh);
+        t.restore();
+      }
+    }
+    this._screeTile=cv;
+    return cv;
+  }
   // Richtung des stärksten Gefälles
   gradOf(m,i){
     let gx=0, gy=0;
@@ -1616,8 +1942,14 @@ export class Renderer {
       : [128+t2*60, 128+t2*52, 128+t2*34];       // Richtung warmes Sonnenlicht
   }
   triShade(g, m, scache, a, b, c){
-    this.gouraud(g,
-      [m.worldPos(a), m.worldPos(b), m.worldPos(c)],
+    const A=m.worldPos(a), B=m.worldPos(b), C=m.worldPos(c);
+    // Übergefaltete Dreiecke überspringen: an hohen Steilwänden klappt die
+    // Projektion um (die obere Knotenzeile rutscht auf dem Bildschirm UNTER
+    // die untere). Im Additiv-Modus 'lighter' wurde der doppelt überdeckte
+    // Bereich doppelt so hell und stand als gleißende "Folien"-Dreiecke auf
+    // dem Fels – unabhängig von den eigentlichen Schattierungswerten.
+    if((B[0]-A[0])*(C[1]-A[1])-(B[1]-A[1])*(C[0]-A[0]) <= 0) return;
+    this.gouraud(g, [A,B,C],
       [this.shadeCol(this.nodeShade(m,scache,a)),
        this.shadeCol(this.nodeShade(m,scache,b)),
        this.shadeCol(this.nodeShade(m,scache,c))]);
