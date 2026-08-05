@@ -266,6 +266,21 @@ export class Game {
         this.map.obj[b.node]=OBJ.RUIN;
         this.ruins.push({node:b.node, t0:this.t});
       }
+      // Nachbau-Bremse der KI: Wer einen Militärposten (auch eine Baustelle)
+      // im Kampf verliert, baut nicht sofort und endlos nach. Ohne die Pause
+      // setzte die KI zerstörte Baracken im Minutentakt neu – der Angreifer
+      // zerstörte Baustellen am laufenden Band und eroberte nie (Whack-a-mole
+      // aus dem Kritikbericht). Die Wartezeit steigt mit jedem weiteren
+      // Verlust in kurzer Folge; ruhige Zeiten lassen die Zählung verjähren.
+      if(BLD[b.type].mil){
+        const p=this.players[b.player];
+        if(p && p.ai){
+          const st=p.aiState;
+          if(this.t-(st.milLossT||0)>3000) st.milLoss=0;      // >5 min Ruhe: verziehen
+          st.milLoss=(st.milLoss||0)+1; st.milLossT=this.t;
+          st.milCd=this.t + 450 + 450*Math.min(4, st.milLoss-1);  // 45 s .. 225 s
+        }
+      }
       this.onBurn && this.onBurn(b);
     }
     // verwaiste Türfahne aufräumen (wenn keine Straße und kein anderes Gebäude sie nutzt)
@@ -769,35 +784,45 @@ export class Game {
   }
 
   // ---------- Angriff ----------
+  // Einflussradius eines Gebäudes für die Angriffs-Reichweite (HQ zählt wie
+  // ein Militärgebäude, alles andere ohne mil-Eintrag wie eine Baracke).
+  milRadius(b){
+    const def=BLD[b.type];
+    return def && def.mil ? def.mil.radius : 8;
+  }
+  // Angriffsquellen: eigene fertige Militärgebäude, deren Einfluss bis zum
+  // Ziel reicht. Die Reichweite rechnet den Einflussradius des ZIELS mit:
+  // zwei Grenzposten stehen bis zu (r_eigen + r_fremd) auseinander, wenn
+  // ihre Gebiete sich berühren. Mit der alten festen Marschzugabe (+5) war
+  // ein FERTIGER feindlicher Posten deshalb praktisch nie erreichbar – nur
+  // grenznahe Baustellen. Ergebnis war das Militär-Patt aus dem
+  // Kritikbericht (25 zerstörte Baustellen, 0 Eroberungen, kein Spielende).
+  // Jetzt gilt wie im Vorbild Siedler 2: Posten direkt hinter der Grenze
+  // sind angreifbar, jede Eroberung verschiebt die Grenze und bringt den
+  // nächsten Posten in Reichweite – bis am Schluss das Hauptquartier fällt.
+  atkSources(pl, target){
+    const out=[];
+    const tR=this.milRadius(target);
+    for(const mb of this.buildings.values()){
+      if(mb.player!==pl || !mb.soldiers || mb.state!=='done') continue;
+      const reach=this.milRadius(mb)+tR+2;   // +2: kurzer Marsch über die Grenze
+      const d=Math.hypot(this.map.X(mb.node)-this.map.X(target.node), this.map.Y(mb.node)-this.map.Y(target.node));
+      if(d<=reach) out.push({mb, d});
+    }
+    return out;
+  }
   attackable(pl, bldId){
     const b=this.buildings.get(bldId);
     if(!b || b.player===pl) return 0;
     if(!(BLD[b.type].mil || b.type==='hq')) return 0;
-    // Angreifer kommen nur aus Militärgebäuden, deren eigener Einflussbereich
-    // bis zum Ziel reicht (plus ein kurzer Marsch) – niemand zieht quer über die Karte
     let avail=0;
-    for(const mb of this.buildings.values()){
-      if(mb.player!==pl || !mb.soldiers || mb.state!=='done') continue;
-      const mil=BLD[mb.type].mil;
-      const reach=(mb.type==='hq'? 9 : (mil? mil.radius : 8)) + 5;
-      const d=Math.hypot(this.map.X(mb.node)-this.map.X(b.node), this.map.Y(mb.node)-this.map.Y(b.node));
-      if(d>reach) continue;
-      avail += Math.max(0, mb.soldiers.length-1);
-    }
+    for(const {mb} of this.atkSources(pl,b)) avail += Math.max(0, mb.soldiers.length-1);
     return avail;
   }
   attack(pl, bldId, count){
     const target=this.buildings.get(bldId);
     if(!target) return false;
-    const sources=[];
-    for(const mb of this.buildings.values()){
-      if(mb.player!==pl || !mb.soldiers || mb.state!=='done') continue;
-      const mil=BLD[mb.type].mil;
-      const reach=(mb.type==='hq'? 9 : (mil? mil.radius : 8)) + 5;
-      const d=Math.hypot(this.map.X(mb.node)-this.map.X(target.node), this.map.Y(mb.node)-this.map.Y(target.node));
-      if(d>reach) continue;
-      sources.push({mb, d});
-    }
+    const sources=this.atkSources(pl, target);
     sources.sort((a,b)=>a.d-b.d);
     const group=[];
     for(const {mb} of sources){
@@ -2375,7 +2400,10 @@ export class Game {
     if(c('sawmill')<1) want.push('sawmill');
     if(c('quarry')<1+((lvl>1)?1:0)) want.push('quarry');
     if(c('forester')<1) want.push('forester');
-    if(c('barracks')+c('guardhouse')+c('watchtower')+c('fortress') < 2 + Math.floor(this.t/3000)*lvl) want.push('@mil');
+    // Militär-Ausbau ruht während der Nachbau-Bremse (siehe burnBuilding):
+    // frisch zerstörte Posten werden nicht im Sekundentakt ersetzt.
+    if(c('barracks')+c('guardhouse')+c('watchtower')+c('fortress') < 2 + Math.floor(this.t/3000)*lvl
+       && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     if(c('fisher')<1) want.push('fisher');
     if(c('well')<1) want.push('well');
     if(c('farm')<1) want.push('farm');
@@ -2456,6 +2484,14 @@ export class Game {
         if(s<4) continue;
       }
       else if(def.mil){
+        // Kein Neubau auf frisch umkämpftem Boden: solange in der Nähe noch
+        // eine Ruine schwelt (~2,5 min), meidet die KI die Stelle – sonst
+        // entsteht die zerstörte Baracke einen Knoten daneben sofort neu und
+        // der Angreifer kommt nie über die Baustellen-Front hinaus.
+        if(this.ruins.some(r=>{
+          const dx=m.X(r.node)-m.X(i), dy=m.Y(r.node)-m.Y(i);
+          return dx*dx+dy*dy<25;
+        })) continue;
         // Richtung Feind/Grenze
         let border=0;
         for(const n of nearNodes) if(m.owner[n]!==p.id) border++;
