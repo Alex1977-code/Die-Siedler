@@ -290,20 +290,34 @@ export class Game {
     for(const n of m.nbs(i)) if(m.flag[n]) return false; // Mindestabstand wie im Klassiker
     return true;
   }
-  addFlag(i){ this.clearForRoad(i); this.map.flag[i]=1; if(!this.flagItems.has(i)) this.flagItems.set(i,[]); this.routeVer++; this.changedNodes.push(i); }
-  placeFlag(i, player){
-    if(!this.canPlaceFlag(i,player)) return false;
-    this.addFlag(i);
-    // liegt die Fahne auf einer Straße? -> Straße teilen
+  addFlag(i){
+    this.clearForRoad(i);
+    this.map.flag[i]=1;
+    if(!this.flagItems.has(i)) this.flagItems.set(i,[]);
+    // Eine Fahne TEILT immer den Weg, auf dem sie steht. Das gehörte früher
+    // nur zu placeFlag – wer die Fahne über buildRoad (Wegende mitten auf
+    // einem fremden Weg), createRoad oder als Gebäudetür bekam, ließ den
+    // alten Weg ungeteilt weiterlaufen: zwei Wege lagen übereinander, und
+    // der alte führte mitten durch eine Fahne. Deshalb sitzt die Teilung
+    // jetzt an der einen Stelle, durch die JEDE neue Fahne muss.
+    this.splitRoadsAt(i);
+    this.routeVer++; this.changedNodes.push(i);
+  }
+  splitRoadsAt(i){
+    // kein break: sollte (durch alte Spielstände) mehr als ein Weg hier
+    // durchlaufen, werden alle geteilt – die Invariante zählt
     for(const [id,r] of [...this.roads]){
       const k=r.path.indexOf(i);
       if(k>0 && k<r.path.length-1){
         const p1=r.path.slice(0,k+1), p2=r.path.slice(k);
         this.removeRoad(id, true);
         this.createRoad(r.player, p1); this.createRoad(r.player, p2);
-        break;
       }
     }
+  }
+  placeFlag(i, player){
+    if(!this.canPlaceFlag(i,player)) return false;
+    this.addFlag(i);           // teilt einen darunterliegenden Weg gleich mit
     return true;
   }
   removeFlag(i){
@@ -351,17 +365,23 @@ export class Game {
     return set;
   }
   unterHaus(n){ return this.bauSchatten().has(n); }
-  // A*-Straßenpfad von Fahne zu Ziel (nur eigenes Gebiet, passierbar, keine Gebäude, kein Kreuzen anderer Straßen außer an Fahnen)
-  roadPath(player, from, to){
+  // A*-Straßenpfad von Fahne zu Ziel (nur eigenes Gebiet, passierbar, keine
+  // Gebäude, kein Kreuzen anderer Straßen außer an Fahnen). `avoid`: Knoten
+  // des GERADE ENTSTEHENDEN Weges (Wegpunkt-Tippen in der Bedienung) – die
+  // sind noch keine Straße, dürfen aber genauso wenig überlaufen werden,
+  // sonst überlappt der fertige Weg sich selbst.
+  roadPath(player, from, to, avoid=null){
     const m=this.map;
     if(from===to) return null;
+    if(avoid && avoid.has(to)) return null;
     const onRoad=new Set();
     for(const r of this.roads.values()) r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
     // ALLE Straßenpunkte (auch Fahnen) - fürs Verteuern von Parallelwegen
     const roadN=new Set();
     for(const r of this.roads.values()) if(!r.isSea) for(const n of r.path) roadN.add(n);
     const okNode=(n)=> m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 &&
-      this.roadObjOk(n) && !this.unterHaus(n) && (!onRoad.has(n) || n===to) ;
+      this.roadObjOk(n) && !this.unterHaus(n) && (!onRoad.has(n) || n===to) &&
+      !(avoid && avoid.has(n));
     if(!okNode(to) && !m.flag[to]) return null;
     const h=(n)=>{ const dx=m.X(n)-m.X(to), dy=m.Y(n)-m.Y(to); return Math.sqrt(dx*dx+dy*dy); };
     // Wegebau wie in echt: der billigste Weg ist der ebene durch freies Land.
@@ -425,10 +445,20 @@ export class Game {
   buildRoad(player, path){
     // path: Knotenliste, Start ist Fahne; Ende: Fahne oder Fahne wird gesetzt
     if(!path || path.length<2) return false;
+    // Torwächter gegen Überlappungen: die Bedienung setzt Wege stückweise
+    // zusammen – hier wird das ERGEBNIS geprüft, damit kein kaputtes Stück
+    // je zur Straße wird. Ein Weg darf sich nicht selbst besuchen, und sein
+    // Inneres darf weder Fahnen tragen noch auf fremden Wegen liegen
+    // (dort müsste er an einer Fahne ENDEN, nicht weiterlaufen).
+    if(new Set(path).size!==path.length) return false;
+    for(let k=1;k<path.length-1;k++){
+      const n=path[k];
+      if(this.map.flag[n] || this.roadAt(n)) return false;
+    }
     const end=path[path.length-1];
     if(!this.map.flag[end]){
       if(!this.canPlaceFlag(end,player)) return false;
-      this.addFlag(end);
+      this.addFlag(end);       // teilt einen Weg unter dem Endpunkt gleich mit
     }
     this.createRoad(player, path);
     return true;

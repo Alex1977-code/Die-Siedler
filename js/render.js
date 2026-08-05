@@ -3390,7 +3390,7 @@ export class Renderer {
           if(!arr.length) continue;
           const [nx2,ny2]=this.doorVisualPos(nd);
           if(nx2<wx0-60||nx2>wx1+60||ny2<wy0-60||ny2>wy1+60) continue;
-          let img=null, rot=0;
+          let img=null, rot=0, kind='';
           if(arr.length===1){ img=kEnd; rot=arr[0]-Math.PI/2; }   // Stummel zeigt zum Nachbarn
           else if(arr.length===2){
             // Durchgangsknoten braucht keine eigene Kachel: dort sorgt die
@@ -3409,24 +3409,30 @@ export class Renderer {
               rot=Math.atan2(Math.sin(arr[0])+Math.sin(arr[1]), Math.cos(arr[0])+Math.cos(arr[1]))-Math.PI/4;
             }
           }
-          else if(arr.length===3){
-            // Y-Kachel: der Stiel zeigt nach unten. Er bekommt den Anschluss,
-            // der den beiden anderen am ehesten gegenueberliegt.
-            img=kY;
-            let best=0, bw2=-9;
-            for(let i=0;i<3;i++){
-              let sx=0, sy=0;
-              for(let j=0;j<3;j++) if(j!==i){ sx+=Math.cos(arr[j]); sy+=Math.sin(arr[j]); }
-              const s=-(Math.cos(arr[i])*sx+Math.sin(arr[i])*sy);
-              if(s>bw2){ bw2=s; best=i; }
-            }
-            rot=arr[best]-Math.PI/2;
-          }
           else {
-            // Sechswege-Nabe: ihre Arme liegen fest im 60-Grad-Raster des
-            // Gitters - deshalb NICHT drehen, sie passt in jeder Lage
+            // Drei und mehr Arme: auf dem Sechseck-Gitter liegen die Arme
+            // immer in den sechs Rasterrichtungen. Die gedrehten T-/Y-/X-
+            // Kacheln treffen diese Winkel NIE (ihre Arme stehen auf 90
+            // Grad) – ihre Sandfransen legten sich deshalb als heller
+            // Schleier QUER uebers saubere Band: der "hingeklatschte" Fleck
+            // an jedem Stoss. Die Sechswege-Nabe dagegen ist rasterfest
+            // gezeichnet: unrotiert decken ihre Arme jede echte
+            // Armrichtung exakt, und die Arme ohne Weg schneidet der
+            // Band-Clip einfach weg.
             const hub=this.asset('road_hub');
-            if(hub){ img=hub; rot=0; }
+            if(hub){ img=hub; rot=0; kind='hub'; }
+            else if(arr.length===3){
+              // Notnagel ohne Nabe: Y-Kachel, Stiel zum Gegenueber-Arm
+              img=kY;
+              let best=0, bw2=-9;
+              for(let i=0;i<3;i++){
+                let sx=0, sy=0;
+                for(let j=0;j<3;j++) if(j!==i){ sx+=Math.cos(arr[j]); sy+=Math.sin(arr[j]); }
+                const s=-(Math.cos(arr[i])*sx+Math.sin(arr[i])*sy);
+                if(s>bw2){ bw2=s; best=i; }
+              }
+              rot=arr[best]-Math.PI/2;
+            }
             else { img=kX; rot=arr[0]; }
           }
           if(!img) continue;
@@ -3436,8 +3442,20 @@ export class Renderer {
           // ausgefahrenen voll durchkommt – ein Knotenpunkt tritt sich
           // ohnehin als Erstes fest.
           g.globalAlpha=0.35+0.65*(knotenP.get(nd)||0);
-          g.translate(nx2,ny2); g.rotate(rot);
-          g.drawImage(this.roadKachel(img,'k'+arr.length+(img===tStr?'s':''),zpx(js)), -js/2, -js/2, js, js);
+          g.translate(nx2,ny2);
+          // Unterlage: ein gerades Wegstueck, auf den ersten Arm gedreht.
+          // Die gedrehte Knotenkachel deckt die Knotenscheibe des Bandes nie
+          // vollstaendig – zwischen ihren Armen und den ECHTEN Armrichtungen
+          // blieb ein Zwickel, in dem der blanke Erdsaum durchschien (der
+          // helle, musterlose Fleck an jedem Stoss). Die Unterlage fuellt
+          // die Scheibe immer mit Steinmuster, die Knotenkachel legt danach
+          // nur noch ihr Richtungsmuster darueber.
+          g.save();
+          g.rotate(arr[0]-Math.PI/2);
+          g.drawImage(this.roadKachel(tStr,'kbase',zpx(js)), -js/2, -js/2, js, js);
+          g.restore();
+          g.rotate(rot);
+          g.drawImage(this.roadKachel(img,'k'+arr.length+kind+(img===tStr?'s':''),zpx(js)), -js/2, -js/2, js, js);
           g.restore();
         }
         g.restore();

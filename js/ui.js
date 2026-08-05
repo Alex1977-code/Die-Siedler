@@ -569,10 +569,13 @@ export class UI {
       if(d<=26) cands.push({i,d,isFlag});
     };
     for(const i of netz) add(i, !!m.flag[i]);
+    // die schon getippten Wegpunkte darf das Anschlussstück nicht nochmal
+    // überlaufen – sonst überlappte der fertige Weg sich selbst
+    const avoid=new Set(this.state.roadNodes.slice(0,-1));
     // nach echter Weglänge sortieren, nicht nach Luftlinie
     const scored=[];
     for(const c of cands){
-      const seg=g.roadPath(0, from, c.i);
+      const seg=g.roadPath(0, from, c.i, avoid);
       if(!seg) continue;
       // Anschluss mitten im Weg kostet eine Fahne -> minimal schlechter bewertet,
       // damit bei Gleichstand die vorhandene Fahne gewinnt
@@ -595,6 +598,9 @@ export class UI {
   }
   roadTap(i){
     const g=this.game, m=g.map;
+    // nach einem Abschluss (cancelRoad) ist die Planung weg – ein
+    // nachklappernder Tipp darf dann nicht mehr hineingreifen
+    if(this.state.mode!=='road' || !this.state.roadNodes || !this.state.roadNodes.length) return;
     // Zielgebäude angetippt? -> automatisch dessen Türfahne anpeilen
     if(m.bld[i]>=0){
       const tb=g.buildings.get(m.bld[i]);
@@ -615,11 +621,34 @@ export class UI {
       }
     }
     const cur=this.state.roadNodes[this.state.roadNodes.length-1];
-    if(i===cur) return;
-    const seg=g.roadPath(0, cur, i);
+    if(i===cur){
+      // Nochmal auf den Endpunkt getippt = Weg hier abschließen (Fahne setzen).
+      // Das stand zwar als Hinweis in der Statuszeile, kam aber nie zum Zug,
+      // weil dieser Fall vorher kommentarlos verschluckt wurde.
+      if(this.state.roadNodes.length>1 && g.buildRoad(0, this.state.roadNodes)){
+        Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad();
+      }
+      return;
+    }
+    // Tipp auf einen schon getippten Wegpunkt = Planung bis dorthin zurücknehmen.
+    // Vorher lief der Tipp auf die STARTFAHNE hier durch und hängte sie als
+    // Wegpunkt hintenan – der fertige Weg führte dann mitten durch eine Fahne
+    // und über sich selbst.
+    {
+      const k=this.state.roadNodes.indexOf(i);
+      if(k>=0){
+        this.state.roadNodes=this.state.roadNodes.slice(0,k+1);
+        const st=$('#road-status');
+        if(st) st.textContent = k===0? 'Weg bauen' : `${k} Stück`;
+        return;
+      }
+    }
+    // das Anschlussstück darf die schon getippten Wegpunkte nicht überlaufen
+    const avoid=new Set(this.state.roadNodes.slice(0,-1));
+    const seg=g.roadPath(0, cur, i, avoid);
     if(!seg){ this.toast('Kein Weg dorthin möglich'); return; }
     const newPath=[...this.state.roadNodes, ...seg.slice(1)];
-    if(g.map.flag[i] && i!==this.state.roadFrom){
+    if(g.map.flag[i]){
       // fertig: an bestehender Fahne angeschlossen
       if(g.buildRoad(0, newPath)){ Sound.sfx('road'); this.cancelRoad(); }
       else this.toast('Straße nicht möglich');
@@ -636,16 +665,10 @@ export class UI {
     this.state.roadNodes=newPath;
     const st=$('#road-status');
     if(st) st.textContent=`${newPath.length-1} Stück`;
-    // Endpunkt könnte Fahne werden: Doppeltipp = abschließen
-    if(g.canPlaceFlag(i,0)){
-      if(this.lastRoadEnd===i){
-        if(g.buildRoad(0,newPath)){ Sound.sfx('road'); Sound.sfx('flag'); this.cancelRoad(); }
-        this.lastRoadEnd=null;
-        return;
-      }
-      this.lastRoadEnd=i;
-      if(st) st.textContent=`${newPath.length-1} Stück · nochmal tippen = fertig`;
-    }
+    // Endpunkt könnte Fahne werden: nochmal tippen = abschließen
+    // (der Abschluss selbst steckt oben im Fall i===cur)
+    if(g.canPlaceFlag(i,0) && st)
+      st.textContent=`${newPath.length-1} Stück · nochmal tippen = fertig`;
   }
 
   // ---------- Sheets (Bottom-Panels) ----------
