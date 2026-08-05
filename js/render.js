@@ -80,7 +80,7 @@ export class Renderer {
     this.borderEdges=[];
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
-    this._snowLine=null; this._tips=null; this._bTint=null;
+    this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._tips=null; this._bTint=null;
     this.initSheep();
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
@@ -520,18 +520,33 @@ export class Renderer {
     //    ein Reliefpass aus dem Höhengradienten setzt Licht und Schatten.
     {
       const perT=new Map();
-      const snowCap=[], gorge=[], ridgeSnow=[];
+      const gorge=[], ridgeSnow=[];
+      // Massiv-Zugehörigkeit: MOUNT/LAVA immer, SNOW nur als vereister Gipfelkamm.
+      // Diese Knoten malt der Massiv-Pass komplett selbst – sie fallen aus den
+      // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
+      const msn=this.massifSnow();
+      const isMassif=(q)=>{ const t2=m.terr[q]; return t2===TER.MOUNT||t2===TER.LAVA||(t2===TER.SNOW&&msn[q]); };
       for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
         for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
           const i=m.idx(x,y);
           const t=m.terr[i];
+          if(t===TER.SNOW && msn[i]){
+            // Gipfel-Eis gehört zum Massiv (Firn kommt dort aus dem Massiv-Pass)
+            if(!perT.has(TER.MOUNT)) perT.set(TER.MOUNT,[]);
+            perT.get(TER.MOUNT).push(i);
+            continue;
+          }
           if(!perT.has(t)) perT.set(t,[]);
           perT.get(t).push(i);
           if(t===TER.MOUNT){
-            if(m.hgt[i]>this.snowLine() && this.slopeOf(m,i)<0.55) snowCap.push(i);
-            if(this.slopeOf(m,i)>0.62) gorge.push(i);
+            // Risse nur im offenen Fels – auf der Firndecke läsen sie sich
+            // als Schmutzstriche im Schnee (großzügiger Abstand: die
+            // Franszone reicht über Nachbarzellen unter die Grenzhöhe,
+            // und neben Gipfel-Eis liegt praktisch immer Schnee)
+            if(this.slopeOf(m,i)>0.62 && m.hgt[i]<=this.firnLine()-1.2
+               && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn[n])) gorge.push(i);
           }
-          // Schnee AUF dem Grat ist Firn, nicht die weiche Winterdecke
+          // Schnee AUF dem Hang der Ebene ist Firn, nicht die weiche Winterdecke
           if(t===TER.SNOW && this.slopeOf(m,i)>0.30) ridgeSnow.push(i);
         }
       if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
@@ -540,12 +555,12 @@ export class Renderer {
         this._shadeTmp=document.createElement('canvas'); this._shadeTmp.width=w; this._shadeTmp.height=h;
       }
       // Zeichenreihenfolge: weiche Böden zuerst, Fels/Lava zuletzt
-      // Fels wird NICHT weich eingeblendet – er entsteht als flach
-      // schattiertes Facettennetz aus dem Höhenmodell (siehe Facettenpass).
+      // Fels wird NICHT weich eingeblendet – ihn zeichnet der Massiv-Pass
+      // unten als durchgehende Felsdecke mit Facettenlicht.
       const ORDER=[TER.WATER, TER.SWAMP, TER.GRASS, TER.DESERT, TER.SNOW, TER.LAVA];
       const layers=ORDER.filter(t=>perT.has(t)).map(t=>({key:t, nodes:perT.get(t), pat:t}));
-      // Firn liegt auf den Schneehängen der Ebene; der Fels bekommt seinen
-      // Schnee im Facettenpass
+      // Firn liegt auf den Schneehängen der Ebene; das Massiv bekommt seine
+      // Firndecke im Massiv-Pass
       if(ridgeSnow.length) layers.push({key:'firn', nodes:ridgeSnow,
         pat:this.asset('ter_firn')? 'firn' : TER.SNOW});
       const tex=this._texTmp.getContext('2d');
@@ -619,71 +634,117 @@ export class Renderer {
         g.drawImage(this._blurTmp,0,0);
         g.restore();
       }
-      // ---------- Fels als flach schattiertes Facettennetz ----------
-      // Siedler-2-Prinzip: das Gebirge IST das Höhennetz. Jedes Dreieck
-      // bekommt EINEN flachen Ton aus seiner Flächennormalen, und die Kante
-      // zum Gras folgt den Dreieckskanten statt einer weichen Maske.
-      // Aufgeklebte Felswände entfallen – sie wirkten wie Fremdkörper ohne
-      // Höhenbezug.
+      // ---------- Bergmassiv: EIN zusammenhängender Fels statt Texturflicken ----------
+      // Siedler-2-Prinzip: das Gebirge IST das Höhennetz. Vorher bekam jedes
+      // Dreieck seine eigene Kachel (Fels/Riss/Schnee) plus deckende Licht-
+      // farbe und Kontur – das las sich als Flickenteppich aus Dreiecken.
+      // Jetzt läuft EINE weltverankerte Felstextur ununterbrochen über das
+      // ganze Massiv; das Relief entsteht ausschließlich aus flachen
+      // Facettentönen (hard-light = multiplikativ, die Textur bleibt
+      // sichtbar). Grate hellt die Wölbung auf, Schluchten und Sättel
+      // dunkelt sie ab; Firn liegt als eigene, ausgefranste Decke oben.
       {
-        const rockOf=(n)=> m.terr[n]===TER.MOUNT||m.terr[n]===TER.SNOW||m.terr[n]===TER.LAVA;
         if(!this._rockPats) this._rockPats={};
         const pats=this._rockPats;
-        const patOf=(key)=>{
-          if(pats[key]!==undefined) return pats[key];
+        // Muster mit Welt-Transformation, je (Bild, Lage) nur einmal erzeugt
+        const patOf=(key,sc,rot,tx2,ty2)=>{
+          const ck=key+'|'+sc+'|'+(rot||0);
+          if(pats[ck]!==undefined) return pats[ck];
           const im=this.asset(key);
           let pt=null;
           if(im){
             pt=g.createPattern(im,'repeat');
-            if(pt.setTransform) pt.setTransform(new DOMMatrix().scale(0.30));
+            if(pt.setTransform){
+              let mtx=new DOMMatrix();
+              if(tx2||ty2) mtx=mtx.translate(tx2,ty2);
+              if(rot) mtx=mtx.rotate(rot);
+              pt.setTransform(mtx.scale(sc));
+            } else if(rot) pt=null;      // ohne setTransform keine gedrehte Zweitlage
           }
-          pats[key]=pt;
+          pats[ck]=pt;
           return pt;
         };
-        const base=patOf('ter_rock');
+        const base=patOf('ter_rock',0.30);
         if(base){
-          const snowY=this.snowLine();
-          const ORE={1:'ter_ore_coal',2:'ter_ore_iron',3:'ter_ore_gold',4:'ter_ore_granite'};
+          const firnY=this.firnLine();
           const signs=this.game.signs;
-          g.save(); g.translate(-c.ox,-c.oy);
+          // Wölbung je Knoten: Grat (konvex) fängt Licht, Kessel (konkav)
+          // liegt im Eigenschatten – das eingebaute Ambient-Occlusion
+          const curv=new Map();
+          const curvOf=(q)=>{
+            let v=curv.get(q);
+            if(v!==undefined) return v;
+            let s2=0, n2=0;
+            for(const b3 of m.nbs(q)){ s2+=m.hgt[b3]; n2++; }
+            v=n2? m.hgt[q]-s2/n2 : 0;
+            curv.set(q,v);
+            return v;
+          };
+          // Höhengradient je Knoten (roh, ungenormt) – die Facette wird aus
+          // den GEMITTELTEN Eckgradienten beleuchtet statt aus ihrer eigenen
+          // Flächennormalen: auf dem versetzten Gitter kippen Auf- und
+          // Ab-Dreiecke einer Wand abwechselnd leicht nach Ost/West, mit
+          // echten Normalen ergäbe das einen hell/dunklen Reißverschluss.
+          const grad=new Map();
+          const gradAt=(q)=>{
+            let v=grad.get(q);
+            if(v) return v;
+            let gx=0, gy=0;
+            for(const b3 of m.nbs(q)){
+              const ddx=(m.X(b3)+((m.Y(b3)&1)*0.5))-(m.X(q)+((m.Y(q)&1)*0.5));
+              const ddy=m.Y(b3)-m.Y(q);
+              const dh=m.hgt[b3]-m.hgt[q];
+              gx+=dh*ddx; gy+=dh*ddy;
+            }
+            v=[gx,gy];
+            grad.set(q,v);
+            return v;
+          };
+          // 1) Fels-Dreiecke einsammeln, EIN flacher Ton je Facette
+          const tris=[];
+          const wp=new Map();
+          const pos=(q)=>{ let v=wp.get(q); if(!v){ v=m.worldPos(q); wp.set(q,v); } return v; };
           const facet=(a2,b2,c2)=>{
             let nr=0;
-            if(rockOf(a2)) nr++;
-            if(rockOf(b2)) nr++;
-            if(rockOf(c2)) nr++;
-            if(nr<2) return;
-            const A=m.worldPos(a2), B=m.worldPos(b2), C=m.worldPos(c2);
-            // Flächennormale im Kartenraum -> EIN Ton für die ganze Facette
-            const ux=m.X(b2)-m.X(a2), uy=m.Y(b2)-m.Y(a2), uz=(m.hgt[b2]-m.hgt[a2])*HSCALE/ROWH;
-            const vx=m.X(c2)-m.X(a2), vy=m.Y(c2)-m.Y(a2), vz=(m.hgt[c2]-m.hgt[a2])*HSCALE/ROWH;
-            let nx=uy*vz-uz*vy, ny=uz*vx-ux*vz, nz=ux*vy-uy*vx;
-            const nl=Math.hypot(nx,ny,nz)||1; nx/=nl; ny/=nl; nz/=nl;
-            if(nz<0){ nx=-nx; ny=-ny; nz=-nz; }
-            // Licht von links oben, in klaren Stufen statt stufenlosem Verlauf
-            let li=(-nx*0.52 - ny*0.60 + nz*0.61);
-            li=Math.max(0, Math.min(1, (li+0.18)/1.05));
-            li=Math.round(li*4)/4;
-            // Welche Kachel? Erz nur dort, wo der Geologe geschürft hat –
-            // sonst verlöre er seine Aufgabe.
-            let key='ter_rock', ore=0;
-            if(signs){
-              for(const q of [a2,b2,c2]){ const v=signs.get(q); if(v){ ore=v; break; } }
+            if(isMassif(a2)) nr++;
+            if(isMassif(b2)) nr++;
+            if(isMassif(c2)) nr++;
+            if(nr<1) return;
+            if(nr===1){
+              // Dreiecke mit nur EINER Fels-Ecke gehören normalerweise dem
+              // Umland. Ausnahme Steilwand: dort spannen sie sich über die
+              // ganze Absturzhöhe – blieben sie Wiese/Schnee, stünde am
+              // Wandfuß ein Kamm aus hellen Zacken zwischen den Felszähnen.
+              const hmax=Math.max(m.hgt[a2],m.hgt[b2],m.hgt[c2]);
+              const hmin=Math.min(m.hgt[a2],m.hgt[b2],m.hgt[c2]);
+              if(hmax-hmin<1.15) return;
             }
-            const hAvg=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
-            if(ore && ORE[ore]) key=ORE[ore];
-            else if(hAvg>snowY) key='ter_rock_snow';
-            else if(nz<0.62) key='ter_rock_crack';       // steile Flanke: zerklüftet
-            const pat=patOf(key)||base;
-            const path=()=>{ g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]);
-                             g.lineTo(C[0],C[1]); g.closePath(); };
-            g.fillStyle=pat; path(); g.fill();
-            const t2=(li-0.5)*2;
-            g.fillStyle = t2>=0 ? 'rgba(255,248,230,'+(t2*0.56).toFixed(3)+')'
-                                : 'rgba(22,26,40,'+(-t2*0.58).toFixed(3)+')';
-            path(); g.fill();
-            // Facettenkante andeuten, damit die Bänder lesbar bleiben
-            g.strokeStyle='rgba(40,38,34,0.18)'; g.lineWidth=1;
-            path(); g.stroke();
+            const A=pos(a2), B=pos(b2), C=pos(c2);
+            const ga=gradAt(a2), gb=gradAt(b2), gc=gradAt(c2);
+            const gx=(ga[0]+gb[0]+gc[0])/3, gy=(ga[1]+gb[1]+gc[1])/3;
+            // Sonne aus Nordwest, stärker aus WEST als aus Nord: sonst glühen
+            // die (kameraseitig voll sichtbaren) Nordwände hinter jedem Kamm.
+            // Ebene Flächen landen auf der neutralen Tonmitte, damit die
+            // Textur dort ihren Eigenton behält.
+            let li=0.5 + (gx*0.75+gy*0.5)*0.22;
+            li += ((curvOf(a2)+curvOf(b2)+curvOf(c2))/3)*0.5;
+            // ganz unten kappen: rein schwarze Südwände wirken wie Löcher.
+            // Hohe Absturzwände (auf dem Bildschirm stark gestreckte
+            // Dreiecke) bleiben im Halblicht – dort soll die WAND lesbar
+            // sein, nicht ein schwarzer Zahn.
+            const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
+            li=Math.max(spanY>ROWH*1.7? 0.3 : 0.16, Math.min(0.97, li));
+            // wenige klare Tonstufen statt Verlauf – daraus liest sich das
+            // Facettenrelief; minimales Zittern verhindert sterile Bänder
+            li=Math.round((li+hash01(a2*31+b2)*0.07-0.035)*5)/5;
+            const t2=Math.max(-1, Math.min(1, (li-0.5)*2));
+            // hard-light: 128 ist neutral – Schatten kühl, Licht warm.
+            // Zurückhaltend abdunkeln: zu satte Schattentöne kippen auf
+            // Firn ins Blaue und machen Südwände zu schwarzen Zacken.
+            const col = t2<0
+              ? 'rgb('+(128+t2*52|0)+','+(128+t2*46|0)+','+(128+t2*32|0)+')'
+              : 'rgb('+(128+t2*74|0)+','+(128+t2*64|0)+','+(128+t2*46|0)+')';
+            tris.push({A,B,C,col});
           };
           for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
             for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
@@ -696,7 +757,164 @@ export class Renderer {
               facet(i,iSE,iSW);
             }
           }
-          g.restore();
+          if(tris.length){
+            g.save(); g.translate(-c.ox,-c.oy);
+            // Massiv-Umriss als EIN Beschnittpfad – alles Weitere (Decke,
+            // Lasur, Erz, Firn, Licht) bleibt exakt innerhalb des Berges
+            g.beginPath();
+            for(const t3 of tris){
+              g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+              g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+            }
+            g.clip();
+            // 2) durchgehende Felsdecke in Weltkoordinaten; die Risskachel
+            //    groß und gedreht darüber bricht die Kachelwiederholung und
+            //    legt ein großes Kluftnetz über das ganze Massiv
+            g.fillStyle=base;
+            g.fillRect(c.ox,c.oy,w,h);
+            const klu=patOf('ter_rock_crack',0.62,33,171,63);
+            if(klu){
+              g.globalAlpha=0.32;
+              g.fillStyle=klu;
+              g.fillRect(c.ox,c.oy,w,h);
+              g.globalAlpha=1;
+            }
+            // 3) Farb-Lasur: Höhenzonen (Geröllfuß grünlich, Gipfel fahl)
+            //    aus dem weichgezeichneten Farbnetz, nur der Farbton zählt
+            g.globalCompositeOperation='color';
+            g.globalAlpha=0.28;
+            g.drawImage(this._blurTmp, c.ox, c.oy);
+            g.globalAlpha=1;
+            g.globalCompositeOperation='source-over';
+            // 4) Erzadern NUR dort, wo der Geologe geschürft hat – als weiche
+            //    runde Flecken statt harter Dreieckskacheln
+            if(signs && signs.size){
+              const OREK={1:'ter_ore_coal',2:'ter_ore_iron',3:'ter_ore_gold',4:'ter_ore_granite'};
+              for(const [q,v] of signs){
+                if(!v || !OREK[v] || !isMassif(q)) continue;
+                const [qx,qy]=m.worldPos(q);
+                if(qx<c.ox-60||qx>c.ox+w+60||qy<c.oy-60||qy>c.oy+h+60) continue;
+                const blob=this.oreBlob(OREK[v]);
+                if(blob) g.drawImage(blob, qx-54, qy-44, 108, 88);
+              }
+            }
+            // 5) Facettenschattierung: die Töne erst DECKEND auf eine
+            //    Zwischenfläche (angrenzende Dreiecke verschmelzen an der
+            //    Kante sauber), dann in EINEM Zug multiplikativ auflegen –
+            //    so bleibt die Felszeichnung unter dem Licht erhalten
+            {
+              const sg2=this._shadeTmp.getContext('2d');
+              sg2.globalCompositeOperation='source-over';
+              sg2.clearRect(0,0,w,h);
+              sg2.save(); sg2.translate(-c.ox,-c.oy);
+              for(const t3 of tris){
+                sg2.fillStyle=t3.col;
+                sg2.beginPath();
+                sg2.moveTo(t3.A[0],t3.A[1]); sg2.lineTo(t3.B[0],t3.B[1]);
+                sg2.lineTo(t3.C[0],t3.C[1]); sg2.closePath();
+                sg2.fill();
+              }
+              sg2.restore();
+              g.globalCompositeOperation='hard-light';
+              g.globalAlpha=0.8;
+              g.drawImage(this._shadeTmp, c.ox, c.oy);
+              g.globalAlpha=1;
+              g.globalCompositeOperation='source-over';
+            }
+            // 6) Firn NACH dem Facettenlicht, leicht lasierend: die Töne
+            //    scheinen gedämpft durch die Decke – das Eisfeld wirkt weich
+            //    verweht statt in harte Dreiecke zerlegt. Kein glatter
+            //    Verlauf an der Grenze: sie franst über Knotenzellen und
+            //    hangabwärts kriechende Zungen körnig aus, steile Wände
+            //    halten keinen Schnee.
+            {
+              const mk2=this._maskTmp.getContext('2d');
+              mk2.globalCompositeOperation='source-over';
+              mk2.clearRect(0,0,w,h);
+              mk2.save(); mk2.translate(-c.ox,-c.oy);
+              mk2.fillStyle='#fff';
+              let anySnow=false;
+              // örtlich KORRELIERTES Fransen-Rauschen: Nachbarknoten kippen
+              // gemeinsam. Weißes Knotenrauschen ergäbe auf Hochflächen genau
+              // an der Grenzhöhe ein Wabenmuster aus Einzelzellen.
+              const sm=(u)=>u*u*(3-2*u);
+              const vv=(xx,yy)=>hash01((Math.imul(xx,73856093)^Math.imul(yy,19349663)^0x9e37)|0);
+              const fnoise=(X,Y)=>{
+                const gx0=X/4.6, gy0=Y/4.6;
+                const x2=Math.floor(gx0), y2=Math.floor(gy0);
+                const fx=sm(gx0-x2), fy=sm(gy0-y2);
+                return (vv(x2,y2)*(1-fx)+vv(x2+1,y2)*fx)*(1-fy)
+                     + (vv(x2,y2+1)*(1-fx)+vv(x2+1,y2+1)*fx)*fy;
+              };
+              for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+                for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+                  const i=m.idx(x,y);
+                  if(!isMassif(i) || m.terr[i]===TER.LAVA) continue;
+                  // Deckungsgrad steuert die ZELLGRÖSSE, nicht die Deckkraft:
+                  // Schnee liegt oder liegt nicht – halbdurchsichtige Schleier
+                  // ergäben fleckige Überlappungen statt einer Firnkante
+                  let sn=(m.hgt[i]-(firnY-0.4))/0.8;
+                  // Winterwelt: Schnee liegt überall, wo er liegen BLEIBT –
+                  // flache Bergpartien sind zu, nur Steilwände apern aus
+                  if(this.theme==='winter') sn=Math.max(sn, 1.15-this.slopeOf(m,i)*1.5);
+                  if(m.terr[i]===TER.SNOW) sn=Math.max(sn,0.85); // Gipfel-Eis: immer zu
+                  else sn += (fnoise(x,y)-0.5)*0.9 + (hash01(i*13+7)-0.5)*0.2;
+                  sn -= Math.max(0, this.slopeOf(m,i)-0.95)*0.35;
+                  if(sn<=0.15) continue;
+                  sn=Math.min(1,sn);
+                  anySnow=true;
+                  const [px,py]=m.worldPos(i);
+                  // großzügiger Radius: an Steilstufen rücken die Zeilen auf
+                  // dem Bildschirm auseinander – zu kleine Zellen ließen dort
+                  // Lücken, durch die der dunkle Fels als Pfeil sticht
+                  const path=()=>{
+                    mk2.beginPath();
+                    for(let k=0;k<7;k++){
+                      const a3=k*Math.PI/3 + hash01(i*11+1)*0.6;
+                      const rr2=46*(0.78+hash01(i*17+k*5)*0.42)*(0.34+0.66*sn);
+                      const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.95;
+                      if(k===0) mk2.moveTo(qx,qy); else mk2.lineTo(qx,qy);
+                    }
+                    mk2.closePath();
+                  };
+                  this.softShape(mk2, path, px, py, sn>0.9? 2 : 3);
+                  // Schneezungen kriechen hangabwärts in die Runsen
+                  if(sn<0.9){
+                    const gr=this.gradOf(m,i);
+                    if(gr){
+                      for(let k=0;k<2;k++){
+                        const d2=(k+1)*12;
+                        mk2.beginPath();
+                        mk2.ellipse(px-gr[0]*d2+(hash01(i*23+k)-0.5)*10, py-gr[1]*d2*0.7,
+                                    (12-k*4)*sn+2, (6-k*2)*sn+1, Math.atan2(-gr[1]*0.7,-gr[0]), 0, 7);
+                        mk2.fill();
+                      }
+                    }
+                  }
+                }
+              mk2.restore();
+              if(anySnow){
+                const tex2=this._texTmp.getContext('2d');
+                tex2.globalCompositeOperation='source-over';
+                tex2.clearRect(0,0,w,h);
+                tex2.save(); tex2.translate(-c.ox,-c.oy);
+                tex2.fillStyle=patOf('ter_firn',0.4)||'#e7edf5';
+                tex2.fillRect(c.ox,c.oy,w,h);
+                tex2.restore();
+                tex2.globalCompositeOperation='destination-in';
+                tex2.drawImage(this._maskTmp,0,0);
+                tex2.globalCompositeOperation='source-over';
+                // fast deckend: einzelne dunkle Steilstufen mitten im Eisfeld
+                // sollen nur noch ahnbar durchscheinen, nicht als graue
+                // Pfeile auf dem Weiß stehen (Restrelief macht der weiche
+                // Reliefpass danach)
+                g.globalAlpha=0.93;
+                g.drawImage(this._texTmp, c.ox, c.oy);
+                g.globalAlpha=1;
+              }
+            }
+            g.restore();
+          }
         }
       }
       // Geländeübergänge: gemalte Pinsel entlang jeder Geländegrenze. Der
@@ -740,9 +958,28 @@ export class Renderer {
                 if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.55, jit, 2.3); any=true; }
                 if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 21+hsh*6, 0.45, -jit, 2.5); any=true; }
               } else if(t!==TER.WATER && tn!==TER.WATER){
-                const key=BRUSH[t];
+                // Grenzen INNERHALB des Massivs (Fels an Gipfel-Eis/Lava)
+                // malt der Massiv-Pass selbst – kein Pinsel quer über den Berg
+                if(isMassif(i) && isMassif(n)) continue;
+                // Bergfuß an Schnee-Ebenen: Schneewehe statt grauem Schutt –
+                // Geröll auf weißem Grund läse sich als Schmutzfleck
+                const key=(t===TER.MOUNT && tn===TER.SNOW)? 'trans_snow' : BRUSH[t];
                 const img=key? this.fadedBrush(key) : null;
-                if(img){ put(img, mx2, my2, ang, 30+hsh*10, 0.4, (hsh-0.5)*0.25, 2.1); any=true; }
+                if(img){ put(img, mx2, my2, ang, t===TER.MOUNT? 26+hsh*8 : 30+hsh*10, t===TER.MOUNT? 0.26 : 0.4, (hsh-0.5)*0.25, 2.1); any=true; }
+                // Bergfuß: ein zweites, versetztes Schuttband plus einzelne
+                // Brocken – die Fels/Gras-Grenze wird ein Geröllsaum statt
+                // einer harten Dreieckskante
+                if(t===TER.MOUNT && tn!==TER.SNOW && img){
+                  put(img, mx2+(by-ay)*0.16, my2-(bx-ax)*0.16*0.6, ang, 17+hsh*7, 0.24, (hsh-0.5)*0.5, 1.7);
+                  g.fillStyle='rgba(96,88,78,0.42)';
+                  for(let k=0;k<3;k++){
+                    const sx2=mx2+(bx-ax)*(0.14+hash01(i*7+n+k)*0.3)+(hash01(i*29+k)-0.5)*16;
+                    const sy2=my2+(by-ay)*(0.14+hash01(i*7+n+k)*0.3)+(hash01(i*37+k)-0.5)*10;
+                    g.beginPath();
+                    g.ellipse(sx2, sy2, 1.6+hash01(i*11+k)*2.2, 1.2+hash01(i*13+k)*1.5, hash01(i+k)*3, 0, 7);
+                    g.fill();
+                  }
+                }
               }
             }
           }
@@ -777,8 +1014,10 @@ export class Renderer {
         g.save();
         g.translate(-c.ox,-c.oy);
         for(const i of perT.get(TER.MOUNT)){
+          // nur der äußere Bergfuß wirft Schatten aufs Land – Grenzen zum
+          // Gipfel-Eis liegen mitten im Massiv und bekommen keinen
           let edge=false;
-          for(const n of m.nbs(i)) if(m.terr[n]!==TER.MOUNT){ edge=true; break; }
+          for(const n of m.nbs(i)) if(!isMassif(n)){ edge=true; break; }
           if(!edge) continue;
           const [px,py]=m.worldPos(i);
           const rad=g.createRadialGradient(px+11,py+9,6,px+11,py+9,40);
@@ -821,14 +1060,9 @@ export class Renderer {
         g.globalCompositeOperation='soft-light';
         g.drawImage(this._shadeTmp,0,0);
         g.restore();
-        // zweiter Durchgang für kräftigere Felsplastik im Gebirge
-        if(perT.has(TER.MOUNT)){
-          g.save();
-          g.globalCompositeOperation='soft-light';
-          g.globalAlpha=0.75;
-          g.drawImage(this._shadeTmp,0,0);
-          g.restore();
-        }
+        // KEIN zweiter Durchgang mehr fürs Gebirge: die Felsplastik kommt
+        // jetzt aus der Facettenschattierung des Massiv-Passes – doppelt
+        // aufgelegt soff der Berg in Schwärze ab
       }
       // Schluchten: dunkle Felsspalten in den steilen Flanken
       if(gorge.length){
@@ -923,6 +1157,13 @@ export class Renderer {
       }
     } else if(t===TER.MOUNT){
       const hg=m.hgt[i];
+      // unter der Firndecke keine dunklen Kritzel – sie läsen sich als
+      // Schmutz im Schnee. Großzügig gefasst: auch die ausgefranste
+      // Übergangszone franst über Nachbarzellen bis hierher, und neben
+      // Gipfel-Eis liegt praktisch immer Schnee.
+      if(hg>this.firnLine()-1.2) return;
+      const msn2=this.massifSnow();
+      if(m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn2[n])) return;
       if(h<0.15){
         // Felsgrat: gezackter dunkler Zug mit Lichtkante darüber
         const zx=px+o1, zy=py+o2;
@@ -1179,7 +1420,11 @@ export class Renderer {
           const img=new Image();
           const key=name.replace(/\.png$/i,'');
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
-          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{ this._terPat=null; this.chunks.clear(); };
+          // (auch die abgeleiteten Fels-Muster und Erzflecken verwerfen, sonst
+          // bleibt ein vor dem Laden gemerktes "Bild fehlt" für immer hängen)
+          if(key.startsWith('ter_')||key.startsWith('deco_')) img.onload=()=>{
+            this._terPat=null; this._rockPats=null; this._oreBlobs=null; this.chunks.clear();
+          };
           img.src='assets/'+name;
           this.assets.set(key, img);
         }
@@ -1229,6 +1474,88 @@ export class Renderer {
     this._snowLine = Math.max(1.0, p97);
     return this._snowLine;
   }
+  // Untergrenze der geschlossenen Firndecke. Sie hängt an der HÖHENVERTEILUNG
+  // des ganzen Massivs (oberstes Fünftel), nicht an einzelnen TER.SNOW-Knoten:
+  // die vereisten Kammknoten liegen verstreut auf den Gratlinien – eine an
+  // ihnen aufgehängte Decke zerfiele in weiße Einzeltupfen.
+  firnLine(){
+    if(this._firnLine!=null) return this._firnLine;
+    const m=this.game.map;
+    const msn=this.massifSnow();
+    const hs=[];
+    for(let i=0;i<m.terr.length;i++)
+      if(m.terr[i]===TER.MOUNT || (m.terr[i]===TER.SNOW && msn[i])) hs.push(m.hgt[i]);
+    if(hs.length<40){ this._firnLine=99; return 99; }   // kaum Gebirge -> kein Firn
+    hs.sort((a,b)=>a-b);
+    // Anteil je Thema: im Winter sind die Berge fast ganz eingeschneit (ihre
+    // Füße stehen in Schnee-Ebenen – nackter Fels ergäbe harte Zacken), im
+    // Hochgebirge trägt das oberste Fünftel Firn, in mildem Klima nur Kappen.
+    // Auf Vulkan- und Wüstenbergen liegt gar kein Schnee.
+    const p={ winter:0.25, gebirge:0.80, vulkan:2, wueste:2 }[this.theme] ?? 0.88;
+    this._firnLine = p>=1 ? 99 : Math.max(1.0, hs[Math.floor(hs.length*p)]);
+    return this._firnLine;
+  }
+  // SNOW-Knoten, die zum Bergmassiv gehören (vereiste Gipfelkämme). Kriterium:
+  // die zusammenhängende Schneefläche ist überwiegend von Fels umschlossen.
+  // Schneefelder der Ebene grenzen dagegen an Wiese/Sand und bleiben weiche
+  // Bodentextur – ohne diese Trennung bekäme im Winter jede Schneewiese
+  // Felstextur und Facettenlicht.
+  massifSnow(){
+    if(this._massifSnow) return this._massifSnow;
+    const m=this.game.map;
+    const n=m.terr.length;
+    const out=new Uint8Array(n);
+    const seen=new Uint8Array(n);
+    for(let i=0;i<n;i++){
+      if(seen[i] || m.terr[i]!==TER.SNOW) continue;
+      const comp=[i]; seen[i]=1;
+      let rockB=0, openB=0;
+      for(let q=0;q<comp.length;q++){
+        for(const b of m.nbs(comp[q])){
+          const t=m.terr[b];
+          if(t===TER.SNOW){ if(!seen[b]){ seen[b]=1; comp.push(b); } }
+          else if(t===TER.MOUNT||t===TER.LAVA) rockB++;
+          else openB++;
+        }
+      }
+      if(rockB>0 && rockB>=openB*2) for(const q of comp) out[q]=1;
+    }
+    this._massifSnow=out;
+    return out;
+  }
+  // Erzader als weicher runder Bodenfleck: die Erz-Kachel wird unregelmäßig
+  // ausgestanzt, damit im Massiv keine Dreiecks- oder Kachelkante entsteht
+  oreBlob(key){
+    if(!this._oreBlobs) this._oreBlobs=new Map();
+    if(this._oreBlobs.has(key)) return this._oreBlobs.get(key);
+    const img=this.asset(key);
+    if(!img){ this._oreBlobs.set(key,null); return null; }
+    const S=138;
+    const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+    const t=cv.getContext('2d');
+    // gröber als die Felsdecke (0.5): die Erz-Sprenkel müssen auch aus
+    // mittlerer Kamerahöhe als Farbtupfer erkennbar bleiben
+    const pat=t.createPattern(img,'repeat');
+    if(pat.setTransform) pat.setTransform(new DOMMatrix().scale(0.5));
+    t.fillStyle=pat; t.fillRect(0,0,S,S);
+    // Maske: drei überlappende weiche Kreise -> unregelmäßiger Fleck
+    const mcv=document.createElement('canvas'); mcv.width=S; mcv.height=S;
+    const mg=mcv.getContext('2d');
+    for(let k=0;k<3;k++){
+      const cx=S/2+(hash01(k*7+1)-0.5)*36, cy=S/2+(hash01(k*11+3)-0.5)*30;
+      const rad=mg.createRadialGradient(cx,cy,4, cx,cy, S*0.33);
+      rad.addColorStop(0,'rgba(0,0,0,0.95)');
+      rad.addColorStop(0.6,'rgba(0,0,0,0.7)');
+      rad.addColorStop(1,'rgba(0,0,0,0)');
+      mg.fillStyle=rad;
+      mg.beginPath(); mg.arc(cx,cy,S*0.33,0,7); mg.fill();
+    }
+    t.globalCompositeOperation='destination-in';
+    t.drawImage(mcv,0,0);
+    t.globalCompositeOperation='source-over';
+    this._oreBlobs.set(key,cv);
+    return cv;
+  }
   // Richtung des stärksten Gefälles
   gradOf(m,i){
     let gx=0, gy=0;
@@ -1264,11 +1591,19 @@ export class Renderer {
       gx+=dh*ddx; gy+=dh*ddy;
     }
     const t=m.terr[i];
-    const k = t===TER.MOUNT? 1.9 : t===TER.WATER? 0.12 : 1.15;
+    // Gebirge nur noch moderat: das Hauptlicht liefert die Facetten-
+    // schattierung des Massiv-Passes, sonst säuft der Fels doppelt ab
+    let k = t===TER.MOUNT? 1.15 : t===TER.WATER? 0.12 : 1.15;
+    let lo=0.14, hi=0.94;
+    // unter der Firndecke nur noch sanft modellieren: eine einzelne
+    // Steilstufe mitten im Eisfeld stünde sonst als dunkler Pfeil im Weiß
+    if((t===TER.MOUNT || (t===TER.SNOW && this.massifSnow()[i])) && m.hgt[i]>this.firnLine()-1.2){
+      k=0.45; lo=0.30; hi=0.78;
+    }
     // Sonne von oben-links (wie alle Schlagschatten): nach Nordwest geneigte
     // Hänge hell, nach Südost geneigte dunkel
     let l = 0.5 + (gx*0.8+gy*0.6)*k;
-    l = Math.max(0.08, Math.min(0.94, l));
+    l = Math.max(lo, Math.min(hi, l));
     v = Math.round(l*255);
     scache.set(i,v);
     return v;
