@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -72,6 +72,31 @@ export class Game {
     if(player!==0) return; // nur menschlicher Spieler (id 0) bekommt Meldungen
     this.msgs.push({ t:this.t, txt, type, node });
     if(this.msgs.length>120) this.msgs.shift();
+  }
+  // Entdoppelte Warnung: je Gebäude+Grund höchstens einmal pro Minute, je
+  // Grund zusätzlich eine kurze Sammel-Sperre über alle Gebäude. Vorher
+  // stapelte sich dieselbe Warnung (19x "keine Schaufel" in einem Lauf des
+  // Kritikberichts), weil jede Baustelle einzeln und sofort meldete.
+  warn(b, reason, txt){
+    if(b.player!==0) return;
+    b._warnT=b._warnT||{};
+    if(b._warnT[reason]!==undefined && this.t-b._warnT[reason]<600) return;   // 60 s je Gebäude
+    this._warnG=this._warnG||{};
+    if(this._warnG[reason]!==undefined && this.t-this._warnG[reason]<300) return; // 30 s je Grund
+    b._warnT[reason]=this.t; this._warnG[reason]=this.t;
+    this.msg(txt, 'warn', b.node);
+  }
+  // Fehlt ein Werkzeug WIRKLICH? Nicht warnen, solange eines nur unterwegs
+  // ist: Planierer/Bauarbeiter bringen ihres zurück, Fachkräfte retten ihres
+  // bei Flucht. Vorher kam "keine Schaufel!" schon bei Spielstart, wenn alle
+  // Schaufeln kurzzeitig parallel auf Baustellen belegt waren (Fehlalarm aus
+  // dem Kritikbericht, F6).
+  toolTrulyMissing(pl, tool){
+    if(this.findToolStore(pl, tool)) return false;
+    if(tool==='shovel' && this.units.some(u=>u.player===pl && u.type==='leveler')) return false;
+    if(tool==='hammer' && this.units.some(u=>u.player===pl && u.type==='builder')) return false;
+    if(this.units.some(u=>u.player===pl && u.tool===tool)) return false;
+    return true;
   }
 
   // ---------- Gebäude ----------
@@ -602,6 +627,41 @@ export class Game {
       if(b.out && b.state==='done'){ const g=this.prodGood(b); if(g) t[g]=(t[g]||0)+b.out; }
     }
     return t;
+  }
+  // Gesamtbestand je Spieler, kurz gecacht: die Bedarfsbremse fragt ihn für
+  // jeden Erzeuger in jedem Takt ab – frisch gerechnet wäre das O(Gebäude²).
+  invCached(pl){
+    this._invC=this._invC||{}; this._invCt=this._invCt||{};
+    if(this._invCt[pl]!==undefined && this.t-this._invCt[pl]<25) return this._invC[pl];
+    this._invC[pl]=this.invTotal(pl); this._invCt[pl]=this.t;
+    return this._invC[pl];
+  }
+  // Welches Gut bremst diesen Betrieb? Nur reine Erzeuger mit FESTEM Ausstoß:
+  // Brunnen, Sägewerk, Steinmetz, Holzfäller, Bergwerke, Bäckerei, Brauerei ...
+  // Schmieden (mehrere Ausstöße) wählen schon selbst nach Bedarf, Esel/Schiff
+  // entstehen ohnehin nur auf Anforderung, der Förster erzeugt keine Ware.
+  brakeGood(b){
+    const def=BLD[b.type];
+    if(def.prod){
+      if(def.prod.outs) return null;
+      const g=def.prod.out;
+      return (g && g[0]!=='@') ? g : null;
+    }
+    if(def.mine) return def.mine;
+    if(def.gather && def.out) return def.out;
+    return null;
+  }
+  // Sanfte Bedarfsbremse (Kritikbericht F7: Wasser 256, Bretter 195 auf
+  // Halde): lagert vom eigenen Gut sehr viel ungenutzt, ruht der Betrieb und
+  // läuft bei Unterschreitung von selbst wieder an. Sichtbar im Gebäudemenü
+  // ("Lager voll – ruht"), KEIN hartes Abschalten der Kette.
+  satHold(b){
+    const g=this.brakeGood(b);
+    if(!g) return false;
+    const tot=this.invCached(b.player)[g]||0;
+    if(b.satPause){ if(tot<=SAT_RESUME) b.satPause=false; }
+    else if(tot>=SAT_PAUSE) b.satPause=true;
+    return b.satPause;
   }
   // verbleibendes Vorkommen im Umkreis eines Bergwerks
   oreLeft(b){
@@ -1215,6 +1275,8 @@ export class Game {
       if(b.paused) continue;                       // vom Spieler stillgelegt
       // ohne eingezogene Fachkraft ruht der Betrieb
       if(b.worker && !b.worker.present) continue;
+      // Bedarfsbremse: bei Überfluss des eigenen Guts ruhen (siehe satHold)
+      if(this.satHold(b)){ b.prodT=0; continue; }
       if(def.prod){
         if(b.out>=4) continue;
         // Sonderausstoß: Esel/Schiff nur produzieren, wenn gebraucht
@@ -1296,16 +1358,30 @@ export class Game {
       }
       if(def.gather && b.worker && b.worker.present && b.worker.state==='in'){
         b.worker.timer++;
-        if(b.worker.timer >= def.time*0.4 && b.out<4){
+        // Erschöpfte Umgebung: nur noch alle 2,5 s neu suchen statt jeden Takt
+        if(b.worker.timer >= def.time*0.4 && b.out<4 && (!b.exhausted || this.t%25===0)){
           const job=this.findGatherJob(b);
           if(job!==null){
             b.worker.timer=0;
+            b.noJobT=0; b.exhausted=false;         // Umgebung gibt wieder etwas her
             const [bx,by]=m.worldPos(b.node);
             const u={ id:NEXT_ID++, type:'worker', wtype:b.type, player:b.player, bld:b.id,
               x:bx, y:by, target:job.node, jobKind:job.kind, animalId:job.animalId, state:'go', actT:0 };
             this.units.push(u);
             b.worker.state='out';
             if(job.reserve) m.obj[job.node]|=128; // reserviert-Bit
+          } else if(def.gather==='tree'||def.gather==='stone'||def.gather==='fish'||def.gather==='hunt'){
+            // Stille Erschöpfung sichtbar machen (Kritikbericht F4: der
+            // Steinmetz verstummte einfach, das Bauwesen starb unbemerkt).
+            // Erst nach 60 s ohne jede Beute gilt die Umgebung als erschöpft
+            // – kurze Lücken (reservierte Bäume, gejagtes Wild) zählen nicht.
+            // EINE Meldung je Gebäude; findet sich später wieder etwas,
+            // löst sich der Zustand und darf erneut gemeldet werden.
+            b.noJobT=(b.noJobT||0)+1;
+            if(b.noJobT>=600 && !b.exhausted){
+              b.exhausted=true;
+              if(b.player===0) this.msg(`${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 'warn', b.node);
+            }
           }
         }
       }
@@ -2156,8 +2232,11 @@ export class Game {
     if(tool && !b.toolGood){
       const src=this.findToolStore(b.player, tool);
       if(!src){
-        if(!b.needTool && b.player===0)
-          this.msg(`${BLD[b.type].name}: wartet auf Werkzeug (${GOODS[tool].name})!`, 'warn', b.node);
+        // Warnung nur bei echtem Mangel (nichts im Lager, nichts unterwegs);
+        // solange der Mangel anhält, erinnert warn() einmal pro Minute daran
+        // statt wie früher nur ein einziges Mal (leicht zu übersehen).
+        if(this.toolTrulyMissing(b.player, tool))
+          this.warn(b, 'tool:'+tool, `${BLD[b.type].name}: wartet auf Werkzeug (${GOODS[tool].name})!`);
         b.needTool=tool;
         return false;
       }
@@ -2186,7 +2265,10 @@ export class Game {
         if(!hq) continue;
         const src=this.findToolStore(b.player,'shovel');
         if(!src){
-          if(!b.noShovelMsg && b.player===0){ b.noShovelMsg=true; this.msg('Baustelle wartet: keine Schaufel für den Planierer!', 'warn', b.node); }
+          // nur bei ECHTEM Mangel warnen (keine Schaufel im Lager UND keine
+          // unterwegs) und entdoppelt – siehe warn()/toolTrulyMissing()
+          if(this.toolTrulyMissing(b.player,'shovel'))
+            this.warn(b,'shovel','Baustelle wartet: keine Schaufel für den Planierer!');
           continue;
         }
         this.takeTool(src,'shovel');
@@ -2203,7 +2285,8 @@ export class Game {
       b.builderId=null;
       const src=this.findToolStore(b.player,'hammer');
       if(!src){
-        if(!b.noHammerMsg && b.player===0){ b.noHammerMsg=true; this.msg('Baustelle wartet: kein Hammer für den Bauarbeiter!', 'warn', b.node); }
+        if(this.toolTrulyMissing(b.player,'hammer'))
+          this.warn(b,'hammer','Baustelle wartet: kein Hammer für den Bauarbeiter!');
         continue;                              // kein Hammer -> kein Bauarbeiter
       }
       this.takeTool(src,'hammer');

@@ -876,7 +876,10 @@ export class UI {
           b.depleted? '⚠️ Vorkommen erschöpft'
             : `${oreN} im Berg: <b>${left}</b> ${this.oreBar(left)}`);
       }
-      if(def.gather){ rows.push(`Ware wartend: ${b.out||0}`); }
+      if(def.gather){
+        rows.push(`Ware wartend: ${b.out||0}`);
+        if(b.exhausted) rows.push('⚠️ Nichts mehr in Reichweite – Umgebung erschöpft');
+      }
       if(def.cata){ rows.push(`Steine: ${b.stock.stone||0}`); }
       if(b.soldiers){
         const byT=STYPE_LIST.map(t=>{
@@ -908,6 +911,8 @@ export class UI {
     const status= b.state==='build' ? 'Im Bau'
       : b.paused ? 'Pausiert'
       : b.worker && !b.worker.present ? 'Wartet auf Fachkraft'
+      : b.satPause ? 'Lager voll – ruht'          // Bedarfsbremse (läuft von selbst wieder an)
+      : b.exhausted ? 'Umgebung erschöpft'
       : 'In Betrieb';
     this.sheet(`${this.sheetHead(def.name, status, 'bld_'+b.type)}
       ${body}

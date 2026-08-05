@@ -115,6 +115,14 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
 export const START_GOODS = { trunk:12, board:24, stone:16, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:10, pick:3, axe:3, saw:2, scythe:2, rod:2, cleaver:1, shovel:3 };
 
+// Bedarfsbremse: reine Erzeuger (Brunnen, Sägewerk, Steinmetz, ...) ruhen,
+// wenn vom eigenen Gut SAT_PAUSE Stück ungenutzt lagern, und laufen erst
+// unter SAT_RESUME wieder an (Hysterese, damit nichts an der Schwelle
+// flattert). Kein hartes Abschalten der Kette: sobald Verbraucher das Gut
+// abrufen, sinkt der Bestand und die Produktion springt von selbst an.
+export const SAT_PAUSE = 60;
+export const SAT_RESUME = 50;
+
 // ---------- Hilfsfunktionen ----------
 export function mulberry32(seed){
   let a = seed >>> 0;
