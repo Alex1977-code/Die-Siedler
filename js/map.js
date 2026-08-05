@@ -139,7 +139,7 @@ export function genWorld(opts){
   // Kartengroessen. Vorher war selbst "Gross" nach wenigen Gebaeuden
   // ausgereizt - eine Siedlung braucht Luft zum Wachsen und Platz fuer
   // Nachbarn, Gebirge und Kueste.
-  const sizes = { S:[62,62], M:[84,84], L:[110,110] };
+  const sizes = { S:[96,96], M:[128,128], L:[160,160] };
   const [w,h] = Array.isArray(opts.size) ? opts.size : (sizes[opts.size]||sizes.M);
   const rng = mulberry32(opts.seed>>>0);
   const map = new WorldMap(w,h);

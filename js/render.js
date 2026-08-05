@@ -3177,16 +3177,18 @@ export class Renderer {
       else if(m.pass && m.pass[i] && m.bld[i]<0)
         items.push({kind:'pass', i, y:m.worldPos(i)[1]});
       // Felsnadeln und Blöcke brechen die waagerechte Terrassenstruktur auf
-      else if((m.terr[i]===TER.MOUNT||m.terr[i]===TER.SNOW) && m.bld[i]<0 && !m.flag[i]
-              && hash01(i*97+13)>0.9)
-        items.push({kind:'spire', i, y:m.worldPos(i)[1]});
+      // Felsnadeln ("spire") sind entfallen: einzeln aufgesetzte Klippen
+      // wirkten wie Fremdkörper auf dem Facettenrelief. Das Gebirge bekommt
+      // ein eigenes großes Grafik-Update.
       if(m.bld[i]>=0){ const b=game.buildings.get(m.bld[i]); if(b) items.push({kind:'bld', b, y:m.worldPos(i)[1]}); }
       if(m.flag[i]) items.push({kind:'flag', i, y:m.worldPos(i)[1]+2});
       if(game.signs && game.signs.has(i) && m.bld[i]<0) items.push({kind:'sign', i, ore:game.signs.get(i), y:m.worldPos(i)[1]+1});
     }
     for(const r of game.roads.values()){
       const c=r.carrier;
-      const pos=this.roadPos(r, c.pos);
+      // zwischen zwei Sim-Takten überblenden (flüssiger Lauf, siehe drawUnit)
+      const al=this.game.lerpA? this.game.lerpA() : 1;
+      const pos=this.roadPos(r, c._pp!==undefined? c._pp+(c.pos-c._pp)*al : c.pos);
       // Bewegungsrichtung aus der Bilddifferenz (fürs Spiegeln/Wippen der Figur)
       if(c._lx!==undefined){
         const ddx=pos[0]-c._lx, ddy=pos[1]-c._ly;
@@ -3351,46 +3353,33 @@ export class Renderer {
       // gerade ging – und drei Zeilen Text für eine Ja/Nein-Frage.
       // Alle Maße in Bildschirmpunkten, deshalb durch den Zoom geteilt.
       const u=1/Math.max(0.25, cam.z);
-      const schrift=Math.round(13*u*10)/10;
-      g.font=`600 ${schrift}px system-ui, -apple-system, sans-serif`;
-      g.textAlign='center'; g.textBaseline='middle';
-      const name=def.name;
-      const tw=g.measureText(name).width, ph=20*u, pw=tw+18*u;
       const ty=py+15*u;
-      g.fillStyle='rgba(24,30,20,0.72)';
-      rr(g, px-pw/2, ty-ph/2, pw, ph, 6*u); g.fill();
-      g.fillStyle= ok? '#dff3cd' : '#f6cdc4';
-      g.fillText(name, px, ty+0.5*u);
-      // Haken und Kreuz: nur wenn der Platz überhaupt geht, sonst nur Abbruch
-      const R=21*u, by2=ty+ph/2+R+7*u, sp=30*u;
-      // Liegen gemalte Knöpfe im Asset-Paket (ui_ok / ui_cancel), werden die
-      // genommen; sonst zeichnet der Code einen schlichten Ersatz.
-      const knopf=(cx,cy,farbe,rand,zeichen,key)=>{
-        const bild=this.asset(key);
-        if(bild){
-          const d2=R*2.3;
-          g.drawImage(bild, cx-d2/2, cy-d2/2, d2, d2);
-          return;
-        }
-        g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7);
-        g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
-        g.beginPath(); g.arc(cx,cy,R,0,7);
-        g.fillStyle=farbe; g.fill();
-        g.lineWidth=2*u; g.strokeStyle=rand; g.stroke();
-        g.font=`700 ${Math.round(22*u*10)/10}px system-ui, -apple-system, sans-serif`;
-        g.fillStyle='#fff';
-        g.fillText(zeichen, cx, cy+1*u);
-      };
+      this.uiSchild(g, px, ty, u, def.name, ok);
+      const R=21*u, by2=ty+10*u+R+7*u, sp=30*u;
       if(ok){
-        knopf(px-sp, by2, '#4c8a3a', 'rgba(226,246,210,0.9)', '✓', 'ui_ok');
-        knopf(px+sp, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕', 'ui_cancel');
+        this.uiKnopf(g, px-sp, by2, u, 'ok');
+        this.uiKnopf(g, px+sp, by2, u, 'no');
         this._placeBtn={ ok:[px-sp,by2], no:[px+sp,by2], r:R*1.25 };
       } else {
-        knopf(px, by2, '#8a3f34', 'rgba(246,214,206,0.9)', '✕', 'ui_cancel');
+        this.uiKnopf(g, px, by2, u, 'no');
         this._placeBtn={ ok:null, no:[px,by2], r:R*1.25 };
       }
-      g.textAlign='left'; g.textBaseline='alphabetic';
     } else this._placeBtn=null;
+    // Wegebau: Schild "Weg bauen" samt Haken/Kreuz schwebt an der aktuellen
+    // Fahne - dieselbe Bedienung wie beim Bau-Bestätigen. Haken = automatisch
+    // ans Netz verbinden, Kreuz = abbrechen, Tippen auf Fahne oder Weg
+    // verbindet dorthin.
+    if(ui.roadPreview && ui.roadAnchor>=0){
+      const [ax,ay]=this.doorVisualPos(ui.roadAnchor);
+      const u=1/Math.max(0.25, cam.z);
+      const n=ui.roadPreview.length-1;
+      const ty=ay+26*u;
+      this.uiSchild(g, ax, ty, u, n>0? `Weg bauen · ${n} Stück` : 'Weg bauen', true);
+      const R=21*u, by2=ty+10*u+R+7*u, sp=30*u;
+      this.uiKnopf(g, ax-sp, by2, u, 'ok');
+      this.uiKnopf(g, ax+sp, by2, u, 'no');
+      this._roadBtn={ ok:[ax-sp,by2], no:[ax+sp,by2], r:R*1.25 };
+    } else this._roadBtn=null;
     // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
     if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }
     if(this.fogDark){
@@ -3775,7 +3764,15 @@ export class Renderer {
       }
     }
     // Baustellen-Phasen aus dem Asset-Paket: Planierung + 3 Baufortschritte je Größe
-    const sizeKey= (def.size==='L'||b.type==='hq') ? 'l' : def.size==='S' ? 's' : 'm';
+    // Baustellen nach Größe UND Form: Bergwerke sind kleine Hütten (die
+    // mittlere Baustelle wirkte daneben riesig), schmale Turmbauten nutzen
+    // die kleine. Liegt ein eigenes Bild bld_build_<typ>_<stufe> im Paket,
+    // gewinnt automatisch das.
+    const TURMFORM=['watchtower','chapel','mill','guardhouse','well'];
+    const sizeKey= (def.size==='L'||b.type==='hq') ? 'l'
+      : def.size==='MINE' ? 's'
+      : TURMFORM.includes(b.type) ? 's'
+      : def.size==='S' ? 's' : 'm';
     // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
     if(b.state==='build' && !b.leveled){
       const p0=this.asset(`bld_build_${sizeKey}_0`);
@@ -3810,7 +3807,8 @@ export class Renderer {
       // nie das fast fertige Haus – das erscheint erst beim Umschalten auf 'done'
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
       const ph=(b.progress/total)<0.55 ? 1 : 2;
-      ovKey=`bld_build_${sizeKey}_${ph}`;
+      ovKey=`bld_build_${b.type}_${ph}`;
+      if(!this.asset(ovKey)) ovKey=`bld_build_${sizeKey}_${ph}`;
       ov=this.asset(ovKey) || this.asset(typeKey+'_build') || this.asset('bld_baustelle');
       if(!this.asset(ovKey)) ovKey=null;
     } else {
@@ -4412,6 +4410,20 @@ export class Renderer {
     }
   }
   drawUnit(g,u){
+    // Zwischen zwei Sim-Takten überblenden: die Simulation springt nur alle
+    // 100 ms, gezeichnet wird mit jedem Bild. Ohne die Überblendung ruckeln
+    // alle Figuren im Takt - bei gemächlichem Tempo besonders sichtbar.
+    if(u._px!==undefined && (u._px!==u.x || u._py!==u.y)){
+      const a=this.game.lerpA? this.game.lerpA() : 1;
+      const ox=(u._px+(u.x-u._px)*a)-u.x, oy=(u._py+(u.y-u._py)*a)-u.y;
+      g.save(); g.translate(ox,oy);
+      this.drawUnitRaw(g,u);
+      g.restore();
+      return;
+    }
+    this.drawUnitRaw(g,u);
+  }
+  drawUnitRaw(g,u){
     if(u.type==='boulder'){
       this.shadow(g,u.x,(u.sy??u.y)+40,6,2.4,0.25);
       const bi=this.asset('fx_boulder');
@@ -5104,6 +5116,43 @@ export class Renderer {
     }catch(_){ cv=null; }
     this._postT.set(pl,cv);
     return cv;
+  }
+  // Schild mit Text in der Karte (gleicher Stil überall). u = 1/Zoom,
+  // damit Schrift und Knöpfe bei jedem Zoom gleich groß bleiben.
+  uiSchild(g, cx, cy, u, text, gut){
+    g.save();
+    g.font=`600 ${Math.round(13*u*10)/10}px system-ui, -apple-system, sans-serif`;
+    g.textAlign='center'; g.textBaseline='middle';
+    const tw=g.measureText(text).width, ph=20*u, pw=tw+18*u;
+    g.fillStyle='rgba(24,30,20,0.72)';
+    rr(g, cx-pw/2, cy-ph/2, pw, ph, 6*u); g.fill();
+    g.fillStyle= gut? '#dff3cd' : '#f6cdc4';
+    g.fillText(text, cx, cy+0.5*u);
+    g.restore();
+  }
+  // Schwebender Rund-Knopf (Haken/Kreuz). Nimmt ui_ok.png / ui_cancel.png,
+  // sobald die im Asset-Paket liegen; bis dahin der gezeichnete Ersatz.
+  uiKnopf(g, cx, cy, u, art){
+    const bild=this.asset(art==='ok'?'ui_ok':'ui_cancel');
+    const R=21*u;
+    if(bild){
+      const d2=R*2.3;
+      g.drawImage(bild, cx-d2/2, cy-d2/2, d2, d2);
+      return;
+    }
+    g.save();
+    g.textAlign='center'; g.textBaseline='middle';
+    g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7);
+    g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
+    g.beginPath(); g.arc(cx,cy,R,0,7);
+    g.fillStyle= art==='ok'? '#4c8a3a' : '#8a3f34'; g.fill();
+    g.lineWidth=2*u;
+    g.strokeStyle= art==='ok'? 'rgba(226,246,210,0.9)' : 'rgba(246,214,206,0.9)';
+    g.stroke();
+    g.font=`700 ${Math.round(22*u*10)/10}px system-ui, -apple-system, sans-serif`;
+    g.fillStyle='#fff';
+    g.fillText(art==='ok'?'✓':'✕', cx, cy+1*u);
+    g.restore();
   }
   // Beim Freistellen vor weissem Hintergrund haben helle INNENflaechen Alpha
   // eingebuesst – der weisse Muehlenturm und das helle Reetdach schimmern im

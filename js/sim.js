@@ -357,6 +357,9 @@ export class Game {
     if(from===to) return null;
     const onRoad=new Set();
     for(const r of this.roads.values()) r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
+    // ALLE Straßenpunkte (auch Fahnen) - fürs Verteuern von Parallelwegen
+    const roadN=new Set();
+    for(const r of this.roads.values()) if(!r.isSea) for(const n of r.path) roadN.add(n);
     const okNode=(n)=> m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 &&
       this.roadObjOk(n) && !this.unterHaus(n) && (!onRoad.has(n) || n===to) ;
     if(!okNode(to) && !m.flag[to]) return null;
@@ -377,6 +380,11 @@ export class Game {
       let tight=0;
       for(const q of m.nbs(b2)) if((m.obj[q]&127)!==OBJ.NONE || m.bld[q]>=0) tight++;
       c += tight*0.16;
+      // NEBEN einer bestehenden Straße herlaufen ist teuer: sonst entstehen
+      // Parallelwege eine Reihe daneben, und die Träger laufen doppelte Wege.
+      let par=0;
+      for(const q of m.nbs(b2)) if(roadN.has(q)) par++;
+      c += Math.min(1.1, par*0.55);
       return c;
     };
     const open=new MinHeap(); open.push(h(from), from);
@@ -755,8 +763,15 @@ export class Game {
       this.step();
     }
   }
+  // Überblendungsanteil zwischen zwei Sim-Takten (0..1) für den Zeichner
+  lerpA(){ return Math.max(0, Math.min(1, (this._acc||0)/TICK_MS)); }
   step(){
     this.t++;
+    // Merken, wo jede Figur zu Beginn des Takts stand: der Zeichner blendet
+    // zwischen altem und neuem Stand über. Ohne das springen alle Figuren im
+    // Zehntelsekunden-Takt - bei gemächlichem Spieltempo besonders sichtbar.
+    for(const u of this.units){ u._px=u.x; u._py=u.y; }
+    for(const r of this.roads.values()) if(r.carrier) r.carrier._pp=r.carrier.pos;
     const m=this.map;
     if(this.t%20===0) this.dispatch();
     this.tickConstruction();
@@ -2000,14 +2015,21 @@ export class Game {
       const [tx,ty]=m.worldPos(b.node);
       if(this.moveToward(u,tx-8,ty+13,WALK_SPEED)){ u.state='work'; b.levelT=0; }
     } else if(u.state==='work'){
-      // Bogen VOR dem Bauplatz – der Planierer läuft nie durch das Gebäude
+      // Vier Stellen VOR dem Bauplatz (nie durch das Gebäude). An jeder wird
+      // eine Weile GEGRABEN, erst dann geht es zur nächsten. Vorher lief der
+      // Planierer den Bogen pausenlos ab - das sah aus, als tanzte er um
+      // seine Schaufel, und die Grab-Animation kam nie zum Zug.
       const [bx,by]=m.worldPos(b.node);
       const spots=[[bx-15,by+11],[bx-5,by+15],[bx+6,by+15],[bx+15,by+11]];
       const [tx,ty]=spots[u.pt%spots.length];
-      if(this.moveToward(u,tx,ty,WALK_SPEED*0.5)) u.pt++;
+      if(!u.atSpot){
+        if(this.moveToward(u,tx,ty,WALK_SPEED*0.5)) u.atSpot=true;
+        return;
+      }
       b.levelT=(b.levelT||0)+1;
       if(b.levelT%22===3) this.onLevel && this.onLevel(u);
-      if(b.levelT>=70){ b.leveled=true; u.state='home'; }
+      if(b.levelT%24===23){ u.pt++; u.atSpot=false; }    // weiter zur nächsten Stelle
+      if(b.levelT>=70){ b.leveled=true; u.atSpot=false; u.state='home'; }
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }

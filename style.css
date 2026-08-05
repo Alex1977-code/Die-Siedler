@@ -409,3 +409,57 @@ h1::after{
   background:none; border:none; color:#8fc0f2; font-size:12.5px;
   text-decoration:underline; cursor:pointer; padding:0 2px;
 }
+
+/* ---------- Menü-Stil: Holz, Gold und Serifen wie im Spielbanner ---------- */
+/* Alle Vollbild-Menüs bekommen die Kulisse des Titels, damit Haupt- und
+   Untermenüs aus einem Guss sind. */
+#scr-campaign,#scr-free,#scr-multi,#scr-load,#scr-options,#scr-help{
+  background:
+    radial-gradient(ellipse at 50% 8%, rgba(242,217,140,0.14) 0%, transparent 55%),
+    radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
+    #16202e;
+}
+.panel{
+  max-width:520px; margin:14px auto; min-height:0;
+  border-radius:18px;
+  background:
+    linear-gradient(rgba(22,32,46,0.80),rgba(16,24,36,0.90)),
+    url('assets/ui_wood.png') center/260px;
+  border:2px solid #6b5333;
+  box-shadow:0 14px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(201,160,90,0.3);
+}
+.panel h2{
+  text-align:center; border-bottom:0; padding-bottom:0;
+  letter-spacing:0.05em; font-size:24px;
+}
+.panel h2::after{
+  content:''; display:block; margin:8px auto 2px; width:72%; height:2px;
+  background:linear-gradient(90deg, transparent,
+    rgba(201,160,90,0.65) 18%, rgba(201,160,90,0.65) 82%, transparent);
+}
+.mbtn{
+  font-family:Georgia,'Times New Roman',serif;
+  letter-spacing:0.05em;
+  border:1px solid #201709; border-radius:13px;
+  color:#f2e4c2;
+  box-shadow:0 3px 10px rgba(0,0,0,0.35),
+    inset 0 0 0 2px rgba(201,160,90,0.5),
+    inset 0 0 0 3px rgba(0,0,0,0.35),
+    inset 0 14px 18px -12px rgba(255,235,190,0.22);
+}
+/* Eingabefelder im selben Ton: dunkles Blau, Goldrand, keine Systemoptik */
+.form label{ color:#e8dcc0; }
+.form select, .form input, #c-diff{
+  background:#1b2636; color:#f2e4c2;
+  border:1px solid rgba(201,160,90,0.45); border-radius:9px;
+  padding:7px 9px; font-size:15px;
+  font-family:Georgia,'Times New Roman',serif;
+}
+.opt{ color:#e8dcc0; }
+.subtitle{ font-family:Georgia,'Times New Roman',serif; }
+/* Zwei Spalten nur, wenn sie wirklich passen; die Felder dürfen ihre
+   Spalte nie sprengen (min-width:0 hebt die Mindestbreite von selects auf) */
+.form{ grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+.form label{ min-width:0; }
+.form select, .form input{ width:100%; min-width:0; box-sizing:border-box; }

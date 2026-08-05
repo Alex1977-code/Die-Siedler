@@ -18,9 +18,19 @@ const CATS=[['basis','Holz & Stein'],['nahrung','Nahrung'],['industrie','Industr
 const HUD_DEFAULT=SAVE.HUD_DEFAULT;
 const HUD_MAX=12;
 
+// Spieltempo: 1x ist ans gemächliche Tempo des Vorbilds angelehnt (etwa
+// halb so schnell wie bisher). "Test" behält das bisherige flotte Tempo und
+// ist vorerst Standard, solange das Spiel im Aufbau geprüft wird.
+const SPEED_STEPS=['T',1,2,3];
+const SPEED_MULT={ T:1.0, 1:0.45, 2:0.9, 3:1.35 };
+const speedLabel=(v)=> v==='T' ? 'Test' : v+'×';
+
 export class UI {
   constructor(){
     this.opts=SAVE.getOptions();
+    // einmalige Umstellung: neue Tempostufen, Standard "Test"
+    if(!this.opts.speedV2){ this.opts.speed='T'; this.opts.speedV2=1; SAVE.setOptions(this.opts); }
+    if(!SPEED_STEPS.includes(this.opts.speed)) this.opts.speed='T';
     Sound.sfxOn=this.opts.sfx; Sound.musicOn=this.opts.music;
     this.buildDOM();
     this.showScreen('title');
@@ -51,12 +61,12 @@ export class UI {
         <h1>NEULAND</h1>
         <p class="subtitle">Siedeln · Wirtschaft · Eroberung</p>
         <div class="menu">
-          <button id="bt-campaign" class="mbtn">📜 Kampagne</button>
-          <button id="bt-free" class="mbtn">🗺️ Freies Spiel</button>
-          <button id="bt-multi" class="mbtn">⚔️ Mehrspieler</button>
-          <button id="bt-load" class="mbtn">💾 Laden</button>
-          <button id="bt-options" class="mbtn">⚙️ Optionen</button>
-          <button id="bt-help" class="mbtn">❓ Anleitung</button>
+          <button id="bt-campaign" class="mbtn">Kampagne</button>
+          <button id="bt-free" class="mbtn">Freies Spiel</button>
+          <button id="bt-multi" class="mbtn">Mehrspieler</button>
+          <button id="bt-load" class="mbtn">Laden</button>
+          <button id="bt-options" class="mbtn">Optionen</button>
+          <button id="bt-help" class="mbtn">Anleitung</button>
         </div>
         <p class="credits">Ein Aufbau-Strategiespiel im Geiste der Klassiker · eigene Grafik, Musik & Story</p>
       </div>
@@ -108,9 +118,9 @@ export class UI {
         <p class="note">Miss dich in Echtzeit mit bis zu drei Computer-Fürsten – jede Partie auf einer
         neuen Karte. Ein Online-Modus gegen menschliche Spieler ist vorbereitet und folgt in einem
         späteren Update (dafür wird ein Spielserver benötigt).</p>
-        <button id="m-vs1" class="mbtn">⚔️ Duell: Du gegen 1 Fürst</button>
-        <button id="m-vs2" class="mbtn">⚔️ Dreikampf: Du gegen 2 Fürsten</button>
-        <button id="m-vs3" class="mbtn">⚔️ Große Schlacht: Du gegen 3 Fürsten</button>
+        <button id="m-vs1" class="mbtn">Duell · Du gegen 1 Fürst</button>
+        <button id="m-vs2" class="mbtn">Dreikampf · Du gegen 2 Fürsten</button>
+        <button id="m-vs3" class="mbtn">Große Schlacht · Du gegen 3 Fürsten</button>
         <button class="mbtn back" data-back>Zurück</button>
       </div>
     </div>
@@ -119,7 +129,7 @@ export class UI {
         <h2>Spielstand laden</h2>
         <div id="slot-list" class="slot-list"></div>
         <div class="row">
-          <button id="bt-import" class="mbtn">📥 Datei importieren</button>
+          <button id="bt-import" class="mbtn">Datei importieren</button>
           <input id="import-file" type="file" accept=".json" hidden>
         </div>
         <button class="mbtn back" data-back>Zurück</button>
@@ -279,8 +289,9 @@ export class UI {
     };
     $('#g-speed').onclick=()=>{
       Sound.sfx('tap');
-      this.opts.speed = this.opts.speed>=3?1:this.opts.speed+1;
-      $('#g-speed').textContent=this.opts.speed+'×';
+      const ix=SPEED_STEPS.indexOf(this.opts.speed);
+      this.opts.speed=SPEED_STEPS[(ix+1)%SPEED_STEPS.length];
+      $('#g-speed').textContent=speedLabel(this.opts.speed);
       SAVE.setOptions(this.opts);
     };
     $('#g-pause').onclick=()=>{
@@ -378,7 +389,7 @@ export class UI {
     // Kamera aufs HQ
     const hq=game.buildings.get(game.players[0].hq);
     if(hq){ const [x,y]=game.map.worldPos(hq.node); this.cam.x=x; this.cam.y=y; this.cam.z=1.1; }
-    $('#g-speed').textContent=this.opts.speed+'×';
+    $('#g-speed').textContent=speedLabel(this.opts.speed);
     this.syncPauseBtn();
     this.closeSheet();
     this.showScreen('game');
@@ -460,6 +471,12 @@ export class UI {
       if(traf(bt.no)){ Sound.sfx('tap'); this.cancelPlace(); return; }
       if(traf(bt.ok)){ Sound.sfx('tap'); this.confirmPlace(); return; }
     }
+    if(this.state.mode==='road' && this.renderer._roadBtn){
+      const bt=this.renderer._roadBtn;
+      const traf=(p)=> p && Math.hypot(wx-p[0], wy-p[1])<=bt.r;
+      if(traf(bt.no)){ Sound.sfx('tap'); this.cancelRoad(); return; }
+      if(traf(bt.ok)){ Sound.sfx('tap'); this.autoConnect(); return; }
+    }
     const i=m.nearestNode(wx,wy);
     if(i<0) return;
     Sound.sfx('tap');
@@ -505,16 +522,10 @@ export class UI {
     this.state.roadFrom=fromFlag;
     this.state.roadNodes=[fromFlag];
     this.closeSheet();
-    // bewusst kompakt: nur die zwei Aktionen + eine Statuszeile
-    // bewusst einzeilig: das Sheet soll möglichst wenig Karte verdecken
-    this.sheet(`<div class="roadbar">
-      <b>🛤️</b>
-      <span id="road-status">${autoHint?'Ziel antippen':'Weg antippen'}</span>
-      <button class="mbtn primary" id="road-connect">🔗 Verbinden</button>
-      <button class="hbtn" id="road-cancel">✕</button>
-    </div>`);
-    $('#road-cancel').onclick=()=>this.cancelRoad();
-    $('#road-connect').onclick=()=>this.autoConnect();
+    // Kein Menü am unteren Rand mehr: an der Fahne schweben ein Schild
+    // "Weg bauen" und Haken/Kreuz - dieselbe Bedienung wie beim
+    // Bau-Bestätigen. Haken = automatisch ans Netz verbinden, Kreuz =
+    // abbrechen, Tippen auf Fahne/Weg = dorthin bauen (roadTap).
   }
   cancelRoad(){ this.state.mode='view'; this.state.roadNodes=null; this.closeSheet(); }
   // sucht selbst den nächsten sinnvollen Anschluss (auch über kurze Distanz)
@@ -525,19 +536,39 @@ export class UI {
     const g=this.game, m=g.map;
     const from=this.state.roadNodes[this.state.roadNodes.length-1];
     const mine=new Set(this.state.roadNodes);
+    // Nur ANS NETZ verbinden: ein Anschlusspunkt taugt nur, wenn er über
+    // Straßen mit einem Lager (Hauptquartier, Lagerhaus, Hafen) verbunden
+    // ist. Eine einsame Fahne - etwa die eines Geologen im Gebirge - ist
+    // KEIN Anschluss: eine Straße dorthin hinge in der Luft, die Träger
+    // liefen ins Leere, und beim nächsten Verbinden entstünde ein
+    // Parallelweg zurück ins Tal.
+    const netz=new Set();
+    {
+      const anKnoten=new Map();
+      for(const r of g.roads.values()){
+        if(r.player!==0 || r.isSea) continue;
+        for(const n of r.path){
+          let a=anKnoten.get(n);
+          if(!a){ a=[]; anKnoten.set(n,a); }
+          a.push(r);
+        }
+      }
+      const q=[];
+      for(const b of g.buildings.values())
+        if(b.player===0 && b.inv && b.state==='done' && b.door>=0 && m.flag[b.door]){ netz.add(b.door); q.push(b.door); }
+      while(q.length){
+        const n=q.pop();
+        for(const r of anKnoten.get(n)||[]) for(const pn of r.path)
+          if(!netz.has(pn)){ netz.add(pn); q.push(pn); }
+      }
+    }
     const cands=[];
     const add=(i,isFlag)=>{
       if(i===from || mine.has(i) || m.owner[i]!==0) return;
       const d=Math.hypot(m.X(i)-m.X(from), m.Y(i)-m.Y(from));
       if(d<=26) cands.push({i,d,isFlag});
     };
-    // jeder Knoten einer eigenen Straße ist ein möglicher Anschlusspunkt
-    const onRoad=new Set();
-    for(const r of g.roads.values()){
-      if(r.player!==0 || r.isSea) continue;
-      for(const n of r.path){ onRoad.add(n); add(n, !!m.flag[n]); }
-    }
-    for(let i=0;i<m.flag.length;i++) if(m.flag[i] && !onRoad.has(i)) add(i,true);
+    for(const i of netz) add(i, !!m.flag[i]);
     // nach echter Weglänge sortieren, nicht nach Luftlinie
     const scored=[];
     for(const c of cands){
@@ -559,7 +590,7 @@ export class UI {
         }
       }
     }
-    this.toast('Kein Anschluss in Reichweite – Wegpunkte antippen');
+    this.toast('Kein Netz-Anschluss in Reichweite – Fahne oder Weg antippen');
     return false;
   }
   roadTap(i){
@@ -1008,11 +1039,12 @@ export class UI {
     const frame=(now)=>{
       const dt=Math.min(100, now-last); last=now;
       if(this.game && this.screen==='game'){
-        if(!this.paused) this.game.update(dt, this.opts.speed);
+        if(!this.paused) this.game.update(dt, SPEED_MULT[this.opts.speed]||1);
         // Straßenvorschau
         this.uiRenderState={
           sel:this.state.sel,
           roadPreview:this.state.mode==='road'? this.state.roadNodes:null,
+          roadAnchor:this.state.mode==='road'? this.state.roadNodes[this.state.roadNodes.length-1] : -1,
           showBuildDots:this.state.showBuildDots||this.state.mode==='place',
           placeType:this.state.mode==='place'? this.state.placeType : null,
           placeAt:this.state.mode==='place'? (this.state.placeAt??-1) : -1,
