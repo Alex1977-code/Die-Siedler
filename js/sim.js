@@ -1293,17 +1293,30 @@ export class Game {
       if(nach!==undefined) return nach;
     }
     // 2) Eine noch nicht ausgewachsene Fläche erweitern: nur direkt daneben,
-    //    und niemals auf eine andere Fläche zu. Ohne diese Sperre wachsen
-    //    drei Äcker zu einem einzigen großen Feld zusammen und die
-    //    Höchstgröße ist wirkungslos.
+    //    niemals auf eine andere Fläche zu - und in RAUTENFORM. Die Felder
+    //    werden als schräge Vierecke in der Bauperspektive gezeichnet;
+    //    gewählt wird deshalb der Nachbar, der die Fläche in dieser Raute
+    //    am kompaktesten hält, sonst ragen einzelne Zellen aus dem
+    //    gezeichneten Feld heraus bzw. blähen es auf.
     for(const a of b.aecker){
       if(a.length>=Game.ACKER_MAX) continue;
       const fremd=new Set();
       for(const o of b.aecker){ if(o===a) continue; for(const i of o){ fremd.add(i); for(const q of m.nbs(i)) fremd.add(q); } }
-      for(const i of a){
-        const nb=m.nbs(i).find(n=> frei(n) && !a.includes(n) && !fremd.has(n) && nodes.includes(n));
-        if(nb!==undefined){ a.push(nb); return nb; }
+      const [ax0,ay0]=m.worldPos(a[0]);
+      const rMass=(n)=>{
+        const [px,py]=m.worldPos(n);
+        const dx=px-ax0, dy=py-ay0;
+        // Koordinaten in den gezeichneten Feldachsen (2:1-Iso)
+        const pp=(dx/52+dy/26)/2, qq=(dy/26-dx/52)/2;
+        return Math.max(Math.abs(pp), Math.abs(qq));
+      };
+      let best, bm=1e9;
+      for(const i of a) for(const n of m.nbs(i)){
+        if(!frei(n) || a.includes(n) || fremd.has(n) || !nodes.includes(n)) continue;
+        const mv=rMass(n);
+        if(mv<bm){ bm=mv; best=n; }
       }
+      if(best!==undefined){ a.push(best); return best; }
     }
     // 3) Alle Flächen ausgewachsen? Dann eine neue anfangen – mit Abstand,
     //    sonst wachsen zwei Äcker zu einem Klumpen zusammen

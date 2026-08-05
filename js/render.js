@@ -3044,19 +3044,21 @@ export class Renderer {
         let cx=0, cy=0;
         for(const [px2,py2] of pos){ cx+=px2; cy+=py2; }
         cx/=pos.length; cy/=pos.length;
-        // Ausdehnung in Gitterachsen messen
-        let su=0.45, sv=0.45;
+        // Achsen wie bei den GEBAEUDEN: deren Grundkanten laufen in der
+        // gemalten Iso-Ansicht mit etwa 2:1-Steigung nach rechts oben und
+        // rechts unten. Ein Acker mit denselben Kanten liegt in derselben
+        // Welt wie die Hoefe - vorher stand er quer zur Bauperspektive.
+        const E1=[TILE, TILE*0.5], E2=[-TILE, TILE*0.5];
+        let su=0.36, sv=0.36;
         for(const [px2,py2] of pos){
-          const pv=(py2-cy)/ROWH, pu=((px2-cx)-TILE*0.5*pv)/TILE;
-          su=Math.max(su, Math.abs(pu)+0.45);
-          sv=Math.max(sv, Math.abs(pv)+0.45);
+          const dx=px2-cx, dy=py2-cy;
+          const pp=(dx/E1[0]+dy/E1[1])/2, qq=(dy/E1[1]-dx/E1[0])/2;
+          su=Math.max(su, Math.abs(pp)+0.36);
+          sv=Math.max(sv, Math.abs(qq)+0.36);
         }
-        const ecke=(fu,fv)=>[cx+fu*su*TILE + fv*sv*TILE*0.5, cy + fv*sv*ROWH];
         const viereck=(f, u0,u1,v0,v1)=>{
-          const A=[cx+u0*TILE+v0*TILE*0.5, cy+v0*ROWH];
-          const B=[cx+u1*TILE+v0*TILE*0.5, cy+v0*ROWH];
-          const C=[cx+u1*TILE+v1*TILE*0.5, cy+v1*ROWH];
-          const D=[cx+u0*TILE+v1*TILE*0.5, cy+v1*ROWH];
+          const P=(pu,pv)=>[cx+pu*E1[0]+pv*E2[0], cy+pu*E1[1]+pv*E2[1]];
+          const A=P(u0,v0), B=P(u1,v0), C=P(u1,v1), D=P(u0,v1);
           f.moveTo(A[0],A[1]); f.lineTo(B[0],B[1]); f.lineTo(C[0],C[1]); f.lineTo(D[0],D[1]); f.closePath();
         };
         const form=new Path2D();
@@ -3077,16 +3079,23 @@ export class Renderer {
             let pp=this._fieldPat.get(ix);
             if(!pp){
               pp=g.createPattern(tex[ix],'repeat');
-              try{ if(pp&&pp.setTransform) pp.setTransform(new DOMMatrix([104/512,0,0,88/512,0,0])); }catch(_){}
+              try{ if(pp&&pp.setTransform){
+                const mtx=new DOMMatrix(); mtx.rotateSelf(26.57); mtx.scaleSelf(104/512, 88/512);
+                pp.setTransform(mtx);
+              } }catch(_){}
               this._fieldPat.set(ix,pp);
             }
             return pp;
           };
           // Grundlage: gepfluegte Erde
           const p0=pat(0);
-          try{ if(p0&&p0.setTransform) p0.setTransform(new DOMMatrix([104/512,0,0,88/512,0,0])); }catch(_){}
+          try{ if(p0&&p0.setTransform){
+            const mtx=new DOMMatrix(); mtx.rotateSelf(26.57); mtx.scaleSelf(104/512, 88/512);
+            p0.setTransform(mtx);
+          } }catch(_){}
           g.fillStyle=p0;
-          g.fillRect(cx-su*TILE-sv*TILE*0.5, cy-sv*ROWH, (su*TILE+sv*TILE*0.5)*2, sv*ROWH*2);
+          const bw2=(su+sv)*TILE, bh2=(su+sv)*TILE*0.5;
+          g.fillRect(cx-bw2, cy-bh2, bw2*2, bh2*2);
           // Wachstum als durchlaufende Baender von unten nach oben: der Hof
           // saet der Reihe nach, entsprechend reift das Feld in Streifen.
           const n1=grp.filter(n=>(m.obj[n]&127)===OBJ.FIELD1).length;
@@ -3099,7 +3108,11 @@ export class Renderer {
             viereck(teil, -su, su, sv-2*sv*anteil, sv);
             const pp=pat(stufe);
             const wob=Math.sin(wPh)*(stufe===2?1.0:0.5);
-            try{ if(pp&&pp.setTransform) pp.setTransform(new DOMMatrix([104/512, 0, 0.05*wob, 88/512, 2.2*wob, 0])); }catch(_){}
+            try{ if(pp&&pp.setTransform){
+              const mtx=new DOMMatrix(); mtx.translateSelf(2.2*wob, 0); mtx.rotateSelf(26.57);
+              mtx.scaleSelf(104/512, 88/512); mtx.skewXSelf(2.8*wob);
+              pp.setTransform(mtx);
+            } }catch(_){}
             g.fillStyle=pp; g.fill(teil);
             g.globalAlpha=0.20; g.strokeStyle='rgba(58,40,24,1)'; g.lineWidth=1.3;
             g.stroke(teil); g.globalAlpha=1;
@@ -3108,10 +3121,11 @@ export class Renderer {
           band(2, f2);
         } else {
           g.fillStyle='#7d5a37';
-          g.fillRect(cx-su*TILE-sv*TILE*0.5, cy-sv*ROWH, (su*TILE+sv*TILE*0.5)*2, sv*ROWH*2);
+          const bw3=(su+sv)*TILE, bh3=(su+sv)*TILE*0.5;
+          g.fillRect(cx-bw3, cy-bh3, bw3*2, bh3*2);
           g.strokeStyle='rgba(58,40,24,0.30)'; g.lineWidth=1.3;
-          for(let yy=Math.floor((cy-sv*ROWH)/7)*7; yy<cy+sv*ROWH; yy+=7){
-            g.beginPath(); g.moveTo(cx-su*TILE-sv*TILE, yy); g.lineTo(cx+su*TILE+sv*TILE, yy); g.stroke();
+          for(let yy=Math.floor((cy-bh3)/7)*7; yy<cy+bh3; yy+=7){
+            g.beginPath(); g.moveTo(cx-bw3, yy); g.lineTo(cx+bw3, yy); g.stroke();
           }
         }
         g.restore();
@@ -4312,9 +4326,9 @@ export class Renderer {
       // Vorher saß sie auf dem linken Dachrand und die Spannweite war fast
       // so groß wie der ganze Turm – die Flügel lagen wie ein Aufkleber quer
       // über dem Dach.
-      // Achszapfen sitzt links vorn am Kegeldach (im Turmbild vermessen:
-      // die kleine graue Lagerplatte mit Haken)
-      const hubX=x-ww/2+ww*0.355, hubY=y-hh+10+hh*0.235;
+      // Achszapfen der neuen Muehle (im Turmbild vermessen: der graue
+      // Zapfen links am Kegeldach)
+      const hubX=x-ww/2+ww*0.30, hubY=y-hh+10+hh*0.205;
       const span=hh*0.62;                    // Flügelspannweite
       const ang= working? this.time/650 : (b.id%6.28);
       g.save();
