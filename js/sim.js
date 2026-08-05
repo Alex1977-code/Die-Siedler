@@ -161,9 +161,16 @@ export class Game {
       }
       if(tuer<0) return {ok:false, r:'Kein Platz für die Türfahne'};
       // Ausgang: von der Fahne muss ein Weg wegfuehren koennen - eine
-      // bestehende Fahne/Strasse daneben zaehlt, sonst ein begehbarer Knoten
+      // bestehende Fahne/Strasse daneben zaehlt, sonst ein begehbarer Knoten.
+      // WICHTIG: der Bauschatten zaehlt mit (unterHaus) - ein optisch unter
+      // dem Nachbargebaeude liegender Knoten ist fuer die Wegsuche gesperrt,
+      // eine Tuer, deren einziger Ausgang dort liegt, waere eine Sackgasse
+      // und die Baustelle verrottete unanschliessbar (Spielekritiker-Fund).
+      if(!m.flag[tuer] && this.unterHaus(tuer))
+        return {ok:false, r:'Eingang läge unter dem Nachbargebäude'};
       const ausgang=m.nbs(tuer).some(q=> q!==node &&
-        (m.flag[q] || this.roadAt(q) || (m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q))));
+        (m.flag[q] || this.roadAt(q) ||
+         (m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q) && !this.unterHaus(q))));
       if(!ausgang) return {ok:false, r:'Eingang wäre eingeschlossen'};
     }
     // Fischer: ohne erreichbares Ufer in Gehweite faengt dort nie jemand
