@@ -5654,7 +5654,14 @@ export class Renderer {
       // ist) wird Frame 0 eingefroren - niemand marschiert auf der Stelle.
       k= mov ? Math.floor(this.time/62 + (this._animSeed||0))%n : 0;
     } else if(set==='atk'){
-      k=Math.floor(this.time/85 + (fight||0)*2.1)%n;
+      // Arbeitstakt je Beruf: schwere Schläge langsamer als flinkes Hämmern;
+      // der Fischer wirft aus und HÄLT dann die Rute (deshalb am längsten).
+      // Der Kontaktmoment liegt bei allen fest auf Spalte 4 - Frame-Dauer
+      // ändern verschiebt ihn nicht, nur das Tempo.
+      const ATK_MS={ unit_fisher:240, unit_farm:135, unit_woodcutter:115,
+        unit_leveler:125, unit_quarry:100, unit_builder:95, unit_geo:120,
+        unit_miner:110 };
+      k=Math.floor(this.time/(ATK_MS[baseKey]||85) + (fight||0)*2.1)%n;
     } else {
       // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine
       // Geste (Fußtippen, Umschauen, Recken – aus dem Warte-Clip)
@@ -5664,7 +5671,7 @@ export class Renderer {
       else k=0;                                 // ruhig stehen
     }
     const sw=img.naturalWidth/n, sh=img.naturalHeight/5;
-    return {img, sx:k*sw, sy:row*sh, sw, sh, flip};
+    return {img, sx:k*sw, sy:row*sh, sw, sh, flip, set};
   }
   // Esel: kleines Packtier (Bild-Asset unit_donkey oder prozedural)
   drawDonkey(g,x,y,dir,mov){
@@ -5812,6 +5819,15 @@ export class Renderer {
       if(anim.flip) g.scale(-1,1);
       if(load) g.rotate((anim.flip?-1:1)*0.045*load);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      // Eigenständiges Werkzeug (Spielerwunsch): das Arbeitsgerät liegt als
+      // deckungsgleich gebackenes Overlay-Blatt über der Figur. Verdeckung
+      // hinter dem Körper steckt bereits im Blatt (Tiefen-Pass beim Backen),
+      // deshalb genügt hier einfaches Darüberzeichnen mit derselben Zelle.
+      if(anim.set==='atk'){
+        const tl=this.asset(baseKey+'_atk_tool');
+        if(tl && tl.naturalWidth===anim.img.naturalWidth)
+          g.drawImage(tl, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      }
       // Umhang/Helmbusch der Soldaten in Spielerfarbe einfärben
       if(kind==='soldier'){
         const mk=this.unitMask(anim.img);

@@ -92,8 +92,204 @@ window.poseAdd=(rots)=>{
   root.updateMatrixWorld(true);
 };
 window.bones=()=>[...boneMap.keys()];
+// Weltposition eines Knochens in der AKTUELLEN Pose (nach bake/center/poseAdd)
+// – für numerische Achsen-Kalibrierung statt Augenmaß
+window.bonePos=(name)=>{
+  const b=boneMap.get(name);
+  if(!b) return null;
+  root.updateMatrixWorld(true);
+  const v=new THREE.Vector3();
+  b.getWorldPosition(v);
+  return { x:+v.x.toFixed(4), y:+v.y.toFixed(4), z:+v.z.toFixed(4) };
+};
 
 window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
+
+// ---- Werkzeug-Verwaltung -------------------------------------------------
+// Der Spieler wünscht Werkzeuge GETRENNT von der Figur: die Figur wird ohne
+// Werkzeug gebacken, das Werkzeug in einem zweiten Durchgang allein – dabei
+// bleibt die Figur als unsichtbarer Tiefen-Verdecker stehen, damit das
+// Werkzeug hinter dem Körper korrekt verdeckt wird. Beide Blätter teilen
+// Kamera und Pose und liegen deshalb im Spiel pixelgenau übereinander.
+window.meshes=()=>{
+  const out=[];
+  root.traverse(o=>{
+    if(o.isMesh){
+      let p=o.parent, chain=[];
+      while(p && p!==root){ chain.push(p.name); p=p.parent; }
+      out.push({ name:o.name, skinned:!!o.isSkinnedMesh, parents:chain.slice(0,4) });
+    }
+  });
+  return out;
+};
+window.setVis=(pattern,on)=>{
+  const re=new RegExp(pattern,'i'); let n=0;
+  root.traverse(o=>{ if(o.isMesh && re.test(o.name)){ o.visible=on; n++; } });
+  return n;
+};
+// Geist-Modus: Mesh bleibt in der Tiefe (verdeckt), zeichnet aber keine Farbe
+window.ghost=(pattern,on)=>{
+  const re=new RegExp(pattern,'i'); let n=0;
+  root.traverse(o=>{
+    if(o.isMesh && re.test(o.name)){
+      const ms=Array.isArray(o.material)?o.material:[o.material];
+      ms.forEach(m=>{ m.colorWrite=!on; });
+      n++;
+    }
+  });
+  return n;
+};
+// Prozedurale Werkzeuge im Stil der Low-Poly-Figuren (flache Farben). Für
+// Modelle, deren GLB kein (brauchbares) Werkzeug enthält. Das Werkzeug hängt
+// am Handknochen und folgt damit jeder Pose automatisch.
+// Stahl bewusst gedeckt (Stilguide: warme, stumpfe Farben – kein Weißblitzen)
+const TOOL_MATS={ wood:0x7a5a33, woodDark:0x5d4426, steel:0x767d83, steelDark:0x51565b };
+function mat(c){ return new THREE.MeshStandardMaterial({ color:c, roughness:0.75, metalness:0.05 }); }
+let toolGroups=[];
+window.toolClear=()=>{ toolGroups.forEach(g=>{ if(g.parent) g.parent.remove(g); }); toolGroups=[]; };
+// kind: axe|shovel|pick|hammer|chisel|mallet|scythe|rod|sack
+// Grundausrichtung: Stiel entlang +Y (aus der Faust nach oben), Kopf am +Y-Ende.
+// Mehrfach aufrufbar (Klüpfel + Meißel); toolClear() räumt alle ab.
+window.toolAttach=(kind, boneName, pos=[0,0,0], rotDeg=[0,0,0], scale=1)=>{
+  const b=boneMap.get(boneName);
+  if(!b) return 'KEIN KNOCHEN '+boneName;
+  const gph=new THREE.Group(); gph.name='TOOL_'+kind;
+  const cyl=(r1,r2,h,m)=>new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,7),m);
+  const box=(x,y,z,m)=>new THREE.Mesh(new THREE.BoxGeometry(x,y,z),m);
+  const wood=mat(TOOL_MATS.wood), wood2=mat(TOOL_MATS.woodDark),
+        steel=mat(TOOL_MATS.steel), steel2=mat(TOOL_MATS.steelDark);
+  if(kind==='axe'){
+    const st=cyl(0.013,0.017,0.34,wood); st.position.y=0.10; gph.add(st);
+    const kopf=box(0.10,0.052,0.020,steel); kopf.position.set(0.038,0.26,0); gph.add(kopf);
+    const schneide=box(0.016,0.062,0.024,steel2); schneide.position.set(0.086,0.26,0); gph.add(schneide);
+  } else if(kind==='shovel'){
+    const st=cyl(0.014,0.016,0.42,wood); st.position.y=0.12; gph.add(st);
+    const blatt=box(0.062,0.088,0.012,steel); blatt.position.set(0,0.36,0); gph.add(blatt);
+    const spitze=box(0.05,0.02,0.012,steel2); spitze.position.set(0,0.41,0); gph.add(spitze);
+  } else if(kind==='pick'){
+    const st=cyl(0.014,0.018,0.36,wood); st.position.y=0.11; gph.add(st);
+    // Spitzhacke: zwei gebogene Zinken quer zum Stiel
+    const z1=cyl(0.008,0.020,0.15,steel); z1.rotation.z=Math.PI/2-0.35; z1.position.set(0.075,0.275,0); gph.add(z1);
+    const z2=cyl(0.008,0.020,0.15,steel); z2.rotation.z=-(Math.PI/2-0.35); z2.position.set(-0.075,0.275,0); gph.add(z2);
+  } else if(kind==='hammer'){
+    const st=cyl(0.012,0.015,0.24,wood); st.position.y=0.07; gph.add(st);
+    const kopf=box(0.052,0.046,0.10,steel); kopf.position.set(0,0.185,0); gph.add(kopf);
+  } else if(kind==='chisel'){
+    const k=cyl(0.016,0.02,0.20,steel); k.position.y=0.07; gph.add(k);
+    const sp=cyl(0.004,0.016,0.04,steel2); sp.position.y=0.19; gph.add(sp);
+  } else if(kind==='mallet'){
+    const st=cyl(0.012,0.014,0.20,wood); st.position.y=0.05; gph.add(st);
+    const kopf=cyl(0.05,0.05,0.10,wood2); kopf.rotation.x=Math.PI/2; kopf.position.set(0,0.16,0); gph.add(kopf);
+  } else if(kind==='scythe'){
+    // Sense: langer Stiel, kurzer Quergriff, gebogenes Blatt quer am Ende
+    const st=cyl(0.013,0.016,0.62,wood); st.position.y=0.17; gph.add(st);
+    const griff=cyl(0.010,0.010,0.09,wood2); griff.rotation.x=Math.PI/2; griff.position.set(0,0.30,0.035); gph.add(griff);
+    const seg=(a,l,y,x)=>{ const s=box(l,0.017,0.012,steel); s.rotation.y=a; s.position.set(x,y,0); return s; };
+    gph.add(seg(0.0,0.14,0.475,0.065));
+    gph.add(seg(0.5,0.13,0.475,0.175));
+    gph.add(seg(1.0,0.11,0.475,0.265));
+  } else if(kind==='rod'){
+    // Angelrute: dünn, kurz genug für den festen Bildausschnitt
+    const st=cyl(0.006,0.012,0.42,wood); st.position.y=0.13; gph.add(st);
+    const sp=cyl(0.004,0.006,0.16,wood2); sp.position.y=0.42; gph.add(sp);
+  } else if(kind==='sack'){
+    const s=new THREE.Mesh(new THREE.SphereGeometry(0.085,7,6), mat(0xa3814e));
+    s.scale.set(1,1.2,0.85); s.position.y=0.05; gph.add(s);
+    const kragen=cyl(0.03,0.04,0.05,mat(0x8a6f42)); kragen.position.y=0.15; gph.add(kragen);
+  }
+  gph.position.set(pos[0],pos[1],pos[2]);
+  gph.rotation.set(rotDeg[0]*Math.PI/180, rotDeg[1]*Math.PI/180, rotDeg[2]*Math.PI/180);
+  gph.scale.setScalar(scale);
+  b.add(gph);
+  toolGroups.push(gph);
+  return 'ok';
+};
+// ---- Inseln: Werkzeuge stecken als eigene Zusammenhangs-Komponenten im
+// EINEN SkinnedMesh der Tripo-Modelle. Über die Dreiecks-Nachbarschaft lassen
+// sie sich finden und abtrennen (Axt/Schaufel/Rute raus aus der Figur).
+function mainSkin(){ let sm=null; root.traverse(o=>{ if(!sm && o.isSkinnedMesh) sm=o; }); return sm; }
+window.islands=()=>{
+  const sm=mainSkin(); if(!sm) return [];
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position,
+        si=sm.geometry.attributes.skinIndex, swt=sm.geometry.attributes.skinWeight;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const stats=new Map();
+  for(let i=0;i<pos.count;i++){
+    const r=find(i);
+    let s=stats.get(r);
+    if(!s){ s={id:r, verts:0, tris:0, min:[1e9,1e9,1e9], max:[-1e9,-1e9,-1e9], boneW:new Map()}; stats.set(r,s); }
+    s.verts++;
+    for(let d=0;d<3;d++){
+      const v=pos.getComponent(i,d);
+      if(v<s.min[d]) s.min[d]=v;
+      if(v>s.max[d]) s.max[d]=v;
+    }
+    for(let k=0;k<4;k++){
+      const b=si.getComponent(i,k), w=swt.getComponent(i,k);
+      if(w>0.01) s.boneW.set(b,(s.boneW.get(b)||0)+w);
+    }
+  }
+  for(let t=0;t<idx.length;t+=3){ stats.get(find(idx[t])).tris++; }
+  const bones2=sm.skeleton.bones;
+  return [...stats.values()].map(s=>{
+    const top=[...s.boneW.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6)
+      .map(([b,w])=>bones2[b]? bones2[b].name+':'+w.toFixed(2) : '?'+b);
+    return { id:s.id, verts:s.verts, tris:s.tris,
+      min:s.min.map(v=>+v.toFixed(3)), max:s.max.map(v=>+v.toFixed(3)), bones:top };
+  }).sort((a,b)=>b.verts-a.verts);
+};
+// Nur bestimmte Inseln zeigen (Diagnose: welche Insel ist das Werkzeug?)
+let fullIndex=null;
+window.isolate=(ids)=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  if(!fullIndex) fullIndex=sm.geometry.index.array.slice();
+  if(!ids){ sm.geometry.setIndex([...fullIndex]); return 'alles'; }
+  const n=sm.geometry.attributes.position.count;
+  const parent=new Int32Array(n); for(let i=0;i<n;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<fullIndex.length;t+=3){ uni(fullIndex[t],fullIndex[t+1]); uni(fullIndex[t+1],fullIndex[t+2]); }
+  const roots=new Set(ids.map(i=>find(i)));
+  const keep=[];
+  for(let t=0;t<fullIndex.length;t+=3)
+    if(roots.has(find(fullIndex[t]))) keep.push(fullIndex[t],fullIndex[t+1],fullIndex[t+2]);
+  sm.geometry.setIndex(keep);
+  return keep.length/3;
+};
+// Inseln abtrennen: toolIds wandern in ein eigenes (mit-geskintes) Mesh,
+// der Rest bleibt die Figur. So bäckt Durchgang A die Figur ohne Werkzeug
+// und Durchgang B das Werkzeug allein (Figur nur als Tiefen-Verdecker).
+let toolMesh=null;
+window.splitIslands=(toolIds)=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  const idx=sm.geometry.index.array, n=sm.geometry.attributes.position.count;
+  const parent=new Int32Array(n); for(let i=0;i<n;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const roots=new Set(toolIds.map(i=>find(i)));
+  const tool=[], body=[];
+  for(let t=0;t<idx.length;t+=3)
+    (roots.has(find(idx[t]))?tool:body).push(idx[t],idx[t+1],idx[t+2]);
+  const gTool=new THREE.BufferGeometry();
+  for(const k in sm.geometry.attributes) gTool.setAttribute(k, sm.geometry.attributes[k]);
+  gTool.setIndex(tool);
+  toolMesh=new THREE.SkinnedMesh(gTool, sm.material.clone());
+  toolMesh.bindMode=sm.bindMode;
+  sm.parent.add(toolMesh);
+  toolMesh.bind(sm.skeleton, sm.bindMatrix);
+  sm.geometry.setIndex(body);
+  return { toolTris:tool.length/3, bodyTris:body.length/3 };
+};
+// Werkzeug-Sichtbarkeit für die zwei Back-Durchgänge (prozedural UND Insel)
+window.toolVis=(on)=>{ toolGroups.forEach(g=>{ g.visible=on; }); if(toolMesh) toolMesh.visible=on; };
+// Abgetrenntes Insel-Werkzeug endgültig verwerfen (kaputte eingebaute
+// Werkzeuge: verzerrte Bindungen an Hand UND Fuß) – danach zählt nur noch
+// das prozedurale Werkzeug
+window.toolDiscard=()=>{ if(toolMesh&&toolMesh.parent) toolMesh.parent.remove(toolMesh); toolMesh=null; };
 
 // Bildausschnitt festlegen: HÖHEN-dominant (eine breite Arbeitspose darf die
 // Figur nicht schrumpfen) und so verschoben, dass die FÜSSE knapp über dem
@@ -162,11 +358,13 @@ function recenter(){
   root.updateMatrixWorld(true);
 }
 
-// Mittelpunkt der geskinnten Box an einem Zeitpunkt (für Drift-Ausgleich)
-window.center=(clipName, t, yawDeg)=>{
+// Mittelpunkt der geskinnten Box an einem Zeitpunkt (für Drift-Ausgleich);
+// extra = zusätzliche Knochendrehungen wie bei bake() (Hand-Posen)
+window.center=(clipName, t, yawDeg, extra=null)=>{
   const clip=clips.find(c=>c.name===clipName)||clips[0];
   mixer.stopAllAction();
   if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
+  if(extra) window.poseAdd(extra);
   root.rotation.y=yawDeg*Math.PI/180;
   root.position.set(0,0,0);
   const bb=skinnedBox();
