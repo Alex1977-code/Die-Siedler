@@ -2534,7 +2534,8 @@ export class Game {
     if(u.state==='toSite'){
       if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
-      if(this.moveToward(u,tx+10,ty+13,WALK_SPEED)){ u.state='work'; u.pt=0; }
+      // erst mit der Ankunft des Bauarbeiters erscheint das Baustellenbild
+      if(this.moveToward(u,tx+10,ty+13,WALK_SPEED)){ u.state='work'; u.pt=0; b.bauerDa=true; }
     } else if(u.state==='work'){
       // Am Gerüst wird STEHEND gehämmert. Erst nach einer Weile wechselt der
       // Bauarbeiter die Seite – vorher tänzelte er ununterbrochen ums Haus.
@@ -2904,6 +2905,8 @@ export class Game {
     // besetzte Gebäude mit Werkzeugberuf gelten als ausgerüstet
     for(const b of g.buildings.values()){
       if(b.leveled===undefined) b.leveled=true;
+      // Alt-Baustellen mit Fortschritt zeigen ihr Bild sofort weiter
+      if(b.bauerDa===undefined) b.bauerDa= b.state!=='build' || (b.progress||0)>0;
       if(b.paused===undefined) b.paused=false;
       if(b.makeGood===undefined) b.makeGood=null;
       if(b.foodPrio===undefined) b.foodPrio=false;

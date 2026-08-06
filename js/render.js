@@ -5086,19 +5086,13 @@ export class Renderer {
       : def.size==='MINE' ? (this.asset('bld_build_mine_1')?'mine':'s')
       : TURMFORM.includes(b.type) ? (this.asset('bld_build_turm_1')?'turm':'s')
       : def.size==='S' ? 's' : 'm';
-    // Planier-Phase: erst wird der Bauplatz geebnet, dann steht das Gerüst
-    if(b.state==='build' && !b.leveled){
-      const p0=this.asset(`bld_build_${sizeKey}_0`);
-      if(p0){
-        const t=Math.min(1,(b.levelT||0)/70);
-        const hh=this.scaleOf(`bld_build_${sizeKey}_0`, 40);
-        const ww=hh*(p0.naturalWidth/p0.naturalHeight);
-        g.globalAlpha=0.45+t*0.55;
-        g.drawImage(p0, x-ww/2, y+12-hh, ww, hh);
-        g.globalAlpha=1;
-        return;
-      }
-      const t=Math.min(1,(b.levelT||0)/70);
+    // Bauablauf sichtbar in drei Schritten: erst ebnet der PLANIERER den
+    // Platz (wachsende Erdfläche + Absteckpfähle), dann kommt der
+    // BAUARBEITER - und erst mit seiner Ankunft (b.bauerDa) erscheint das
+    // erste Baustellenbild. Vorher stand hier ab Tag eins ein Geisterbild
+    // der Baustufe, obwohl noch niemand einen Finger gerührt hatte.
+    if(b.state==='build' && (!b.leveled || !b.bauerDa)){
+      const t= b.leveled? 1 : Math.min(1,(b.levelT||0)/70);
       g.fillStyle=`rgba(122,95,61,${0.2+t*0.35})`;
       g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.fill();
       g.strokeStyle='rgba(90,66,40,0.4)'; g.lineWidth=1;
