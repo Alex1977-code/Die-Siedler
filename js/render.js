@@ -5458,43 +5458,51 @@ export class Renderer {
   // der Versatz existiert nur im Bild und klingt weich wieder ab.
   // Abstandsgitter hält den Paarvergleich billig (typisch <100 Figuren).
   dodgePass(figs, dtMs){
-    const R=13, A=4.5;                          // Sichtradius / max. Versatz (px)
+    const R=16, A=7.5;                          // Sichtradius / max. Versatz (px)
     const sm=1-Math.pow(0.82, (dtMs||16.7)/16.7);   // ~18 % Annäherung je 60-Hz-Bild
     const grid=new Map();
     const cell=(x,y)=> ((x/16)|0)*100003 + ((y/16)|0);
     for(const f of figs){
+      f._tx=0; f._ty=0;
       const k=cell(f.x,f.y);
       let b=grid.get(k); if(!b){ b=[]; grid.set(k,b); }
       b.push(f);
     }
     for(const f of figs){
-      let txo=0, tyo=0;
       const dl=f.dx!==undefined? Math.hypot(f.dx,f.dy) : 0;
-      if(f.mov && dl>0.01){
-        const nx=f.dx/dl, ny=f.dy/dl;
-        const gx=(f.x/16)|0, gy=(f.y/16)|0;
-        outer:
-        for(let cy=gy-1;cy<=gy+1;cy++) for(let cx=gx-1;cx<=gx+1;cx++){
-          const b=grid.get(cx*100003+cy);
-          if(!b) continue;
-          for(const q of b){
-            if(q===f || q.o===f.o) continue;
-            const rx=q.x-f.x, ry=q.y-f.y;
-            const d=Math.hypot(rx,ry);
-            if(d>=R) continue;
-            if(rx*nx+ry*ny < -4) continue;       // deutlich hinter mir: egal
-            const w=1-d/R;
-            txo+=-ny*w; tyo+=nx*w;               // nach rechts ausweichen
-            if(Math.hypot(txo,tyo)>1.5) break outer;   // reicht - früh abbrechen
-          }
+      if(!(f.mov && dl>0.01)) continue;
+      const nx=f.dx/dl, ny=f.dy/dl;
+      const gx=(f.x/16)|0, gy=(f.y/16)|0;
+      outer:
+      for(let cy=gy-1;cy<=gy+1;cy++) for(let cx=gx-1;cx<=gx+1;cx++){
+        const b=grid.get(cx*100003+cy);
+        if(!b) continue;
+        for(const q of b){
+          if(q===f || q.o===f.o) continue;
+          const rx=q.x-f.x, ry=q.y-f.y;
+          const d=Math.hypot(rx,ry);
+          if(d>=R) continue;
+          if(rx*nx+ry*ny < -4) continue;         // deutlich hinter mir: egal
+          const w=1-d/R;
+          f._tx+=-ny*w; f._ty+=nx*w;             // Läufer weicht nach rechts aus
+          // Wer STEHT (Bauarbeiter beim Hämmern, Planierer beim Graben),
+          // macht dem Läufer zur Gegenseite hin Platz - vorher liefen
+          // Träger mitten durch stehende Figuren hindurch.
+          if(!q.mov){ q._tx+=ny*w; q._ty+=-nx*w; }
+          if(Math.hypot(f._tx,f._ty)>1.5) break outer;   // reicht - früh abbrechen
         }
-        const l=Math.hypot(txo,tyo);
-        if(l>1){ txo/=l; tyo/=l; }
-        txo*=A; tyo*=A;
       }
+    }
+    for(const f of figs){
+      let tx=f._tx, ty=f._ty;
+      const l=Math.hypot(tx,ty);
+      if(l>1){ tx/=l; ty/=l; }
+      // Stehende lehnen sich nur beiseite (halber Weg), Läufer gehen ganz vorbei
+      const amp=f.mov? A : A*0.45;
+      tx*=amp; ty*=amp;
       const o=f.o;
-      o._doX=(o._doX||0)+(txo-(o._doX||0))*sm;
-      o._doY=(o._doY||0)+(tyo-(o._doY||0))*sm;
+      o._doX=(o._doX||0)+(tx-(o._doX||0))*sm;
+      o._doY=(o._doY||0)+(ty-(o._doY||0))*sm;
     }
   }
   drawUnit(g,u){
