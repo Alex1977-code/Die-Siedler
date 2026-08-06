@@ -5407,8 +5407,9 @@ export class Renderer {
       const S=e.s*sc;
       switch(e.k){
         case 'smoke': {
-          // Schornstein-Rauch: sitzt exakt auf der gemalten Kaminöffnung
-          const smi=this.asset('fx_smoke');
+          // Schornstein-Rauch: sitzt exakt auf der gemalten Kaminöffnung;
+          // dunkler Qualm (Eisenhütte) hat sein eigenes gemaltes Bild
+          const smi=(e.col==='dunkel' && this.asset('fx_smoke_dark')) || this.asset('fx_smoke');
           const white=e.col==='weiss', dark=e.col==='dunkel';
           if(smi){
             const asp=smi.naturalWidth/smi.naturalHeight;
@@ -5437,10 +5438,21 @@ export class Renderer {
           }
           break;
         }
-        case 'steam':
+        case 'steam': {
           // heller Wasserdampf (Braukessel, Ofenabzug)
-          puff(ax, ay, 'rgba(240,244,246,$A)', 3, 15*S, 2.6*S, 1500);
+          const st=this.asset('fx_steam');
+          if(st){
+            const asp=st.naturalWidth/st.naturalHeight;
+            for(const off of [0,0.5]){
+              const ph=(t/2000+id*0.41+off)%1;
+              const h2=(10+ph*20)*S, w2=h2*asp;
+              g.globalAlpha=0.7*(1-ph);
+              g.drawImage(st, ax-w2/2+Math.sin(t/800+id+off*3)*3*S*ph, ay-ph*18*S-h2, w2, h2);
+            }
+            g.globalAlpha=1;
+          } else puff(ax, ay, 'rgba(240,244,246,$A)', 3, 15*S, 2.6*S, 1500);
           break;
+        }
         case 'glow': {
           // flackernder Feuerschein (Esse, Ofenmaul); 'lighter' statt Filter
           const fl=0.55+0.3*Math.sin(t/95+id*1.7)+0.15*Math.sin(t/41+id*3.1);
@@ -5456,8 +5468,19 @@ export class Renderer {
           break;
         }
         case 'sparks':
-          // aufsteigende Glutfünkchen
+          // aufsteigende Glutfünkchen; gemalte Glutsäule als Grundlage
           g.globalCompositeOperation='lighter';
+          {
+            const em=this.asset('fx_embers');
+            if(em){
+              const asp=em.naturalWidth/em.naturalHeight;
+              const ph=(t/900+id*0.3)%1;
+              const h2=(9+ph*7)*S, w2=h2*asp;
+              g.globalAlpha=0.7*(1-ph*0.6);
+              g.drawImage(em, ax-w2/2, ay-h2+2*S-ph*5*S, w2, h2);
+              g.globalAlpha=1;
+            }
+          }
           for(let k=0;k<3;k++){
             const ph=(t/520+k/3+id*0.3)%1;
             g.fillStyle=`rgba(255,200,110,${0.85*(1-ph)})`;
@@ -5471,11 +5494,22 @@ export class Renderer {
           // wirbelnde Splitter/Halme in Materialfarbe
           chips(ax, ay, e.col, 4, 12*S);
           break;
-        case 'sawdust':
-          // Sägemehl: Späne + feines Staubwölkchen direkt am Sägeblatt
+        case 'sawdust': {
+          // Sägemehl: gemalte Staubwolke + wirbelnde Späne am Sägeblatt
+          const sd=this.asset('fx_sawdust');
+          if(sd){
+            const asp=sd.naturalWidth/sd.naturalHeight;
+            for(const off of [0,0.5]){
+              const ph=(t/1500+id*0.27+off)%1;
+              const h2=(7+ph*9)*S, w2=h2*asp;
+              g.globalAlpha=0.55*(1-ph);
+              g.drawImage(sd, ax-w2/2, ay-2*S-ph*8*S-h2/2, w2, h2);
+            }
+            g.globalAlpha=1;
+          } else puff(ax, ay-2*S, 'rgba(226,208,170,$A)', 2, 11*S, 2.6*S, 1500);
           chips(ax, ay, 'rgba(228,200,146,$A)', 4, 13*S);
-          puff(ax, ay-2*S, 'rgba(226,208,170,$A)', 2, 11*S, 2.6*S, 1500);
           break;
+        }
         case 'stonedust':
           // Steinstaub + Splitter am Werkblock
           puff(ax, ay, 'rgba(168,160,146,$A)', 3, 12*S, 3.0*S, 1400);
@@ -5497,9 +5531,19 @@ export class Renderer {
           chips(ax, ay+3*S, e.col, 2, 7*S);
           break;
         }
-        case 'flour':
+        case 'flour': {
           // feiner Mehlstaub am Auslass/bei den Säcken – kein Rauch!
-          for(let k=0;k<3;k++){
+          const fli=this.asset('fx_flour');
+          if(fli){
+            const asp=fli.naturalWidth/fli.naturalHeight;
+            for(let k=0;k<2;k++){
+              const ph=(t/1700+k*0.5+id*0.29)%1;
+              const h2=(6+ph*8)*S, w2=h2*asp;
+              g.globalAlpha=0.5*(1-ph);
+              g.drawImage(fli, ax-w2/2+Math.sin(t/500+k*2.2+id)*3*S, ay-ph*6*S-h2/2, w2, h2);
+            }
+            g.globalAlpha=1;
+          } else for(let k=0;k<3;k++){
             const ph=(t/1700+k/3+id*0.29)%1;
             g.fillStyle=`rgba(246,241,228,${0.52*(1-ph)})`;
             g.beginPath();
@@ -5507,6 +5551,7 @@ export class Renderer {
             g.fill();
           }
           break;
+        }
         case 'drips':
           // Tropfen fallen vom Eimer in den Schacht, kleines Blitzen unten
           for(let k=0;k<2;k++){
@@ -5517,9 +5562,19 @@ export class Renderer {
             g.fill();
           }
           break;
-        case 'ripple':
+        case 'ripple': {
           // stille Wasserringe (Fischer, Hafen)
-          for(let k=0;k<2;k++){
+          const ri=this.asset('fx_rings');
+          if(ri){
+            const asp=ri.naturalWidth/ri.naturalHeight;
+            for(let k=0;k<2;k++){
+              const ph=((t/1300)+k*0.5+id*0.17)%1;
+              const w2=(8+ph*24)*S, h2=w2/asp;
+              g.globalAlpha=0.55*(1-ph);
+              g.drawImage(ri, ax-w2/2, ay-h2/2, w2, h2);
+            }
+            g.globalAlpha=1;
+          } else for(let k=0;k<2;k++){
             const ph=((t/1300)+k*0.5+id*0.17)%1;
             g.strokeStyle=`rgba(190,226,242,${0.5*(1-ph)})`;
             g.lineWidth=1.2;
@@ -5528,6 +5583,7 @@ export class Renderer {
             g.stroke();
           }
           break;
+        }
         case 'dustpuff':
           // niedriger, aufgewirbelter Staub (Auslauf der Schweinezucht)
           puff(ax, ay, e.col, 3, 6*S, 2.8*S, 1600);
@@ -6655,6 +6711,16 @@ export class Renderer {
   // aktiv=false zeichnet halbdurchsichtig (z.B. Geologe ohne Spitzhacke).
   uiRundKnopf(g, cx, cy, u, art, aktiv=true){
     const R=21*u;
+    // gemalte Knöpfe (ui_fahnenmenü-Lieferung), gezeichneter Ersatz als Rückfall
+    const bild=this.asset(art==='weg'?'ui_btn_weg': art==='geo'?'ui_btn_geologe':'ui_btn_spaeher');
+    if(bild){
+      g.save();
+      if(!aktiv) g.globalAlpha=0.5;
+      const d2=R*2.3;
+      g.drawImage(bild, cx-d2/2, cy-d2/2, d2, d2);
+      g.restore();
+      return;
+    }
     g.save();
     if(!aktiv) g.globalAlpha=0.5;
     g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7); g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
