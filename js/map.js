@@ -267,7 +267,10 @@ export function genWorld(opts){
   // sondern Bestände mit weichem Rand, Lichtungen im Inneren und Jungwuchs
   // am Saum. Ein Nachlauf lichtet zu dichte Stellen aus, damit Siedler
   // überall durchkommen und der Wald atmet.
-  const treeP = { gruen:0.34, winter:0.18, wueste:0.08, vulkan:0.10, sumpf:0.22, inseln:0.30, gebirge:0.22 }[theme] ?? 0.3;
+  // Etwas dichterer Baumbestand als früher: ein Holzfäller rodete einen
+  // kompletten Startwald in unter 9 Spielminuten (Kritikbericht) – die
+  // Bestände geben jetzt mehr her, das Nachpflanzen erledigt der Förster.
+  const treeP = { gruen:0.40, winter:0.24, wueste:0.11, vulkan:0.13, sumpf:0.27, inseln:0.35, gebirge:0.27 }[theme] ?? 0.36;
   const woodOk = (i)=> map.terr[i]===TER.GRASS || (map.terr[i]===TER.SNOW&&theme==='winter');
   const smooth = (a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   const MAXDENS = 0.60;                       // dichtester Kern: gut 3 von 5 Knoten
@@ -297,19 +300,24 @@ export function genWorld(opts){
     if(n>=5 && rng()<0.72) map.obj[i]=OBJ.NONE;
     else if(n>=4 && rng()<0.3) map.obj[i]=OBJ.NONE;
   }
-  // Steinhaufen
+  // Steinhaufen: mehr Brocken und je Brocken deutlich mehr Abbauladungen.
+  // Vorher (0,012 / 4–8 Ladungen) verstummte der Steinmetz nach ~7 Spiel-
+  // minuten und die Stein-Spirale fror ganze Partien ein (Kritikbericht F3).
   for(let i=0;i<w*h;i++){
     if(!map.terrOkBuild(i) || map.obj[i]) continue;
-    if(rng() < 0.012*res){ map.obj[i]=OBJ.STONE; map.amt[i]=4+((rng()*5)|0); }
+    if(rng() < 0.016*res){ map.obj[i]=OBJ.STONE; map.amt[i]=8+((rng()*8)|0); }
   }
-  // Erz in Bergen
+  // Erz in Bergen. Granit ist breiter gestreut und ergiebiger als die
+  // anderen Erze: das Steinbergwerk ist die verlässliche Dauerquelle des
+  // Mittelspiels, wenn die Oberflächen-Brocken abgetragen sind – eine Mine
+  // soll eine lange Partie tragen (Kritikbericht Stein-Spirale).
   for(let i=0;i<w*h;i++){
     if(map.terr[i]!==TER.MOUNT) continue;
     const r=rng();
     if(r<0.30*res){ map.oreT[i]=1; map.oreA[i]=26+((rng()*30)|0); }      // Kohle
     else if(r<0.52*res){ map.oreT[i]=2; map.oreA[i]=22+((rng()*26)|0); } // Eisen
     else if(r<0.62*res){ map.oreT[i]=3; map.oreA[i]=16+((rng()*18)|0); } // Gold
-    else if(r<0.74*res){ map.oreT[i]=4; map.oreA[i]=28+((rng()*32)|0); } // Granit
+    else if(r<0.80*res){ map.oreT[i]=4; map.oreA[i]=60+((rng()*60)|0); } // Granit
   }
   // Fische in Küstennähe
   for(let i=0;i<w*h;i++){
@@ -381,7 +389,9 @@ function clearArea(map, center, r){
 }
 
 function ensureStartResources(map, s, rng){
-  // in Ring 3..6: mind. 6 Bäume und 2 Steinhaufen
+  // in Ring 3..6: mind. 12 Bäume und 3 Steinhaufen – die alten Minima
+  // (7 Bäume / 2 Haufen à 6 Ladungen) waren nach wenigen Spielminuten
+  // abgeerntet und die Partie hing am Tropf (Kritikbericht).
   const ring=[]; const seen=new Set([s]); let q=[s];
   for(let d=0; d<7; d++){
     const nq=[];
@@ -395,8 +405,8 @@ function ensureStartResources(map, s, rng){
   let trees=ring.filter(i=>{const o=map.obj[i]&127; return o===OBJ.TREE||o===OBJ.TREE2||o===OBJ.SAPLING;}).length;
   let stones=ring.filter(i=>map.obj[i]===OBJ.STONE).length;
   const free=ring.filter(i=> map.terrOkBuild(i)&&!map.obj[i]&&map.bld[i]<0);
-  while(trees<7 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }
-  while(stones<2 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=6; stones++; }
+  while(trees<12 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }
+  while(stones<3 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=10; stones++; }
 }
 
 function landComponents(map){

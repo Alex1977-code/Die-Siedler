@@ -45,9 +45,15 @@ export const BLD = {
   hq:         { name:'Hauptquartier', cat:'lager', size:'L', cost:{}, mil:{cap:0,radius:9}, store:true, desc:'Zentrum deiner Siedlung. Lager und Rekrutierung.' },
   storehouse: { name:'Lagerhaus', cat:'lager', size:'M', cost:{board:4,stone:3}, store:true, desc:'Zusätzliches Lager für alle Waren.' },
   woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:60, desc:'Fällt Bäume und liefert Stämme.' },
-  forester:   { name:'Förster', cat:'basis', size:'S', cost:{board:2}, gather:'plant', range:7, time:80, desc:'Pflanzt neue Bäume.' },
+  // Förster: Radius wie der Holzfäller (sonst blieb der äußere Ring gerodeter
+  // Fläche für immer kahl) und kürzerer Takt – zusammen mit den zwei
+  // Setzlingen je Gang trägt EIN Förster so etwa anderthalb Holzfäller
+  // (Kritikbericht: Wald nach <9 Spielminuten unwiederbringlich leer).
+  forester:   { name:'Förster', cat:'basis', size:'S', cost:{board:2}, gather:'plant', range:8, time:60, desc:'Pflanzt neue Bäume.' },
   sawmill:    { name:'Sägewerk', cat:'basis', size:'M', cost:{board:2,stone:2}, prod:{out:'board', inputs:{trunk:1}, time:90}, desc:'Sägt Stämme zu Brettern.' },
-  quarry:     { name:'Steinmetz', cat:'basis', size:'S', cost:{board:2}, gather:'stone', out:'stone', range:8, time:70, desc:'Baut Felsbrocken zu Steinen ab.' },
+  // Steinmetz-Radius angehoben (Kritikbericht Stein-Spirale): er erreicht
+  // mehr Brocken, bevor die Granitmine im Gebirge übernehmen muss.
+  quarry:     { name:'Steinmetz', cat:'basis', size:'S', cost:{board:2}, gather:'stone', out:'stone', range:10, time:70, desc:'Baut Felsbrocken zu Steinen ab.' },
   fisher:     { name:'Fischer', cat:'nahrung', size:'S', cost:{board:2}, gather:'fish', out:'fish', range:7, time:70, desc:'Fängt Fische an Gewässern.' },
   hunter:     { name:'Jäger', cat:'nahrung', size:'S', cost:{board:2}, gather:'hunt', out:'meat', range:9, time:120, desc:'Jagt Wild in den Wäldern.' },
   well:       { name:'Brunnen', cat:'nahrung', size:'S', cost:{board:2,stone:1}, prod:{out:'water', inputs:{}, time:80}, desc:'Fördert Wasser.' },
