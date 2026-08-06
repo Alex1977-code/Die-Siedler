@@ -270,10 +270,10 @@ export class Game {
     this.map.bld[b.node] = -1;
     this.buildings.delete(b.id);
     this.changedNodes.push(b.node);
-    // eingezogene Fachkraft flieht sichtbar zurück ins Hauptquartier (rettet ihr Werkzeug)
+    // eingezogene Fachkraft flieht sichtbar zurück ins Hauptquartier (rettet
+    // ihr Werkzeug) – sie tritt dabei durch die TÜR aus, nicht durch die Wand
     if(b.worker && b.worker.present && b.type!=='hq'){
-      const [sx,sy]=this.map.worldPos(b.node);
-      this.units.push({ id:NEXT_ID++, type:'flee', player:b.player, x:sx, y:sy,
+      this.units.push({ id:NEXT_ID++, type:'flee', player:b.player, ...this.tuerAustritt(b),
         wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null });
     }
     // Fachkraft noch auf dem Anmarsch? -> umkehren statt verschwinden (Werkzeug!)
@@ -801,8 +801,8 @@ export class Game {
     if(!near) return 'nomount';
     if(!this.takeGood(pl,'pick')) return 'nopick';   // Geologe braucht eine Spitzhacke
     const hq=this.buildings.get(this.players[pl].hq);
-    const [sx,sy]=this.map.worldPos((hq||{node:flagNode}).node);
-    this.units.push({ id:NEXT_ID++, type:'geo', player:pl, x:sx, y:sy,
+    this.units.push({ id:NEXT_ID++, type:'geo', player:pl,
+      ...this.tuerAustritt(hq||{node:flagNode}),     // aus der HQ-Tür treten
       flag:flagNode, probes:7, state:'toFlag', target:-1, actT:0 });
     return true;
   }
@@ -838,7 +838,7 @@ export class Game {
       }
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
-      const [tx,ty]=hq? m.worldPos(hq.node):[u.x,u.y];
+      const [tx,ty]=hq? this.tuerPos(hq):[u.x,u.y];  // heim durch die HQ-Tür
       if(this.moveToward(u,tx,ty,WALK_SPEED)){
         u.dead=true;
         // Wie der Planierer seine Schaufel bringt der Geologe seine
@@ -1275,6 +1275,13 @@ export class Game {
       if(b.paused) continue;                       // vom Spieler stillgelegt
       // ohne eingezogene Fachkraft ruht der Betrieb
       if(b.worker && !b.worker.present) continue;
+      // Warenaustrag läuft: die Fachkraft trägt gerade sichtbar eine fertige
+      // Ware zur Türfahne – solange ruht die Arbeit im Haus (der Weg wird
+      // beim Wiedereintritt als Taktkredit in die Zykluszeit eingerechnet).
+      if(b.worker && b.worker.state==='austrag'){
+        if(this.units.some(u=>u.type==='austrag' && u.bld===b.id)) continue;
+        b.worker.state='in';   // Wächter: Figur fehlt (z.B. Altbestand) -> Betrieb weiter
+      }
       // Bedarfsbremse: bei Überfluss des eigenen Guts ruhen (siehe satHold)
       if(this.satHold(b)){ b.prodT=0; continue; }
       if(def.prod){
@@ -1310,7 +1317,7 @@ export class Game {
           }
           if(def.prod.out==='@donkey') this.spawnDonkey(b);
           else if(def.prod.out==='@ship') this.launchShip(b);
-          else { b.out++; this.onProduce && this.onProduce(b); }
+          else this.wareAustragen(b);   // sichtbar zur Türfahne tragen
         }
       }
       if(def.mine){
@@ -1332,7 +1339,7 @@ export class Game {
             }
             if(found) break;
           }
-          if(found){ b.out++; this.onProduce && this.onProduce(b); }
+          if(found) this.wareAustragen(b);   // Bergmann bringt das Erz sichtbar zur Fahne
           else {
             if(!b.depleted){ b.depleted=true; if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node); }
           }
@@ -1364,9 +1371,8 @@ export class Game {
           if(job!==null){
             b.worker.timer=0;
             b.noJobT=0; b.exhausted=false;         // Umgebung gibt wieder etwas her
-            const [bx,by]=m.worldPos(b.node);
             const u={ id:NEXT_ID++, type:'worker', wtype:b.type, player:b.player, bld:b.id,
-              x:bx, y:by, target:job.node, jobKind:job.kind, animalId:job.animalId, state:'go', actT:0 };
+              ...this.tuerAustritt(b), target:job.node, jobKind:job.kind, animalId:job.animalId, state:'go', actT:0 };
             this.units.push(u);
             b.worker.state='out';
             if(job.reserve) m.obj[job.node]|=128; // reserviert-Bit
@@ -1564,6 +1570,7 @@ export class Game {
     const m=this.map;
     for(const u of this.units){
       if(u.type==='worker') this.tickWorker(u);
+      else if(u.type==='austrag') this.tickAustrag(u);
       else if(u.type==='attack') this.tickAttack(u);
       else if(u.type==='geo') this.tickGeo(u);
       else if(u.type==='builder') this.tickBuilder(u);
@@ -1709,12 +1716,88 @@ export class Game {
     nodes.reverse();
     return nodes.slice(1).map(n=>m.worldPos(n));   // Startknoten weglassen
   }
+  // ---------- Tür-Wege ----------
+  // Türschwelle eines Gebäudes: der Punkt am Hauseingang, ein Stück vom
+  // Hausknoten in Richtung Türfahne verschoben. ALLE Figuren betreten und
+  // verlassen Gebäude über diesen Punkt – niemals mitten im Gebäude oder
+  // seitlich durch die Wand.
+  tuerPos(b){
+    const m=this.map;
+    const [bx,by]=m.worldPos(b.node);
+    if(b.door==null || b.door<0 || !m.flag[b.door]) return [bx,by+10];
+    const [fx,fy]=m.worldPos(b.door);
+    return [bx+(fx-bx)*0.35, by+(fy-by)*0.35];
+  }
+  // Startfelder für eine Figur, die aus einem Gebäude tritt: Position an der
+  // Türschwelle, Blick Richtung Türfahne (nicht rückwärts durch die Wand).
+  tuerAustritt(b){
+    const [sx,sy]=this.tuerPos(b);
+    const o={x:sx, y:sy};
+    if(b.door!=null && b.door>=0){
+      const [fx,fy]=this.map.worldPos(b.door);
+      const d=Math.hypot(fx-sx,fy-sy)||1;
+      o._dx=(fx-sx)/d; o._dy=(fy-sy)/d;
+    }
+    return o;
+  }
+
+  // ---------- Warenaustrag: fertige Ware sichtbar zur Türfahne tragen ----------
+  // Die Fachkraft eines Innenberufs (Bäcker, Schmied, Müller, Bergmann ...)
+  // tritt mit der fertigen Ware aus der Tür, trägt sie zur Fahne, legt sie
+  // dort ab (erst DANN ist sie für Träger abholbar) und verschwindet wieder
+  // durch die Tür. Der Weg wird beim Wiedereintritt als Taktkredit in die
+  // Zykluszeit eingerechnet – die Produktionsrate bleibt dadurch stabil.
+  wareAustragen(b){
+    const g=this.prodGood(b);
+    if(!g || b.door==null || b.door<0){        // Notfall (keine Türfahne): wie früher direkt bereitstellen
+      b.out=Math.min(6,(b.out||0)+1); this.onProduce && this.onProduce(b); return;
+    }
+    this.units.push({ id:NEXT_ID++, type:'austrag', player:b.player, bld:b.id,
+      ...this.tuerAustritt(b), wtype:PROF_OF[b.type]||'worker', carry:g,
+      state:'zurFahne', _t0:this.t });
+    if(b.worker) b.worker.state='austrag';
+  }
+  tickAustrag(u){
+    const b=this.buildings.get(u.bld);
+    if(!b || b.state!=='done'){ u.dead=true; return; }
+    const m=this.map;
+    if(u.state==='zurFahne'){
+      const [fx,fy]=m.worldPos(b.door);
+      if(this.moveToward(u,fx,fy,WALK_SPEED)){
+        // Ware an der Fahne abgelegt – JETZT ist sie für Träger abholbar
+        b.out=Math.min(6,(b.out||0)+1);
+        this.onProduce && this.onProduce(b);
+        u.carry=null; u.state='zurTuer';
+      }
+    } else if(u.state==='zurTuer'){
+      const [tx,ty]=this.tuerPos(b);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+        u.dead=true;
+        if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+        const def=BLD[b.type];
+        // Schmieden wählen ihren nächsten Ausstoß am ZYKLUSBEGINN – der liegt
+        // jetzt beim Wiedereintritt (b.prodT startet gleich mit Kredit > 0,
+        // die alte prodT===0-Wahl käme sonst nie mehr zum Zug).
+        if(b.type==='toolsmith'){
+          b.chosenTool = b.makeGood || this.toolsmithChoose(b.player);
+          if(!b.chosenTool){ b.prodT=0; return; }   // kein Bedarf -> ruhen wie bisher
+        }
+        if(b.type==='armory' && b.makeGood) b.chosenTool=b.makeGood;
+        // Zykluszeit-Kompensation: der Austragsweg zählt als bereits
+        // geleistete Arbeitszeit des nächsten Zyklus (Rate bleibt stabil)
+        const dauer=this.t-(u._t0||this.t);
+        const zeit=def.prod? def.prod.time : def.time;
+        const fed=def.prod && (def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
+        if(zeit) b.prodT=Math.max(b.prodT||0, Math.min(zeit-1, dauer*(fed?2:1)));
+      }
+    }
+  }
+
   tickWorker(u){
     const m=this.map;
     const b=this.buildings.get(u.bld);
     if(!b){ u.dead=true; return; }
     const [tx,ty]=m.worldPos(u.target);
-    const [hx,hy]=m.worldPos(b.node);
     if(u.state==='go'){
       if(u.jobKind==='hunt'){
         // dem lebenden Tier nachpirschen, auf Schussweite herangehen
@@ -1783,10 +1866,33 @@ export class Game {
       // rhythmisches Arbeitsgeräusch (Hacken, Klopfen, ...) solange gearbeitet wird
       if(u.state==='act' && u.actT%11===1 && b.player===0) this.onWorkerAct && this.onWorkerAct(u);
     } else if(u.state==='back'){
+      // mit Beute geht es erst zur Türfahne: dort wird die Ware abgelegt
+      // (erst DANN ist sie für Träger abholbar), danach zurück durch die Tür
+      if(u.carry && b.door!=null && b.door>=0){
+        const [fx,fy]=m.worldPos(b.door);
+        if(this.moveToward(u,fx,fy,WALK_SPEED)){
+          b.out=Math.min(6,(b.out||0)+1);
+          u.carry=null; u._abT=this.t; u.state='heim';
+        }
+      } else {
+        const [hx,hy]=this.tuerPos(b);
+        if(this.moveToward(u,hx,hy,WALK_SPEED)){
+          if(u.carry){ b.out=Math.min(6,(b.out||0)+1); }   // Notfall: Gebäude ohne Türfahne
+          u.dead=true;
+          if(b.worker){ b.worker.state='in'; b.worker.timer=0; }
+        }
+      }
+    } else if(u.state==='heim'){
+      // von der Fahne zurück zur Tür, dort verschwindet die Figur im Haus
+      const [hx,hy]=this.tuerPos(b);
       if(this.moveToward(u,hx,hy,WALK_SPEED)){
-        if(u.carry){ b.out=Math.min(6,(b.out||0)+1); }
         u.dead=true;
-        if(b.worker){ b.worker.state='in'; b.worker.timer=0; }
+        if(b.worker){
+          b.worker.state='in';
+          // Fahnenweg in die Zykluszeit einrechnen: der Rückweg von der
+          // Fahne zählt als bereits gewartete Suchzeit (Rate bleibt stabil)
+          b.worker.timer=Math.min((BLD[b.type].time*0.4)|0, this.t-(u._abT||this.t));
+        }
       }
     }
   }
@@ -1796,7 +1902,7 @@ export class Game {
     if(!b || b.state!=='done' || !b.soldiers){ // Gebäude weg -> zurück ins HQ (Reserve)
       u.dead=true; this.players[u.player].recruits[u.stype]++; return;
     }
-    const [tx,ty]=m.worldPos(b.node);
+    const [tx,ty]=this.tuerPos(b);       // Einzug in den Posten durch die Tür
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
       const cap=BLD[b.type].mil.cap;
@@ -1988,8 +2094,8 @@ export class Game {
             const t=this.takeRecruit(p.id);
             if(!t) break;
             const src=hq||b;
-            const [sx,sy]=this.map.worldPos(src.node);
-            this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, x:sx, y:sy, targetB:b.id, stype:t});
+            // der Rekrut marschiert aus der Tür seines Quartiers ab
+            this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, ...this.tuerAustritt(src), targetB:b.id, stype:t});
           }
         }
       }
@@ -2005,7 +2111,7 @@ export class Game {
       return;
     }
     if(!this.routeStep(u,WALK_SPEED)) return;        // erst der Straße folgen
-    const [tx,ty]=this.map.worldPos(b.node);
+    const [tx,ty]=this.tuerPos(b);                   // Einzug IMMER durch die Tür
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
       b.worker.present=true;
@@ -2014,7 +2120,7 @@ export class Game {
   tickFlee(u){
     const hq=this.buildings.get(this.players[u.player].hq);
     if(!hq){ u.dead=true; return; }
-    const [tx,ty]=this.map.worldPos(hq.node);
+    const [tx,ty]=this.tuerPos(hq);                  // ins HQ geht es durch die Tür
     if(this.moveToward(u,tx,ty,WALK_SPEED*1.15)){
       u.dead=true;
       if(u.tool && hq.inv) hq.inv[u.tool]=(hq.inv[u.tool]||0)+1;   // Werkzeug gerettet
@@ -2025,8 +2131,8 @@ export class Game {
   callScout(pl, flagNode){
     if(!this.map.flag[flagNode]) return false;
     const hq=this.buildings.get(this.players[pl].hq);
-    const [sx,sy]=this.map.worldPos((hq||{node:flagNode}).node);
-    this.units.push({ id:NEXT_ID++, type:'scout', player:pl, x:sx, y:sy,
+    this.units.push({ id:NEXT_ID++, type:'scout', player:pl,
+      ...this.tuerAustritt(hq||{node:flagNode}),     // aus der HQ-Tür treten
       flag:flagNode, legs:9, state:'toFlag', target:-1 });
     return true;
   }
@@ -2055,7 +2161,7 @@ export class Game {
       if(this.moveToward(u,tx,ty,WALK_SPEED*1.1)) u.state='seek';
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
-      const [tx,ty]=hq? m.worldPos(hq.node):[u.x,u.y];
+      const [tx,ty]=hq? this.tuerPos(hq):[u.x,u.y];  // heim durch die HQ-Tür
       if(this.moveToward(u,tx,ty,WALK_SPEED*1.1)) u.dead=true;
     }
   }
@@ -2072,8 +2178,8 @@ export class Game {
   spawnDonkey(b){
     const r=this.donkeyTargetRoad(b.player);
     if(!r) return;
-    const [sx,sy]=this.map.worldPos(b.node);
-    const u={ id:NEXT_ID++, type:'donkey', player:b.player, x:sx, y:sy, road:r.id };
+    // der Esel verlässt den Stall durch die Tür
+    const u={ id:NEXT_ID++, type:'donkey', player:b.player, ...this.tuerAustritt(b), road:r.id };
     r.donkeyEnroute=u.id;
     this.units.push(u);
     if(b.player===0) this.msg('Ein Esel verstärkt eine Straße.', 'ok', b.node);
@@ -2244,9 +2350,9 @@ export class Game {
       b.toolGood=tool;                       // Werkzeug gehört jetzt zum Gebäude
       b.needTool=null;
     }
-    const [sx,sy]=this.map.worldPos(hq.node);
+    // der neue Siedler tritt aus der HQ-Tür
     const u={ id:NEXT_ID++, type:'settle', player:b.player,
-      x:sx, y:sy, bld:b.id, wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null,
+      ...this.tuerAustritt(hq), bld:b.id, wtype:PROF_OF[b.type]||'worker', tool:b.toolGood||null,
       wp:this.flagWaypoints(hq.door, b.door)||undefined, wpi:0 };
     this.units.push(u);
     b.settlerId=u.id;
@@ -2272,8 +2378,7 @@ export class Game {
           continue;
         }
         this.takeTool(src,'shovel');
-        const [sx,sy]=this.map.worldPos(hq.node);
-        const u={ id:NEXT_ID++, type:'leveler', player:b.player, x:sx, y:sy,
+        const u={ id:NEXT_ID++, type:'leveler', player:b.player, ...this.tuerAustritt(hq),
           bld:b.id, state:'toSite', pt:0,
           wp:this.flagWaypoints(hq.door, b.door)||undefined, wpi:0 };
         this.units.push(u);
@@ -2290,8 +2395,7 @@ export class Game {
         continue;                              // kein Hammer -> kein Bauarbeiter
       }
       this.takeTool(src,'hammer');
-      const [sx,sy]=this.map.worldPos(src.node);
-      const u={ id:NEXT_ID++, type:'builder', player:b.player, x:sx, y:sy,
+      const u={ id:NEXT_ID++, type:'builder', player:b.player, ...this.tuerAustritt(src),
         bld:b.id, state:'toSite', pt:0, swing:0,
         wp:this.flagWaypoints(src.door, b.door)||undefined, wpi:0 };
       this.units.push(u);
@@ -2341,7 +2445,7 @@ export class Game {
         u.wpi=0;
       }
       if(!this.routeStep(u,WALK_SPEED)) return;
-      const [tx,ty]=m.worldPos(hq.node);
+      const [tx,ty]=this.tuerPos(hq);                    // heim durch die HQ-Tür
       if(this.moveToward(u,tx,ty,WALK_SPEED)){
         u.dead=true;
         if(hq.inv) hq.inv.shovel=(hq.inv.shovel||0)+1;   // Schaufel zurück ins Lager
@@ -2393,7 +2497,7 @@ export class Game {
         u.wpi=0;
       }
       if(!this.routeStep(u,WALK_SPEED)) return;
-      const [tx,ty]=m.worldPos(hq.node);
+      const [tx,ty]=this.tuerPos(hq);                    // heim durch die HQ-Tür
       if(this.moveToward(u,tx,ty,WALK_SPEED)){
         u.dead=true;
         if(hq.inv) hq.inv.hammer=(hq.inv.hammer||0)+1;   // Werkzeug zurück ins Lager
