@@ -28,6 +28,49 @@ const UNIT_FACING={
   unit_quarry:-1, unit_geo:-1, unit_sword_atk:-1, unit_sword_atk2:-1, unit_sword_def:-1,
   unit_soldier:-1,
 };
+// Gemessene Zell-Füllung der Menschen-Blätter (assets/unit_*_idle.png,
+// Alpha-Dichteprofil von idle-Frame 0, Median über die 5 Richtungszeilen;
+// dünne Werkzeuge/Waffen herausgefiltert): die 88er-Zellen sind je Beruf
+// unterschiedlich stark gefüllt — der Planierer z. B. deutlich kleiner
+// gebacken als der Träger. s skaliert die Zeichenhöhe so, dass die
+// KÖRPERHÖHE aller Figuren der des Trägers entspricht (Größenanker);
+// f ist der gemessene Leerraum unter den Füßen (Anteil der Zellhöhe),
+// damit jede Figur exakt auf ihrer Schattenlinie steht statt zu schweben.
+// Werkzeug-Overlays (unit_*_atk_tool) werden in drawFigure mit denselben
+// ww/hh gezeichnet und erben den Faktor automatisch. Tiere (Reh/Hase/
+// Schwein/Esel ...) laufen bewusst NICHT über diese Tabelle.
+const UNIT_FIT={
+  unit_carrier:     {s:1.000,f:0.091},
+  unit_worker:      {s:1.000,f:0.102},
+  unit_builder:     {s:0.982,f:0.102},
+  unit_leveler:     {s:1.146,f:0.170},
+  unit_geo:         {s:0.982,f:0.102},
+  unit_scout:       {s:1.038,f:0.091},
+  unit_woodcutter:  {s:1.078,f:0.114},
+  unit_forester:    {s:0.965,f:0.057},
+  unit_quarry:      {s:0.965,f:0.091},
+  unit_fisher:      {s:1.038,f:0.102},
+  unit_hunter:      {s:0.982,f:0.102},
+  unit_farm:        {s:0.965,f:0.102},
+  unit_miner:       {s:0.982,f:0.102},
+  unit_smith:       {s:1.000,f:0.091},
+  unit_toolsmith:   {s:1.000,f:0.091},
+  unit_minter:      {s:0.948,f:0.102},
+  unit_baker:       {s:0.965,f:0.102},
+  unit_butcher:     {s:1.000,f:0.091},
+  unit_miller:      {s:0.948,f:0.102},
+  unit_brewer:      {s:0.982,f:0.091},
+  unit_smelter:     {s:1.000,f:0.091},
+  unit_pigfarmer:   {s:0.982,f:0.114},
+  unit_donkeyherder:{s:0.982,f:0.102},
+  unit_shipwright:  {s:0.948,f:0.091},
+  unit_carpenter:   {s:0.965,f:0.091},
+  unit_welldigger:  {s:1.000,f:0.091},
+  unit_sword:       {s:1.100,f:0.205},
+  unit_spear:       {s:0.948,f:0.091},
+  unit_bow:         {s:0.948,f:0.080},
+};
+const UNIT_FIT_DEF={s:1,f:0.08};
 
 function shade(hex, f){
   const n=parseInt(hex.slice(1),16);
@@ -5806,16 +5849,18 @@ export class Renderer {
       g.beginPath(); g.ellipse(x,y+6.8,5,2,0,0,7); g.stroke();
       g.globalAlpha=1;
       // Größenanker: Figur ≈ halbe Wohnhaushöhe (klassische Lesbarkeit).
-      // FOOT=4% Restluft unter den Füßen im gebackenen Sheet ausgleichen,
-      // damit die Figur exakt auf ihrem Schatten steht (kein Schweben).
-      const hh=30, ww=hh*(anim.sw/anim.sh);
+      // UNIT_FIT gleicht die je Blatt unterschiedliche Zell-Füllung aus:
+      // s normiert die Körperhöhe auf den Träger, f die gemessene Restluft
+      // unter den Füßen, damit die Figur exakt auf ihrem Schatten steht.
+      const fit=UNIT_FIT[baseKey]||UNIT_FIT_DEF;
+      const hh=30*fit.s, ww=hh*(anim.sw/anim.sh);
       g.save();
       // Wer etwas schleppt, beugt sich leicht nach vorn und wiegt sich
       // schwerer – Last soll man der Figur ansehen
       const heavy= good==='trunk'||good==='stone'||good==='board'||good==='pig';
       const load= good? (heavy?1:0.55) : 0;
       const bob= load? Math.sin(this.time/(heavy?260:210)+(this._animSeed||0))*load*0.7 : 0;
-      g.translate(x, y+7.4+hh*0.04+bob);
+      g.translate(x, y+7.4+hh*fit.f+bob);
       if(anim.flip) g.scale(-1,1);
       if(load) g.rotate((anim.flip?-1:1)*0.045*load);
       g.drawImage(anim.img, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
