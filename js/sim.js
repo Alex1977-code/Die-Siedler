@@ -282,7 +282,63 @@ export class Game {
   }
   demolish(id){
     const b=this.buildings.get(id); if(!b) return;
+    // Abriss erstattet Baumaterial (Kritikbericht: so lässt sich der
+    // Holzfäller/Steinmetz dem wandernden Vorkommen hinterherziehen, ohne
+    // die Wirtschaft zu verlieren):
+    //  - Baustelle: das bereits angelieferte Material komplett
+    //  - fertiges Gebäude: die halben Baukosten, aufgerundet
+    // Kriegszerstörung läuft über burnBuilding(b, true) und erstattet nichts.
+    const def=BLD[b.type];
+    const erst={};
+    if(b.type!=='hq'){
+      if(b.state==='build'){
+        for(const g of ['board','stone']) if((b.stock[g]|0)>0) erst[g]=b.stock[g]|0;
+      } else if(b.state==='done'){
+        for(const g of ['board','stone']) if(def.cost[g]) erst[g]=Math.ceil(def.cost[g]/2);
+      }
+    }
+    const door=b.door, pl=b.player;
     this.burnBuilding(b, false);
+    this.erstatteWaren(pl, door, erst);
+  }
+  // Erstattete Waren an der Türfahne des Abrisses ablegen – Träger holen sie
+  // wie jede andere Ware ab. Ist die Fahne weg (kein Weg nutzte sie) oder
+  // hängt sie an keinem Lager, trägt die Abrisskolonne das Material direkt
+  // ins nächste Lager (sonst verrottete die Erstattung an einer toten Fahne).
+  erstatteWaren(pl, door, waren){
+    let menge=0; for(const g in waren) menge+=waren[g];
+    if(!menge) return;
+    const stores=this.storesOf(pl);
+    if(!stores.length) return;                    // kein Lager mehr (besiegt)
+    let store=null;
+    if(door>=0 && this.map.flag[door]){
+      const comp=this.compOf(door);
+      if(comp!==undefined){
+        let bd=1e9;
+        for(const s of stores){
+          if(this.compOf(s.door)!==comp) continue;
+          const d=this.flagDist(s.door, door);
+          if(d<bd){ bd=d; store=s; }
+        }
+      }
+    }
+    if(store){
+      const items=this.flagItems.get(door)||[];
+      for(const g in waren) for(let k=0;k<waren[g];k++){
+        items.push({good:g, destB:store.id, srcB:-1});
+        store.incoming[g]=(store.incoming[g]||0)+1;
+      }
+      this.flagItems.set(door, items);
+    } else {
+      // nächstgelegenes Lager (Luftlinie) direkt beliefern
+      const m=this.map;
+      let s0=stores[0], bd=1e9;
+      for(const s of stores){
+        const d=door>=0? Math.hypot(m.X(s.node)-m.X(door), m.Y(s.node)-m.Y(door)) : 0;
+        if(d<bd){ bd=d; s0=s; }
+      }
+      for(const g in waren) s0.inv[g]=(s0.inv[g]||0)+waren[g];
+    }
   }
   burnBuilding(b, byWar=true){
     if(!this.buildings.has(b.id)) return;
@@ -995,19 +1051,32 @@ export class Game {
   // ---------- Wachstum (Bäume, Felder) ----------
   tickGrowth(){
     const m=this.map;
-    // sparsam: pro Aufruf ~200 Zufallsknoten prüfen
-    for(let k=0;k<200;k++){
+    // Stichprobe wächst mit der Karte mit: fest 200 Knoten je Aufruf hieß,
+    // dass Bäume/Felder/Fische auf Karte L fast dreimal so langsam
+    // nachwuchsen wie auf Karte S (jeder Knoten kam seltener an die Reihe).
+    // Auf Karte S bleibt es bei ~200 – die Taktkosten ändern sich kaum.
+    const K=Math.max(200, Math.round(m.terr.length/46));
+    for(let k=0;k<K;k++){
       const i=(this.rng()*m.terr.length)|0;
       const o=m.obj[i];
-      if(o===OBJ.SAPLING && this.rng()<0.2){ m.obj[i]=OBJ.TREE2; this.changedNodes.push(i); }
-      else if(o===OBJ.TREE2 && this.rng()<0.15){ m.obj[i]=OBJ.TREE; this.changedNodes.push(i); }
+      // Bäume reifen zügig: mit den alten Raten brauchte ein Setzling ~9
+      // Spielminuten bis zum fällbaren Baum – der Förster konnte die
+      // Abholzung nie ausgleichen (Kritikbericht, Spielspaß-Bremse 1).
+      if(o===OBJ.SAPLING && this.rng()<0.35){ m.obj[i]=OBJ.TREE2; this.changedNodes.push(i); }
+      else if(o===OBJ.TREE2 && this.rng()<0.3){ m.obj[i]=OBJ.TREE; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD0 && this.rng()<0.25){ m.obj[i]=OBJ.FIELD1; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD1 && this.rng()<0.2){ m.obj[i]=OBJ.FIELD2; this.changedNodes.push(i); }
       else if(m.terr[i]===TER.WATER){
-        // Fischgründe erholen sich sehr langsam; leere Gewässer werden von
-        // benachbarten Beständen wiederbesiedelt
-        if(m.fish[i]>0 && m.fish[i]<8 && this.rng()<0.05) m.fish[i]++;
-        else if(m.fish[i]===0 && this.rng()<0.02 && m.nbs(i).some(n=>m.fish[n]>=3)) m.fish[i]=1;
+        // Fischgründe erholen sich spürbar: ein Fischer an gutem Grund fängt
+        // dauerhaft (wenn auch langsamer) weiter, statt nach ~10 Minuten für
+        // immer zu verstummen. Leere Ufergewässer werden von Nachbarbeständen
+        // wiederbesiedelt – und notfalls (alles leer) ganz langsam von selbst,
+        // damit ein Grund nie ENDGÜLTIG tot ist.
+        if(m.fish[i]>0 && m.fish[i]<8 && this.rng()<0.22) m.fish[i]++;
+        else if(m.fish[i]===0 && m.nbs(i).some(n=>m.terr[n]!==TER.WATER)){
+          const p=m.nbs(i).some(n=>m.fish[n]>=2) ? 0.10 : 0.03;
+          if(this.rng()<p) m.fish[i]=1;
+        }
       }
     }
   }
@@ -1617,7 +1686,10 @@ export class Game {
     return maske;
   }
   nodesWalkable(center, R){
-    const m=this.map, out=[], seen=new Set([center]);
+    // Der eigene Standort zählt mit: der Jäger erlegt auch Wild direkt vor
+    // der Tür, der Fischer nutzt ein Ufer, auf dem seine Hütte selbst steht.
+    // (Objekt-Jobs wie Baum/Fels sind auf dem Gebäudeknoten ohnehin nie.)
+    const m=this.map, out=[center], seen=new Set([center]);
     const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
     let q=[center];
     for(let d=0; d<R; d++){
@@ -1887,7 +1959,17 @@ export class Game {
           }
           break;
         case 'plant':
-          if(done(16)){ if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.SAPLING; this.changedNodes.push(u.target);} u.state='back'; }
+          // Der Förster setzt je Gang ZWEI Setzlinge (Kritikbericht: einer
+          // je Gang glich nicht einmal einen einzigen Holzfäller aus).
+          if(u.actT===16){
+            if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.SAPLING; this.changedNodes.push(u.target); }
+            const zweit=m.nbs(u.target).find(n=> m.obj[n]===OBJ.NONE && m.terr[n]===TER.GRASS
+              && m.bld[n]<0 && !m.flag[n] && m.owner[n]===b.player && !this.roadAt(n));
+            if(zweit!==undefined) u.zweit=zweit; else u.state='back';
+          } else if(done(30)){
+            if(u.zweit!==undefined && m.obj[u.zweit]===OBJ.NONE){ m.obj[u.zweit]=OBJ.SAPLING; this.changedNodes.push(u.zweit); }
+            u.state='back';
+          }
           break;
         case 'pick':
           if(done(30)){
