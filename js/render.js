@@ -601,10 +601,16 @@ export class Renderer {
     const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*8;
     if(!c){
       // Speicherbremse: jeder Chunk ist ein großes Canvas – selten benutzte
-      // Chunks werden verworfen, bevor der Speicher auf dem Handy volläuft
+      // Chunks werden verworfen, bevor der Speicher auf dem Handy volläuft.
+      // Gerade sichtbare (frisch benutzte) bleiben aber IMMER stehen, sonst
+      // verwirft die Bremse bei maximalem Zoom-raus auf großen Bildschirmen
+      // Chunks, die im nächsten Frame teuer neu gebaut werden müssten.
       if(this.chunks.size>44){
         const olds=[...this.chunks.entries()].sort((a2,b2)=>(a2[1].used||0)-(b2[1].used||0));
-        for(let k=0;k<16 && k<olds.length;k++) this.chunks.delete(olds[k][0]);
+        for(let k=0;k<16 && k<olds.length;k++){
+          if((olds[k][1].used||0) > this.time-400) break;
+          this.chunks.delete(olds[k][0]);
+        }
       }
       c={cv:document.createElement('canvas')}; c.cv.width=w; c.cv.height=h; this.chunks.set(key,c);
     }
