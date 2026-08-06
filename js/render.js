@@ -202,7 +202,7 @@ export class Renderer {
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
-    this._palRock=null;                  // Fels-Palette hängt am Thema
+    this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this.initSheep();
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
@@ -1011,7 +1011,9 @@ export class Renderer {
             //    schwach – die Facetten bleiben flach, kein Krümelrauschen.
             {
               const det3=patOf('gebirge3',0.30);
-              const det=det3 || patOf('ter_rock_crack',0.95,33,171,63);
+              // Kluft-Rückfall NICHT im Winter: die braune Kachel färbte
+              // die kühlen Wände schmutzig ein
+              const det=det3 || (this.theme==='winter'? null : patOf('ter_rock_crack',0.95,33,171,63));
               if(det){
                 g.globalCompositeOperation='soft-light';
                 g.globalAlpha= det3? 0.5 : 0.24;
@@ -1029,21 +1031,32 @@ export class Renderer {
             //    stufen zeichnen sie die gestufte Silhouette nach.
             //    Silhouettenkanten (nur ein Dreieck) macht das Geröllband.
             {
-              const dark=new Path2D(), lite=new Path2D();
+              const dark=new Path2D(), soft=new Path2D(), lite=new Path2D();
               let nE=0;
               for(const e of edges.values()){
                 if(!e.b) continue;
                 if(e.a.blk===e.b.blk && e.a.ci===e.b.ci) continue;
                 const P1=pos(e.u), P2=pos(e.v);
-                dark.moveTo(P1[0]+0.7,P1[1]+1.0); dark.lineTo(P2[0]+0.7,P2[1]+1.0);
-                lite.moveTo(P1[0]-0.8,P1[1]-1.2); lite.lineTo(P2[0]-0.8,P2[1]-1.2);
+                if(e.a.blk===e.b.blk){
+                  // reiner Terrassen-/Bandwechsel im selben Block: nur eine
+                  // leise Knickfalte – volle Fugen ergaben auf sanften
+                  // Hängen ein Drahtgitter ohne sichtbaren Tonsprung
+                  soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
+                } else {
+                  dark.moveTo(P1[0]+0.7,P1[1]+1.0); dark.lineTo(P2[0]+0.7,P2[1]+1.0);
+                  lite.moveTo(P1[0]-0.8,P1[1]-1.2); lite.lineTo(P2[0]-0.8,P2[1]-1.2);
+                }
                 nE++;
               }
               if(nE){
                 g.lineCap='round'; g.lineJoin='round';
-                g.strokeStyle= this.theme==='vulkan'? 'rgba(20,15,12,0.42)' : 'rgba(56,49,41,0.40)';
+                const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
+                g.strokeStyle='rgba('+fug+',0.40)';
                 g.lineWidth=2.3;
                 g.stroke(dark);
+                g.strokeStyle='rgba('+fug+',0.18)';
+                g.lineWidth=1.5;
+                g.stroke(soft);
                 g.strokeStyle='rgba(255,250,240,0.28)';
                 g.lineWidth=1.2;
                 g.stroke(lite);
@@ -1271,11 +1284,11 @@ export class Renderer {
                   g.ellipse(px+ox2+hh7*0.10, py+oy2+2.5, hh7*0.30, hh7*0.11, 0, 0, 7);
                   g.fill();
                   const vN=1+((h7*67|0)%3);
-                  const img=this.asset('obj_rockspire_'+vN)||this.asset('obj_spire'+vN);
+                  const img=this.tintedSpire('obj_rockspire_'+vN)||this.tintedSpire('obj_spire'+vN);
                   if(img){
                     // breite Varianten (Blockgruppe/Terrassenturm) flacher
                     // halten, sonst wachsen sie in die Breite
-                    const ar7=img.naturalWidth/img.naturalHeight;
+                    const ar7=img.width/img.height;
                     if(ar7>0.85) hh7*=0.8;
                     const ww7=hh7*ar7;
                     g.save();
@@ -1571,24 +1584,31 @@ export class Renderer {
             mk3.clearRect(0,0,w,h);
             mk3.save(); mk3.translate(-c.ox,-c.oy);
             mk3.fillStyle='#fff';
-            // Schnee auf dunklem Fels zeigt jede Alphastufe gnadenlos: also
-            // wenige weiche Stufen (2) und stattdessen LÜCKENLOSE Deckung –
-            // drei Zellen je Kante, die äußere verschwindet nahtlos in der
-            // ohnehin weißen Ebene. Große Fransstufen läsen sich als Ketten
-            // eckiger Weißkleckse (genau das stand vorher da).
-            // ZWEI satte Zellen je Kante statt dreier kleiner: eine isolierte
-            // Außenzelle ohne Überlappung zur Nachbarkante stand als einzelner
-            // Wattebausch auf dem Fels
+            // KANTIGE, hart gefüllte Zellen statt weicher Wattebäusche:
+            // die Wehe bricht wie eine Schneebrettkante gegen den Fels
+            // (passend zur harten Firnkante des Massivs). Die Außenzelle
+            // verschwindet nahtlos in der ohnehin weißen Ebene.
+            const cellS=(e,cx4,cy4,r)=>{
+              mk3.beginPath();
+              for(let k=0;k<7;k++){
+                const a4=k*0.897 + hash01(e.i*11+e.n*3+1)*0.7 + (hash01(e.i*29+e.n+k*13)-0.5)*0.45;
+                const rr=r*(0.78+hash01(e.i*17+e.n+k*5)*0.42);
+                const qx=cx4+Math.cos(a4)*rr, qy=cy4+Math.sin(a4)*rr*0.82;
+                if(k===0) mk3.moveTo(qx,qy); else mk3.lineTo(qx,qy);
+              }
+              mk3.closePath();
+              mk3.fill();
+            };
             for(const e of eSnow){
               const wn=bno(m.X(e.n), m.Y(e.n));
               const h4=hash01(e.i*13+e.n*7);
               // Versatz längs der Grenze wie beim Geröllband: ohne ihn stand
-              // die Wehe als Raupe gleich großer Wattebäusche im Kantenraster
+              // die Wehe als Raupe gleich großer Zellen im Kantenraster
               const tj=(h4-0.5)*16, tx=-e.uy, ty=e.ux;
               // Innenzelle satt: auf schmalen Felsrippen treffen sich die
               // Wehen beider Seiten – zu kleine Zellen blieben Einzelperlen
-              cell(mk3, e, e.mx-e.ux*12+tx*tj*0.6, e.my-e.uy*10+ty*tj*0.5, 23+h4*6, 2);
-              cell(mk3, e, e.mx+e.ux*(4+wn*5)+tx*tj, e.my+e.uy*(3+wn*4)+ty*tj*0.8, 22+wn*12+h4*5, 3);
+              cellS(e, e.mx-e.ux*12+tx*tj*0.6, e.my-e.uy*10+ty*tj*0.5, 23+h4*6);
+              cellS(e, e.mx+e.ux*(4+wn*5)+tx*tj, e.my+e.uy*(3+wn*4)+ty*tj*0.8, 22+wn*12+h4*5);
             }
             mk3.restore();
             tex3.globalCompositeOperation='source-over';
@@ -1848,10 +1868,11 @@ export class Renderer {
           g.arc(px+o1+hash01(i*17+k)*22-11, py+o2+hash01(i*19+k)*15-8, 1.1, 0, 7);
           g.fill();
         }
-      } else if(h<0.58 && hg>1.06){
-        // Schneefleck in Gipfelnähe
+      } else if(h<0.58 && hg>1.06 && this.theme!=='vulkan' && this.theme!=='wueste'){
+        // Schneefleck in Gipfelnähe – FLACH liegend (die alte freie Drehung
+        // stellte den Fleck senkrecht: er hing als weißer Tropfen im Fels)
         g.fillStyle='rgba(240,246,252,0.28)';
-        g.beginPath(); g.ellipse(px+o1,py+o2,7,3,h*3,0,7); g.fill();
+        g.beginPath(); g.ellipse(px+o1,py+o2,7,3,(h-0.5)*0.6,0,7); g.fill();
       }
     } else if(t===TER.DESERT && h<0.4){
       g.fillStyle='rgba(160,130,80,0.3)';
@@ -2089,6 +2110,7 @@ export class Renderer {
              ||key.startsWith('gebirge')||key.startsWith('obj_rockspire')||key.startsWith('obj_spire')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
+            this._spireTint=null;
             this.chunks.clear();
           };
           img.src='assets/'+name;
@@ -2316,6 +2338,36 @@ export class Renderer {
     g.fillStyle=C(3); g.fill();
     // feine dunkle Kontur hält den Block zusammen
     poly(pts); g.strokeStyle='rgba(40,35,29,0.25)'; g.lineWidth=1; g.stroke();
+  }
+  // Felsnadel-Bild auf die Thema-Felspalette getönt (einmal je Bild
+  // gecacht): das neutrale Hellgrau der gemalten Nadeln stünde sonst
+  // fremd auf dunklem Vulkanfels bzw. warmem Wüstenstein.
+  tintedSpire(key){
+    if(!this._spireTint) this._spireTint=new Map();
+    if(this._spireTint.has(key)) return this._spireTint.get(key);
+    const img=this.asset(key);
+    if(!img){ this._spireTint.set(key,null); return null; }
+    const P=this.rockPal();
+    const W=img.naturalWidth, H=img.naturalHeight;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    t.globalCompositeOperation='color';
+    t.globalAlpha=0.55;
+    t.fillStyle='rgb('+(P[2][0]|0)+','+(P[2][1]|0)+','+(P[2][2]|0)+')';
+    t.fillRect(0,0,W,H);
+    // Vulkan/Wüste zusätzlich andunkeln – die Nadel darf nicht leuchten
+    if(this.theme==='vulkan'||this.theme==='wueste'){
+      t.globalCompositeOperation='multiply';
+      t.globalAlpha=0.45;
+      t.fillRect(0,0,W,H);
+    }
+    t.globalAlpha=1;
+    t.globalCompositeOperation='destination-in';
+    t.drawImage(img,0,0);
+    t.globalCompositeOperation='source-over';
+    this._spireTint.set(key,cv);
+    return cv;
   }
   // Prozedurale Felsnadel als Rückfall, solange obj_rockspire_*/obj_spire*
   // fehlen: schlanker, gestufter Keil mit heller Westflanke, dunkler
