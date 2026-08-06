@@ -952,16 +952,19 @@ export class Renderer {
             if(lf>0.68 && qi<4) qi++;
             else if(lf<0.32 && qi>0) qi--;
             // Hohe Absturzwände (stark gestreckte Dreiecke) bleiben im
-            // Halblicht – die WAND soll lesbar sein, kein schwarzer Zahn
-            // und keine gleißende Folie.
+            // HalbSCHATTEN – die WAND soll lesbar sein, kein schwarzer Zahn
+            // und keine gleißende Folie. Obergrenze 2 statt 3: helle Wand-
+            // dreiecke neben dunklen lasen sich als Harlekin-Fächer.
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
-            if(spanY>ROWH*1.7) qi=Math.max(1,Math.min(3,qi));
+            if(spanY>ROWH*1.7) qi=Math.max(1,Math.min(2,qi));
             const hh=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
             const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
             const band=Math.min(4,(u4*5)|0);
             // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
-            // kante liegt auf der SONNENSEITE der helleren Platte
-            const t3={A,B,C,ci:qi*5+band,blk,
+            // kante liegt auf der SONNENSEITE der helleren Platte.
+            // wl markiert Wanddreiecke – zwischen ihnen keine Fugen, eine
+            // Absturzwand ist EINE Fläche (Fugen zerhackten sie in Zähne).
+            const t3={A,B,C,ci:qi*5+band,blk, wl:spanY>ROWH*1.7,
                       cx:(A[0]+B[0]+C[0])/3, cy:(A[1]+B[1]+C[1])/3};
             tris.push(t3);
             edge(a2,b2,t3); edge(b2,c2,t3); edge(c2,a2,t3);
@@ -1054,13 +1057,21 @@ export class Renderer {
                       gc.lineTo(t3.C[0],t3.C[1]); gc.closePath();
                     }
                   };
+                  // Steilwand-Blöcke (deutlich höher als breit) laufen als
+                  // beschattete WAND: Achse senkrecht, Ton gedeckelt – sonst
+                  // fächerten helle Diagonalverläufe die Wand in Harlekin-
+                  // dreiecke auf
+                  const wallish=rh>rw*1.25;
+                  const qiG=wallish? Math.min(2,qiB) : qiB;
                   // Verlaufsachse: Sonnendiagonale, je Block leicht verdreht
-                  const ax7=x5+rw*(0.1+j1*0.5), ay7=y5+rh*(0.0+j2*0.4);
-                  const bx7=x6-rw*(0.1-j1*0.4), by7=y6-rh*(0.0+j2*0.4);
+                  const ax7=wallish? (x5+x6)/2 : x5+rw*(0.1+j1*0.5);
+                  const ay7=y5+rh*(0.0+j2*0.4);
+                  const bx7=wallish? (x5+x6)/2+j1*rw*0.3 : x6-rw*(0.1-j1*0.4);
+                  const by7=y6-rh*(0.0+j2*0.4);
                   const lg7=sg2.createLinearGradient(ax7,ay7,bx7,by7);
-                  lg7.addColorStop(0, colTab[Math.min(4,qiB+1)*5+bandB]);
-                  lg7.addColorStop(0.30+j2*0.12, colTab[ciB]);
-                  lg7.addColorStop(1, colTab[Math.max(0,qiB-1)*5+bandB]);
+                  lg7.addColorStop(0, colTab[Math.min(4,qiG+1)*5+bandB]);
+                  lg7.addColorStop(0.30+j2*0.12, colTab[qiG*5+bandB]);
+                  lg7.addColorStop(1, colTab[Math.max(0,qiG-1)*5+bandB]);
                   path(sg2); sg2.fillStyle=lg7; sg2.fill();
                   // Facetten, die vom Grundton abweichen (Wandlicht, Höhen-
                   // band), halbtransparent zurückholen – das Terrassenrelief
@@ -1111,8 +1122,11 @@ export class Renderer {
                 g.globalCompositeOperation='soft-light';
                 // seit dem Plattenvolumen nur noch DEZENT: die Kachel liefert
                 // Nahzoom-Korn, das Modellieren übernehmen die Verläufe –
-                // bei 0.5 konkurrierte ihr Fugennetz mit den echten Platten
-                g.globalAlpha= det3? 0.30 : 0.24;
+                // bei 0.5 konkurrierte ihr Fugennetz mit den echten Platten.
+                // Auf dunklem Vulkanfels wirkt Weichlicht doppelt so stark
+                // (die beige Kachel hellt jede Zelle auf) -> weiter drosseln
+                g.globalAlpha= det3? (this.theme==='vulkan'? 0.20
+                                     : this.theme==='winter'? 0.24 : 0.30) : 0.24;
                 g.fillStyle=det;
                 g.fillRect(c.ox,c.oy,w,h);
                 g.globalAlpha=1;
@@ -1142,6 +1156,12 @@ export class Renderer {
                   // reiner Terrassen-/Bandwechsel im selben Block: nur eine
                   // leise Knickfalte – volle Fugen ergaben auf sanften
                   // Hängen ein Drahtgitter ohne sichtbaren Tonsprung
+                  soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
+                  nE++; continue;
+                }
+                // Wand-zu-Wand-Kanten: nur leise Knickfalte – die Wand ist
+                // EINE Fläche, Blockfugen zerschnitten sie in Einzelzähne
+                if(e.a.wl && e.b.wl){
                   soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
                   nE++; continue;
                 }
@@ -1201,6 +1221,13 @@ export class Renderer {
               for(const e of edges.values()){
                 if(e.b) continue;
                 if(!isBnd(e.u)||!isBnd(e.v)) continue;
+                // nicht auf Schnee: die Grenze Firnplateau/Schnee-Ebene ist
+                // unsichtbar weiß auf weiß – ein AO-Strich malte dort eine
+                // dunkle Geisterlinie quer über den Schnee. Auch unterm
+                // Firnrand kein brauner Saum (Schnee schattet kühl, das
+                // macht die Schneewehe des Bergfuß-Passes).
+                if(m.terr[e.u]===TER.SNOW||m.terr[e.v]===TER.SNOW) continue;
+                if(firnY<90 && (m.hgt[e.u]>firnY-0.4||m.hgt[e.v]>firnY-0.4)) continue;
                 const P1=pos(e.u),P2=pos(e.v);
                 p1.moveTo(P1[0],P1[1]); p1.lineTo(P2[0],P2[1]); nB++;
               }
@@ -1843,13 +1870,17 @@ export class Renderer {
             const fac=e.ux*0.55+e.uy*0.83;
             if(fac<=0.05) continue;
             // zurückhaltend: an stark gewundenen Grenzen stapeln sich die
-            // Kleckse benachbarter Kanten – zu viel Alpha gäbe Schmutzflecken
-            const al=0.22*Math.min(1,fac);
+            // Kleckse benachbarter Kanten – zu viel Alpha gäbe Schmutzflecken.
+            // Auf Schnee KÜHL und leiser: der warme Braunschatten stand als
+            // Dreckfleck im Weiß (Schnee schattet blaugrau).
+            const snowy=arr===eSnow;
+            const al=(snowy? 0.15 : 0.22)*Math.min(1,fac);
+            const ct=snowy? '88,96,122' : '38,34,30';
             const sx5=e.mx+e.ux*10+5, sy5=e.my+e.uy*8+6;
             const rg=g.createRadialGradient(sx5,sy5,3, sx5,sy5,30);
-            rg.addColorStop(0,'rgba(38,34,30,'+al.toFixed(3)+')');
-            rg.addColorStop(0.65,'rgba(38,34,30,'+(al*0.45).toFixed(3)+')');
-            rg.addColorStop(1,'rgba(38,34,30,0)');
+            rg.addColorStop(0,'rgba('+ct+','+al.toFixed(3)+')');
+            rg.addColorStop(0.65,'rgba('+ct+','+(al*0.45).toFixed(3)+')');
+            rg.addColorStop(1,'rgba('+ct+',0)');
             g.fillStyle=rg;
             g.beginPath(); g.ellipse(sx5,sy5,30,24,0,0,7); g.fill();
           }
@@ -1953,26 +1984,38 @@ export class Renderer {
         g.save();
         g.translate(-c.ox,-c.oy);
         for(const i of gorge){
-          const [px,py]=m.worldPos(i);
+          // ausgedünnt: an Terrassenbrüchen qualifiziert sich jede Kanten-
+          // reihe – ein Riss je Knoten ergab gestrichelte Ketten längs
+          // der ganzen Abbruchkante
+          if(hash01(i*57+3)>0.35) continue;
+          let [px,py]=m.worldPos(i);
           const gr=this.gradOf(m,i);
           if(!gr) continue;
+          // vom Terrassenbruch weg IN die Wand gerückt: direkt auf der
+          // Brinklinie lasen sich die Risse als gestrichelte Kante
+          px-=gr[0]*7; py-=gr[1]*5;
           const hsh=hash01(i*29+7);
-          // Riss verläuft quer zum Gefälle (wie eine ausgewaschene Kluft)
+          // Riss verläuft quer zum Gefälle (wie eine ausgewaschene Kluft).
+          // KANTIG als Knickzug – die alten weichen Bögen mit runden Enden
+          // lagen wie dunkle Ästchen AUF den Platten statt in ihnen.
           const a=Math.atan2(gr[1],gr[0])+Math.PI/2;
-          const len=14+hsh*12;
+          const len=12+hsh*10;
           const cx3=Math.cos(a), sy3=Math.sin(a)*0.55;
-          g.lineCap='round';
-          g.strokeStyle='rgba(30,26,22,0.3)';
-          g.lineWidth=2+hsh*1.6;
+          const kx=px+sy3*3+(hash01(i*43+1)-0.5)*4, ky=py-cx3*2+(hash01(i*47+2)-0.5)*3;
+          g.lineCap='butt'; g.lineJoin='miter';
+          g.strokeStyle='rgba(30,26,22,0.26)';
+          g.lineWidth=1.6+hsh*1.2;
           g.beginPath();
           g.moveTo(px-cx3*len*0.5, py-sy3*len*0.5);
-          g.quadraticCurveTo(px+sy3*4, py-cx3*2.4, px+cx3*len*0.5, py+sy3*len*0.5);
+          g.lineTo(kx,ky);
+          g.lineTo(px+cx3*len*0.5, py+sy3*len*0.5);
           g.stroke();
-          g.strokeStyle='rgba(236,238,240,0.16)';
+          g.strokeStyle='rgba(236,238,240,0.13)';
           g.lineWidth=0.9;
           g.beginPath();
-          g.moveTo(px-cx3*len*0.5, py-sy3*len*0.5-1.6);
-          g.quadraticCurveTo(px+sy3*4, py-cx3*2.4-1.6, px+cx3*len*0.5, py+sy3*len*0.5-1.6);
+          g.moveTo(px-cx3*len*0.5, py-sy3*len*0.5-1.4);
+          g.lineTo(kx,ky-1.4);
+          g.lineTo(px+cx3*len*0.5, py+sy3*len*0.5-1.4);
           g.stroke();
         }
         g.restore();
