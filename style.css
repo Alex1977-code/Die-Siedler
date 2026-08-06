@@ -18,7 +18,7 @@ body{
     radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
     radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
     #16202e;
-  display:flex; align-items:center; justify-content:center;
+  display:flex;
 }
 /* Titelbild als Kulisse, falls vorhanden */
 #scr-title::before{
@@ -29,6 +29,12 @@ body{
   -webkit-mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 78%);
 }
 .title-wrap{
+  /* margin:auto statt align-items:center am Elternelement: ist die Tafel
+     höher als der Bildschirm (Handy quer, 900×500), schnitt die Flex-
+     Zentrierung den Titel oben unerreichbar ab (Kritikbericht F7). Mit
+     auto-Rändern bleibt sie mittig, wenn Platz ist, und beginnt sonst
+     scrollbar am oberen Rand. */
+  margin:auto;
   text-align:center; padding:26px 22px 24px; max-width:420px; width:100%;
   position:relative; border-radius:20px;
   background:
@@ -55,6 +61,17 @@ h1::after{
 }
 .subtitle{ opacity:0.85; margin-bottom:28px; letter-spacing:0.06em; }
 .credits{ margin-top:26px; font-size:12px; opacity:0.55; }
+/* Handy quer (geringe Höhe): Tafel kompakter, damit Titel UND Knöpfe ohne
+   Anschnitt aufs Bild passen (F7) */
+@media (max-height:560px){
+  .title-wrap{ margin:8px auto; padding:14px 18px 14px; }
+  h1{ font-size:clamp(30px,9.5vh,52px); }
+  h1::after{ width:36px; height:36px; line-height:36px; font-size:14px; margin-top:2px; }
+  .subtitle{ margin-bottom:12px; }
+  .menu{ gap:7px; }
+  .mbtn{ padding:9px 16px; font-size:15.5px; }
+  .credits{ margin-top:12px; }
+}
 .menu{ display:flex; flex-direction:column; gap:10px; }
 .mbtn{
   font-size:17px; padding:13px 18px; border-radius:16px; border:1px solid #3d2f1e;

@@ -70,6 +70,15 @@ export class Game {
   // ---------- Nachrichten ----------
   msg(txt, type='info', node=-1, player=0){
     if(player!==0) return; // nur menschlicher Spieler (id 0) bekommt Meldungen
+    // Wortgleiche Meldung im SELBEN Tick nur einmal: beim HQ-Fall brennt die
+    // Kaskade (recalcTerritory -> burnBuilding -> recalcTerritory ...) mehrere
+    // gleichnamige Gebäude im selben Takt nieder – "Eisenbergwerk wurde
+    // zerstört!" stand dreifach im Bild (Kritikbericht F6).
+    for(let k=this.msgs.length-1; k>=0; k--){
+      const p=this.msgs[k];
+      if(p.t!==this.t) break;
+      if(p.txt===txt) return;
+    }
     this.msgs.push({ t:this.t, txt, type, node });
     if(this.msgs.length>120) this.msgs.shift();
   }
@@ -77,10 +86,14 @@ export class Game {
   // Grund zusätzlich eine kurze Sammel-Sperre über alle Gebäude. Vorher
   // stapelte sich dieselbe Warnung (19x "keine Schaufel" in einem Lauf des
   // Kritikberichts), weil jede Baustelle einzeln und sofort meldete.
-  warn(b, reason, txt){
+  // `cd`: Sperrzeit je Gebäude in Ticks (Standard 60 s). Dauerzustände wie
+  // die Sammler-Erschöpfung nutzen eine LANGE Sperre – den Zustand zeigt das
+  // Warnschild im Bild, der Toast soll nicht endlos wiederkehren (F5: 17
+  // gleiche Erschöpfungs-Toasts in 50 min).
+  warn(b, reason, txt, cd=600){
     if(b.player!==0) return;
     b._warnT=b._warnT||{};
-    if(b._warnT[reason]!==undefined && this.t-b._warnT[reason]<600) return;   // 60 s je Gebäude
+    if(b._warnT[reason]!==undefined && this.t-b._warnT[reason]<cd) return;    // Sperre je Gebäude
     this._warnG=this._warnG||{};
     if(this._warnG[reason]!==undefined && this.t-this._warnG[reason]<300) return; // 30 s je Grund
     b._warnT[reason]=this.t; this._warnG[reason]=this.t;
@@ -177,6 +190,11 @@ export class Game {
     else {
       if(!m.terrOkBuild(node)) return {ok:false, r:'Untergrund ungeeignet'};
     }
+    // Netzbewusstsein: nur Plätze anbieten, deren Landstück ans Wegenetz des
+    // Spielers anschließbar ist (HQ-Landstück oder per Seeweg angebundene
+    // Landstücke). Verhindert tote Baustellen auf Sandbänken hinter Wasser –
+    // auch die KI wählt so keine unanschließbaren Plätze mehr (F1).
+    if(!this.netLandOk(player, node)) return {ok:false, r:'Kein Anschluss ans Wegenetz möglich'};
     if(def.coastal && !m.nbs(node).some(n=>m.terr[n]===TER.WATER))
       return {ok:false, r:'Nur direkt am Wasser'};
     // Die Tuerfahne braucht einen Platz UND einen Ausgang. Ohne diese
@@ -406,7 +424,9 @@ export class Game {
     p.defeated=true;
     for(const b of [...this.buildings.values()]) if(b.player===pl) this.burnBuilding(b,false);
     this.roadsCleanupForPlayer(pl);
-    this.msg(`${p.name} ist besiegt!`, 'war');
+    // korrekte Anrede: der menschliche Spieler heißt im freien Spiel "Du" –
+    // die Namens-Schablone machte daraus "Du ist besiegt!" (Kritikbericht F6)
+    this.msg(p.name==='Du' ? 'Du bist besiegt!' : `${p.name} ist besiegt!`, 'war');
     this.recalcTerritory();
     const alive=this.players.filter(q=>!q.defeated);
     if(alive.length===1 && !this.over && !this.objectives.length){
@@ -984,6 +1004,11 @@ export class Game {
     const b=this.buildings.get(bldId);
     if(!b || b.player===pl) return 0;
     if(!(BLD[b.type].mil || b.type==='hq')) return 0;
+    // Kein Angriff ins Schwarze: der menschliche Spieler bekommt nur ERKUNDETE
+    // Feindgebäude als Ziel angeboten – das Angriffs-Sheet schwebte sonst vor
+    // unaufgeklärtem Dunkel (Kritikbericht F8). Der Nebel wird nur für
+    // Spieler 0 geführt, die KI bleibt unberührt.
+    if(pl===0 && !this.map.explored[b.node]) return 0;
     let avail=0;
     for(const {mb} of this.atkSources(pl,b)) avail += Math.max(0, mb.soldiers.length-1);
     return avail;
@@ -1005,6 +1030,9 @@ export class Game {
     const [sx,sy]=this.map.worldPos(sources[0].mb.node);
     this.units.push({ id:NEXT_ID++, type:'attack', player:pl, x:sx, y:sy,
       target: target.node, targetB: bldId, soldiers: group, state:'walk' });
+    // Spähwissen durch den Angriffsbefehl: ein kleiner Sichtkreis ums Ziel
+    // lüftet den Nebel – das Kampfgeschehen spielt nicht mehr im Schwarzen (F8)
+    if(pl===0) this.exploreAround(target.node, 4);
     if(target.player===0) this.msg('Wir werden angegriffen!', 'war', target.node);
     return true;
   }
@@ -1041,6 +1069,7 @@ export class Game {
     this.tickBattles();
     this.tickMilitary();
     if(this.t%25===11) this.tickBuilderSpawn();
+    if(this.t%100===61) this.checkMatWait();
     this.tickRuins();
     if(this.t%2===0) this.tickAnimals();
     if(this.t%10===0) this.tickGrowth();
@@ -1366,6 +1395,12 @@ export class Game {
       // Material komplett + Bauarbeiter (freie Figur mit Hammer) vor Ort
       const builderThere=b.builderId!=null
         && this.units.some(u=>u.id===b.builderId && u.type==='builder' && u.state==='work');
+      // Materialwartezeit zählen: Baustellen, die minutenlang auf Bretter/
+      // Steine warten, standen vorher völlig stumm (Kritikbericht F4 – zehn
+      // Baustellen >100 Spielminuten ohne eine einzige Meldung). Der Zähler
+      // steuert die Sammelmeldung (checkMatWait) und das Warnschild im Bild.
+      if((b.stock.board||0)<needB || (b.stock.stone||0)<needS) b.matWaitT=(b.matWaitT||0)+1;
+      else b.matWaitT=0;
       const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS && builderThere;
       if(!haveAll) continue;
       b.progress += 1;
@@ -1381,6 +1416,26 @@ export class Game {
         this.onBuilt && this.onBuilt(b);
       }
     }
+  }
+  // Gesammelte Materialwarnung: Baustellen, die länger als ~2 Spielminuten
+  // auf Bretter/Steine warten, melden sich EINMAL gebündelt ("N Baustellen
+  // warten auf Baumaterial") statt gar nicht (F4) oder einzeln im Minutentakt.
+  // Gemeldet wird beim Eintritt in den Zustand; erst wenn wieder KEINE
+  // Baustelle mehr wartet, darf eine neue Sammelmeldung kommen.
+  checkMatWait(){
+    let n=0, first=null;
+    for(const b of this.buildings.values()){
+      if(b.player!==0 || b.state!=='build') continue;
+      if((b.matWaitT||0)>=1200){ n++; if(!first) first=b; }
+    }
+    if(n>0){
+      if(!this._matWarned){
+        this._matWarned=true;
+        const txt= n===1 ? 'Eine Baustelle wartet auf Baumaterial (Bretter/Steine)!'
+                         : `${n} Baustellen warten auf Baumaterial (Bretter/Steine)!`;
+        this.warn(first, 'material', txt, 3000);
+      }
+    } else this._matWarned=false;
   }
 
   // ---------- Produktion & Arbeiter ----------
@@ -1503,7 +1558,12 @@ export class Game {
             b.noJobT=(b.noJobT||0)+1;
             if(b.noJobT>=600 && !b.exhausted){
               b.exhausted=true;
-              if(b.player===0) this.msg(`${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 'warn', b.node);
+              // Dauerzustand: das Warnschild am Gebäude zeigt ihn an, der
+              // Toast kommt über warn() mit LANGER Sperre – vorher wiederholte
+              // sich dieselbe Meldung endlos, sobald ein nachgewachsener Baum
+              // die Erschöpfung kurz löste und sie gleich wieder eintrat
+              // (Kritikbericht F5: 17 gleiche Toasts in 50 Minuten).
+              this.warn(b, 'exhausted', `${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 6000);
             }
           }
         }
@@ -1684,6 +1744,49 @@ export class Game {
     }
     this._fischNah=maske;
     return maske;
+  }
+  // Ist der Knoten ans Wegenetz des Spielers ANSCHLIESSBAR? Straßen laufen
+  // nur durch EIGENES Gebiet und nie über Wasser/Lava. Das eigene Gebiet wird
+  // deshalb in zusammenhängende begehbare Stücke zerlegt; anschließbar sind
+  // das Stück mit dem Hauptquartier und jedes Stück, in dem eine Fahne des
+  // HQ-Straßennetzes steht (Seewege über Häfen verbinden getrennte Stücke!).
+  // Ohne diese Prüfung bot die Bauplatz-Anzeige nach einer Grenzerweiterung
+  // ÜBER Wasser grüne Punkte auf Sandbänken an, deren Türfahne nie eine
+  // Straße erreichen kann – fünf tote Baustellen verrotteten bis Spielende
+  // (Kritikbericht F1, M/Seed 11, Knoten 7357-7360). Die Maske wird je
+  // Spieler EINMAL je Gebiets-/Netzänderung berechnet und dann in O(1)
+  // abgefragt – KEIN A* pro Punkt pro Frame.
+  netLandOk(player, node){
+    const m=this.map;
+    this._netLand=this._netLand||new Map();
+    let e=this._netLand.get(player);
+    if(!e || e.terrVer!==this.territoryVer || e.routeVer!==this.routeVer){
+      const comp=new Int32Array(m.terr.length).fill(-1);
+      const frei=(i)=> m.owner[i]===player && m.terr[i]!==TER.WATER && m.terr[i]!==TER.LAVA;
+      let c=0;
+      for(let i=0;i<m.terr.length;i++){
+        if(comp[i]>=0 || !frei(i)) continue;
+        comp[i]=c;
+        const q=[i];
+        while(q.length){
+          const cur=q.pop();
+          for(const n of m.nbs(cur)) if(comp[n]<0 && frei(n)){ comp[n]=c; q.push(n); }
+        }
+        c++;
+      }
+      const set=new Set();
+      const hq=this.buildings.get(this.players[player]?.hq);
+      if(hq && comp[hq.node]>=0) set.add(comp[hq.node]);
+      if(hq && hq.door>=0){
+        const hqC=this.compOf(hq.door);
+        if(hqC!==undefined)
+          for(const f of this.flagGraph().keys())
+            if(this.compOf(f)===hqC && comp[f]>=0) set.add(comp[f]);
+      }
+      e={terrVer:this.territoryVer, routeVer:this.routeVer, comp, set};
+      this._netLand.set(player, e);
+    }
+    return e.comp[node]>=0 && e.set.has(e.comp[node]);
   }
   nodesWalkable(center, R){
     // Der eigene Standort zählt mit: der Jäger erlegt auch Wild direkt vor

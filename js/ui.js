@@ -544,7 +544,13 @@ export class UI {
     // Auswahl: Gebäude? Fahne? Weg? freier Knoten?
     if(fahnenTreff>=0){ this.state.sel=fahnenTreff; this.openFlagSheet(fahnenTreff); return; }
     if(i<0) return;
-    if(m.bld[i]>=0){ this.state.sel=i; this.openBuildingSheet(this.game.buildings.get(m.bld[i])); return; }
+    if(m.bld[i]>=0){
+      const bb=this.game.buildings.get(m.bld[i]);
+      // Feindgebäude im unerforschten Dunkel sind unsichtbar – ein Tipp
+      // dorthin darf kein Angriffs-Sheet vor schwarzem Nebel öffnen (F8).
+      if(bb && bb.player!==0 && !m.explored[i]){ this.state.sel=-1; this.closeSheet(); return; }
+      this.state.sel=i; this.openBuildingSheet(bb); return;
+    }
     if(m.flag[i]){ this.state.sel=i; this.openFlagSheet(i); return; }
     const road=this.game.roadAt(i);
     if(road && road.player===0){ this.state.sel=i; this.openRoadSheet(road, i); return; }
@@ -838,6 +844,13 @@ export class UI {
     if(b.player!==0){
       // Feindgebäude: Angriff?
       if(def.mil||b.type==='hq'){
+        // Spähwissen durch den Angriffsbefehl: Kamera aufs Ziel und einen
+        // kleinen Sichtkreis lüften, damit das Sheet nicht vor schwarzem
+        // Nebel schwebt (Kritikbericht F8).
+        // Radius 4: die Nebelschwaden fransen ~1,5 Knoten in Sichtbares
+        // hinein – ein kleinerer Kreis ersöffe komplett im Dunst
+        g.exploreAround(b.node, 4);
+        this.jumpTo(b.node);
         const avail=g.attackable(0,b.id);
         const isSite=b.state==='build';
         const defN=(b.soldiers?.length||0)+(b.type==='hq'?g.recruitTotal(b.player):0);

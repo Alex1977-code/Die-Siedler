@@ -4972,6 +4972,10 @@ export class Renderer {
         if(m.owner[i]!==0) continue;
         if(m.bld[i]>=0||m.flag[i]||(m.obj[i]&127)!==OBJ.NONE) continue;
         if(!m.terrOkBuild(i)&&!m.terrOkMine(i)) continue;
+        // Netzbewusstsein (F1): Landstücke ohne möglichen Straßenanschluss
+        // (Sandbank hinter dem Wasserarm) bekommen gar keine Punkte –
+        // gecachte O(1)-Maske, kein A* pro Punkt pro Frame.
+        if(!game.netLandOk(0,i)) continue;
         const [px,py]=m.worldPos(i);
         if(ui.placeType){
           // gewählter Gebäudetyp: nur gültige Plätze, grün markiert
@@ -5479,6 +5483,10 @@ export class Renderer {
       g.beginPath();
       g.moveTo(x-16,y-10); g.lineTo(x+16,y-10); g.lineTo(x+14,y+2); g.lineTo(x-14,y+2); g.closePath();
       g.stroke();
+      // Auch die noch unplanierte Baustelle zeigt ihr Warnschild, wenn sie
+      // minutenlang auf Baumaterial wartet (F4/F5)
+      const zu=this.bldZustand(b);
+      if(zu && b.player===0) this.statusSchild(g, x, y-34, zu, b.id);
       return;
     }
     let ov, ovKey=typeKey;
@@ -5606,31 +5614,21 @@ export class Renderer {
         });
       }
     }
-    // "Zzz" über Arbeitern ohne Aufgabe (schläft ein – und zeigt: hier fehlt Nachschub)
-    if(b.state==='done' && b.worker && b.worker.present && b.worker.state==='in'
-       && b.worker.timer > (BLD[b.type].time||100)*3){
-      const ph=(this.time/900+b.id)%1;
-      g.font='bold 10px Georgia,serif';
-      g.fillStyle=`rgba(240,245,255,${0.75-ph*0.4})`;
-      g.fillText('z', x+14, y-38-ph*8);
-      g.font='bold 13px Georgia,serif';
-      g.fillText('Z', x+19, y-44-ph*10);
+    // ---------- Dauerzustände als schwebendes Holzschild (F5) ----------
+    // Ein einheitliches Zeichen im Bild statt Toast-Wiederholung: ⚠-Schild
+    // (erschöpfte Umgebung, leeres Bergwerk, wartendes Baumaterial), Zz
+    // (pausiert, Lager voll, eingeschlafener Sammler) und Werkzeug-Symbol
+    // (wartet auf Werkzeug). Ersetzt die alte Doppelbalken-Pausenplakette
+    // und die frei schwebenden Zzz-Buchstaben.
+    if(b.player===0){
+      const zu=this.bldZustand(b);
+      if(zu){
+        const hh3=this.scaleOf(typeKey, big?96:64);
+        this.statusSchild(g, x, y-hh3-14, zu, b.id);
+      }
     }
     // ---------- deutliche Arbeits-Effekte ----------
     const working=b.state==='done' && !b.paused && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
-    // stillgelegt: Betrieb ruht sichtbar
-    if(b.paused && b.state==='done'){
-      const hh3=this.scaleOf(typeKey, big?96:64);
-      g.globalAlpha=0.85;
-      g.fillStyle='rgba(18,24,32,0.72)';
-      g.beginPath(); g.arc(x, y-hh3*0.55, 8, 0, 7); g.fill();
-      g.strokeStyle='rgba(242,217,140,0.85)'; g.lineWidth=1.2;
-      g.beginPath(); g.arc(x, y-hh3*0.55, 8, 0, 7); g.stroke();
-      g.fillStyle='#f2d98c';
-      g.fillRect(x-3.4, y-hh3*0.55-4, 2.4, 8);
-      g.fillRect(x+1.0, y-hh3*0.55-4, 2.4, 8);
-      g.globalAlpha=1;
-    }
     // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms
     if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')){
       const sails=this.asset('obj_millsails');
@@ -5706,6 +5704,90 @@ export class Renderer {
     }
     // Arbeits-Effekte (Rauch, Funken, Staub …) – je Gebäude passend verankert
     this.bldEffect(g, b, x, y, working);
+  }
+  // Welcher Dauerzustand gilt für dieses Gebäude? (F5)
+  // 'warn'  = erschöpfte Umgebung / leeres Vorkommen / Baustelle wartet auf Material
+  // 'sleep' = pausiert, Lager voll (satPause) oder eingeschlafener Sammler
+  // 'tool'  = wartet auf Werkzeug aus der Werkzeugschmiede
+  bldZustand(b){
+    if(b.state==='build') return (b.matWaitT||0)>=1200 ? 'warn' : null;
+    if(b.state!=='done') return null;
+    if(b.paused) return 'sleep';
+    if(b.worker && !b.worker.present && b.needTool) return 'tool';
+    if(b.exhausted || b.depleted) return 'warn';
+    if(b.satPause) return 'sleep';
+    if(b.worker && b.worker.present && b.worker.state==='in'
+       && b.worker.timer > (BLD[b.type].time||100)*3) return 'sleep';
+    return null;
+  }
+  // Kleines schwebendes Holzschild mit Zeichen – prozedural im Spielstil
+  // gemalt (Brett, Nägel, aufgemaltes Symbol), KEINE Emojis im Canvas.
+  statusSchild(g, x, y, kind, id=0){
+    const bob=Math.sin(this.time/520+id*1.3)*1.6;
+    const cy=y+bob;
+    const w=19, h=15, r=3;
+    g.save();
+    // weicher Schatten unterm Schild
+    g.fillStyle='rgba(15,20,12,0.30)';
+    g.beginPath(); g.ellipse(x, y+11, 7.5, 2.4, 0, 0, 7); g.fill();
+    // Brett mit Holzverlauf
+    const grad=g.createLinearGradient(x, cy-h/2, x, cy+h/2);
+    grad.addColorStop(0,'#9a7a4e'); grad.addColorStop(1,'#6d5433');
+    g.beginPath();
+    g.moveTo(x-w/2+r, cy-h/2);
+    g.lineTo(x+w/2-r, cy-h/2); g.quadraticCurveTo(x+w/2, cy-h/2, x+w/2, cy-h/2+r);
+    g.lineTo(x+w/2, cy+h/2-r); g.quadraticCurveTo(x+w/2, cy+h/2, x+w/2-r, cy+h/2);
+    g.lineTo(x-w/2+r, cy+h/2); g.quadraticCurveTo(x-w/2, cy+h/2, x-w/2, cy+h/2-r);
+    g.lineTo(x-w/2, cy-h/2+r); g.quadraticCurveTo(x-w/2, cy-h/2, x-w/2+r, cy-h/2);
+    g.closePath();
+    g.fillStyle=grad; g.fill();
+    g.strokeStyle='#3a2c18'; g.lineWidth=1.2; g.stroke();
+    // Maserung + Ziernägel
+    g.strokeStyle='rgba(61,43,20,0.3)'; g.lineWidth=0.7;
+    g.beginPath(); g.moveTo(x-w/2+2, cy+3.6); g.lineTo(x+w/2-2, cy+3.2); g.stroke();
+    g.fillStyle='rgba(233,222,193,0.8)';
+    for(const [nx,ny] of [[x-w/2+2.2,cy-h/2+2.2],[x+w/2-2.2,cy-h/2+2.2],[x-w/2+2.2,cy+h/2-2.2],[x+w/2-2.2,cy+h/2-2.2]]){
+      g.beginPath(); g.arc(nx,ny,0.8,0,7); g.fill();
+    }
+    if(kind==='warn'){
+      // aufgemaltes Warndreieck mit Ausrufezeichen
+      g.beginPath();
+      g.moveTo(x, cy-5.4); g.lineTo(x+5.4, cy+4.4); g.lineTo(x-5.4, cy+4.4);
+      g.closePath();
+      g.fillStyle='#f2c94c'; g.fill();
+      g.strokeStyle='#472f18'; g.lineWidth=1.1; g.lineJoin='round'; g.stroke();
+      g.fillStyle='#472f18';
+      g.fillRect(x-0.8, cy-2.6, 1.6, 4.0);
+      g.beginPath(); g.arc(x, cy+2.9, 0.9, 0, 7); g.fill();
+    } else if(kind==='sleep'){
+      // gemaltes "Zz" auf dem Brett + ein kleines z steigt auf
+      g.fillStyle='#f2e4c2';
+      g.strokeStyle='rgba(40,28,14,0.55)'; g.lineWidth=2.6; g.lineJoin='round';
+      g.font='bold 11px Georgia,serif'; g.textAlign='left'; g.textBaseline='middle';
+      g.strokeText('Z', x-6, cy+0.5); g.fillText('Z', x-6, cy+0.5);
+      g.font='bold 8px Georgia,serif';
+      g.strokeText('z', x+1.5, cy+2.2); g.fillText('z', x+1.5, cy+2.2);
+      const ph=(this.time/900+id)%1;
+      g.font='bold 8px Georgia,serif';
+      g.fillStyle=`rgba(240,245,255,${0.7*(1-ph)})`;
+      g.fillText('z', x+7, cy-7-ph*7);
+    } else if(kind==='tool'){
+      // aufgemalter Hammer: Stiel schräg, Kopf aus dunklem Stahl
+      g.save();
+      g.translate(x, cy); g.rotate(-0.65);
+      g.fillStyle='#a87f4e';
+      g.fillRect(-1.1, -1.5, 2.2, 8.6);           // Stiel
+      g.strokeStyle='#3a2c18'; g.lineWidth=0.8; g.strokeRect(-1.1, -1.5, 2.2, 8.6);
+      g.fillStyle='#7d8894';
+      g.beginPath();
+      g.moveTo(-4.6,-4.6); g.lineTo(4.6,-4.6); g.lineTo(4.0,-1.2); g.lineTo(-4.0,-1.2);
+      g.closePath(); g.fill();
+      g.strokeStyle='#39404a'; g.lineWidth=1; g.lineJoin='round'; g.stroke();
+      g.fillStyle='rgba(236,240,244,0.5)';
+      g.fillRect(-3.6,-4.1, 6.6, 1.0);            // Lichtkante am Kopf
+      g.restore();
+    }
+    g.restore();
   }
   // Maße und Lage des gezeichneten Gebäudesprites (Weltkoordinaten), damit
   // Effekt-Anker aus BLD_FX in Bild-Bruchteilen umgerechnet werden können.
