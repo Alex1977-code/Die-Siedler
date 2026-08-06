@@ -1192,14 +1192,21 @@ export class Renderer {
                 }
               }
               if(nE){
-                g.lineCap='round'; g.lineJoin='round';
+                // stumpfe Kappen für Fugen+AO: vereinzelte kurze Tonstufen-
+                // kanten mitten auf Hochflächen wurden mit Rundkappen zu
+                // dunklen "Kapsel"-Strichen (Ästchen-Optik); in Ketten
+                // teilen sich die Segmente ihre Endpunkte, da braucht es
+                // keine Rundung
+                g.lineCap='butt'; g.lineJoin='round';
                 const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
                 g.strokeStyle='rgba('+fug+',0.10)'; g.lineWidth=5.5; g.stroke(ao);
                 g.strokeStyle='rgba('+fug+',0.20)'; g.lineWidth=1.7; g.stroke(dark);
                 g.strokeStyle='rgba('+fug+',0.38)'; g.lineWidth=2.2; g.stroke(dark2);
+                g.lineCap='round';
                 g.strokeStyle='rgba('+fug+',0.14)'; g.lineWidth=1.4; g.stroke(soft);
               }
               if(nL){
+                g.lineCap='round';
                 g.strokeStyle='rgba(255,250,238,0.18)'; g.lineWidth=1.1; g.stroke(lite);
                 g.strokeStyle='rgba(255,251,240,0.30)'; g.lineWidth=1.3; g.stroke(lite2);
               }
