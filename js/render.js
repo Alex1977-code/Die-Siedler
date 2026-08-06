@@ -1275,37 +1275,74 @@ export class Renderer {
                 return (vv(x2,y2)*(1-fx)+vv(x2+1,y2)*fx)*(1-fy)
                      + (vv(x2,y2+1)*(1-fx)+vv(x2+1,y2+1)*fx)*fy;
               };
+              // Deckungsentscheidung je Knoten, MERKBAR (auch für Nachbar-
+              // fragen): 0 = kahler Fels, -1 = kein Massiv, sonst Deckungsgrad
+              const snCache=new Map();
+              const snOf=(i2)=>{
+                let v=snCache.get(i2);
+                if(v!==undefined) return v;
+                if(!isMassif(i2) || m.terr[i2]===TER.LAVA){ snCache.set(i2,-1); return -1; }
+                // Deckungsgrad steuert die ZELLGRÖSSE, nicht die Deckkraft:
+                // Schnee liegt oder liegt nicht – halbdurchsichtige Schleier
+                // ergäben fleckige Überlappungen statt einer Firnkante
+                let sn=(m.hgt[i2]-(firnY-0.4))/0.8;
+                // Winterwelt: Schnee liegt überall, wo er liegen BLEIBT –
+                // flache Bergpartien sind zu, nur Steilwände apern aus.
+                // Steilheit über die NACHBARSCHAFT gemittelt: der rohe
+                // Knotenwert kippt von Knoten zu Knoten – statt zusammen-
+                // hängender Schneefelder standen Reihen einzelner weißer
+                // Blasen ("Perlenketten") entlang jedes Hangs
+                if(this.theme==='winter'){
+                  let sAvg=this.slopeOf(m,i2), nn2=1;
+                  for(const q2 of m.nbs(i2)){ sAvg+=this.slopeOf(m,q2); nn2++; }
+                  sn=Math.max(sn, 1.15-(sAvg/nn2)*1.5);
+                }
+                if(m.terr[i2]===TER.SNOW) sn=Math.max(sn,0.85); // Gipfel-Eis: immer zu
+                else sn += (fnoise(m.X(i2),m.Y(i2))-0.5)*0.9 + (hash01(i2*13+7)-0.5)*0.2;
+                sn -= Math.max(0, this.slopeOf(m,i2)-0.95)*0.35;
+                // Schwelle nicht zu tief: knapp qualifizierte EINZELknoten
+                // ohne qualifizierte Nachbarn stünden als einzelne weiße
+                // Perlen im Abstand des Gitters auf dem Fels
+                if(sn<=0.34) sn=0;
+                // Auf der RANDreihe des Massivs keine Teildeckung: halbe
+                // Zellen zerfielen dort zur Perlenkette über dem Bergfuß –
+                // den Übergang zur Ebene macht die Schneewehe des
+                // Geröllband-Passes, nicht die Firndecke.
+                // AUSSER im Winter gegen Schnee-Ebene: dort ist der Übergang
+                // weiß auf weiß (keine Perlen möglich) – die Randregel ließ
+                // gerade die hohen Randwände kahl, deren Facetten dann als
+                // grauer Polygon-Dorn aus dem weißen Massiv stachen (F9).
+                else if(sn<0.9 && m.nbs(i2).some(q=>!isMassif(q))
+                        && !(this.theme==='winter'
+                             && m.nbs(i2).every(q=>isMassif(q)||m.terr[q]===TER.SNOW))) sn=0;
+                // Winter: die RANDZONE des Massivs (2 Reihen) apert nie aus.
+                // Eine steile Randwand blieb sonst als einziger grauer
+                // Polygon-Dorn zwischen weißer Decke und weißer Ebene stehen
+                // (Kritikbericht F9, Winter S/Seed 3) – Steilwände zeigen
+                // ihren Fels weiterhin, aber nur im Massiv-Inneren, wo Fels
+                // um sie herum liegt.
+                if(sn===0 && this.theme==='winter'){
+                  const amRand=(q3)=>m.nbs(q3).some(p3=>!isMassif(p3));
+                  if(amRand(i2) || m.nbs(i2).some(q3=>isMassif(q3)&&amRand(q3))) sn=0.95;
+                }
+                snCache.set(i2,sn);
+                return sn;
+              };
               for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
                 for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
                   const i=m.idx(x,y);
-                  if(!isMassif(i) || m.terr[i]===TER.LAVA) continue;
-                  // Deckungsgrad steuert die ZELLGRÖSSE, nicht die Deckkraft:
-                  // Schnee liegt oder liegt nicht – halbdurchsichtige Schleier
-                  // ergäben fleckige Überlappungen statt einer Firnkante
-                  let sn=(m.hgt[i]-(firnY-0.4))/0.8;
-                  // Winterwelt: Schnee liegt überall, wo er liegen BLEIBT –
-                  // flache Bergpartien sind zu, nur Steilwände apern aus.
-                  // Steilheit über die NACHBARSCHAFT gemittelt: der rohe
-                  // Knotenwert kippt von Knoten zu Knoten – statt zusammen-
-                  // hängender Schneefelder standen Reihen einzelner weißer
-                  // Blasen ("Perlenketten") entlang jedes Hangs
-                  if(this.theme==='winter'){
-                    let sAvg=this.slopeOf(m,i), nn2=1;
-                    for(const q2 of m.nbs(i)){ sAvg+=this.slopeOf(m,q2); nn2++; }
-                    sn=Math.max(sn, 1.15-(sAvg/nn2)*1.5);
+                  let sn=snOf(i);
+                  if(sn<0) continue;
+                  if(sn===0){
+                    // Winter-Sonderfall (Kritikbericht F9): eine EINZELNE
+                    // kahle Zelle inmitten verschneiter Nachbarn stand als
+                    // scharfer grauer Polygon-Dorn im weißen Massivrand
+                    // (Winter S/Seed 3). Kahl ausapern darf nur, wer noch
+                    // einen kahlen Massiv-Nachbarn hat – Einzelgänger werden
+                    // zugedeckt, größere Felswände bleiben sichtbar.
+                    if(this.theme==='winter' && !m.nbs(i).some(q=>snOf(q)===0)) sn=0.95;
+                    else continue;
                   }
-                  if(m.terr[i]===TER.SNOW) sn=Math.max(sn,0.85); // Gipfel-Eis: immer zu
-                  else sn += (fnoise(x,y)-0.5)*0.9 + (hash01(i*13+7)-0.5)*0.2;
-                  sn -= Math.max(0, this.slopeOf(m,i)-0.95)*0.35;
-                  // Schwelle nicht zu tief: knapp qualifizierte EINZELknoten
-                  // ohne qualifizierte Nachbarn stünden als einzelne weiße
-                  // Perlen im Abstand des Gitters auf dem Fels
-                  if(sn<=0.34) continue;
-                  // Auf der RANDreihe des Massivs keine Teildeckung: halbe
-                  // Zellen zerfielen dort zur Perlenkette über dem Bergfuß –
-                  // den Übergang zur Ebene macht die Schneewehe des
-                  // Geröllband-Passes, nicht die Firndecke
-                  if(sn<0.9 && m.nbs(i).some(q=>!isMassif(q))) continue;
                   sn=Math.min(1,sn);
                   anySnow=true;
                   const [px,py]=m.worldPos(i);
@@ -1367,6 +1404,18 @@ export class Renderer {
                   bg3.globalCompositeOperation='source-over';
                   bg3.clearRect(0,0,w,h);
                   this.blurInto(bg3, this._shadeTmp, 4);
+                  // Dunkel-Deckel VOR dem Weichlicht: hohe Absturzwände
+                  // liegen in den Facettentönen fast schwarz – durch das
+                  // Weichlicht stachen sie als scharfer grauer Polygon-Dorn
+                  // durch die weiße Decke (Kritikbericht F9, Winter S/Seed 3,
+                  // "Geisterlinie aus dem Relief-Pass"). 'lighten' hebt alle
+                  // Töne auf mindestens Firn-Halbdunkel; die leise
+                  // Blockzeichnung der Decke bleibt erhalten. Die Alphamaske
+                  // stellt das destination-in unten ohnehin wieder her.
+                  bg3.globalCompositeOperation='lighten';
+                  bg3.fillStyle='rgb(118,117,115)';
+                  bg3.fillRect(0,0,w,h);
+                  bg3.globalCompositeOperation='source-over';
                   tex2.globalCompositeOperation='soft-light';
                   tex2.globalAlpha=0.62;
                   tex2.drawImage(this._blurTmp,0,0);
