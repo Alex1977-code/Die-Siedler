@@ -1034,7 +1034,7 @@ export class Game {
       // Quartiere ohne Landweg zum Ziel stellen keine Angreifer: ihre
       // Soldaten tanzten sonst ewig am Wasserarm auf der Stelle.
       const [bx,by]=this.tuerPos(mb);
-      if(!this.landDetour({x:bx,y:by}, tx, ty, 2600)) continue;
+      if(!this.landDetour({x:bx,y:by}, tx, ty, 8000)) continue;
       const grp=[];
       while(total<count && mb.soldiers.length>1){
         mb.soldiers.sort((a,b)=>STYPES[b].str-STYPES[a].str);
@@ -1082,7 +1082,7 @@ export class Game {
       // Truppe erreichte den Sammelpunkt nie) – Soldaten marschieren
       // geordnet über das Knotennetz.
       const [gx,gy]= u.state==='muster' ? [rx,ry] : [tx,ty];
-      const det=this.landDetour(u, gx, gy, 2600);
+      const det=this.landDetour(u, gx, gy, 8000);
       if(det && det.length){ u._det=det; u._detTx=gx; u._detTy=gy; }
       this.units.push(u);
     }
@@ -2253,7 +2253,7 @@ export class Game {
         for(const x of here) if(x!==lead){ lead.soldiers.push(...x.soldiers); x.soldiers=[]; x.dead=true; }
         for(const x of grp) if(!x.dead && x.state!=='walk'){
           x.state='walk';
-          const det=this.landDetour(x, tx, ty, 2600);   // Route für den Sturm
+          const det=this.landDetour(x, tx, ty, 8000);   // Route für den Sturm
           if(det && det.length){ x._det=det; x._detTx=tx; x._detTy=ty; }
         }
       }
@@ -2362,6 +2362,11 @@ export class Game {
       let p=0.5 + (STYPES[atkT].str-STYPES[defT].str)*0.09
             + this.matchup(atkT,defT) - this.matchup(defT,atkT)
             - 0.06*Math.min(b.coins||0,2);   // Sold: Münzen stärken die Verteidiger
+      // Heimvorteil am Hauptquartier: die Miliz verteidigt ihre Mauern
+      // verbissen. Ohne den Malus konnte eine glückliche 2-Mann-Sondierung
+      // eine volle Miliz niederkämpfen und das HQ schleifen – das Spielende
+      // gehört einem entschiedenen Sturm, nicht einem Würfelglücks-Trupp.
+      if(b.type==='hq') p-=0.12;
       this.onClash && this.onClash(b);
       if(this.rng()<clamp(p,0.12,0.88)){
         if(defMilitia) pl.recruits[defT]--;
@@ -2447,7 +2452,13 @@ export class Game {
             }
             return d;
           };
-          milB.sort((a,b)=> (a.soldiers.length?1:0)-(b.soldiers.length?1:0) || dEnemy(a)-dEnemy(b));
+          // Erst Posten, die NIE besetzt waren (erst der Einzug verschiebt
+          // die Grenze), danach strikt die dem Feind nächsten – auch halb
+          // geleerte Frontposten. Vorher rangierte jeder leere Hinterland-
+          // Neubau vor der ausgedünnten Front: die kam nie wieder auf
+          // Angriffsstärke und die KI fand trotz Dutzender Posten nie ein
+          // Angriffsfenster (Kalter-Krieg-Symptom, F3).
+          milB.sort((a,b)=> (a.besetztWar?1:0)-(b.besetztWar?1:0) || dEnemy(a)-dEnemy(b));
         } else {
           milB.sort((a,b)=> (a.soldiers.length/BLD[a.type].mil.cap) - (b.soldiers.length/BLD[b.type].mil.cap));
         }
@@ -2459,8 +2470,15 @@ export class Game {
             const t=this.takeRecruit(p.id);
             if(!t) break;
             const src=hq||b;
-            // der Rekrut marschiert aus der Tür seines Quartiers ab
-            this.units.push({id:NEXT_ID++, type:'soldierMove', player:p.id, ...this.tuerAustritt(src), targetB:b.id, stype:t});
+            // der Rekrut marschiert aus der Tür seines Quartiers ab – mit
+            // vorausberechneter Landroute: die gierige Luftlinie blieb an
+            // Buchten hängen, ferne Frontposten wurden NIE aufgefüllt (und
+            // der hängende Marsch blockierte als "unterwegs" den Nachschub)
+            const u={id:NEXT_ID++, type:'soldierMove', player:p.id, ...this.tuerAustritt(src), targetB:b.id, stype:t};
+            const [tx2,ty2]=this.tuerPos(b);
+            const det=this.landDetour(u, tx2, ty2, 30000);
+            if(det && det.length){ u._det=det; u._detTx=tx2; u._detTy=ty2; }
+            this.units.push(u);
           }
         }
       }
@@ -2948,7 +2966,10 @@ export class Game {
     if(this.t-(p.aiState.lastBonus||0)>=600/dm.bonusMul && hq.inv){
       p.aiState.lastBonus=this.t;
       hq.inv.board=(hq.inv.board||0)+2*lvl;
-      hq.inv.stone=(hq.inv.stone||0)+1*lvl;
+      // Stein großzügiger als früher (1*lvl): die Front braucht Wachhäuser
+      // (3 Stein) – mit dem alten Tropf blieb die KI dauerhaft unter der
+      // Schwelle und baute nur reichweitenschwache Baracken.
+      hq.inv.stone=(hq.inv.stone||0)+2*lvl;
       hq.inv.hammer=(hq.inv.hammer||0)+3;   // Bauarbeiter-Hämmer
       // Werkzeuge für die KI-Wirtschaft (Axt, Säge, Sense, Angel, Schaufel, Spitzhacke, Beil)
       for(const t of ['axe','saw','scythe','rod','shovel','cleaver']) hq.inv[t]=(hq.inv[t]||0)+1;
@@ -2959,6 +2980,23 @@ export class Game {
       // Start-Rekruten ein (und auf großen Karten kam nie ein Angriff).
       hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1;
       if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.spear=(hq.inv.spear||0)+1; }
+    }
+    // Front-Nachschub: je Zug trägt die KI EIN fehlendes Bauteil aus dem
+    // HQ-Lager direkt zu einer angeschlossenen Militär-Baustelle. Die
+    // ehrliche Trägerkette über 40+ Knoten machte Frontposten zu
+    // Minuten-Brachen und hebelte die ganze Druck-Dosierung (milGrow) aus.
+    // Das milde Mogeln der KI ist etabliert (Materialbonus oben) – hier
+    // wird es nur zielgenau statt pauschal.
+    if(hq.inv){
+      const hqC2=this.compOf(hq.door);
+      for(const b of this.buildings.values()){
+        if(b.player!==p.id || b.state!=='build' || !BLD[b.type].mil) continue;
+        if(b.door==null || b.door<0 || this.compOf(b.door)!==hqC2) continue;
+        const def2=BLD[b.type];
+        const nB=(def2.cost.board||0)-(b.stock.board||0), nS=(def2.cost.stone||0)-(b.stock.stone||0);
+        if(nB>0 && (hq.inv.board||0)>0){ hq.inv.board--; b.stock.board=(b.stock.board||0)+1; break; }
+        if(nS>0 && (hq.inv.stone||0)>0){ hq.inv.stone--; b.stock.stone=(b.stock.stone||0)+1; break; }
+      }
     }
     const want=[];
     const c=(t)=>this.aiCount(p,t);
@@ -2972,10 +3010,17 @@ export class Game {
     // Dosierung je Stufe (AI_MIL): LEICHT expandiert gemütlich und deckelt
     // bei wenigen Posten – vorher wuchs selbst die Leicht-KI unbegrenzt
     // (43 Gebäude, HQ-Fall auf "Leicht/Leicht", Kritikbericht F2).
+    // Ab NORMAL greift der Deckel erst MIT Feindkontakt: ohne ein Ziel in
+    // Angriffsreichweite schiebt die KI weiter Posten Richtung Gegner, sonst
+    // fror sie auf mittleren Karten im Niemandsland ein und es kam nie zu
+    // Kampfhandlungen (Kalter-Krieg-Patt, Kritikbericht F3).
     const AM=AI_MIL[lvl]||AI_MIL[2];
-    if(c('barracks')+c('guardhouse')+c('watchtower')+c('fortress')
-         < Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow))
-       && this.t>=(p.aiState.milCd||0)) want.push('@mil');
+    const milN=c('barracks')+c('guardhouse')+c('watchtower')+c('fortress');
+    let milAllowed=Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow));
+    if(lvl>=2 && milN>=milAllowed
+       && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
+       && !this.aiContact(p)) milAllowed=Math.min(milN+1, AM.milMax*2);
+    if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     if(c('fisher')<1) want.push('fisher');
     if(c('well')<1) want.push('well');
     if(c('farm')<1) want.push('farm');
@@ -2998,19 +3043,38 @@ export class Game {
     if(this.t-(p.aiState.lastReconnect||0)>150){
       p.aiState.lastReconnect=this.t;
       const hqC=this.compOf(hq.door);
-      for(const b of this.buildings.values()){
+      for(const b of [...this.buildings.values()]){
         if(b.player!==p.id || b.door==null || b.door<0 || b.type==='hq') continue;
-        if(this.compOf(b.door)===hqC) continue;
-        if(this.aiConnect(p,b)) break;
+        if(this.compOf(b.door)===hqC){ b._aiDiscT=undefined; continue; }
+        if(this.aiConnect(p,b)){ b._aiDiscT=undefined; break; }
+        // Anschluss scheitert dauerhaft (Wasser-Tasche, Gebirgsriegel):
+        // solche Baustellen nach ~5 Minuten AUFGEBEN statt ewig Material zu
+        // fressen und den Militär-Deckel zu verstopfen. Ohne die Aufgabe
+        // fror die komplette KI ein (beobachtet: tote Baustellen zählten
+        // gegen den Posten-Deckel, Expansion und Angriffe standen still).
+        if(b._aiDiscT===undefined) b._aiDiscT=this.t;
+        else if(b.state==='build' && this.t-b._aiDiscT>3000) this.burnBuilding(b,false);
       }
     }
     const boards=inv.board||0, stones=inv.stone||0;
     for(const w of want){
-      const type = w==='@mil' ? (stones>=5&&lvl>=2 ? 'guardhouse' : 'barracks') : w;
+      // Ab NORMAL baut die KI grundsätzlich Wachhäuser (und wartet notfalls
+      // auf den Stein): Baracken (Radius 8, Besatzung 2) können nach der
+      // Reichweitenregel (r_eigen+r_ziel+2) ein Feind-HQ oft gar nicht
+      // erreichen und haben nie 2 abkömmliche Angreifer – eine reine
+      // Baracken-Front kann also NIEMALS angreifen (beobachtete Ursache des
+      // ausbleibenden Drucks trotz 24 Posten).
+      const type = w==='@mil' ? (lvl>=2 ? 'guardhouse' : 'barracks') : w;
       const def=BLD[type];
       if(boards<(def.cost.board||0) || stones<(def.cost.stone||0)) continue;
       const spot=this.aiFindSpot(p, type);
       if(spot<0) continue;
+      // Wasser-Taschen-Wächter: Plätze ohne Landweg zum Hauptquartier bekommen
+      // nie einen Straßenanschluss – die Baustelle stünde ewig, fräße Material
+      // und verstopfte den Militär-Deckel (kompletter KI-Stillstand beobachtet:
+      // 8 tote Baustellen, Expansion und Angriffe eingefroren).
+      const [sx2,sy2]=m.worldPos(spot), [hx2,hy2]=m.worldPos(hq.node);
+      if(!this.landDetour({x:sx2,y:sy2}, hx2, hy2, 30000)) continue;
       const r=this.placeBuilding(p.id, type, spot);
       if(r.ok){
         this.aiConnect(p, r.b);
@@ -3090,6 +3154,29 @@ export class Game {
       }
     }
   }
+  // Feindkontakt: Kann diese KI irgendein feindliches Militärgebäude/HQ
+  // TATSÄCHLICH angreifen (mindestens 2 abkömmliche Soldaten in Reichweite,
+  // gleiche Regel wie atkSources/attackable)? Bloße geometrische Nähe genügt
+  // nicht: eine einzelne Grenz-Baracke (Besatzung 2, einer muss bleiben)
+  // fror sonst Expansion UND Angriff gleichzeitig ein – der Deckel griff,
+  // aber ein Angriff kam nie zustande.
+  aiContact(p){
+    const m=this.map;
+    for(const b of this.buildings.values()){
+      if(b.player===p.id || b.player<0) continue;
+      if(this.players[b.player]?.defeated) continue;
+      if(!(BLD[b.type].mil || b.type==='hq')) continue;
+      const tR=this.milRadius(b);
+      let avail=0;
+      for(const mb of this.buildings.values()){
+        if(mb.player!==p.id || !mb.soldiers || mb.state!=='done') continue;
+        const d=Math.hypot(m.X(mb.node)-m.X(b.node), m.Y(mb.node)-m.Y(b.node));
+        if(d<=this.milRadius(mb)+tR+2) avail+=Math.max(0, mb.soldiers.length-1);
+        if(avail>=2) return true;
+      }
+    }
+    return false;
+  }
   aiFindSpot(p, type){
     const m=this.map; const def=BLD[type];
     const hq=this.buildings.get(p.hq); if(!hq) return -1;
@@ -3137,7 +3224,7 @@ export class Game {
           const eh=this.buildings.get(q.hq);
           if(eh) ed=Math.min(ed, Math.hypot(m.X(eh.node)-m.X(i), m.Y(eh.node)-m.Y(i)));
         }
-        s+= -ed*0.25;
+        s+= -ed*((AI_MIL[p.aiLevel]||AI_MIL[2]).edW);
       } else {
         // Nähe zum HQ bevorzugen
         const d=Math.hypot(m.X(hq.node)-m.X(i), m.Y(hq.node)-m.Y(i));
