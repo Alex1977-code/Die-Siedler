@@ -485,11 +485,49 @@ export class UI {
       if(traf(bt.no)){ Sound.sfx('tap'); this.cancelRoad(); return; }
       if(traf(bt.ok)){ Sound.sfx('tap'); this.autoConnect(); return; }
     }
+    // Schwebendes Fahnenmenü: Treffer auf die drei Knöpfe zuerst
+    if(this.state.flagSel>=0 && this.renderer._flagBtn){
+      const bt=this.renderer._flagBtn, fi=this.state.flagSel;
+      const traf=(p)=> p && Math.hypot(wx-p[0], wy-p[1])<=bt.r;
+      if(traf(bt.weg)){ Sound.sfx('tap'); this.state.flagSel=-1; this.startRoad(fi); return; }
+      if(traf(bt.geo)){
+        Sound.sfx('tap');
+        const r=this.game.callGeologist(0,fi);
+        if(r===true){ this.toast('Der Geologe macht sich auf den Weg'); this.state.flagSel=-1; this.state.sel=-1; }
+        else if(r==='nopick') this.toast('Keine Spitzhacke! Baue eine Werkzeugschmiede.');
+        else if(r==='nomount') this.toast('Kein unbeschildertes Gebirge in der Nähe.');
+        return;
+      }
+      if(traf(bt.sp)){
+        Sound.sfx('tap');
+        if(this.game.callScout(0,fi)){ this.toast('Der Späher erkundet die Umgebung'); this.state.flagSel=-1; this.state.sel=-1; }
+        return;
+      }
+      // daneben getippt: Menü zu, der Tipp zählt normal weiter
+      this.state.flagSel=-1;
+    }
+    // Fahnen wehen im Bild ÜBER ihrem Bodenpunkt - wer den Wimpel antippt,
+    // traf bisher den Knoten dahinter ("der Klickkreis ist immer
+    // unterhalb"). Ein Tipp ins gezeichnete Fähnchen zählt deshalb als
+    // Tipp auf die Fahne, beim Auswählen wie beim Wegebau.
+    let fahnenTreff=-1;
+    if(this.state.mode==='view' || this.state.mode==='road'){
+      // direkt über alle Fahnen suchen: Türfahnen werden an der Zugbrücke
+      // gezeichnet, nicht am Gitterpunkt - der nächste Knoten zum Tipp wäre
+      // dort ein anderer. Grobfenster + exakter Bildkasten je Fahne.
+      for(let k=0;k<m.flag.length;k++){
+        if(!m.flag[k]) continue;
+        const [px,py]=m.worldPos(k);
+        if(Math.abs(px-wx)>44 || Math.abs(py-wy)>60) continue;
+        const p=this.renderer.doorVisualPos? this.renderer.doorVisualPos(k) : [px,py];
+        if(Math.abs(wx-p[0])<=13 && wy>=p[1]-20 && wy<=p[1]+8){ fahnenTreff=k; break; }
+      }
+    }
     const i=m.nearestNode(wx,wy);
-    if(i<0) return;
+    if(i<0 && fahnenTreff<0) return;
     Sound.sfx('tap');
     if(this.state.mode==='road'){
-      this.roadTap(i);
+      this.roadTap(fahnenTreff>=0? fahnenTreff : i);
       return;
     }
     if(this.state.mode==='place'){
@@ -504,6 +542,8 @@ export class UI {
       return;
     }
     // Auswahl: Gebäude? Fahne? Weg? freier Knoten?
+    if(fahnenTreff>=0){ this.state.sel=fahnenTreff; this.openFlagSheet(fahnenTreff); return; }
+    if(i<0) return;
     if(m.bld[i]>=0){ this.state.sel=i; this.openBuildingSheet(this.game.buildings.get(m.bld[i])); return; }
     if(m.flag[i]){ this.state.sel=i; this.openFlagSheet(i); return; }
     const road=this.game.roadAt(i);
@@ -764,36 +804,15 @@ export class UI {
     }
   }
   openFlagSheet(i){
+    // Kein schwarzes Menü am Rand mehr: an der Fahne schweben drei Knöpfe
+    // (Weg bauen / Geologe / Späher) - gezeichnet vom Renderer, Treffer
+    // laufen über onTap. "Fahne entfernen" liegt im Langdruck-Menü.
     const g=this.game;
-    const isDoor=[...g.buildings.values()].some(b=>b.door===i);
     const hasMount=g.nodesInRange(i,8).some(n=>g.map.terr[n]===TER.MOUNT && !g.signs.has(n));
     const picks=(g.invTotal(0).pick||0);
-    const geoHint= !hasMount ? 'Kein unbeschildertes Gebirge in der Nähe dieser Fahne (Umkreis 8).'
-      : picks<1 ? '⚠️ Keine Spitzhacke im Lager – die Werkzeugschmiede stellt sie her.'
-      : 'Der Geologe untersucht das Gebirge in der Nähe und stellt Schilder auf, wo Erz liegt.';
-    this.sheet(`<div class="sh-head"><b>Fahne</b><button class="hbtn" id="sh-x">✕</button></div>
-      <div class="row">
-      <button class="mbtn primary" id="fl-road">🛤️ Straße bauen</button>
-      <button class="mbtn ${hasMount&&picks>0?'':'off'}" id="fl-geo">⛏️ Geologe (${picks}⛏)</button>
-      <button class="mbtn" id="fl-scout">🔭 Späher</button>
-      ${isDoor?'':'<button class="mbtn back" id="fl-del">Fahne entfernen</button>'}
-      </div>
-      <p class="note">${geoHint}</p>`);
-    $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
-    $('#fl-road').onclick=()=>this.startRoad(i);
-    const geo=$('#fl-geo');
-    if(geo) geo.onclick=()=>{
-      const r=g.callGeologist(0,i);
-      if(r===true){ Sound.sfx('tap'); this.toast('Der Geologe macht sich auf den Weg'); this.state.sel=-1; this.closeSheet(); }
-      else if(r==='nopick') this.toast('Keine Spitzhacke! Baue eine Werkzeugschmiede.');
-      else if(r==='nomount') this.toast('Kein unbeschildertes Gebirge in der Nähe.');
-    };
-    const sc=$('#fl-scout');
-    if(sc) sc.onclick=()=>{
-      if(g.callScout(0,i)){ Sound.sfx('tap'); this.toast('Der Späher erkundet die Umgebung'); this.state.sel=-1; this.closeSheet(); }
-    };
-    const del=$('#fl-del');
-    if(del) del.onclick=()=>{ g.removeFlag(i); Sound.sfx('tap'); this.state.sel=-1; this.closeSheet(); };
+    this.state.flagSel=i;
+    this.state.flagGeoOk= hasMount && picks>0;
+    this.closeSheet();
   }
   openRoadSheet(road, i){
     const g=this.game;
@@ -992,9 +1011,15 @@ export class UI {
       ore='Erzvorkommen unbekannt – schicke einen Geologen!';
     }
     const owner=m.owner[i]>=0? g.players[m.owner[i]].name : 'Niemandsland';
+    // Eigene Fahnen (außer Türfahnen) lassen sich hier entfernen - das
+    // Fahnen-Tippmenü zeigt nur noch die drei schwebenden Knöpfe.
+    const darfWeg= m.flag[i] && m.owner[i]===0 && ![...g.buildings.values()].some(b=>b.door===i);
     this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x">✕</button></div>
-      <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>`);
+      <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>
+      ${darfWeg?'<div class="row"><button class="mbtn back" id="in-delflag">Fahne entfernen</button></div>':''}`);
     $('#sh-x').onclick=()=>this.closeSheet();
+    const del=$('#in-delflag');
+    if(del) del.onclick=()=>{ this.game.removeFlag(i); Sound.sfx('tap'); this.state.flagSel=-1; this.state.sel=-1; this.closeSheet(); };
   }
   confirm(txt, cb){
     const d=$('#dlg');
@@ -1084,6 +1109,9 @@ export class UI {
           showBuildDots:this.state.showBuildDots||this.state.mode==='place',
           placeType:this.state.mode==='place'? this.state.placeType : null,
           placeAt:this.state.mode==='place'? (this.state.placeAt??-1) : -1,
+          mode:this.state.mode,
+          flagSel:this.state.mode==='view'? (this.state.flagSel??-1) : -1,
+          flagGeoOk:this.state.flagGeoOk!==false,
         };
         this.renderer.draw(this.cam, this.uiRenderState, dt);
         if(!this._mmT||now-this._mmT>500){ this._mmT=now; this.renderer.drawMinimap($('#minimap'), this.cam); }

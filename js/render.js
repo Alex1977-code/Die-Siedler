@@ -4672,6 +4672,27 @@ export class Renderer {
       this.uiKnopf(g, ax+sp, by2, u, 'no');
       this._roadBtn={ ok:[ax-sp,by2], no:[ax+sp,by2], r:R*1.25 };
     } else this._roadBtn=null;
+    // Fahnenmenü: drei schwebende Knöpfe an der angetippten Fahne
+    // (Weg bauen / Geologe / Späher) statt des schwarzen Menüs am Rand.
+    if(ui.flagSel>=0 && m.flag[ui.flagSel]){
+      const [fx,fy]=this.doorVisualPos(ui.flagSel);
+      const u=1/Math.max(0.25, cam.z);
+      const R=21*u, by2=fy+16*u+R, sp=50*u;
+      this.uiRundKnopf(g, fx-sp, by2, u, 'weg', true);
+      this.uiRundKnopf(g, fx,    by2, u, 'geo', ui.flagGeoOk);
+      this.uiRundKnopf(g, fx+sp, by2, u, 'spaeher', true);
+      g.save();
+      g.font=`600 ${Math.round(9.5*u*10)/10}px Georgia, serif`;
+      g.textAlign='center'; g.textBaseline='top';
+      g.lineWidth=3*u; g.strokeStyle='rgba(22,17,9,0.72)'; g.lineJoin='round';
+      g.fillStyle='#f4e6c4';
+      const ly=by2+R+3*u;
+      for(const [tx,tt] of [[fx-sp,'Weg'],[fx,'Geologe'],[fx+sp,'Späher']]){
+        g.strokeText(tt,tx,ly); g.fillText(tt,tx,ly);
+      }
+      g.restore();
+      this._flagBtn={ weg:[fx-sp,by2], geo:[fx,by2], sp:[fx+sp,by2], r:R*1.25 };
+    } else this._flagBtn=null;
     // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
     if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }
     if(this.fogDark){
@@ -6627,6 +6648,40 @@ export class Renderer {
     g.font=`700 ${Math.round(22*u*10)/10}px system-ui, -apple-system, sans-serif`;
     g.fillStyle='#fff';
     g.fillText(art==='ok'?'✓':'✕', cx, cy+1*u);
+    g.restore();
+  }
+  // Schwebender Holz-Rundknopf mit gemaltem Sinnbild (Wegweiser, Spitzhacke,
+  // Fernrohr) - gleiche Bedienung wie Haken/Kreuz beim Bau-Bestätigen.
+  // aktiv=false zeichnet halbdurchsichtig (z.B. Geologe ohne Spitzhacke).
+  uiRundKnopf(g, cx, cy, u, art, aktiv=true){
+    const R=21*u;
+    g.save();
+    if(!aktiv) g.globalAlpha=0.5;
+    g.beginPath(); g.arc(cx,cy+1.5*u,R,0,7); g.fillStyle='rgba(12,16,10,0.45)'; g.fill();
+    g.beginPath(); g.arc(cx,cy,R,0,7); g.fillStyle='#4a3521'; g.fill();
+    g.lineWidth=2*u; g.strokeStyle='#c9a24b'; g.stroke();
+    g.beginPath(); g.arc(cx,cy,R*0.8,0,7); g.fillStyle='#6b4b2e'; g.fill();
+    g.strokeStyle='#f4e6c4'; g.fillStyle='#f4e6c4'; g.lineCap='round'; g.lineJoin='round';
+    if(art==='weg'){
+      // Wegweiser: Pfahl mit Pfeilbrett
+      g.lineWidth=2.2*u;
+      g.beginPath(); g.moveTo(cx-1.5*u, cy+9*u); g.lineTo(cx-1.5*u, cy-3*u); g.stroke();
+      g.beginPath();
+      g.moveTo(cx-8*u, cy-3*u); g.lineTo(cx+4*u, cy-3*u); g.lineTo(cx+8*u, cy-6.5*u);
+      g.lineTo(cx+4*u, cy-10*u); g.lineTo(cx-8*u, cy-10*u); g.closePath(); g.fill();
+    } else if(art==='geo'){
+      // Spitzhacke: Stiel + gebogener Kopf
+      g.lineWidth=2.4*u;
+      g.beginPath(); g.moveTo(cx-6*u, cy+9*u); g.lineTo(cx+5*u, cy-4*u); g.stroke();
+      g.lineWidth=3*u;
+      g.beginPath(); g.moveTo(cx-8*u, cy-4*u); g.quadraticCurveTo(cx+0.5*u, cy-12*u, cx+9*u, cy-2*u); g.stroke();
+    } else {
+      // Fernrohr: drei Rohrstufen, schräg nach oben
+      g.translate(cx,cy); g.rotate(-0.55);
+      g.fillRect(-10*u,-2.6*u, 9*u, 5.2*u);
+      g.fillRect(-1*u,-1.9*u, 5*u, 3.8*u);
+      g.fillRect(4*u,-2.4*u, 5*u, 4.8*u);
+    }
     g.restore();
   }
   // Beim Freistellen vor weissem Hintergrund haben helle INNENflaechen Alpha
