@@ -105,6 +105,82 @@ function rr(g,x,y,w,h,r){
   g.closePath();
 }
 
+// ---------- Arbeits-Effekte der Gebäude: Ankertabelle ----------
+// Jedes Gebäude bekommt seinen PASSENDEN Effekt an der PASSENDEN Stelle des
+// Sprites. a = Ankerpunkt in BILD-BRUCHTEILEN des Gebäudebildes (quer 0..1 von
+// links, hoch 0..1 von oben) – an den Originalgrafiken vermessen, damit Rauch
+// exakt aus dem gemalten Schornstein steigt, egal wie groß das Haus gezeichnet
+// wird. s = Stärke/Größe. on: 'work' (nur bei laufender Arbeit, Standard),
+// 'staffed' (solange der Arbeiter eingezogen ist), 'always' (dauerhaft).
+// col bei smoke: 'grau' | 'weiss' | 'dunkel'; bei chips/dust ein rgba-Muster
+// mit $A als Alpha-Platzhalter.
+const BLD_FX = {
+  // Holzfäller: Späne am Hackklotz mit der Axt (links vor der Hütte)
+  woodcutter: [ {k:'chips', a:[0.16,0.72], s:1, col:'rgba(214,178,116,$A)'} ],
+  // Förster: frisches Grün wirbelt bei den Setzlingstöpfen
+  forester:   [ {k:'leaves', a:[0.68,0.72], s:1} ],
+  // Sägewerk: Sägemehl sprüht am Sägeblatt – KEIN Rauch (dort brennt nichts)
+  sawmill:    [ {k:'sawdust', a:[0.40,0.66], s:1} ],
+  // Steinmetz: Steinstaub und Splitter am Werkblock unterm Vordach
+  quarry:     [ {k:'stonedust', a:[0.42,0.58], s:1} ],
+  // Fischerhütte: nur stille Wasserringe unter dem Steg (kein Rauch am Wasser)
+  fisher:     [ {k:'ripple', a:[0.48,0.86], s:1, on:'always'} ],
+  // Jäger: dünner Rauch vom Räucherfeuer – der Schlot mit gemaltem Rauchfähnchen
+  hunter:     [ {k:'smoke', a:[0.26,0.20], s:0.5, col:'grau', on:'staffed'} ],
+  // Brunnen: nur dezente Tropfen vom Eimer in den Schacht
+  well:       [ {k:'drips', a:[0.42,0.46], s:1} ],
+  // Bauernhof: dünner Herdrauch aus dem Schornstein links auf dem Strohdach
+  farm:       [ {k:'smoke', a:[0.29,0.05], s:0.55, col:'grau'} ],
+  // Mühle: sie MAHLT – kein Rauch, nur feiner Mehlstaub bei den Säcken am Fuß
+  mill:       [ {k:'flour', a:[0.76,0.86], s:1} ],
+  // Bäckerei: kräftiger heller Ofenrauch aus dem großen Steinschornstein,
+  // dazu Hitzeflimmer-Dampf am Kuppelofen-Abzug und Glut im Ofenmaul
+  bakery:     [ {k:'smoke', a:[0.575,0.035], s:1, col:'weiss'},
+                {k:'steam', a:[0.665,0.43], s:0.6},
+                {k:'glow',  a:[0.60,0.63], s:0.8} ],
+  // Schweinezucht: aufgewirbelter Staub im Matschauslauf
+  pigfarm:    [ {k:'dustpuff', a:[0.52,0.66], s:1, col:'rgba(150,122,86,$A)'} ],
+  // Schlachterei: dünner Rauch aus dem Räucherschornstein rechts
+  butcher:    [ {k:'smoke', a:[0.695,0.03], s:0.55, col:'grau'} ],
+  // Brauerei: Dampf vom kupfernen Braukessel im Torbogen, dünner Schlotrauch,
+  // warmer Feuerschein unterm Kessel
+  brewery:    [ {k:'smoke', a:[0.365,0.035], s:0.6, col:'grau'},
+                {k:'steam', a:[0.42,0.57], s:1},
+                {k:'glow',  a:[0.44,0.66], s:0.6} ],
+  // Bergwerke: Staub am Stollenmund + Abraum-Krümel in der Farbe des Erzes
+  coalmine:   [ {k:'minedust', a:[0.50,0.56], s:1, col:'rgba(70,66,62,$A)'} ],
+  ironmine:   [ {k:'minedust', a:[0.47,0.50], s:1, col:'rgba(142,96,70,$A)'} ],
+  goldmine:   [ {k:'minedust', a:[0.50,0.50], s:1, col:'rgba(168,138,74,$A)'} ],
+  granitemine:[ {k:'minedust', a:[0.52,0.62], s:1, col:'rgba(160,154,144,$A)'} ],
+  // Eisenhütte: dunkler Qualm aus dem hohen Schmelzschornstein, Glut + Funken
+  // am Ofenmaul unten
+  smelter:    [ {k:'smoke', a:[0.42,0.02], s:1.25, col:'dunkel'},
+                {k:'glow',  a:[0.34,0.77], s:1.3},
+                {k:'sparks',a:[0.34,0.74], s:1} ],
+  // Münzprägerei: feiner Schlotrauch, goldenes Funkeln an der Werkstatttür
+  mint:       [ {k:'smoke', a:[0.655,0.03], s:0.5, col:'grau'},
+                {k:'glint', a:[0.24,0.62], s:1} ],
+  // Waffenschmiede: Esse zieht durch den glühenden Kamin ab – Funken stieben
+  // aus der Kaminöffnung, drinnen warmer Schein
+  armory:     [ {k:'smoke', a:[0.465,0.04], s:0.8, col:'dunkel'},
+                {k:'sparks',a:[0.465,0.05], s:1},
+                {k:'glow',  a:[0.48,0.62], s:0.7} ],
+  // Werkzeugschmiede: Rauch aus dem glühenden Kamin, Glut + Funken an der Esse
+  toolsmith:  [ {k:'smoke', a:[0.405,0.03], s:0.7, col:'grau'},
+                {k:'glow',  a:[0.41,0.66], s:0.9},
+                {k:'sparks',a:[0.41,0.64], s:0.8} ],
+  // Eselzucht: Heustaub am Futterhaufen im Auslauf
+  donkeyfarm: [ {k:'chips', a:[0.66,0.64], s:1, col:'rgba(226,196,110,$A)'} ],
+  // Werft: Holzspäne am Schiffsrumpf in der offenen Halle
+  shipyard:   [ {k:'sawdust', a:[0.45,0.55], s:0.8} ],
+  // Hafen: Wasserringe zwischen den Stegpfählen
+  harbor:     [ {k:'ripple', a:[0.55,0.82], s:1.2, on:'always'} ],
+  // Kapelle: ruhiger goldener Schein um die Glocke im Turm
+  chapel:     [ {k:'bell', a:[0.30,0.30], s:1, on:'always'} ],
+  // Marktstand: bunte Wimpel flattern an der Markise
+  market:     [ {k:'pennants', a:[0.42,0.33], s:1, on:'always'} ],
+};
+
 export class Renderer {
   constructor(canvas){
     this.cv=canvas; this.ctx=canvas.getContext('2d');
@@ -5050,189 +5126,253 @@ export class Renderer {
       g.beginPath(); g.arc(0,0,1.3,0,7); g.fill();
       g.restore();
     }
-    // Glut in Schmieden & Öfen: flackernder Feuerschein im unteren Gebäudeteil
-    if(working && (b.type==='smelter'||b.type==='armory'||b.type==='toolsmith'||b.type==='mint'||b.type==='bakery')){
-      const fl=0.55+0.3*Math.sin(this.time/95+b.id*1.7)+0.15*Math.sin(this.time/41+b.id*3.1);
-      const gx=x-5, gy=y-13;
-      g.globalCompositeOperation='lighter';
-      const rad=g.createRadialGradient(gx,gy,1,gx,gy,15);
-      rad.addColorStop(0,`rgba(255,150,50,${0.42*fl})`);
-      rad.addColorStop(0.6,`rgba(255,110,30,${0.2*fl})`);
-      rad.addColorStop(1,'rgba(255,90,20,0)');
-      g.fillStyle=rad;
-      g.beginPath(); g.arc(gx,gy,15,0,7); g.fill();
-      // Funkenflug bei Metallbetrieben
-      if(b.type!=='bakery'){
-        for(let k=0;k<2;k++){
-          const ph=(this.time/500+k*0.5+b.id*0.3)%1;
-          g.fillStyle=`rgba(255,200,110,${(1-ph)*fl*0.8})`;
-          g.beginPath(); g.arc(gx+Math.sin(this.time/140+k*4)*5, gy-3-ph*13, 0.9, 0, 7); g.fill();
-        }
-      }
-      g.globalCompositeOperation='source-over';
-    }
-    // Rauch bei aktiver Produktion – kräftig sichtbar; Bäckerei raucht weiß
-    if(working){
-      const smi=this.asset('fx_smoke');
-      const white=b.type==='bakery';
-      if(smi){
-        for(const off of [0,0.5]){
-          const ph=(this.time/2200 + b.id*0.37 + off)%1;
-          const hh=16+ph*26, ww=hh*(smi.naturalWidth/smi.naturalHeight);
-          const sway=Math.sin((this.time/900+b.id+off*3))*5;
-          g.globalAlpha=(white?0.75:0.6)*(1-ph);
-          g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*26-hh, ww, hh);
-          // Mehlstaub: zweite, hellere Lage statt Helligkeitsfilter
-          if(white){
-            g.globalCompositeOperation='lighter';
-            g.globalAlpha=0.35*(1-ph);
-            g.drawImage(smi, x+12-ww/2+sway*ph, y-46-ph*26-hh, ww, hh);
-            g.globalCompositeOperation='source-over';
-          }
-        }
-        g.globalAlpha=1;
-      } else for(const off of [0,0.45]){
-        const ph=(this.time/800 + b.id*0.7 + off)%1;
-        const sway=Math.sin((this.time/600+b.id+off*4))*4;
-        g.fillStyle=white?`rgba(245,245,242,${0.55*(1-ph)})`:`rgba(215,215,218,${0.42*(1-ph)})`;
-        g.beginPath(); g.arc(x+12+sway*ph, y-44-ph*26, 2.6+ph*5.4, 0, 7); g.fill();
-      }
-    }
+    // Arbeits-Effekte (Rauch, Funken, Staub …) – je Gebäude passend verankert
     this.bldEffect(g, b, x, y, working);
   }
-  // Jedes Gebäude bekommt einen Effekt, der zu seiner Arbeit passt – daran
-  // erkennt man auf einen Blick, was gerade produziert wird.
+  // Maße und Lage des gezeichneten Gebäudesprites (Weltkoordinaten), damit
+  // Effekt-Anker aus BLD_FX in Bild-Bruchteilen umgerechnet werden können.
+  // Muss zur Zeichnung in drawBld passen (gleiche Höhenwahl, gleicher Versatz).
+  bldFxFrame(b){
+    const def=BLD[b.type];
+    let typeKey='bld_'+b.type;
+    if(b.type==='cottage'){
+      const v=b.id%3;
+      if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
+    }
+    const big=def.size==='L'||b.type==='hq';
+    const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+    const hh=this.scaleOf(typeKey, legacy);
+    const img=this.asset(typeKey);
+    const ww=hh*((img && img.naturalWidth)? img.naturalWidth/img.naturalHeight : 0.95);
+    const sx=def.coastal? (b._wx||0) : 0;
+    const sy=def.coastal? (b._wy||0) : 0;
+    return [ww, hh, sx, sy, def.size==='MINE'?8:10];
+  }
+  // Jedes Gebäude bekommt den Effekt, der zu seiner Arbeit passt, exakt an der
+  // Stelle des Sprites, wo die Arbeit sichtbar wird (Schornstein, Esse, Säge …).
   bldEffect(g, b, x, y, working){
     if(b.state!=='done') return;
+    const spec=BLD_FX[b.type];
+    if(!spec) return;
+    const def=BLD[b.type];
+    // Arbeitszustand: Produktion/Bergwerk = prodT läuft; Sammler (Holzfäller,
+    // Bauernhof …) haben kein prodT – dort zählt der ausgerückte Arbeiter bzw.
+    // eine kurze Nacharbeitszeit in der Hütte, bis er einschläft.
+    let act=working;
+    if(!act && def.gather && !b.paused && b.worker && b.worker.present){
+      act = b.worker.state==='out' || b.worker.timer <= (def.time||60);
+    }
+    const staffed = !b.paused && (!b.worker || b.worker.present);
     const t=this.time, id=b.id;
-    // kleine Helfer
+    const [bw,bh,sx,sy,lift]=this.bldFxFrame(b);
+    const ox=x+sx-bw/2, oy=y+sy-bh+lift;
+    const sc=bh/80;                         // Größenmaßstab: M-Gebäude ≈ 1
+    // kleine Helfer (deterministisch über die Zeit, kein Zustand, keine Allokation)
     const puff=(px,py,col,n,rise,size,speed)=>{
       for(let k=0;k<n;k++){
         const ph=((t/speed)+k/n+id*0.13)%1;
         g.fillStyle=col.replace('$A', (0.5*(1-ph)).toFixed(3));
         g.beginPath();
-        g.arc(px+Math.sin(t/430+k*2.1+id)*4*ph, py-ph*rise, size*(0.5+ph), 0, 7);
+        g.arc(px+Math.sin(t/430+k*2.1+id)*4*sc*ph, py-ph*rise, size*(0.5+ph), 0, 7);
         g.fill();
       }
     };
     const chips=(px,py,col,n,spread)=>{
+      const cw=Math.max(2.2, 2.6*sc), ch=Math.max(1.0, 1.2*sc);
       for(let k=0;k<n;k++){
         const ph=((t/620)+k/n+id*0.21)%1;
         const a=(hash01(id*7+k)-0.5)*2.2;
         g.fillStyle=col.replace('$A',(0.85*(1-ph)).toFixed(3));
         g.save();
-        g.translate(px+Math.cos(a)*spread*ph, py-Math.sin(Math.PI*ph)*9+ph*4);
+        g.translate(px+Math.cos(a)*spread*ph, py-Math.sin(Math.PI*ph)*9*sc+ph*4*sc);
         g.rotate(a*3+ph*6);
-        g.fillRect(-1.3,-0.6,2.6,1.2);
+        g.fillRect(-cw/2,-ch/2,cw,ch);
         g.restore();
       }
     };
-    const ripple=(px,py,col)=>{
-      for(let k=0;k<2;k++){
-        const ph=((t/1300)+k*0.5+id*0.17)%1;
-        g.strokeStyle=col.replace('$A',(0.5*(1-ph)).toFixed(3));
-        g.lineWidth=1.2;
-        g.beginPath(); g.ellipse(px,py, 3+ph*13, (3+ph*13)*0.38, 0,0,7); g.stroke();
-      }
-    };
-    switch(b.type){
-      case 'woodcutter':
-        if(working) chips(x+9,y-6,'rgba(214,178,116,$A)',4,13);
-        break;
-      case 'sawmill':
-        if(working){
-          chips(x+2,y-4,'rgba(228,200,146,$A)',5,15);
-          puff(x+2,y-6,'rgba(226,208,170,$A)',2,14,2.6,1500);
-        }
-        break;
-      case 'quarry': case 'coalmine': case 'ironmine': case 'goldmine': case 'granitemine':
-        if(working){
-          puff(x+3,y-2,'rgba(150,140,124,$A)',3,16,3.4,1400);
-          chips(x+3,y-2,'rgba(126,118,106,$A)',3,11);
-        }
-        break;
-      case 'well':
-        // der Brunnen plätschert auch ohne Auftrag leise vor sich hin
-        ripple(x,y+3,'rgba(180,220,240,$A)');
-        if(working) puff(x,y-8,'rgba(210,232,244,$A)',2,10,2.2,1100);
-        break;
-      case 'fisher':
-        ripple(x+13,y+6,'rgba(180,220,240,$A)');
-        break;
-      case 'brewery':
-        if(working){
-          puff(x-6,y-16,'rgba(238,232,206,$A)',3,20,3,1700);
-          for(let k=0;k<3;k++){
-            const ph=((t/900)+k/3+id*0.2)%1;
-            g.fillStyle=`rgba(246,226,150,${0.6*(1-ph)})`;
-            g.beginPath(); g.arc(x-6+Math.sin(t/300+k)*3, y-10-ph*14, 1.1+ph, 0,7); g.fill();
+    for(const e of spec){
+      if(e.on==='always' ? false : e.on==='staffed' ? !staffed : !act) continue;
+      const ax=ox+e.a[0]*bw, ay=oy+e.a[1]*bh;
+      const S=e.s*sc;
+      switch(e.k){
+        case 'smoke': {
+          // Schornstein-Rauch: sitzt exakt auf der gemalten Kaminöffnung
+          const smi=this.asset('fx_smoke');
+          const white=e.col==='weiss', dark=e.col==='dunkel';
+          if(smi){
+            const asp=smi.naturalWidth/smi.naturalHeight;
+            for(const off of [0,0.33,0.66]){
+              const ph=(t/2400 + id*0.37 + off)%1;
+              const h2=(12+ph*26)*S, w2=h2*asp;
+              const sway=Math.sin(t/900+id+off*3)*4*S;
+              g.globalAlpha=(white?0.78:dark?0.82:0.62)*(1-ph);
+              g.drawImage(smi, ax-w2/2+sway*ph, ay-ph*24*S-h2+h2*0.14, w2, h2);
+              if(white){
+                // helle zweite Lage statt Helligkeitsfilter (ctx.filter tabu)
+                g.globalCompositeOperation='lighter';
+                g.globalAlpha=0.36*(1-ph);
+                g.drawImage(smi, ax-w2/2+sway*ph, ay-ph*24*S-h2+h2*0.14, w2, h2);
+                g.globalCompositeOperation='source-over';
+              }
+            }
+            g.globalAlpha=1;
+          } else for(const off of [0,0.45]){
+            const ph=(t/900 + id*0.7 + off)%1;
+            const sway=Math.sin(t/600+id+off*4)*3*S;
+            g.fillStyle= white? `rgba(245,245,242,${0.55*(1-ph)})`
+              : dark? `rgba(96,96,102,${0.5*(1-ph)})`
+              : `rgba(215,215,218,${0.42*(1-ph)})`;
+            g.beginPath(); g.arc(ax+sway*ph, ay-2-ph*20*S, (2.2+ph*4.6)*S, 0, 7); g.fill();
           }
+          break;
         }
-        break;
-      case 'mint':
-        if(working) for(let k=0;k<4;k++){
-          const ph=((t/760)+k/4+id*0.3)%1;
-          g.fillStyle=`rgba(255,224,120,${0.9*(1-ph)})`;
-          g.beginPath();
-          g.arc(x-4+Math.sin(t/180+k*2)*7, y-16-ph*18, 1.1*(1-ph*0.4), 0,7);
-          g.fill();
+        case 'steam':
+          // heller Wasserdampf (Braukessel, Ofenabzug)
+          puff(ax, ay, 'rgba(240,244,246,$A)', 3, 15*S, 2.6*S, 1500);
+          break;
+        case 'glow': {
+          // flackernder Feuerschein (Esse, Ofenmaul); 'lighter' statt Filter
+          const fl=0.55+0.3*Math.sin(t/95+id*1.7)+0.15*Math.sin(t/41+id*3.1);
+          const R=13*S;
+          g.globalCompositeOperation='lighter';
+          const rad=g.createRadialGradient(ax,ay,1,ax,ay,R);
+          rad.addColorStop(0,`rgba(255,150,50,${0.45*fl})`);
+          rad.addColorStop(0.6,`rgba(255,110,30,${0.22*fl})`);
+          rad.addColorStop(1,'rgba(255,90,20,0)');
+          g.fillStyle=rad;
+          g.beginPath(); g.arc(ax,ay,R,0,7); g.fill();
+          g.globalCompositeOperation='source-over';
+          break;
         }
-        break;
-      case 'farm': case 'donkeyfarm':
-        if(working) puff(x+4,y-4,'rgba(224,206,150,$A)',3,12,3.2,1900);
-        break;
-      case 'pigfarm': case 'butcher':
-        if(working) puff(x+6,y-10,'rgba(228,220,212,$A)',2,14,2.6,1800);
-        break;
-      case 'forester':
-        // frisches Grün wirbelt um den Förster
-        for(let k=0;k<3;k++){
-          const ph=((t/2400)+k/3+id*0.19)%1;
-          g.fillStyle=`rgba(150,196,96,${0.55*(1-ph)})`;
-          g.save();
-          g.translate(x-8+Math.sin(t/700+k*2)*10, y-8-ph*16);
-          g.rotate(t/500+k);
-          g.beginPath(); g.ellipse(0,0,2.2,1.1,0,0,7); g.fill();
-          g.restore();
+        case 'sparks':
+          // aufsteigende Glutfünkchen
+          g.globalCompositeOperation='lighter';
+          for(let k=0;k<3;k++){
+            const ph=(t/520+k/3+id*0.3)%1;
+            g.fillStyle=`rgba(255,200,110,${0.85*(1-ph)})`;
+            g.beginPath();
+            g.arc(ax+Math.sin(t/140+k*4+id)*2.5*S, ay-ph*10*S, Math.max(0.7,1.0*sc), 0, 7);
+            g.fill();
+          }
+          g.globalCompositeOperation='source-over';
+          break;
+        case 'chips':
+          // wirbelnde Splitter/Halme in Materialfarbe
+          chips(ax, ay, e.col, 4, 12*S);
+          break;
+        case 'sawdust':
+          // Sägemehl: Späne + feines Staubwölkchen direkt am Sägeblatt
+          chips(ax, ay, 'rgba(228,200,146,$A)', 4, 13*S);
+          puff(ax, ay-2*S, 'rgba(226,208,170,$A)', 2, 11*S, 2.6*S, 1500);
+          break;
+        case 'stonedust':
+          // Steinstaub + Splitter am Werkblock
+          puff(ax, ay, 'rgba(168,160,146,$A)', 3, 12*S, 3.0*S, 1400);
+          chips(ax, ay, 'rgba(136,128,116,$A)', 3, 9*S);
+          break;
+        case 'minedust': {
+          // Abbaustaub quillt aus dem Stollenmund, dazu Abraum in Erzfarbe
+          const di=this.asset('fx_dust');
+          if(di){
+            const asp=di.naturalWidth/di.naturalHeight;
+            for(const off of [0,0.5]){
+              const ph=(t/1700+id*0.23+off)%1;
+              const h2=(8+ph*10)*S, w2=h2*asp;
+              g.globalAlpha=0.5*(1-ph);
+              g.drawImage(di, ax-w2/2+Math.sin(t/700+off*4+id)*3*ph, ay-ph*7*S-h2*0.6, w2, h2);
+            }
+            g.globalAlpha=1;
+          } else puff(ax, ay, 'rgba(150,140,124,$A)', 3, 10*S, 3.2*S, 1500);
+          chips(ax, ay+3*S, e.col, 2, 7*S);
+          break;
         }
-        break;
-      case 'chapel': {
-        // ruhiger goldener Schein, im Takt eines Glockenschlags
-        const bell=0.5+0.5*Math.sin(t/1900+id);
-        g.globalCompositeOperation='lighter';
-        const rad=g.createRadialGradient(x,y-30,2,x,y-30,26);
-        rad.addColorStop(0,`rgba(255,226,150,${0.16*bell})`);
-        rad.addColorStop(1,'rgba(255,226,150,0)');
-        g.fillStyle=rad;
-        g.beginPath(); g.arc(x,y-30,26,0,7); g.fill();
-        g.globalCompositeOperation='source-over';
-        break;
+        case 'flour':
+          // feiner Mehlstaub am Auslass/bei den Säcken – kein Rauch!
+          for(let k=0;k<3;k++){
+            const ph=(t/1700+k/3+id*0.29)%1;
+            g.fillStyle=`rgba(246,241,228,${0.52*(1-ph)})`;
+            g.beginPath();
+            g.arc(ax+Math.sin(t/500+k*2.2+id)*3*S+ph*3*S, ay-ph*6*S, (1.6+ph*2.8)*S, 0, 7);
+            g.fill();
+          }
+          break;
+        case 'drips':
+          // Tropfen fallen vom Eimer in den Schacht, kleines Blitzen unten
+          for(let k=0;k<2;k++){
+            const ph=(t/750+k*0.5+id*0.31)%1;
+            g.fillStyle=`rgba(176,216,238,${0.8*(1-ph*0.45)})`;
+            g.beginPath();
+            g.arc(ax+(k? 2.4:-1.8)*S, ay+ph*ph*13*S, Math.max(0.9,1.2*S), 0, 7);
+            g.fill();
+          }
+          break;
+        case 'ripple':
+          // stille Wasserringe (Fischer, Hafen)
+          for(let k=0;k<2;k++){
+            const ph=((t/1300)+k*0.5+id*0.17)%1;
+            g.strokeStyle=`rgba(190,226,242,${0.5*(1-ph)})`;
+            g.lineWidth=1.2;
+            g.beginPath();
+            g.ellipse(ax, ay, (3+ph*12)*S, (3+ph*12)*S*0.38, 0, 0, 7);
+            g.stroke();
+          }
+          break;
+        case 'dustpuff':
+          // niedriger, aufgewirbelter Staub (Auslauf der Schweinezucht)
+          puff(ax, ay, e.col, 3, 6*S, 2.8*S, 1600);
+          break;
+        case 'leaves':
+          // frisches Grün wirbelt bei den Setzlingen
+          for(let k=0;k<3;k++){
+            const ph=((t/2400)+k/3+id*0.19)%1;
+            g.fillStyle=`rgba(150,196,96,${0.55*(1-ph)})`;
+            g.save();
+            g.translate(ax+Math.sin(t/700+k*2)*8*S, ay-ph*13*S);
+            g.rotate(t/500+k);
+            g.beginPath(); g.ellipse(0,0,2.2*S,1.1*S,0,0,7); g.fill();
+            g.restore();
+          }
+          break;
+        case 'glint':
+          // goldenes Funkeln frisch geprägter Münzen
+          for(let k=0;k<3;k++){
+            const ph=(t/800+k/3+id*0.3)%1;
+            const a2=hash01(id*11+k)*6.28;
+            const px=ax+Math.cos(a2+k)*6*S, py=ay-ph*9*S;
+            const L=Math.max(1,3.6*S)*(1-ph);
+            g.fillStyle=`rgba(255,224,120,${0.9*(1-ph)})`;
+            g.fillRect(px-L, py-0.5, L*2, 1);
+            g.fillRect(px-0.5, py-L, 1, L*2);
+          }
+          break;
+        case 'bell': {
+          // ruhiger goldener Schein um die Glocke, im Takt eines Glockenschlags
+          const bell=0.5+0.5*Math.sin(t/1900+id);
+          const R=20*S;
+          g.globalCompositeOperation='lighter';
+          const rad=g.createRadialGradient(ax,ay,2,ax,ay,R);
+          rad.addColorStop(0,`rgba(255,226,150,${0.18*bell})`);
+          rad.addColorStop(1,'rgba(255,226,150,0)');
+          g.fillStyle=rad;
+          g.beginPath(); g.arc(ax,ay,R,0,7); g.fill();
+          g.globalCompositeOperation='source-over';
+          break;
+        }
+        case 'pennants': {
+          // bunte Wimpel entlang der Markise
+          const cols=['#d9704f','#e8c15a','#7ec96b','#6fa8dc'];
+          for(let k=0;k<4;k++){
+            const px=ax-bw*0.27+k*bw*0.18, py=ay+Math.sin(k*1.3)*2*S;
+            const w=Math.sin(t/380+k*1.7)*1.6*S;
+            g.fillStyle=cols[k];
+            g.beginPath();
+            g.moveTo(px,py); g.lineTo(px+5*S+w,py+2.4*S); g.lineTo(px,py+5*S);
+            g.closePath(); g.fill();
+          }
+          break;
+        }
+        default: break;
       }
-      case 'market': {
-        // bunte Wimpel flattern über den Ständen
-        const cols=['#d9704f','#e8c15a','#7ec96b','#6fa8dc'];
-        for(let k=0;k<4;k++){
-          const px=x-13+k*8.6, py=y-24+Math.sin(k*1.3)*2;
-          const w=Math.sin(t/380+k*1.7)*1.6;
-          g.fillStyle=cols[k];
-          g.beginPath();
-          g.moveTo(px,py); g.lineTo(px+5+w,py+2.4); g.lineTo(px,py+5);
-          g.closePath(); g.fill();
-        }
-        break;
-      }
-      case 'harbor': case 'shipyard':
-        ripple(x+16,y+8,'rgba(180,220,240,$A)');
-        if(working) chips(x-2,y-6,'rgba(214,178,116,$A)',3,12);
-        break;
-      case 'hunter':
-        // Rauch vom Räucherfeuer, auch in Wartezeiten
-        puff(x-9,y-12,'rgba(198,192,182,$A)',2,18,2.4,2100);
-        break;
-      case 'toolsmith': case 'armory': case 'smelter':
-        if(working) chips(x-5,y-13,'rgba(255,206,120,$A)',4,9);
-        break;
-      default: break;
     }
   }
   drawFlag(g, m, game, i){
