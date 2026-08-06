@@ -3869,17 +3869,33 @@ export class Renderer {
         const t=this.time;
         // (1) Wolkenlicht: das nahtlose Tile als Muster, zwei Lagen mit
         // eigener Drift und ganz langsamer Atmung — belebt große Flächen,
-        // ohne je ein Streifenmuster zu bilden
-        for(const L of [{pat:st.patA, vx:4.6, vy:2.0, a:0.10, per:9000},
-                        {pat:st.patB, vx:-2.4, vy:3.1, a:0.075, per:13000}]){
-          if(!L.pat) continue;
-          const ox=t*L.vx/1000, oy=t*L.vy/1000;
-          g.save();
-          g.translate(ox,oy);
-          g.globalAlpha=L.a*(0.8+0.2*Math.sin(t/L.per*6.283));
-          g.fillStyle=L.pat;
-          g.fillRect(wx0-ox,wy0-oy,wx1-wx0,wy1-wy0);
-          g.restore();
+        // ohne je ein Streifenmuster zu bilden. Die Muster-Füllungen sind
+        // teuer, deshalb werden beide Lagen in einen KLEINEN Offscreen
+        // (1/6 der Sichtgröße) gemalt und einmal weich hochskaliert —
+        // das kostet fast nichts und macht die Flecken zusätzlich weicher.
+        if(st.patA){
+          if(!this._wcC) this._wcC=document.createElement('canvas');
+          const sw=Math.max(32,Math.ceil(this.vw/6)), sh=Math.max(32,Math.ceil(this.vh/6));
+          if(this._wcC.width!==sw||this._wcC.height!==sh){ this._wcC.width=sw; this._wcC.height=sh; }
+          const q=this._wcC.getContext('2d');
+          q.setTransform(1,0,0,1,0,0);
+          q.clearRect(0,0,sw,sh);
+          q.setTransform(sw/(wx1-wx0),0,0,sh/(wy1-wy0),0,0);
+          q.translate(-wx0,-wy0);
+          for(const L of [{pat:st.patA, vx:4.6, vy:2.0, a:0.10, per:9000},
+                          {pat:st.patB, vx:-2.4, vy:3.1, a:0.075, per:13000}]){
+            if(!L.pat) continue;
+            const ox=t*L.vx/1000, oy=t*L.vy/1000;
+            q.save();
+            q.translate(ox,oy);
+            q.globalAlpha=L.a*(0.8+0.2*Math.sin(t/L.per*6.283));
+            q.fillStyle=L.pat;
+            q.fillRect(wx0-ox,wy0-oy,wx1-wx0,wy1-wy0);
+            q.restore();
+          }
+          q.setTransform(1,0,0,1,0,0);
+          g.imageSmoothingEnabled=true;
+          g.drawImage(this._wcC, wx0, wy0, wx1-wx0, wy1-wy0);
         }
         // (2) Glanzlichter: je Rasterzelle höchstens ein Fleck (niedrige
         // Dichte), Position/Phase aus der Zelle gehasht, die ganze Lage
