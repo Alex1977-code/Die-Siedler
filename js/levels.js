@@ -10,10 +10,14 @@ export const CAMPAIGN = [
       {type:'build', bld:'woodcutter', count:1, desc:'Baue einen Holzfäller'},
       {type:'build', bld:'sawmill', count:1, desc:'Baue ein Sägewerk'},
       {type:'build', bld:'quarry', count:1, desc:'Baue einen Steinmetz'},
-      {type:'good', good:'board', count:25, desc:'Lagere 25 Bretter'},
+      // 50 statt 25: mit 24 Brettern Startbestand war das alte Ziel schon
+      // beim Betreten der Karte praktisch erfüllt (Kritikbericht F10) –
+      // jetzt muss die Kette Holzfäller -> Sägewerk wirklich laufen.
+      {type:'good', good:'board', count:50, desc:'Lagere 50 Bretter'},
     ],
     tips:'Tippe auf einen freien Punkt in deinem Gebiet, um zu bauen. Verbinde jedes Gebäude '
-      +'mit einer Straße zum Hauptquartier – sonst werden keine Waren transportiert!',
+      +'mit einer Straße zum Hauptquartier – sonst werden keine Waren transportiert! '
+      +'Erst wenn Holzfäller und Sägewerk zusammenarbeiten, füllt sich das Bretterlager.',
   },
   {
     id:2, title:'Brot und Erz', theme:'gruen', size:'S', seed:22083, ais:[],

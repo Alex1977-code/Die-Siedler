@@ -394,6 +394,9 @@ export class UI {
     // Kamera aufs HQ
     const hq=game.buildings.get(game.players[0].hq);
     if(hq){ const [x,y]=game.map.worldPos(hq.node); this.cam.x=x; this.cam.y=y; this.cam.z=1.1; }
+    // Minikarte sofort zeichnen statt erst im 500-ms-Takt der Spielschleife
+    this._mmT=0;
+    this.renderer.drawMinimap($('#minimap'), this.cam);
     $('#g-speed').textContent=speedLabel(this.opts.speed);
     this.syncPauseBtn();
     this.closeSheet();

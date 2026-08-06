@@ -195,6 +195,14 @@ h1::after{
 #unit-bar .res-ic{ width:15px; height:15px; }
 #unit-bar::-webkit-scrollbar{ display:none; }
 #unit-bar span{ display:inline-flex; gap:2px; align-items:center; }
+/* Passen nicht alle angehefteten Waren in die Leiste, wurde die letzte vorher
+   hart abgeschnitten (F11). Das Paket-Zeichen klebt jetzt am rechten Rand und
+   blendet den Anschnitt weich aus: "hier gibt es mehr, wischen/antippen". */
+#unit-bar .res-more{
+  position:sticky; right:-7px; margin-left:auto; flex:0 0 auto;
+  padding:2px 3px 2px 16px;
+  background:linear-gradient(to right, rgba(20,30,44,0), rgba(20,30,44,0.96) 45%);
+}
 #unit-bar:empty{ display:none; }
 #objectives{
   position:absolute; top:calc(110px + env(safe-area-inset-top)); left:8px;

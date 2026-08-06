@@ -186,6 +186,7 @@ export class Renderer {
     this.cv=canvas; this.ctx=canvas.getContext('2d');
     this.chunks=new Map();
     this.chunkVer=new Map();
+    this._signsSeen=new Set();
     this.sprites=new Map();
     this.time=0;
     this.loadAssets();
@@ -197,6 +198,7 @@ export class Renderer {
     this.sprites.clear();
     this.lastTerritoryVer=-1;
     this.borderEdges=[];
+    this._signsSeen=new Set();
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
@@ -586,6 +588,14 @@ export class Renderer {
     const ver=this.chunkVer.get(key)||0;
     let c=this.chunks.get(key);
     if(c && c.ver===ver){ c.used=this.time; return c; }
+    // Veralteter Chunk, aber Frame-Budget aufgebraucht? Dann diesmal den
+    // alten Stand zeigen – mehrere gleichzeitig ungültige Chunks (frische
+    // Erzader am Chunk-Rand) bauen sich über die nächsten Frames verteilt
+    // neu auf, statt in EINEM Frame zu ruckeln.
+    if(c && this._chunkBudget!==undefined){
+      if(this._chunkBudget<=0){ c.used=this.time; return c; }
+      this._chunkBudget--;
+    }
     const m=this.game.map;
     const pad=TILE*1.5;
     const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*8;
@@ -3507,10 +3517,17 @@ export class Renderer {
     g.scale(cam.z, cam.z);
     g.translate(-cam.x, -cam.y);
     g.lineJoin='round'; g.lineCap='round';
-    if(game.changedNodes.length){
-      for(const i of game.changedNodes) this.markDirtyNode(i);
-      game.changedNodes.length=0;
+    // Die Gelände-Chunks hängen NUR an Gelände/Höhe (unveränderlich) und den
+    // Erzadern der Geologen-Schilder. Objekt-/Fahnen-/Gebäudeänderungen
+    // (gefällte Bäume, Felder, Baustellen ...) werden pro Frame separat
+    // gezeichnet – sie invalidieren die Chunks NICHT mehr. Vorher kostete
+    // jeder gefällte Baum den Neuaufbau von bis zu 4 Chunks (~50 ms Ruckler).
+    game.changedNodes.length=0;
+    if(game.signs && game.signs.size!==this._signsSeen.size){
+      for(const q of game.signs.keys())
+        if(!this._signsSeen.has(q)){ this._signsSeen.add(q); this.markDirtyNode(q); }
     }
+    this._chunkBudget=2;   // höchstens 2 veraltete Chunks je Frame neu aufbauen
     const halfW=this.vw/2/cam.z, halfH=this.vh/2/cam.z;
     const wx0=cam.x-halfW-TILE*2, wx1=cam.x+halfW+TILE*2;
     const wy0=cam.y-halfH-ROWH*2, wy1=cam.y+halfH+ROWH*3;
@@ -6338,7 +6355,11 @@ export class Renderer {
         const px=-dy/L, py=dx/L;
         this.borderEdges.push({pl:o, x1:mx-px*12, y1:my-py*12, x2:mx+px*12, y2:my+py*12});
         // Grenzpfosten: ausgedünnt auf ein grobes Raster, damit sie als Reihe
-        // von Wegmarken lesbar bleiben statt als Zaun
+        // von Wegmarken lesbar bleiben statt als Zaun. Im Wasser (und in
+        // Lava) steht kein Pfahl – vorher marschierte die Reihe mitten
+        // durch den See (Grafik-Ärgernis aus dem Kritikbericht).
+        const nass=(q)=>{ const t2=m.terr[q]; return t2===TER.WATER||t2===TER.LAVA; };
+        if(nass(i)||nass(n)) continue;
         const gx=Math.round(mx/34), gy=Math.round(my/30);
         const key=gx+','+gy;
         if(!seen.has(key)){
@@ -6590,6 +6611,14 @@ export class Renderer {
     const sx=w/m.w, sy=h/m.h;
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     g.fillStyle='#0a0e16'; g.fillRect(0,0,w,h);
+    // Unerkundetes: dezentes Karo statt tiefschwarzer Fläche – die fast
+    // leere Minikarte der ersten Minuten wirkte wie ein Darstellungsfehler
+    // (Kritikbericht F12). Das Muster sagt "Karte, noch nicht erkundet".
+    g.fillStyle='#111827';
+    for(let y=0;y<m.h;y+=4) for(let x=0;x<m.w;x+=4){
+      if(((x>>2)+(y>>2))%2) continue;
+      g.fillRect(x*sx, y*sy, Math.ceil(sx*4), Math.ceil(sy*4));
+    }
     for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
       const i=m.idx(x,y);
       if(!m.explored[i]) continue;
