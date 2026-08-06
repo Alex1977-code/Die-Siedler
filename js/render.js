@@ -1852,6 +1852,16 @@ export class Renderer {
               // Wehen beider Seiten – zu kleine Zellen blieben Einzelperlen
               cellS(e, e.mx-e.ux*12+tx*tj*0.6, e.my-e.uy*10+ty*tj*0.5, 23+h4*6);
               cellS(e, e.mx+e.ux*(4+wn*5)+tx*tj, e.my+e.uy*(3+wn*4)+ty*tj*0.8, 22+wn*12+h4*5);
+              // Hohe Randwände: die Wehe klettert die PROJIZIERTE Wand
+              // hinauf (Höhenversatz HSCALE), sonst ragen die vollen
+              // Wanddreiecke als dunkle Sägezähne aus der weißen Ebene
+              const drop=m.hgt[e.i]-m.hgt[e.n];
+              if(drop>0.55){
+                const [ax2,ay2]=m.worldPos(e.i);
+                cellS(e, (ax2+e.mx)/2, (ay2+e.my)/2, 19+drop*7);
+                if(drop>1.1)
+                  cellS(e, ax2*0.78+e.mx*0.22, ay2*0.78+e.my*0.22, 15+drop*6);
+              }
             }
             mk3.restore();
             tex3.globalCompositeOperation='source-over';
