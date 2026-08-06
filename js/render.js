@@ -1921,8 +1921,9 @@ export class Renderer {
       const base=hex2arr(cols[TER.WATER]);
       const depth=Math.min(1,(landN*3+landC)/9);          // 1 = ufernah
       const shore=Math.min(1,(landN*2.2+landC*0.55)/8);   // Flachwasser-Anteil
-      col=mixArr(base.map(v=>v*0.87), base, depth);
-      col=mixArr(col, hex2arr(coast[1]), shore*0.6);
+      // offene Fläche etwas dunkler, Flachwasser einen Hauch klarer/grünlicher
+      col=mixArr(base.map(v=>v*0.85), base, depth);
+      col=mixArr(col, hex2arr(coast[1]), shore*0.66);
     } else if(t===TER.GRASS||t===TER.DESERT||t===TER.SNOW){
       const waterN=nbs.filter(n=>m.terr[n]===TER.WATER).length;
       col = waterN? mixArr(hex2arr(cols[t]), hex2arr(coast[0]), Math.min(1,waterN/4)*0.8) : hex2arr(cols[t]);
@@ -3671,6 +3672,73 @@ export class Renderer {
     }
   }
 
+  // ---------- Wasser-Stempel (einmal vorbereitet, pro Frame nur drawImage) ----------
+  // Weiche Offscreen-Stempel für die Wasser-Animation: kleine Glanzlichter,
+  // ein nahtloses "Wolkenlicht"-Tile für großflächige Helligkeitsmodulation
+  // und ein länglicher Schaumfleck für den Ufersaum. Alles ohne ctx.filter
+  // (iPhone!) – nur Radialverläufe. Deterministisch aus hash01 aufgebaut.
+  waterStamps(){
+    if(this._waterStamps) return this._waterStamps;
+    const mk=(w,h,fn)=>{
+      const c=document.createElement('canvas'); c.width=w; c.height=h;
+      fn(c.getContext('2d'),w,h); return c;
+    };
+    // weicher elliptischer Lichtfleck (Radialverlauf, gequetscht)
+    const blob=(q,x,y,r,sx,sy,col,a)=>{
+      q.save(); q.translate(x,y); q.scale(sx,sy);
+      const gr=q.createRadialGradient(0,0,0, 0,0,r);
+      gr.addColorStop(0, `${col}${a})`);
+      gr.addColorStop(0.55, `${col}${(a*0.42).toFixed(3)})`);
+      gr.addColorStop(1, `${col}0)`);
+      q.fillStyle=gr; q.beginPath(); q.arc(0,0,r,0,7); q.fill();
+      q.restore();
+    };
+    const st={};
+    // 4 Glanzlicht-Varianten: 1-2 überlappende, horizontal gestreckte Flecken
+    st.glints=[];
+    for(let v=0; v<4; v++){
+      st.glints.push(mk(52,22,(q,w,h)=>{
+        const n=1+(v&1);
+        for(let k=0;k<=n;k++){
+          const bx=w/2+(hash01(v*31+k*7+1)-0.5)*15;
+          const by=h/2+(hash01(v*17+k*13+2)-0.5)*5;
+          const r=4+hash01(v*13+k*3+3)*3.5;
+          blob(q,bx,by,r,2.1,0.55,'rgba(255,252,240,', k===0?0.8:0.45);
+        }
+      }));
+    }
+    // nahtloses Wolkenlicht-Tile: helle und dunkle Weichflecken, an den
+    // Kacheln umgebrochen (jeder Fleck 9x versetzt gezeichnet -> nahtlos)
+    st.cloud=mk(512,512,(q,w,h)=>{
+      const wrap=(x,y,r,sx,sy,col,a)=>{
+        for(const [ox,oy] of [[0,0],[w,0],[-w,0],[0,h],[0,-h],[w,h],[-w,h],[w,-h],[-w,-h]])
+          blob(q,x+ox,y+oy,r,sx,sy,col,a);
+      };
+      for(let k=0;k<5;k++)
+        wrap(hash01(k*7+101)*w, hash01(k*11+102)*h, 92+hash01(k*13+103)*68,
+             1.35, 0.78, 'rgba(232,246,255,', 0.5);
+      for(let k=0;k<5;k++)
+        wrap(hash01(k*7+201)*w, hash01(k*11+202)*h, 105+hash01(k*13+203)*75,
+             1.3, 0.85, 'rgba(6,26,40,', 0.5);
+    });
+    // Wolkenlicht als weltverankertes Muster in zwei Maßstäben
+    st.patA=this.ctx.createPattern(st.cloud,'repeat');
+    st.patB=this.ctx.createPattern(st.cloud,'repeat');
+    if(st.patB && st.patB.setTransform){
+      try{ st.patB.setTransform(new DOMMatrix().rotate(23).scale(2.1)); }
+      catch(_){ st.patB=st.patA; }
+    } else st.patB=st.patA;
+    // Ufersaum: länglicher, unregelmäßiger Schaumfleck (heller Kern, weicher Rand)
+    st.foam=mk(72,30,(q,w,h)=>{
+      blob(q,w/2,h/2,12,2.6,0.9,'rgba(244,250,255,',0.30);
+      blob(q,w/2,h/2,9,2.3,0.75,'rgba(248,252,255,',0.42);
+      for(let k=-1;k<=1;k++)
+        blob(q, w/2+k*17+(hash01(k*5+11)-0.5)*6, h/2+(hash01(k*3+21)-0.5)*4,
+             4.6+hash01(k*7+31)*2, 1.25, 0.85, 'rgba(250,253,255,', 0.5);
+    });
+    this._waterStamps=st;
+    return st;
+  }
   // ================= Hauptzeichnung =================
   draw(cam, ui, dtMs){
     const g=this.ctx, game=this.game, m=game.map;
@@ -3775,11 +3843,15 @@ export class Renderer {
         g.restore();
       }
     }
-    // Seegang: lange, langsam wandernde Lichtbänder über die ganze
-    // Wasserfläche statt einzelner Striche pro Knoten. Erst dadurch wirkt
-    // das Wasser als zusammenhängender See und nicht wie eine Kachel.
+    // Wasser-Leben: statt der früheren Linien-"Wellen" (lasen sich als dünne
+    // Striche quer über den See) drei weiche Schichten:
+    //  (1) sehr langsames, großflächiges Wolkenlicht (Hell-/Dunkel-Flecken),
+    //  (2) zwei Lagen kleiner Glanzlichter, die sanft aufblinken und mit
+    //      unterschiedlicher Drift wandern (Parallaxe-Gefühl).
+    // Alles läuft NACH den Chunks (Animation darf nie in den Chunk-Cache)
+    // und ist deterministisch aus Zellkoordinaten gehasht — kein
+    // Math.random pro Frame. Die Stempel sind vorbereitete Offscreens.
     {
-      const drift=this.time/1000;
       g.save();
       g.beginPath();
       let any=false;
@@ -3793,40 +3865,48 @@ export class Renderer {
       }
       if(any){
         g.clip();
-        for(let k=0;k<3;k++){
-          const amp=7+k*3, ylen=26+k*9;
-          const off=((drift*(9+k*4)) % (ylen*2)) - ylen;
-          g.strokeStyle=`rgba(226,244,255,${(0.085-k*0.021).toFixed(3)})`;
-          g.lineWidth=3.4-k*0.7;
-          for(let yy=wy0-ylen; yy<wy1+ylen; yy+=ylen*2){
-            g.beginPath();
-            for(let xx=wx0-40; xx<wx1+40; xx+=26){
-              const wy=yy+off+Math.sin((xx/110)+drift*0.6+k)*amp;
-              if(xx===wx0-40) g.moveTo(xx,wy); else g.lineTo(xx,wy);
-            }
-            g.stroke();
+        const st=this.waterStamps();
+        const t=this.time;
+        // (1) Wolkenlicht: das nahtlose Tile als Muster, zwei Lagen mit
+        // eigener Drift und ganz langsamer Atmung — belebt große Flächen,
+        // ohne je ein Streifenmuster zu bilden
+        for(const L of [{pat:st.patA, vx:4.6, vy:2.0, a:0.10, per:9000},
+                        {pat:st.patB, vx:-2.4, vy:3.1, a:0.075, per:13000}]){
+          if(!L.pat) continue;
+          const ox=t*L.vx/1000, oy=t*L.vy/1000;
+          g.save();
+          g.translate(ox,oy);
+          g.globalAlpha=L.a*(0.8+0.2*Math.sin(t/L.per*6.283));
+          g.fillStyle=L.pat;
+          g.fillRect(wx0-ox,wy0-oy,wx1-wx0,wy1-wy0);
+          g.restore();
+        }
+        // (2) Glanzlichter: je Rasterzelle höchstens ein Fleck (niedrige
+        // Dichte), Position/Phase aus der Zelle gehasht, die ganze Lage
+        // driftet gleichmäßig — feine Lage bei weitem Zoom ausgeblendet
+        const fein=Math.max(0,Math.min(1,(cam.z-0.5)/0.3));
+        for(const L of [{cell:46, vx:6.4, vy:2.7, sc:1.0, a:0.27*fein, dens:0.34, per:2600, sd:29},
+                        {cell:80, vx:-3.3, vy:1.5, sc:1.6, a:0.20, dens:0.40, per:3600, sd:57}]){
+          if(L.a<=0.01) continue;
+          const ox=t*L.vx/1000, oy=t*L.vy/1000;
+          const c0x=Math.floor((wx0-ox)/L.cell), c1x=Math.floor((wx1-ox)/L.cell);
+          const c0y=Math.floor((wy0-oy)/L.cell), c1y=Math.floor((wy1-oy)/L.cell);
+          for(let cy2=c0y;cy2<=c1y;cy2++) for(let cx2=c0x;cx2<=c1x;cx2++){
+            const key=(Math.imul(cx2,73856093)^Math.imul(cy2,19349663)^L.sd)|0;
+            const h1=hash01(key), h2=hash01(key+77), h3=hash01(key+154);
+            if(h1>L.dens) continue;
+            const px2=(cx2+0.15+h2*0.7)*L.cell+ox, py2=(cy2+0.15+h3*0.7)*L.cell+oy;
+            // sanftes Aufblinken (quadriert -> weiches Ein-/Ausblenden)
+            const tw=Math.sin(t/(L.per*(0.7+h2*0.6))*6.283 + h1*40);
+            if(tw<=0.05) continue;
+            const cv=st.glints[(key>>>2)&3];
+            const s=L.sc*(0.8+h3*0.5);
+            const w2=cv.width*s, h4=cv.height*s;
+            g.globalAlpha=L.a*tw*tw;
+            g.drawImage(cv, px2-w2/2, py2-h4/2, w2, h4);
           }
         }
-        // vereinzelte Brecher mit Schaumkrone, die über den See wandern
-        for(let k=0;k<3;k++){
-          const per=9000+k*3400;
-          const ph=((this.time + k*3100) % per)/per;
-          const a2=Math.sin(ph*Math.PI);
-          if(a2<=0.02) continue;
-          const wy=wy0+((k*0.31+hash01(k*97))%1)*(wy1-wy0);
-          const wx=wx0+ph*(wx1-wx0+320)-160;
-          g.strokeStyle=`rgba(255,255,255,${(a2*0.30).toFixed(3)})`;
-          g.lineWidth=2.6;
-          g.beginPath();
-          for(let dx2=-130;dx2<=130;dx2+=14){
-            const yy=wy+Math.sin(dx2/44+ph*7)*5 + Math.abs(dx2)/130*7;
-            if(dx2===-130) g.moveTo(wx+dx2,yy); else g.lineTo(wx+dx2,yy);
-          }
-          g.stroke();
-          g.strokeStyle=`rgba(220,240,255,${(a2*0.14).toFixed(3)})`;
-          g.lineWidth=6;
-          g.stroke();
-        }
+        g.globalAlpha=1;
       }
       g.restore();
     }
@@ -3855,27 +3935,37 @@ export class Renderer {
         g.globalAlpha=1;
       }
     }
-    // sanfter Uferschaum entlang der Küste (animiert)
-    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
-      const i=m.idx(x,y);
-      if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
-      const hsh=hash01(i*5+1);
-      const foamA=0.16+0.14*Math.sin(this.time/800+hsh*6.28);
-      if(foamA<=0.05) continue;
-      for(const n of m.nbs(i)){
-        if(m.terr[n]===TER.WATER) continue;
-        const [px,py]=m.worldPos(i), [lx,ly]=m.worldPos(n);
-        const mx=(px+lx)/2, my=(py+ly)/2;
-        const dx=lx-px, dy=ly-py;
-        const L=Math.hypot(dx,dy)||1;
-        const tx=-dy/L, ty=dx/L;
-        g.strokeStyle=`rgba(240,250,255,${foamA})`;
-        g.lineWidth=2.2;
-        g.beginPath();
-        g.moveTo(mx-tx*12,my-ty*12);
-        g.quadraticCurveTo(mx-dx*0.12, my-dy*0.12, mx+tx*12, my+ty*12);
-        g.stroke();
+    // sanfter Uferschaum entlang der Küste: weiche, längliche Schaumflecken
+    // (vorbereiteter Stempel) statt dünner Striche; jeder Fleck atmet
+    // langsam in Helligkeit und schiebt sich minimal zum Wasser und zurück
+    {
+      const fcv=this.waterStamps().foam;
+      for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+        const i=m.idx(x,y);
+        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        let kE=0;
+        for(const n of m.nbs(i)){
+          if(m.terr[n]===TER.WATER) continue;
+          const hsh=hash01(i*5+kE*131+1);
+          kE++;
+          const foamA=0.30+0.20*Math.sin(this.time/1900+hsh*6.283);
+          if(foamA<=0.06) continue;
+          const [px,py]=m.worldPos(i), [lx,ly]=m.worldPos(n);
+          const dx=lx-px, dy=ly-py;
+          const L=Math.hypot(dx,dy)||1;
+          // Atmen: der Saum wandert minimal Richtung Wasser und zurück
+          const push=Math.sin(this.time/1600+hsh*9)*2.2 - 1.5;
+          const mx=(px+lx)/2 + dx/L*push, my=(py+ly)/2 + dy/L*push;
+          g.save();
+          g.translate(mx,my);
+          g.rotate(Math.atan2(dy,dx)+Math.PI/2);   // längs zur Uferlinie
+          g.globalAlpha=Math.min(0.5,foamA);
+          const w2=44+hsh*14, h2=16+hsh*5;
+          g.drawImage(fcv,-w2/2,-h2/2,w2,h2);
+          g.restore();
+        }
       }
+      g.globalAlpha=1;
     }
     // Wiesen-Deko (nur bei näherem Zoom sichtbar sinnvoll)
     if(cam.z>=0.7){
