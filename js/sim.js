@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, AI_MIL, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -1013,23 +1013,79 @@ export class Game {
     for(const {mb} of this.atkSources(pl,b)) avail += Math.max(0, mb.soldiers.length-1);
     return avail;
   }
+  // Sammel-Angriff: Der Befehl zieht Soldaten aus MEHREREN Quartieren in
+  // Reichweite zusammen (jedes behält einen Mann Restbesatzung). Jedes
+  // beteiligte Quartier schickt sein Kontingent als eigene Marschgruppe zu
+  // einem Sammelpunkt kurz vor dem Ziel; dort warten alle aufeinander und
+  // schlagen GEMEINSAM zu. Vorher erschien die ganze Truppe am nächsten
+  // Quartier – praktisch stellte immer nur ein Posten die Angreifer, und
+  // Angriffe blieben 2-Mann-Tröpfeln (Kritikbericht, Top-4).
   attack(pl, bldId, count){
     const target=this.buildings.get(bldId);
-    if(!target) return false;
+    if(!target || target.player===pl) return false;
+    const m=this.map;
+    const [tx,ty]=m.worldPos(target.node);
     const sources=this.atkSources(pl, target);
     sources.sort((a,b)=>a.d-b.d);
-    const group=[];
+    const parts=[]; let total=0;
     for(const {mb} of sources){
-      while(group.length<count && mb.soldiers.length>1){
+      if(total>=count) break;
+      if(mb.soldiers.length<=1) continue;
+      // Quartiere ohne Landweg zum Ziel stellen keine Angreifer: ihre
+      // Soldaten tanzten sonst ewig am Wasserarm auf der Stelle.
+      const [bx,by]=this.tuerPos(mb);
+      if(!this.landDetour({x:bx,y:by}, tx, ty, 2600)) continue;
+      const grp=[];
+      while(total<count && mb.soldiers.length>1){
         mb.soldiers.sort((a,b)=>STYPES[b].str-STYPES[a].str);
-        group.push(mb.soldiers.shift()); // stärkste zuerst
+        grp.push(mb.soldiers.shift()); total++;   // stärkste zuerst
       }
-      if(group.length>=count) break;
+      if(grp.length) parts.push({mb, grp});
     }
-    if(!group.length) return false;
-    const [sx,sy]=this.map.worldPos(sources[0].mb.node);
-    this.units.push({ id:NEXT_ID++, type:'attack', player:pl, x:sx, y:sy,
-      target: target.node, targetB: bldId, soldiers: group, state:'walk' });
+    if(!total) return false;
+    // Sammelpunkt: per Land-BFS VOM ZIEL aus ein paar Knoten in Richtung der
+    // anmarschierenden Quartiere. So liegt er garantiert landverbunden zum
+    // Ziel und nie auf einer abgeschnittenen Sandbank jenseits eines
+    // Wasserarms (dort wartete die Truppe sonst vergeblich).
+    let cx=0, cy=0;
+    for(const pt of parts){ const [x,y]=m.worldPos(pt.mb.node); cx+=x; cy+=y; }
+    cx/=parts.length; cy/=parts.length;
+    const dd=Math.hypot(cx-tx,cy-ty)||1;
+    const dirx=(cx-tx)/dd, diry=(cy-ty)/dd;
+    let rx=tx+dirx*MUSTER_DIST, ry=ty+diry*MUSTER_DIST;   // Rückfall: Luftlinie
+    {
+      const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
+      const seen=new Set([target.node]);
+      let q=[target.node], bestN=-1, bestS=-1e9;
+      for(let ring=1; ring<=3 && q.length; ring++){
+        const nq=[];
+        for(const i of q) for(const n of m.nbs(i)){
+          if(seen.has(n) || !fest(n)) continue;
+          seen.add(n); nq.push(n);
+          if(ring>=2){                       // äußere Ringe: bester Kandidat
+            const [px,py]=m.worldPos(n);     // Richtung Anmarsch
+            const s=(px-tx)*dirx+(py-ty)*diry + ring*8;
+            if(s>bestS){ bestS=s; bestN=n; }
+          }
+        }
+        q=nq;
+      }
+      if(bestN>=0) [rx,ry]=m.worldPos(bestN);
+    }
+    const gid=NEXT_ID++;
+    for(const pt of parts){
+      const u={ id:NEXT_ID++, type:'attack', player:pl, ...this.tuerAustritt(pt.mb),
+        target: target.node, targetB: bldId, soldiers: pt.grp,
+        state: parts.length>1 ? 'muster' : 'walk', grp:gid, rx, ry, musterT:this.t };
+      // Marschroute über Land-Knoten vorausberechnen: die gierige Luftlinie
+      // blieb an Buchten und Ufersäumen hängen (Tanz auf der Stelle, die
+      // Truppe erreichte den Sammelpunkt nie) – Soldaten marschieren
+      // geordnet über das Knotennetz.
+      const [gx,gy]= u.state==='muster' ? [rx,ry] : [tx,ty];
+      const det=this.landDetour(u, gx, gy, 2600);
+      if(det && det.length){ u._det=det; u._detTx=gx; u._detTy=gy; }
+      this.units.push(u);
+    }
     // Spähwissen durch den Angriffsbefehl: ein kleiner Sichtkreis ums Ziel
     // lüftet den Nebel – das Kampfgeschehen spielt nicht mehr im Schwarzen (F8)
     if(pl===0) this.exploreAround(target.node, 4);
@@ -1935,7 +1991,7 @@ export class Game {
   // Kürzester Fußweg über LAND-Knoten (BFS, begrenzt) - der Notausstieg,
   // wenn die gierige Luftlinie in moveToward nicht weiterkommt. Liefert
   // Weltpunkte oder null (Ziel unerreichbar/zu weit).
-  landDetour(u, tx, ty){
+  landDetour(u, tx, ty, cap=700){
     const m=this.map;
     const from=m.nearestNode(u.x,u.y), to=m.nearestNode(tx,ty);
     if(from<0 || to<0 || from===to) return null;
@@ -1944,7 +2000,7 @@ export class Game {
     const prev=new Map([[from,-1]]);
     const q=[from];
     let end=-1;
-    for(let qi=0; qi<q.length && qi<700; qi++){
+    for(let qi=0; qi<q.length && qi<cap; qi++){
       const cur=q[qi];
       if(cur===to){ end=cur; break; }
       for(const nb of m.nbs(cur)){
@@ -2171,14 +2227,42 @@ export class Game {
     for(const t of list) r[t]=(r[t]||0)+1;
   }
   tickAttack(u){
+    if(u.dead) return;                 // im selben Takt bereits verschmolzen
     const m=this.map;
     const target=this.buildings.get(u.targetB);
-    if(!target){ // Ziel weg -> Gruppe kehrt heim (löst sich auf, Soldaten zurück in Reserve)
+    // Ziel weg oder inzwischen in eigener Hand -> Gruppe kehrt heim
+    // (löst sich auf, Soldaten zurück in die Reserve)
+    if(!target || target.player===u.player){
       u.dead=true; this.returnSoldiers(u.player, u.soldiers); return;
     }
     const [tx,ty]=m.worldPos(target.node);
+    if(u.state==='muster'){
+      // Zum Sammelpunkt marschieren und dort auf die anderen Kontingente
+      // desselben Angriffsbefehls warten (kleine Toleranz: "am Sammelpunkt"
+      // heißt dicht dabei, nicht zentimetergenau darauf).
+      if(!u.mArr && (this.moveToward(u, u.rx, u.ry, WALK_SPEED*ATK_MARCH)
+                     || Math.hypot(u.x-u.rx, u.y-u.ry)<14)) u.mArr=true;
+      const grp=this.units.filter(x=>x.type==='attack' && !x.dead && x.grp===u.grp);
+      if(grp.every(x=>x.mArr) || this.t-(u.musterT||0)>MUSTER_WAIT){
+        // Eingetroffene Kontingente verschmelzen zu EINER Angriffsgruppe und
+        // schlagen gemeinsam zu; hängende Nachzügler (Engstelle, Umweg)
+        // rücken nach dem Wartelimit einzeln nach, statt den Angriff ewig
+        // aufzuhalten.
+        const here=grp.filter(x=>x.mArr);
+        const lead=here[0]||u;
+        for(const x of here) if(x!==lead){ lead.soldiers.push(...x.soldiers); x.soldiers=[]; x.dead=true; }
+        for(const x of grp) if(!x.dead && x.state!=='walk'){
+          x.state='walk';
+          const det=this.landDetour(x, tx, ty, 2600);   // Route für den Sturm
+          if(det && det.length){ x._det=det; x._detTx=tx; x._detTy=ty; }
+        }
+      }
+      return;
+    }
     if(u.state==='walk'){
-      if(this.moveToward(u,tx,ty,WALK_SPEED*0.9)){
+      // eigener Marsch-Faktor: Angriffsgruppen sind zügiger unterwegs als
+      // Fachkräfte (der "stundenlange Anmarsch" aus dem Kritikbericht)
+      if(this.moveToward(u,tx,ty,WALK_SPEED*ATK_MARCH)){
         // Baustellen werden niedergerissen, nicht erobert
         if(target.state==='build'){
           if(target.player===0) this.msg(`${BLD[target.type].name}-Baustelle vom Feind zerstört!`, 'war', target.node);
@@ -2223,6 +2307,9 @@ export class Game {
       if(!u){ bt.doneFlag=true; continue; }
       const b=this.buildings.get(bt.bldId);
       if(!b){ bt.doneFlag=true; u.dead=true; this.returnSoldiers(bt.attPlayer, u.soldiers); continue; }
+      // Ziel inzwischen von der eigenen Seite erobert (zweite Gruppe traf
+      // später ein): nicht gegen die eigene Besatzung kämpfen, sondern heim.
+      if(b.player===bt.attPlayer){ bt.doneFlag=true; u.dead=true; this.returnSoldiers(bt.attPlayer, u.soldiers); continue; }
       bt.roundT++;
       if(bt.roundT<10) continue;
       bt.roundT=0;
@@ -2882,7 +2969,12 @@ export class Game {
     if(c('forester')<1) want.push('forester');
     // Militär-Ausbau ruht während der Nachbau-Bremse (siehe burnBuilding):
     // frisch zerstörte Posten werden nicht im Sekundentakt ersetzt.
-    if(c('barracks')+c('guardhouse')+c('watchtower')+c('fortress') < 2 + Math.floor(this.t/3000)*lvl
+    // Dosierung je Stufe (AI_MIL): LEICHT expandiert gemütlich und deckelt
+    // bei wenigen Posten – vorher wuchs selbst die Leicht-KI unbegrenzt
+    // (43 Gebäude, HQ-Fall auf "Leicht/Leicht", Kritikbericht F2).
+    const AM=AI_MIL[lvl]||AI_MIL[2];
+    if(c('barracks')+c('guardhouse')+c('watchtower')+c('fortress')
+         < Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow))
        && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     if(c('fisher')<1) want.push('fisher');
     if(c('well')<1) want.push('well');
@@ -2928,12 +3020,35 @@ export class Game {
     // Angreifen? Mit Anlauf-Schonfrist: auf kleinen Karten fiel die KI
     // sonst unmittelbar nach Grenzkontakt über den Spieler her (Frustspitze
     // aus dem Kritikbericht), während der Takt danach unverändert bleibt.
+    // Dosierung je Stufe (AI_MIL, Kritikbericht F2/F3):
+    //  - LEICHT: kleine Gruppen, nur Grenzposten (HQ samt Umfeld tabu),
+    //    nach einem verlorenen eigenen Posten lange Pause. Ein passiver
+    //    Spieler verliert höchstens Grenzposten, nie das Hauptquartier.
+    //  - NORMAL: aufs HQ erst, wenn der Verteidiger kaum Militär hat oder
+    //    die KI klar dominiert – und dann in eigenem, langsamem Takt mit
+    //    wachsenden Wellen (Drohung -> Scharmützel -> Entscheidung).
+    //  - SCHWER: heutiges aggressives Verhalten ohne Rücksicht.
     const iv=1200*dm.atkMul/lvl;
-    if(this.t>3000 && this.t-p.aiState.lastAttack > iv){
+    if(this.t>3000 && this.t-p.aiState.lastAttack > iv
+       && this.t >= (p.aiState.milLossT||0)+AM.lossPause){
       // Geduld am Ende? Wartet die KI ein Mehrfaches ihres Takts, greift sie
       // auch ohne klare Übermacht an – sonst saß sie vor einem vollen
       // HQ/Turm ewig still (Belagerungs-Langeweile, Kritikbericht F5).
       const drang=(this.t-p.aiState.lastAttack)/iv > 3;
+      // Gebietsgrößen für die Dominanz-Frage (2x Gebiet = "klar überlegen"),
+      // einmal je Abwägung gezählt
+      let terrN=null;
+      const terrOf=(id)=>{
+        if(!terrN){ terrN=new Array(this.players.length).fill(0);
+          for(let i=0;i<m.owner.length;i++){ const o=m.owner[i]; if(o>=0&&o<terrN.length) terrN[o]++; } }
+        return terrN[id]||0;
+      };
+      const milDone=(id)=>{
+        let n2=0;
+        for(const bb of this.buildings.values())
+          if(bb.player===id && bb.soldiers && bb.state==='done' && bb.type!=='hq') n2++;
+        return n2;
+      };
       let best=null, bs=1e9;
       for(const b of this.buildings.values()){
         if(b.player===p.id || b.player<0) continue;
@@ -2942,14 +3057,35 @@ export class Game {
         const avail=this.attackable(p.id, b.id);
         if(avail<2) continue;
         const defN=(b.soldiers?.length||0)+(b.type==='hq'?this.recruitTotal(b.player):0);
-        const need=drang ? Math.max(2, Math.ceil(defN*0.8)) : defN*1.3+1;
-        if(avail >= need){
-          const d=Math.hypot(m.X(b.node)-m.X(hq.node), m.Y(b.node)-m.Y(hq.node));
-          if(d<bs){ bs=d; best={b, n:Math.min(avail, drang? avail : defN+3)}; }
+        // HQ-Schutzzone: das Hauptquartier selbst und Posten dicht daneben
+        const eHq=this.buildings.get(this.players[b.player].hq);
+        const inHqZone = b.type==='hq' ||
+          (eHq && Math.hypot(m.X(eHq.node)-m.X(b.node), m.Y(eHq.node)-m.Y(b.node))<=HQ_SCHUTZ);
+        const dom = terrOf(p.id) >= 2*Math.max(50, terrOf(b.player));
+        let n, hqWave=false;
+        if(inHqZone && AM.hqTabu) continue;             // LEICHT: niemals aufs HQ
+        if(inHqZone && AM.hqIv){
+          // NORMAL: HQ-Angriffe nur bei klarer Lage, in eigenem langsamem
+          // Takt, und die Wellen wachsen von Sondierung zu Sturm an.
+          if(!dom && milDone(b.player)>=2) continue;
+          if(this.t < (p.aiState.hqAtkT||0)+AM.hqIv) continue;
+          n=Math.min(avail, 2+(p.aiState.hqWaves||0));
+          hqWave=true;
+        } else {
+          // Dominanz macht offensiver: wer doppelt so groß ist, wartet nicht
+          // auf 130% Übermacht (Kalter-Krieg-Patt aus dem Kritikbericht, F3)
+          const offensiv = drang || (lvl>=2 && dom);
+          const need = offensiv ? Math.max(2, Math.ceil(defN*0.8)) : defN*1.3+1;
+          if(avail < need) continue;
+          n=Math.min(avail, offensiv? avail : defN+3);
         }
+        n=Math.min(n, AM.grpMax);
+        const d=Math.hypot(m.X(b.node)-m.X(hq.node), m.Y(b.node)-m.Y(hq.node));
+        if(d<bs){ bs=d; best={b, n, hqWave}; }
       }
       if(best){
         p.aiState.lastAttack=this.t;
+        if(best.hqWave){ p.aiState.hqAtkT=this.t; p.aiState.hqWaves=(p.aiState.hqWaves||0)+1; }
         this.attack(p.id, best.b.id, best.n);
       }
     }

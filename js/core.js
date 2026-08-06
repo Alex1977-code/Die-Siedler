@@ -121,6 +121,30 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
 export const START_GOODS = { trunk:12, board:24, stone:16, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:10, pick:3, axe:3, saw:2, scythe:2, rod:2, cleaver:1, shovel:3 };
 
+// ---------- Militär-Kennzahlen ----------
+// KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js
+// (aiStep): erlaubte Militärgebäude = milBase + t/milGrow, gedeckelt auf
+// milMax; grpMax = größte Angriffsgruppe; lossPause = Angriffs-Pause nach dem
+// Verlust eines eigenen Postens (Ticks); hqTabu = Hauptquartier samt Umfeld
+// (HQ_SCHUTZ) wird NIE angegriffen; hqIv = eigener, langsamer Takt für
+// HQ-Angriffe (0 = normaler Angriffstakt). So bekommt das Endspiel die im
+// Kritikbericht geforderte Kurve Drohung -> Scharmützel -> Entscheidung,
+// statt Leicht-Dampfwalze (F2) oder Kalter-Krieg-Patt (F3).
+export const AI_MIL = {
+  1: { grpMax:3,  milBase:2, milGrow:6000, milMax:6,   lossPause:3000, hqTabu:true,  hqIv:0     },
+  2: { grpMax:6,  milBase:2, milGrow:1500, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000 },
+  3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0     },
+};
+// Schutzzone um ein Hauptquartier (Knotenabstand): das HQ und Posten in
+// diesem Umkreis gelten für die HQ-Regeln oben als "HQ-Angriff".
+export const HQ_SCHUTZ = 2.5;
+// Angriffsgruppen marschieren zügiger als Fachkräfte (Faktor auf WALK_SPEED)
+export const ATK_MARCH = 1.25;
+// Sammel-Angriff: Abstand des Sammelpunkts vor dem Ziel (Weltpixel, ~2,5
+// Knoten) und maximale Wartezeit dort (Ticks), bis Nachzügler einzeln folgen.
+export const MUSTER_DIST = 130;
+export const MUSTER_WAIT = 600;
+
 // Bedarfsbremse: reine Erzeuger (Brunnen, Sägewerk, Steinmetz, ...) ruhen,
 // wenn vom eigenen Gut SAT_PAUSE Stück ungenutzt lagern, und laufen erst
 // unter SAT_RESUME wieder an (Hysterese, damit nichts an der Schwelle
