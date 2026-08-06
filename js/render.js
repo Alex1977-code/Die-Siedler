@@ -888,7 +888,9 @@ export class Renderer {
           // Farbtafel: 5 Tonstufen x 5 Höhenbänder, EINMAL je Chunk gebaut.
           // Die Höhenbänder terrassieren hohe Massive (Fuß dunkler/wärmer,
           // Gipfel fahler/kühler) – in STUFEN statt als weicher Verlauf.
-          const FB=[0.88,0.94,1.0,1.06,1.12];
+          // oberstes Band leicht gedeckelt: mit Plattenverlauf + Lichtkanten
+          // obendrauf liefen die Gipfelplatten sonst in kreidiges Weiß aus
+          const FB=[0.88,0.94,1.0,1.05,1.09];
           const kalt=[213,220,232];
           const warmOnly=(this.theme==='vulkan'||this.theme==='wueste');
           const colTab=[];
@@ -957,7 +959,10 @@ export class Renderer {
             const hh=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
             const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
             const band=Math.min(4,(u4*5)|0);
-            const t3={A,B,C,ci:qi*5+band,blk};
+            // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
+            // kante liegt auf der SONNENSEITE der helleren Platte
+            const t3={A,B,C,ci:qi*5+band,blk,
+                      cx:(A[0]+B[0]+C[0])/3, cy:(A[1]+B[1]+C[1])/3};
             tris.push(t3);
             edge(a2,b2,t3); edge(b2,c2,t3); edge(c2,a2,t3);
           };
@@ -1007,6 +1012,86 @@ export class Renderer {
                 }
                 sg2.fill();
               }
+              // 2b) Plattenvolumen (Malweise der Felsreferenzen): JEDE Platte
+              //     bekommt einen weichen Helligkeitsverlauf – zur Sonne nach
+              //     oben links läuft sie in den NÄCHSTHELLEREN Palettenton
+              //     aus, zur abgewandten Ecke unten rechts in den nächst-
+              //     dunkleren. Der Verlauf ist aus der Felspalette selbst
+              //     gebaut (kein weißer Schleier – der kalkte die Platten
+              //     aus), ein Linearverlauf je Block in den Blockpfad
+              //     gefüllt, blockweise gejittert, rein bake-zeitig. Weil er
+              //     in _shadeTmp liegt, erbt ihn auch das Relief, das durch
+              //     die Firndecke scheint.
+              {
+                const byBlk=new Map();
+                for(const t3 of tris){
+                  let arr=byBlk.get(t3.blk);
+                  if(!arr){ arr=[]; byBlk.set(t3.blk,arr); }
+                  arr.push(t3);
+                }
+                for(const [bk,arr] of byBlk){
+                  let x5=1e9,y5=1e9,x6=-1e9,y6=-1e9;
+                  const cnt=new Map();
+                  for(const t3 of arr){
+                    cnt.set(t3.ci,(cnt.get(t3.ci)||0)+1);
+                    for(const P of [t3.A,t3.B,t3.C]){
+                      if(P[0]<x5)x5=P[0]; if(P[0]>x6)x6=P[0];
+                      if(P[1]<y5)y5=P[1]; if(P[1]>y6)y6=P[1];
+                    }
+                  }
+                  const rw=(x6-x5)/2, rh=(y6-y5)/2;
+                  const r7=Math.max(rw,rh);
+                  if(r7<9) continue;          // Splitterblöcke: kein Volumen nötig
+                  // häufigster Facettenton = Grundton der Platte
+                  let ciB=arr[0].ci, nBest=0;
+                  for(const [ci9,n9] of cnt) if(n9>nBest){ nBest=n9; ciB=ci9; }
+                  const qiB=(ciB/5)|0, bandB=ciB%5;
+                  const j1=hash01(bk*29+3)-0.5, j2=hash01(bk*31+7)-0.5;
+                  const path=(gc)=>{
+                    gc.beginPath();
+                    for(const t3 of arr){
+                      gc.moveTo(t3.A[0],t3.A[1]); gc.lineTo(t3.B[0],t3.B[1]);
+                      gc.lineTo(t3.C[0],t3.C[1]); gc.closePath();
+                    }
+                  };
+                  // Verlaufsachse: Sonnendiagonale, je Block leicht verdreht
+                  const ax7=x5+rw*(0.1+j1*0.5), ay7=y5+rh*(0.0+j2*0.4);
+                  const bx7=x6-rw*(0.1-j1*0.4), by7=y6-rh*(0.0+j2*0.4);
+                  const lg7=sg2.createLinearGradient(ax7,ay7,bx7,by7);
+                  lg7.addColorStop(0, colTab[Math.min(4,qiB+1)*5+bandB]);
+                  lg7.addColorStop(0.30+j2*0.12, colTab[ciB]);
+                  lg7.addColorStop(1, colTab[Math.max(0,qiB-1)*5+bandB]);
+                  path(sg2); sg2.fillStyle=lg7; sg2.fill();
+                  // Facetten, die vom Grundton abweichen (Wandlicht, Höhen-
+                  // band), halbtransparent zurückholen – das Terrassenrelief
+                  // bleibt lesbar, der Verlauf scheint darunter weiter
+                  sg2.globalAlpha=0.55;
+                  for(const [ci9] of cnt){
+                    if(ci9===ciB) continue;
+                    sg2.fillStyle=colTab[ci9];
+                    sg2.beginPath();
+                    for(const t3 of arr){
+                      if(t3.ci!==ci9) continue;
+                      sg2.moveTo(t3.A[0],t3.A[1]); sg2.lineTo(t3.B[0],t3.B[1]);
+                      sg2.lineTo(t3.C[0],t3.C[1]); sg2.closePath();
+                    }
+                    sg2.fill();
+                  }
+                  sg2.globalAlpha=1;
+                  // leiser warmer Lichtbauch in der Sonnenecke obendrauf –
+                  // die gemalte "Bauchigkeit" der Referenzplatten. Auf den
+                  // HELLSTEN Platten entfällt er (sie bleichten sonst zu
+                  // kreidigem Weiß aus – Tonwert-Deckel wie im Artbook).
+                  if(qiB>=4) continue;
+                  const li7=Math.max(0.20,Math.min(0.86,toneOf(bk)));
+                  const hx=x5+rw*(0.35+j1*0.3), hy=y5+rh*(0.30+j2*0.3);
+                  const aH=0.05+li7*0.10;
+                  const rg7=sg2.createRadialGradient(hx,hy,r7*0.05, hx,hy,r7*0.95);
+                  rg7.addColorStop(0,'rgba(255,244,222,'+aH.toFixed(3)+')');
+                  rg7.addColorStop(1,'rgba(255,244,222,0)');
+                  path(sg2); sg2.fillStyle=rg7; sg2.fill();
+                }
+              }
               sg2.restore();
               g.drawImage(this._shadeTmp, c.ox, c.oy);
             }
@@ -1015,29 +1100,40 @@ export class Renderer {
             //    GROSS skalierte Kluft-Kachel die weiten Flächen. Bewusst
             //    schwach – die Facetten bleiben flach, kein Krümelrauschen.
             {
-              const det3=patOf('gebirge3',0.30);
+              // klein skaliert: die Kachelplatten sind klar UNTER-Plattenmaß
+              // (Korn im Fels) – in Plattengröße konkurrierten ihre Fugen
+              // mit dem echten Blocknetz (zwei Netze = Giraffenfell)
+              const det3=patOf('gebirge3',0.22);
               // Kluft-Rückfall NICHT im Winter: die braune Kachel färbte
               // die kühlen Wände schmutzig ein
               const det=det3 || (this.theme==='winter'? null : patOf('ter_rock_crack',0.95,33,171,63));
               if(det){
                 g.globalCompositeOperation='soft-light';
-                g.globalAlpha= det3? 0.5 : 0.24;
+                // seit dem Plattenvolumen nur noch DEZENT: die Kachel liefert
+                // Nahzoom-Korn, das Modellieren übernehmen die Verläufe –
+                // bei 0.5 konkurrierte ihr Fugennetz mit den echten Platten
+                g.globalAlpha= det3? 0.30 : 0.24;
                 g.fillStyle=det;
                 g.fillRect(c.ox,c.oy,w,h);
                 g.globalAlpha=1;
                 g.globalCompositeOperation='source-over';
               }
             }
-            // 4) Fugen + Lichtkanten: an jeder Kante zwischen zwei
-            //    verschieden getönten Facetten (Block- oder Bandwechsel)
-            //    liegt eine dunkle Fuge und, zur Sonne nach Nordwest
-            //    versetzt, eine schmale helle Kante. Erst diese Paare
-            //    machen aus den Tonflächen kantige BLÖCKE; an Terrassen-
-            //    stufen zeichnen sie die gestufte Silhouette nach.
+            // 4) Fugen + Kantenlicht, GERICHTET statt Drahtgitter: jede
+            //    Blockfuge bekommt einen breiten, sehr weichen AO-Saum und
+            //    eine schlanke Fuge, deren Kraft mit dem TONSPRUNG wächst.
+            //    Das helle Kantenlicht liegt nur noch auf SONNENZUGEWANDTEN
+            //    Kanten der jeweils helleren Platte (Referenzen: die Platten
+            //    sind an ihrer Nordwestkante hell gesäumt, die Südostkanten
+            //    verschwinden im Fugenschatten). Ein gleichmäßiger Doppel-
+            //    strich um alles herum – das alte Drahtgitter – entfällt.
             //    Silhouettenkanten (nur ein Dreieck) macht das Geröllband.
             {
-              const dark=new Path2D(), soft=new Path2D(), lite=new Path2D();
-              let nE=0;
+              const ao=new Path2D(), soft=new Path2D();
+              const dark=new Path2D(), dark2=new Path2D();
+              const lite=new Path2D(), lite2=new Path2D();
+              let nE=0, nL=0;
+              const SXD=-0.552, SYD=-0.834;    // Sonne aus Nordwest
               for(const e of edges.values()){
                 if(!e.b) continue;
                 if(e.a.blk===e.b.blk && e.a.ci===e.b.ci) continue;
@@ -1047,24 +1143,72 @@ export class Renderer {
                   // leise Knickfalte – volle Fugen ergaben auf sanften
                   // Hängen ein Drahtgitter ohne sichtbaren Tonsprung
                   soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
-                } else {
-                  dark.moveTo(P1[0]+0.7,P1[1]+1.0); dark.lineTo(P2[0]+0.7,P2[1]+1.0);
-                  lite.moveTo(P1[0]-0.8,P1[1]-1.2); lite.lineTo(P2[0]-0.8,P2[1]-1.2);
+                  nE++; continue;
                 }
+                const qa=(e.a.ci/5)|0, qb=(e.b.ci/5)|0;
+                const dq=Math.abs(qa-qb);
+                // AO-Saum NUR an echten Tonstufen: gleichtonige Blockfugen
+                // quer über Hochflächen wurden sonst zu fetten Kapselstrichen
+                if(dq>=1){ ao.moveTo(P1[0]+0.6,P1[1]+1.1); ao.lineTo(P2[0]+0.6,P2[1]+1.1); }
+                const dst=dq>=1? dark2 : dark;
+                dst.moveTo(P1[0]+0.5,P1[1]+0.8); dst.lineTo(P2[0]+0.5,P2[1]+0.8);
                 nE++;
+                // Kantenlicht: Normale der Kante zeigt zur helleren Platte;
+                // nur wenn sie zugleich Richtung Sonne weist, wird die Kante
+                // knapp INNERHALB der hellen Platte gesäumt. Ein Teil der
+                // Kanten setzt bewusst aus – durchgehende Lichtkanten längs
+                // ganzer Terrassen lasen sich als leuchtende Paspel.
+                if(dq<1 || hash01(e.u*7+e.v*13+5)<0.35) continue;
+                const L4=qa>=qb? e.a : e.b;
+                const mx4=(P1[0]+P2[0])/2, my4=(P1[1]+P2[1])/2;
+                let nx4=L4.cx-mx4, ny4=L4.cy-my4;
+                const nl4=Math.hypot(nx4,ny4)||1; nx4/=nl4; ny4/=nl4;
+                const dot=nx4*SXD+ny4*SYD;
+                if(dot>0.25 && Math.max(qa,qb)>=2){
+                  const t7=dot>0.72? lite2 : lite;
+                  t7.moveTo(P1[0]+nx4*1.5,P1[1]+ny4*1.5);
+                  t7.lineTo(P2[0]+nx4*1.5,P2[1]+ny4*1.5);
+                  nL++;
+                }
               }
               if(nE){
                 g.lineCap='round'; g.lineJoin='round';
                 const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
-                g.strokeStyle='rgba('+fug+',0.40)';
-                g.lineWidth=2.3;
-                g.stroke(dark);
-                g.strokeStyle='rgba('+fug+',0.18)';
-                g.lineWidth=1.5;
-                g.stroke(soft);
-                g.strokeStyle='rgba(255,250,240,0.28)';
-                g.lineWidth=1.2;
-                g.stroke(lite);
+                g.strokeStyle='rgba('+fug+',0.10)'; g.lineWidth=5.5; g.stroke(ao);
+                g.strokeStyle='rgba('+fug+',0.20)'; g.lineWidth=1.7; g.stroke(dark);
+                g.strokeStyle='rgba('+fug+',0.38)'; g.lineWidth=2.2; g.stroke(dark2);
+                g.strokeStyle='rgba('+fug+',0.14)'; g.lineWidth=1.4; g.stroke(soft);
+              }
+              if(nL){
+                g.strokeStyle='rgba(255,250,238,0.18)'; g.lineWidth=1.1; g.stroke(lite);
+                g.strokeStyle='rgba(255,251,240,0.30)'; g.lineWidth=1.3; g.stroke(lite2);
+              }
+            }
+            // 4b) Gebirgsfuß-AO: entlang der ECHTEN Außensilhouette dunkelt
+            //     der Fels zum Boden hin weich ab (Kontaktschatten wie unter
+            //     Bäumen und Gebäuden) – der Übergang zur Ebene bekommt
+            //     Gewicht statt einer harten Schnittkante. Kanten, die nur
+            //     durch den Chunk-Zeichenausschnitt entstehen, bleiben außen
+            //     vor, sonst stünden AO-Streifen an jeder Chunknaht.
+            {
+              const bnd=new Map();
+              const isBnd=(q)=>{
+                let v=bnd.get(q);
+                if(v===undefined){ v=m.nbs(q).some(q2=>!isMassif(q2)); bnd.set(q,v); }
+                return v;
+              };
+              const p1=new Path2D(); let nB=0;
+              for(const e of edges.values()){
+                if(e.b) continue;
+                if(!isBnd(e.u)||!isBnd(e.v)) continue;
+                const P1=pos(e.u),P2=pos(e.v);
+                p1.moveTo(P1[0],P1[1]); p1.lineTo(P2[0],P2[1]); nB++;
+              }
+              if(nB){
+                g.lineCap='round'; g.lineJoin='round';
+                // zwei ineinanderliegende weiche Säume statt ctx.filter
+                g.strokeStyle='rgba(36,30,24,0.10)'; g.lineWidth=13; g.stroke(p1);
+                g.strokeStyle='rgba(36,30,24,0.12)'; g.lineWidth=6;  g.stroke(p1);
               }
             }
             // 5) Erzadern NUR dort, wo der Geologe geschürft hat – als weiche
@@ -1163,22 +1307,44 @@ export class Renderer {
                 tex2.globalCompositeOperation='source-over';
                 tex2.clearRect(0,0,w,h);
                 tex2.save(); tex2.translate(-c.ox,-c.oy);
-                // bestellte Sastrugi-Kachel (ter_ridge_snow) zuerst, bis
-                // dahin die Firn-Kachel, zur Not flaches Weiß
-                tex2.fillStyle=patOf('ter_ridge_snow',0.5)||patOf('ter_firn',0.4)||'#e7edf5';
+                // bestellte Sastrugi-Kachel (ter_ridge_snow) GEDÄMPFT über
+                // weichem Firngrund: pur gefüllt las sich die hartkantige
+                // Kachel als zerknülltes Papier (und ihre eingebauten
+                // Felsfenster als aufgeklebte braune Späne) – halbe Deck-
+                // kraft macht aus den Sastrugi eine leise Windzeichnung
+                tex2.fillStyle='#e9edf4';
                 tex2.fillRect(c.ox,c.oy,w,h);
+                const sastr=patOf('ter_ridge_snow',0.5)||patOf('ter_firn',0.4);
+                if(sastr){
+                  tex2.globalAlpha=0.55;
+                  tex2.fillStyle=sastr;
+                  tex2.fillRect(c.ox,c.oy,w,h);
+                  tex2.globalAlpha=1;
+                }
                 tex2.restore();
                 tex2.globalCompositeOperation='destination-in';
                 tex2.drawImage(this._maskTmp,0,0);
-                // Relief AUF der Decke: die flachen Facettentöne (liegen
-                // noch in _shadeTmp) scheinen gedämpft durchs Weiß – die
-                // Blockstruktur bleibt unterm Schnee lesbar, mit kühlen
-                // Schatten. Blend-Modi zeichnen auch dort, wo die Decke
-                // transparent ist, deshalb danach erneut maskieren.
-                tex2.globalCompositeOperation='soft-light';
-                tex2.globalAlpha=0.5;
-                tex2.drawImage(this._shadeTmp,0,0);
-                tex2.globalAlpha=1;
+                // Relief AUF der Decke: die Facettentöne (liegen noch in
+                // _shadeTmp) scheinen gedämpft durchs Weiß – die Block-
+                // struktur bleibt unterm Schnee lesbar, mit kühlen
+                // Schatten. VORHER weichzeichnen (blurInto, kein
+                // ctx.filter): scharf durchgepauste Dreieckskanten lasen
+                // sich als Geisterfacetten im Schnee – unter einer Firn-
+                // decke verrunden sich alle Kanten. Blend-Modi zeichnen
+                // auch dort, wo die Decke transparent ist, deshalb danach
+                // erneut maskieren.
+                {
+                  const bg3=this._blurTmp.getContext('2d');
+                  bg3.globalCompositeOperation='copy';
+                  bg3.fillStyle='rgba(0,0,0,0)'; bg3.fillRect(0,0,w,h);
+                  bg3.globalCompositeOperation='source-over';
+                  bg3.clearRect(0,0,w,h);
+                  this.blurInto(bg3, this._shadeTmp, 4);
+                  tex2.globalCompositeOperation='soft-light';
+                  tex2.globalAlpha=0.62;
+                  tex2.drawImage(this._blurTmp,0,0);
+                  tex2.globalAlpha=1;
+                }
                 tex2.globalCompositeOperation='destination-in';
                 tex2.drawImage(this._maskTmp,0,0);
                 tex2.globalCompositeOperation='source-over';
@@ -1233,24 +1399,23 @@ export class Renderer {
                   // (c) Schneereste: in Mulden hält sich der Schnee auch
                   //     unterhalb der geschlossenen Firndecke. SEHR sparsam
                   //     und nur in echten Kesseln nahe der Grenze.
-                  if(fOn && !onFirn && m.terr[i]===TER.MOUNT && cvv<-0.055
-                     && hg2>firnY-1.2 && hash01(i*37+5)<0.10){
+                  if(fOn && !onFirn && m.terr[i]===TER.MOUNT && cvv<-0.07
+                     && hg2>firnY-1.0 && hash01(i*37+5)<0.09){
+                    // WEICHER Muldenrest statt dreier harter Striche – die
+                    // alten Ellipsenreihen lasen sich als weiße Kratzer auf
+                    // der Wand. Jetzt: ein verlaufender Fleck mit Schatten-
+                    // bett, quer zur Falllinie gelagert.
                     const gr6=this.gradOf(m,i);
                     const a5=gr6? Math.atan2(gr6[0],-gr6[1]*0.7) : (hash01(i*11+2)-0.5)*0.7;
-                    const rx5=5+hash01(i*19+3)*4;
-                    const ca=Math.cos(a5), sa=Math.sin(a5)*0.6;
-                    for(let k6=0;k6<3;k6++){
-                      const d6=(k6-1)*rx5*0.9;
-                      const r6=rx5*(0.72+hash01(i*13+k6*7)*0.5);
-                      g.fillStyle=k6===1? 'rgba(238,244,251,0.6)' : 'rgba(224,232,242,0.44)';
-                      g.beginPath();
-                      g.ellipse(px+ca*d6, py+sa*d6+hash01(i*17+k6)*2, r6, r6*0.42, a5, 0, 7);
-                      g.fill();
-                    }
-                    // Schattenlippe unter der Wehe – sonst klebt der Fleck
-                    // AUF dem Hang statt IN der Mulde zu liegen
-                    g.fillStyle='rgba(56,58,66,0.18)';
-                    g.beginPath(); g.ellipse(px+1.2,py+rx5*0.42+1.2,rx5*1.1,1.5,a5,0,7); g.fill();
+                    const rx5=6+hash01(i*19+3)*5;
+                    g.fillStyle='rgba(64,66,76,0.16)';
+                    g.beginPath(); g.ellipse(px+1.0,py+1.6,rx5*1.05,rx5*0.42,a5,0,7); g.fill();
+                    const rg8=g.createRadialGradient(px,py,rx5*0.15, px,py,rx5);
+                    rg8.addColorStop(0,'rgba(240,245,252,0.55)');
+                    rg8.addColorStop(0.7,'rgba(230,238,248,0.30)');
+                    rg8.addColorStop(1,'rgba(230,238,248,0)');
+                    g.fillStyle=rg8;
+                    g.beginPath(); g.ellipse(px,py,rx5,rx5*0.45,a5,0,7); g.fill();
                   }
                 }
             }
@@ -1272,7 +1437,9 @@ export class Renderer {
                   const i=m.idx(x,y);
                   if(m.terr[i]!==TER.MOUNT) continue;
                   const h7=hash01(i*53+11);
-                  if(h7>=0.045) continue;
+                  // seltener als früher, dafür GROSS: die kleinen Nadeln
+                  // lasen sich nur als graue Stöckchen auf den Platten
+                  if(h7>=0.022) continue;
                   if(this.slopeOf(m,i)>0.5 || curvOf(i)<-0.02) continue;
                   if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                   if(m.pass && m.pass[i]) continue;
@@ -1282,7 +1449,7 @@ export class Renderer {
                   if(onFirn2 && hash01(i*59+3)<0.65) continue;  // auf Firn seltener
                   const [px,py]=pos(i);
                   const ox2=(hash01(i*13+3)-0.5)*18, oy2=(hash01(i*19+11)-0.5)*10;
-                  let hh7=(34+hash01(i*23+1)*22)*(0.8+hash01(i*43+7)*0.5);
+                  let hh7=(56+hash01(i*23+1)*30)*(0.85+hash01(i*43+7)*0.45);
                   // Bodenschatten nach Südost, wie bei allen Objekten
                   g.fillStyle='rgba(30,27,23,0.26)';
                   g.beginPath();
@@ -1307,10 +1474,10 @@ export class Renderer {
                   }
                   // kantige Trümmer am Fuß der Nadel (Referenz: Blöcke
                   // um die Basis)
-                  for(let k7=0;k7<3;k7++){
-                    const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*hh7*0.6;
-                    const by7=py+oy2+2+(hash01(i*31+k7*11)-0.30)*6;
-                    this.rockChunklet(g, bx7, by7, 2.2+hash01(i*37+k7)*2.6, i*5+k7);
+                  for(let k7=0;k7<4;k7++){
+                    const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*hh7*0.7;
+                    const by7=py+oy2+2+(hash01(i*31+k7*11)-0.30)*7;
+                    this.rockChunklet(g, bx7, by7, 2.8+hash01(i*37+k7)*3.4, i*5+k7);
                   }
                 }
               g.restore();
@@ -1582,6 +1749,43 @@ export class Renderer {
             g.globalAlpha=0.94;
             g.drawImage(this._texTmp,0,0);
             g.globalAlpha=1;
+            // ---- 2b) Grasüberwuchs: von der Wiese her wachsen Büschel über
+            //      den äußeren Bandrand – Fels und Wiese verzahnen sich,
+            //      statt an einer Linie aneinanderzustoßen. Deterministisch
+            //      gestreut, nur an Gras-Kanten und nie im Winter.
+            if(this.theme!=='winter'){
+              const gc0=hex2arr(cols[TER.GRASS]||'#6bb254');
+              const gcol=(f)=>'rgb('+Math.min(255,gc0[0]*f|0)+','
+                +Math.min(255,gc0[1]*f|0)+','+Math.min(255,gc0[2]*f|0)+')';
+              g.save(); g.translate(-c.ox,-c.oy);
+              g.lineCap='round';
+              for(const e of eScree){
+                if(e.tn!==TER.GRASS) continue;
+                const nT=2+((hash01(e.i*77+e.n*31)*7)|0)%2;
+                for(let k=0;k<nT;k++){
+                  const hK=hash01(e.i*101+e.n*13+k*37);
+                  const d8=9+hK*15;
+                  const sw8=(hash01(e.i*59+e.n*7+k*17)-0.5)*28;
+                  const bx8=e.mx+e.ux*d8-e.uy*sw8, by8=e.my+e.uy*d8*0.85+e.ux*sw8*0.8;
+                  // Schattenbett: das Büschel liegt AUF dem Schutt
+                  g.fillStyle='rgba(26,34,18,0.20)';
+                  g.beginPath(); g.ellipse(bx8,by8+0.8,4.6,1.8,0,0,7); g.fill();
+                  // 5 Halme als kleine Bögen in zwei Grüntönen
+                  for(let b8=0;b8<5;b8++){
+                    const a8=-1.571+(b8-2)*0.34+(hash01(e.i*7+k*11+b8*3)-0.5)*0.24;
+                    const l8=4.5+hash01(e.i*13+k*5+b8*7)*3.5;
+                    g.strokeStyle=(b8&1)? gcol(0.78) : gcol(1.06);
+                    g.lineWidth=1.3;
+                    g.beginPath();
+                    g.moveTo(bx8,by8);
+                    g.quadraticCurveTo(bx8+Math.cos(a8)*l8*0.5, by8+Math.sin(a8)*l8*0.7,
+                                       bx8+Math.cos(a8)*l8*1.1, by8+Math.sin(a8)*l8);
+                    g.stroke();
+                  }
+                }
+              }
+              g.restore();
+            }
           }
           // ---- 3) Schneewehe an Schnee-Ebenen (Winterwelt) ----
           if(eSnow.length){
