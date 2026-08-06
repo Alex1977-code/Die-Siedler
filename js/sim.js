@@ -132,7 +132,7 @@ export class Game {
       if(this.map.obj[node]!==OBJ.NONE){ this.map.obj[node]=OBJ.NONE; this.changedNodes.push(node); }
     }
     // Tür-Fahne: freier Nachbar (bevorzugt unten)
-    const door = this.pickDoor(node);
+    const door = this.pickDoor(node, player);
     b.door = door;
     if(door>=0 && !this.map.flag[door]) this.addFlag(door);
     this.changedNodes.push(node);
@@ -141,7 +141,7 @@ export class Game {
     if(instant && type==='hq'){ b.soldiers=[]; }
     return b;
   }
-  pickDoor(node){
+  pickDoor(node, player=-1){
     // Der Eingang liegt IMMER unten: nur die untere Nachbarreihe kommt infrage,
     // bevorzugt der Knoten am nächsten zur Gebäudemitte.
     const m=this.map;
@@ -151,6 +151,12 @@ export class Game {
       .sort((a,b)=>Math.abs(m.X(a)-mx)-Math.abs(m.X(b)-mx));
     for(const n of lower){
       if(m.flag[n]) return n;                                    // vorhandene Fahne nutzen
+      // bevorzugt im eigenen Gebiet: eine Tür jenseits der Grenze wäre unanschließbar
+      if(player>=0 && m.owner[n]!==player) continue;
+      if(m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n)) return n;
+    }
+    // 2. Wahl ohne Besitzprüfung (HQ-Start: Gebiet ist noch nicht berechnet)
+    for(const n of lower){
       if(m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n)) return n;
     }
     // Notfall (sollte durch canBuild nicht vorkommen): restliche Nachbarn
@@ -182,8 +188,12 @@ export class Game {
       const lower=m.nbs(node).filter(n=>m.Y(n)>my)
         .sort((a,b2)=>Math.abs(m.X(a)-mx)-Math.abs(m.X(b2)-mx));
       let tuer=-1;
+      // Tür und Ausgang müssen im EIGENEN Gebiet liegen: Straßen führen nie
+      // durch fremdes/niemandes Land – eine Tür jenseits der Grenze wäre für
+      // immer unanschließbar. Genau so entstanden die KI-Baustellen-Inseln
+      // an der Front (F5) und die toten Grenz-Baustellen des Spielers (F8).
       for(const n of lower){
-        if(m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))){ tuer=n; break; }
+        if(m.flag[n] || (m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))){ tuer=n; break; }
       }
       if(tuer<0) return {ok:false, r:'Kein Platz für die Türfahne'};
       // Ausgang: von der Fahne muss ein Weg wegfuehren koennen - eine
@@ -196,7 +206,7 @@ export class Game {
         return {ok:false, r:'Eingang läge unter dem Nachbargebäude'};
       const ausgang=m.nbs(tuer).some(q=> q!==node &&
         (m.flag[q] || this.roadAt(q) ||
-         (m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q) && !this.unterHaus(q))));
+         (m.owner[q]===player && m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q) && !this.unterHaus(q))));
       if(!ausgang) return {ok:false, r:'Eingang wäre eingeschlossen'};
     }
     // Fischer: ohne erreichbares Ufer in Gehweite faengt dort nie jemand
@@ -209,7 +219,7 @@ export class Game {
       // Eingang liegt unten: dort muss eine Türfahne möglich sein
       const my=m.Y(node);
       const doorOk=m.nbs(node).some(n=> m.Y(n)>my &&
-        (m.flag[n] || (m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))));
+        (m.flag[n] || (m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0 && this.roadObjOk(n) && !this.roadAt(n))));
       if(!doorOk) return {ok:false, r:'Kein Platz für den Eingang (unterhalb)'};
     }
     if(def.size!=='MINE'){
@@ -260,7 +270,7 @@ export class Game {
       if(m.bld[n]>=0 || m.flag[n]) return {ok:false, r:'Würde das Nachbargebäude überdecken'};
       if(this.roadAt(n)) return {ok:false, r:'Würde die Straße überdecken'};
     }
-    const door=this.pickDoor(node);
+    const door=this.pickDoor(node, player);
     if(door<0) return {ok:false, r:'Kein Platz für die Fahne'};
     return {ok:true};
   }
@@ -765,6 +775,9 @@ export class Game {
       // ein Soldat eingezogen ist (besetztWar). Das Merkmal bleibt gesetzt,
       // auch wenn im Kampf kurz alle Verteidiger fallen – sonst flackerte die
       // Grenze mitten im Gefecht. Das Hauptquartier zählt immer.
+      // Sicherheitsnetz: wer JETZT Besatzung hat, war offensichtlich besetzt
+      // (fängt auch Pfade ab, die Soldaten direkt einsetzen, z.B. Tests).
+      if(def.mil && b.state==='done' && !b.besetztWar && b.soldiers && b.soldiers.length) b.besetztWar=true;
       const milR = (b.type==='hq') ? def.mil.radius
         : (def.mil && b.state==='done' && b.besetztWar ? def.mil.radius : 0);
       if(!milR) continue;
@@ -2125,7 +2138,28 @@ export class Game {
       // Besatzung auffüllen (gemischte Trupps: stärkste Reserve zuerst)
       if(this.recruitTotal(p.id)>0){
         const milB=[...this.buildings.values()].filter(b=>b.player===p.id && b.soldiers && b.state==='done' && b.type!=='hq');
-        milB.sort((a,b)=> (a.soldiers.length/BLD[a.type].mil.cap) - (b.soldiers.length/BLD[b.type].mil.cap));
+        if(p.ai){
+          // KI: erst LEERE Posten (Grenze wächst erst mit dem Einzug), dann
+          // die dem Feind nächsten voll auffüllen. Gleichverteilung ließ an
+          // der Front nie genug Überschuss für einen Angriff zusammenkommen
+          // (KI-Passivität auf mittleren/großen Karten, Kritikbericht F5).
+          const eHqs=this.players.filter(q=>q.id!==p.id && !q.defeated)
+            .map(q=>this.buildings.get(q.hq)).filter(Boolean);
+          const dE=new Map();
+          const dEnemy=(b)=>{
+            let d=dE.get(b.id);
+            if(d===undefined){
+              d=1e9;
+              for(const eh of eHqs)
+                d=Math.min(d, Math.hypot(this.map.X(eh.node)-this.map.X(b.node), this.map.Y(eh.node)-this.map.Y(b.node)));
+              dE.set(b.id,d);
+            }
+            return d;
+          };
+          milB.sort((a,b)=> (a.soldiers.length?1:0)-(b.soldiers.length?1:0) || dEnemy(a)-dEnemy(b));
+        } else {
+          milB.sort((a,b)=> (a.soldiers.length/BLD[a.type].mil.cap) - (b.soldiers.length/BLD[b.type].mil.cap));
+        }
         for(const b of milB){
           if(this.recruitTotal(p.id)<=0) break;
           const cap=Math.min(BLD[b.type].mil.cap, b.garrison??BLD[b.type].mil.cap);
@@ -2627,7 +2661,12 @@ export class Game {
       // Werkzeuge für die KI-Wirtschaft (Axt, Säge, Sense, Angel, Schaufel, Spitzhacke, Beil)
       for(const t of ['axe','saw','scythe','rod','shovel','cleaver']) hq.inv[t]=(hq.inv[t]||0)+1;
       hq.inv.pick=(hq.inv.pick||0)+2;
-      if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1; }
+      // Soldaten-Nachschub auf ALLEN Stufen: seit ein Militärgebäude erst
+      // mit Besatzung die Grenze verschiebt, braucht die KI stetig Rekruten
+      // zum Expandieren – ohne Bier/Waffen fror ihr Gebiet nach den vier
+      // Start-Rekruten ein (und auf großen Karten kam nie ein Angriff).
+      hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1;
+      if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.spear=(hq.inv.spear||0)+1; }
     }
     const want=[];
     const c=(t)=>this.aiCount(p,t);
@@ -2656,6 +2695,18 @@ export class Game {
     if(c('woodcutter')<3) want.push('woodcutter');
     if(c('hunter')<1) want.push('hunter');
 
+    // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
+    // Baustelle ohne Anschluss bekommt nie Material und stünde für immer.
+    // Ein Versuch je Takt genügt – mit wachsendem Gebiet öffnen sich Wege.
+    if(this.t-(p.aiState.lastReconnect||0)>150){
+      p.aiState.lastReconnect=this.t;
+      const hqC=this.compOf(hq.door);
+      for(const b of this.buildings.values()){
+        if(b.player!==p.id || b.door==null || b.door<0 || b.type==='hq') continue;
+        if(this.compOf(b.door)===hqC) continue;
+        if(this.aiConnect(p,b)) break;
+      }
+    }
     const boards=inv.board||0, stones=inv.stone||0;
     for(const w of want){
       const type = w==='@mil' ? (stones>=5&&lvl>=2 ? 'guardhouse' : 'barracks') : w;
@@ -2669,9 +2720,15 @@ export class Game {
         break; // ein Gebäude pro Zug
       }
     }
-    // Angreifen?
-    if(this.t-p.aiState.lastAttack > 1200*dm.atkMul/lvl){
-      const myS=this.soldierCount(p.id);
+    // Angreifen? Mit Anlauf-Schonfrist: auf kleinen Karten fiel die KI
+    // sonst unmittelbar nach Grenzkontakt über den Spieler her (Frustspitze
+    // aus dem Kritikbericht), während der Takt danach unverändert bleibt.
+    const iv=1200*dm.atkMul/lvl;
+    if(this.t>3000 && this.t-p.aiState.lastAttack > iv){
+      // Geduld am Ende? Wartet die KI ein Mehrfaches ihres Takts, greift sie
+      // auch ohne klare Übermacht an – sonst saß sie vor einem vollen
+      // HQ/Turm ewig still (Belagerungs-Langeweile, Kritikbericht F5).
+      const drang=(this.t-p.aiState.lastAttack)/iv > 3;
       let best=null, bs=1e9;
       for(const b of this.buildings.values()){
         if(b.player===p.id || b.player<0) continue;
@@ -2680,9 +2737,10 @@ export class Game {
         const avail=this.attackable(p.id, b.id);
         if(avail<2) continue;
         const defN=(b.soldiers?.length||0)+(b.type==='hq'?this.recruitTotal(b.player):0);
-        if(avail >= defN*1.3+1){
+        const need=drang ? Math.max(2, Math.ceil(defN*0.8)) : defN*1.3+1;
+        if(avail >= need){
           const d=Math.hypot(m.X(b.node)-m.X(hq.node), m.Y(b.node)-m.Y(hq.node));
-          if(d<bs){ bs=d; best={b, n:Math.min(avail, defN+3)}; }
+          if(d<bs){ bs=d; best={b, n:Math.min(avail, drang? avail : defN+3)}; }
         }
       }
       if(best){
@@ -2749,20 +2807,28 @@ export class Game {
     return best;
   }
   aiConnect(p, b){
-    // Straße von b.door zur nächsten eigenen Fahne mit Netz
+    // Straße von b.door ins eigene Netz. Wichtig: bevorzugt eine Fahne im
+    // NETZ DES HAUPTQUARTIERS und mehrere Kandidaten der Reihe nach –
+    // vorher wurde nur die luftlinien-nächste Fahne probiert. Schlug deren
+    // Pfad fehl (oder hing sie selbst ohne Netz in der Luft), zerfiel das
+    // KI-Straßennetz in Inseln: Material erreichte die Baustellen nie,
+    // nichts wurde fertig, das Gebiet fror ein (KI-Passivität, F5).
     const m=this.map;
-    const flags=[];
-    for(const bb of this.buildings.values()) if(bb.player===p.id && bb.id!==b.id) flags.push(bb.door);
-    for(const r of this.roads.values()) if(r.player===p.id){ flags.push(r.path[0], r.path[r.path.length-1]); }
-    let best=null, bd=1e9;
-    for(const f of new Set(flags)){
-      if(f===b.door) continue;
-      const d=Math.hypot(m.X(f)-m.X(b.door), m.Y(f)-m.Y(b.door));
-      if(d<bd){ bd=d; best=f; }
+    const hq=this.buildings.get(p.hq);
+    const hqComp=hq ? this.compOf(hq.door) : undefined;
+    const cands=new Set();
+    for(const bb of this.buildings.values()) if(bb.player===p.id && bb.id!==b.id && bb.door>=0) cands.add(bb.door);
+    for(const r of this.roads.values()) if(r.player===p.id){ cands.add(r.path[0]); cands.add(r.path[r.path.length-1]); }
+    cands.delete(b.door);
+    const list=[...cands].map(f=>({ f,
+      d:Math.hypot(m.X(f)-m.X(b.door), m.Y(f)-m.Y(b.door)),
+      im: hq && (f===hq.door || (hqComp!==undefined && this.compOf(f)===hqComp)) ? 0 : 1 }));
+    list.sort((a,b2)=> a.im-b2.im || a.d-b2.d);
+    for(const c of list.slice(0,12)){
+      const path=this.roadPath(p.id, b.door, c.f);
+      if(path){ this.createRoad(p.id, path.reverse()); return true; }
     }
-    if(best==null) return;
-    const path=this.roadPath(p.id, b.door, best);
-    if(path) this.createRoad(p.id, path.reverse());
+    return false;
   }
 
   // ================= Speichern / Laden =================
