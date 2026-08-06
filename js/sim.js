@@ -1503,15 +1503,23 @@ export class Game {
   // Ein Bauernhof legt deshalb bis zu drei zusammenhängende Flächen an: der
   // erste Halm bestimmt die Mitte, danach wird immer an eine schon bestellte
   // Stelle ANGEBAUT. Ist eine Fläche ausgewachsen, beginnt die nächste.
-  static ACKER_MAX=7;        // Punkte je Fläche (Mitte + Ring)
+  static ACKER_MAX=5;        // Punkte je Fläche (Mitte + Teilring; 7 ergab Riesenfelder)
   static ACKER_N=3;          // höchstens drei Flächen je Hof
   ackerZiel(b, nodes){
     const m=this.map;
+    // Bauschatten zählt mit: ein Feld unter dem gemalten Nachbargebäude
+    // sah aus, als wüchse das Korn im Haus
     const frei=(i)=> m.obj[i]===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0
-      && !m.flag[i] && m.owner[i]===b.player && !this.roadAt(i);
+      && !m.flag[i] && m.owner[i]===b.player && !this.roadAt(i) && !this.unterHaus(i);
     if(!b.aecker) b.aecker=[];
     // Flächen aufräumen: was nicht mehr bestellbar ist, fällt heraus
     b.aecker=b.aecker.filter(a=>a.length);
+    // FREMDE Felder (anderer Hof, auch KI) auf Abstand halten: klebten zwei
+    // Höfe ihre Äcker aneinander, verschmolzen sie im Bild zu einem
+    // Riesenfeld über beide Betriebe
+    const eigene=new Set(b.aecker.flat());
+    const istFeldObj=(q)=>{ const o=m.obj[q]&127; return o===OBJ.FIELD0||o===OBJ.FIELD1||o===OBJ.FIELD2; };
+    const fremdFeldNah=(i)=> m.nbs(i).some(q=> istFeldObj(q) && !eigene.has(q));
     // 1) Brachliegende Stelle INNERHALB einer Fläche zuerst wieder bestellen –
     //    so bleibt der Acker ein Acker und wandert nicht über die Wiese
     for(const a of b.aecker){
@@ -1529,17 +1537,27 @@ export class Game {
       const fremd=new Set();
       for(const o of b.aecker){ if(o===a) continue; for(const i of o){ fremd.add(i); for(const q of m.nbs(i)) fremd.add(q); } }
       const [ax0,ay0]=m.worldPos(a[0]);
-      const rMass=(n)=>{
-        const [px,py]=m.worldPos(n);
-        const dx=px-ax0, dy=py-ay0;
-        // Koordinaten in den gezeichneten Feldachsen (2:1-Iso)
-        const pp=(dx/52+dy/26)/2, qq=(dy/26-dx/52)/2;
-        return Math.max(Math.abs(pp), Math.abs(qq));
+      // Bewertet wird die GEZEICHNETE Bounding-Raute nach dem Anbau (gleiche
+      // Achsenrechnung wie der Renderer): reine Punktabstände ließen Reihen
+      // entlang x zu, deren Zeichenraute zum Riesenfeld aufblähte
+      const masse=(liste)=>{
+        let su=0.36, sv=0.36;
+        for(const i2 of liste){
+          const [px,py]=m.worldPos(i2);
+          const dx=px-ax0, dy=py-ay0;
+          const pp=(dx/52+dy/26)/2, qq=(dy/26-dx/52)/2;
+          su=Math.max(su, Math.abs(pp)+0.36); sv=Math.max(sv, Math.abs(qq)+0.36);
+        }
+        return [su,sv];
       };
       let best, bm=1e9;
       for(const i of a) for(const n of m.nbs(i)){
-        if(!frei(n) || a.includes(n) || fremd.has(n) || !nodes.includes(n)) continue;
-        const mv=rMass(n);
+        if(!frei(n) || a.includes(n) || fremd.has(n) || !nodes.includes(n) || fremdFeldNah(n)) continue;
+        const [su,sv]=masse([...a, n]);
+        // Deckel: was die Raute über ~2,5 Kacheln Kantenlänge triebe,
+        // wird nicht angebaut - lieber ein kleinerer, sauberer Acker
+        if(su>1.25 || sv>1.25) continue;
+        const mv=su*sv;
         if(mv<bm){ bm=mv; best=n; }
       }
       if(best!==undefined){ a.push(best); return best; }
@@ -1552,7 +1570,8 @@ export class Game {
     // eckige Flaechen gezeichnet, die etwas ueber ihre Zellen hinausreichen -
     // mit nur einer Reihe Abstand kleben sie im Bild aneinander
     const nahBelegt=(i)=> m.nbs(i).some(n=> belegt.has(n) || m.nbs(n).some(q=>belegt.has(q)));
-    const start=nodes.find(i=> frei(i) && !belegt.has(i) && !nahBelegt(i));
+    const fremd2=(i)=> fremdFeldNah(i) || m.nbs(i).some(q=>fremdFeldNah(q));
+    const start=nodes.find(i=> frei(i) && !belegt.has(i) && !nahBelegt(i) && !fremd2(i));
     if(start===undefined) return undefined;
     b.aecker.push([start]);
     return start;

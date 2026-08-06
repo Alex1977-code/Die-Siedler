@@ -4313,6 +4313,10 @@ export class Renderer {
           su=Math.max(su, Math.abs(pp)+0.36);
           sv=Math.max(sv, Math.abs(qq)+0.36);
         }
+        // Sicherheitsnetz gegen Riesenrauten (Alt-Stände, KI-Restfelder):
+        // die Zeichenachsen passen nicht exakt aufs Gitter, mehrzeilige
+        // Gruppen blähten die Raute sonst weit über ihre Zellen hinaus auf
+        su=Math.min(su, 1.35); sv=Math.min(sv, 1.35);
         const viereck=(f, u0,u1,v0,v1)=>{
           const P=(pu,pv)=>[cx+pu*E1[0]+pv*E2[0], cy+pu*E1[1]+pv*E2[1]];
           const A=P(u0,v0), B=P(u1,v0), C=P(u1,v1), D=P(u0,v1);
@@ -4366,8 +4370,14 @@ export class Renderer {
             const pp=pat(stufe);
             const wob=Math.sin(wPh)*(stufe===2?1.0:0.5);
             try{ if(pp&&pp.setTransform){
-              const mtx=new DOMMatrix(); mtx.translateSelf(2.2*wob, 0); mtx.rotateSelf(26.57);
-              mtx.scaleSelf(104/512, 88/512); mtx.skewXSelf(2.8*wob);
+              // Wind = reine Scherung um den FELDFUSS: die Halmwurzeln
+              // stehen fest, nur die Spitzen neigen sich. Die frühere
+              // seitliche Verschiebung (translate) schob die ganze Textur
+              // durchs Feld - das las sich als Fließband.
+              const yFuss=cy+sv*TILE*0.5;
+              const mtx=new DOMMatrix();
+              mtx.translateSelf(0, yFuss); mtx.skewXSelf(2.4*wob); mtx.translateSelf(0, -yFuss);
+              mtx.rotateSelf(26.57); mtx.scaleSelf(104/512, 88/512);
               pp.setTransform(mtx);
             } }catch(_){}
             g.fillStyle=pp; g.fill(teil);
