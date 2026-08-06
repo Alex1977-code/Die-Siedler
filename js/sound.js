@@ -182,28 +182,77 @@ export const Sound = {
     if(this._musicTimer||!this.ctx) return;
     const BPM=84, STEP=60/BPM/4;                       // entspanntes 16tel-Raster
     const N=(s)=>220*Math.pow(2,s/12);                 // Halbtöne relativ zu A3
-    // eigene 8-Takt-Schleife aus schlichten Septakkorden (A-Teil + B-Teil)
     const mk=(root,ints,arp)=>({ pad:ints.map(s=>N(root+s)), bass:N(root-24), arp:arp.map(s=>N(root+s)) });
-    const CH=[
-      mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
-      mk(3,[0,4,7,11],[0,7,11,12]),   mk(-2,[0,4,7,9],[0,7,9,12]),
-      mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
-      mk(5,[0,3,7,10],[0,7,10,12]),   mk(-2,[0,4,7,9],[0,4,7,9]),
+    // DREI 8-Takt-Varianten derselben Stimmung statt einer Dauerschleife
+    // (Kritik: "die eine 8-Takt-Schleife ermüdet"). Alle bleiben in der
+    // A-Moll-Pentatonik-Welt, unterscheiden sich aber in Akkordfolge,
+    // Arpeggio-Muster und Melodie-Motiven. Gewechselt wird sanft alle
+    // 2-3 Durchläufe am Schleifenende (siehe unten).
+    const VARS=[
+      { // Variante 1: die vertraute Grundschleife (A-Teil + B-Teil)
+        CH:[
+          mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
+          mk(3,[0,4,7,11],[0,7,11,12]),   mk(-2,[0,4,7,9],[0,7,9,12]),
+          mk(0,[0,3,7,10],[0,7,10,12]),   mk(-4,[0,4,7,11],[0,7,11,12]),
+          mk(5,[0,3,7,10],[0,7,10,12]),   mk(-2,[0,4,7,9],[0,4,7,9]),
+        ],
+        ARP:[0,1,2,3,2,1,0,2],
+        MOTIFS:[
+          [[12,2],[10,2],[7,4],[3,4]],
+          [[7,2],[10,2],[12,4],[15,4],[12,4]],
+          [[3,2],[7,2],[10,2],[7,4],[3,4]],
+          [[15,2],[12,2],[10,4],[7,6]],
+        ] },
+      { // Variante 2: aufgehellt (Am9 -> C -> G -> F, dann über Dm/Em zurück)
+        CH:[
+          mk(0,[0,3,7,14],[0,7,12,14]),   mk(3,[0,4,7,11],[0,7,11,12]),
+          mk(-2,[0,4,7,14],[0,7,9,14]),   mk(-4,[0,4,7,11],[0,7,11,12]),
+          mk(0,[0,3,7,14],[0,7,12,14]),   mk(3,[0,4,7,11],[0,7,11,12]),
+          mk(5,[0,3,7,10],[0,7,10,12]),   mk(-5,[0,3,7,10],[0,3,7,10]),
+        ],
+        ARP:[0,2,1,3,0,3,2,1],
+        MOTIFS:[
+          [[7,2],[12,2],[15,4],[12,4],[10,4]],
+          [[12,2],[15,2],[17,4],[15,4],[12,4]],
+          [[10,2],[12,2],[15,4],[19,6]],
+          [[15,4],[12,2],[10,4],[12,6]],
+        ] },
+      { // Variante 3: getragen (F -> G -> Am liegt lange, tiefes Register)
+        CH:[
+          mk(-4,[0,4,7,11],[0,4,7,11]),   mk(-2,[0,4,7,9],[0,4,7,9]),
+          mk(0,[0,3,7,10],[0,3,7,10]),    mk(0,[0,3,7,12],[0,3,7,12]),
+          mk(-4,[0,4,7,11],[0,4,7,11]),   mk(-2,[0,4,7,9],[0,4,7,9]),
+          mk(3,[0,4,7,11],[0,4,7,11]),    mk(-2,[0,4,7,9],[0,7,9,12]),
+        ],
+        ARP:[3,2,1,0,1,2,3,2],
+        MOTIFS:[
+          [[3,4],[5,2],[7,4],[3,4]],
+          [[0,2],[3,2],[5,4],[7,6]],
+          [[7,4],[5,2],[3,4],[0,6]],
+          [[10,2],[7,2],[5,4],[3,6]],
+        ] },
     ];
-    // kleine eigene Melodie-Motive (Pentatonik, als Halbton-Schritte + Länge in 16teln)
-    const MOTIFS=[
-      [[12,2],[10,2],[7,4],[3,4]],
-      [[7,2],[10,2],[12,4],[15,4],[12,4]],
-      [[3,2],[7,2],[10,2],[7,4],[3,4]],
-      [[15,2],[12,2],[10,4],[7,6]],
-    ];
-    const ARP=[0,1,2,3,2,1,0,2];                        // festes, musikalisches Muster
     this._step=0;
+    this._var=0; this._loopSeen=-1; this._nextSwitch=2;
     const play=()=>{
       if(!this.musicOn) return;
       const t=this.ctx.currentTime+0.03;
       const s=this._step++;
-      const bar=(s>>4)%8, st=s&15;
+      const barAll=(s>>4);
+      const bar=barAll%8, st=s&15, loop=(barAll/8)|0;
+      // Varianten-Wechsel NUR am Schleifenanfang: die Pads klingen aus, die
+      // neuen blenden mit ihrer langsamen Hüllkurve ein – kein harter Schnitt
+      if(st===0 && bar===0 && loop!==this._loopSeen){
+        this._loopSeen=loop;
+        if(loop>=this._nextSwitch){
+          this._var=(this._var+1)%VARS.length;
+          this._nextSwitch=loop+2+((Math.random()<0.5)?1:0);   // alle 2-3 Durchläufe
+        }
+      }
+      const V=VARS[this._var];
+      const CH=V.CH, ARP=V.ARP, MOTIFS=V.MOTIFS;
+      // steht am Ende dieses Durchlaufs ein Wechsel an?
+      const wechselNah = bar===7 && (loop+1)>=this._nextSwitch;
       const ch=CH[bar];
       // Pad: drei verstimmte Stimmen, Filter öffnet und schließt sanft
       if(st===0){
@@ -258,8 +307,10 @@ export const Sound = {
         this._pluck(t,f,0.045);
         this._pluck(t+STEP*3,f,0.016);
       }
-      // Melodie-Motiv alle zwei Takte, zart obenauf
-      if(st===0 && bar%2===1 && Math.random()<0.75){
+      // Melodie-Motiv alle zwei Takte, zart obenauf. Im letzten Takt vor
+      // einem Varianten-Wechsel schweigt sie, stattdessen kündigt ein
+      // leiser Besen-Aufzug den Wechsel an (weicher Übergang).
+      if(st===0 && bar%2===1 && !wechselNah && Math.random()<0.75){
         const mo=MOTIFS[(Math.random()*MOTIFS.length)|0];
         let off=STEP*2;
         for(const [semi,len] of mo){
@@ -267,6 +318,8 @@ export const Sound = {
           off+=STEP*len;
         }
       }
+      if(wechselNah && (st===8||st===12||st===14))
+        this._mNoise(t, 0.09, 0.014+(st-8)*0.003, 2600, 5600);
       this._musicTimer=setTimeout(play, STEP*1000);
     };
     play();
