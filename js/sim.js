@@ -136,7 +136,8 @@ export class Game {
     b.door = door;
     if(door>=0 && !this.map.flag[door]) this.addFlag(door);
     this.changedNodes.push(node);
-    if(instant && def.mil) this.recalcTerritory();
+    // Sofortbau (HQ/Test-Aufbauten) gilt als besetzt und wirkt sofort auf die Grenze
+    if(instant && def.mil){ b.besetztWar=true; this.recalcTerritory(); }
     if(instant && type==='hq'){ b.soldiers=[]; }
     return b;
   }
@@ -760,7 +761,12 @@ export class Game {
     m.owner.fill(-1);
     for(const b of this.buildings.values()){
       const def=BLD[b.type];
-      const milR = (b.type==='hq') ? def.mil.radius : (def.mil && b.state==='done' ? def.mil.radius : 0);
+      // Ein Militärgebäude verschiebt die Grenze erst, wenn mindestens einmal
+      // ein Soldat eingezogen ist (besetztWar). Das Merkmal bleibt gesetzt,
+      // auch wenn im Kampf kurz alle Verteidiger fallen – sonst flackerte die
+      // Grenze mitten im Gefecht. Das Hauptquartier zählt immer.
+      const milR = (b.type==='hq') ? def.mil.radius
+        : (def.mil && b.state==='done' && b.besetztWar ? def.mil.radius : 0);
       if(!milR) continue;
       // BFS bis Radius
       const seen=new Map([[b.node,0]]); let q=[b.node];
@@ -943,6 +949,10 @@ export class Game {
       this._acc-=TICK_MS; steps++;
       this.step();
     }
+    // Kommt das Gerät nicht hinterher (Obergrenze erreicht), verfällt der
+    // Rückstand – sonst schaukelte er sich bei hohem Tempo auf und die
+    // Simulation fräße jeden Frame komplett auf (Eingabe/Ton blockiert).
+    if(steps>=30 && this._acc>TICK_MS) this._acc=TICK_MS;
   }
   // Überblendungsanteil zwischen zwei Sim-Takten (0..1) für den Zeichner
   lerpA(){ return Math.max(0, Math.min(1, (this._acc||0)/TICK_MS)); }
@@ -1931,7 +1941,11 @@ export class Game {
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
       const cap=BLD[b.type].mil.cap;
-      if(b.soldiers.length<cap) b.soldiers.push(u.stype);
+      if(b.soldiers.length<cap){
+        b.soldiers.push(u.stype);
+        // Erster Einzug: ab jetzt zählt der Posten zur Grenzberechnung
+        if(!b.besetztWar && BLD[b.type].mil){ b.besetztWar=true; this.recalcTerritory(); }
+      }
       else this.players[u.player].recruits[u.stype]++;
     }
   }
@@ -2075,6 +2089,7 @@ export class Game {
     b.coins=0; b.incoming={};
     const cap=BLD[b.type].mil.cap;
     b.soldiers=attackers.slice(0,cap);
+    b.besetztWar=true;               // Eroberer übernehmen mit Besatzung
     this.returnSoldiers(byPl, attackers.slice(cap));
     if(byPl===0) this.msg(`${BLD[b.type].name} erobert!`, 'ok', b.node);
     if(oldPl===0) this.msg(`${BLD[b.type].name} an den Feind verloren!`, 'war', b.node);
@@ -2827,6 +2842,9 @@ export class Game {
       if(b.makeGood===undefined) b.makeGood=null;
       if(b.foodPrio===undefined) b.foodPrio=false;
       if(b.garrison===undefined && BLD[b.type] && BLD[b.type].mil) b.garrison=BLD[b.type].mil.cap;
+      // Alt-Spielstände vor der Besetzt-Regel: fertige Militärgebäude zählen
+      // weiter zur Grenze (kein überraschender Gebietsverlust beim Laden)
+      if(b.besetztWar===undefined && BLD[b.type] && BLD[b.type].mil && b.state==='done') b.besetztWar=true;
       if(b.state==='done' && b.worker && b.worker.present===undefined) b.worker.present=true;
       if(b.state==='done' && b.worker && b.worker.present && b.toolGood===undefined && TOOL_OF[b.type])
         b.toolGood=TOOL_OF[b.type];
