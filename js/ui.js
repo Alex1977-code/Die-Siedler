@@ -18,19 +18,23 @@ const CATS=[['basis','Holz & Stein'],['nahrung','Nahrung'],['industrie','Industr
 const HUD_DEFAULT=SAVE.HUD_DEFAULT;
 const HUD_MAX=12;
 
-// Spieltempo: 1x ist ans gemächliche Tempo des Vorbilds angelehnt (etwa
-// halb so schnell wie bisher). "Test" behält das bisherige flotte Tempo und
-// ist vorerst Standard, solange das Spiel im Aufbau geprüft wird.
-const SPEED_STEPS=['T',1,2,3];
-const SPEED_MULT={ T:1.0, 1:0.45, 2:0.9, 3:1.35 };
+// Spieltempo: 1x ist ans gemächliche Tempo des Vorbilds angelehnt und der
+// Standard. "Test" ist echtes 10-fach-Tempo (10 x 0.45) zum Durchspulen.
+const SPEED_STEPS=[1,2,3,'T'];
+const SPEED_MULT={ 1:0.45, 2:0.9, 3:1.35, T:4.5 };
 const speedLabel=(v)=> v==='T' ? 'Test' : v+'×';
 
 export class UI {
   constructor(){
     this.opts=SAVE.getOptions();
-    // einmalige Umstellung: neue Tempostufen, Standard "Test"
-    if(!this.opts.speedV2){ this.opts.speed='T'; this.opts.speedV2=1; SAVE.setOptions(this.opts); }
-    if(!SPEED_STEPS.includes(this.opts.speed)) this.opts.speed='T';
+    // einmalige Umstellung auf die neuen Tempostufen (1x Standard, "Test"
+    // jetzt 10-fach): wer bisher "Test" gewählt hatte, behält es; alles
+    // andere wird auf eine gültige Stufe geklemmt.
+    if(!this.opts.speedV3){
+      if(this.opts.speed!=='T' && !SPEED_STEPS.includes(this.opts.speed)) this.opts.speed=1;
+      this.opts.speedV3=1; SAVE.setOptions(this.opts);
+    }
+    if(!SPEED_STEPS.includes(this.opts.speed)) this.opts.speed=1;
     Sound.sfxOn=this.opts.sfx; Sound.musicOn=this.opts.music;
     this.buildDOM();
     this.showScreen('title');
