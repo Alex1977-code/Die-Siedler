@@ -932,23 +932,28 @@ export class Renderer {
             const blk=blockOfXY(
               (m.X(a2)+((m.Y(a2)&1)*0.5)+m.X(b2)+((m.Y(b2)&1)*0.5)+m.X(c2)+((m.Y(c2)&1)*0.5))/3,
               (m.Y(a2)+m.Y(b2)+m.Y(c2))/3);
+            // Grundstufe aus dem BLOCKton: der ganze Block liegt auf einer
+            // Tonstufe – das macht die großen ruhigen Platten
+            const li=Math.max(0.20, Math.min(0.86, toneOf(blk)));
+            let qi= li<0.30?0 : li<0.44?1 : li<0.62?2 : li<0.77?3 : 4;
             // lokales Wandlicht aus den GEMITTELTEN Eckgradienten (auf dem
             // versetzten Gitter kippen Auf-/Ab-Dreiecke sonst abwechselnd
-            // nach Ost/West – Reißverschluss); es mischt sich unter den
-            // Blockton, damit Wände innerhalb eines Blocks lesbar bleiben
+            // nach Ost/West – Reißverschluss). Es verschiebt die Stufe nur
+            // an ECHTEN Wänden um ±1 – direktes Einmischen vor der
+            // Quantisierung ließ auf zerklüfteten Massiven jedes Dreieck
+            // einzeln kippen (Harlekinmuster statt Platten).
             const ga=gradAt(a2), gb=gradAt(b2), gc=gradAt(c2);
             const gx=(ga[0]+gb[0]+gc[0])/3, gy=(ga[1]+gb[1]+gc[1])/3;
             let lf=0.5+(gx*0.75+gy*0.5)*0.26;
             const cu=(curvOf(a2)+curvOf(b2)+curvOf(c2))/3;
             lf += cu>0? cu*0.5 : cu*0.95;
-            let li=toneOf(blk)*0.72 + lf*0.28;
-            // ganz unten kappen: rein schwarze Südwände wirken wie Löcher.
+            if(lf>0.68 && qi<4) qi++;
+            else if(lf<0.32 && qi>0) qi--;
             // Hohe Absturzwände (stark gestreckte Dreiecke) bleiben im
-            // Halblicht – die WAND soll lesbar sein, kein schwarzer Zahn.
+            // Halblicht – die WAND soll lesbar sein, kein schwarzer Zahn
+            // und keine gleißende Folie.
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
-            li=Math.max(spanY>ROWH*1.7? 0.34 : 0.20, Math.min(0.86, li));
-            // DREI Haupttonwerte plus zwei Reserven für Extreme
-            const qi= li<0.30?0 : li<0.44?1 : li<0.62?2 : li<0.77?3 : 4;
+            if(spanY>ROWH*1.7) qi=Math.max(1,Math.min(3,qi));
             const hh=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
             const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
             const band=Math.min(4,(u4*5)|0);
