@@ -250,6 +250,15 @@ export class Game {
         if(d<need) return {ok:false, r:'Zu dicht am Nachbargebäude'};
       }
     }
+    // Bildüberdeckung in BEIDE Richtungen: der Abstand oben misst nur
+    // Knoten-Distanz zum Gebäudemittelpunkt - die Burg ragt aber im Bild
+    // weiter (Sägewerk ließ sich halb unter ihr Dach setzen). Deshalb
+    // zusätzlich gegen die gezeichneten Bauschatten prüfen.
+    if(this.unterHaus(node)) return {ok:false, r:'Läge unter dem Nachbargebäude'};
+    for(const n of this.schattenBand(type, node)){
+      if(m.bld[n]>=0 || m.flag[n]) return {ok:false, r:'Würde das Nachbargebäude überdecken'};
+      if(this.roadAt(n)) return {ok:false, r:'Würde die Straße überdecken'};
+    }
     const door=this.pickDoor(node);
     if(door<0) return {ok:false, r:'Kein Platz für die Fahne'};
     return {ok:true};
@@ -437,6 +446,22 @@ export class Game {
     return set;
   }
   unterHaus(n){ return this.bauSchatten().has(n); }
+  // Bauschatten-Vorschau für einen BAUKANDIDATEN: dieselbe Bildmaß-Formel
+  // wie bauSchatten(), nur für ein einzelnes, noch ungebautes Gebäude.
+  schattenBand(type, node){
+    const m=this.map, def=BLD[type]||{};
+    const f=(this.bldFoot && this.bldFoot[type])
+         || Game.FOOT[type==='hq'?'hq':(def.size||'M')] || Game.FOOT.M;
+    const [bx,by]=m.worldPos(node);
+    const R=Math.max(2, Math.ceil(Math.max(f[0]*0.40/52, f[1]*0.78/44))+1);
+    const out=[];
+    for(const n of this.nodesInRange(node, R)){
+      if(n===node) continue;
+      const [nx,ny]=m.worldPos(n);
+      if(Math.abs(nx-bx) < f[0]*0.40 && ny < by+14 && ny > by-f[1]*0.78) out.push(n);
+    }
+    return out;
+  }
   // A*-Straßenpfad von Fahne zu Ziel (nur eigenes Gebiet, passierbar, keine
   // Gebäude, kein Kreuzen anderer Straßen außer an Fahnen). `avoid`: Knoten
   // des GERADE ENTSTEHENDEN Weges (Wegpunkt-Tippen in der Bedienung) – die
