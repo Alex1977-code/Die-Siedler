@@ -20,6 +20,27 @@ const COAST_COL = {
 COAST_COL.inseln=COAST_COL.gruen; COAST_COL.gebirge=COAST_COL.winter;
 
 const CHUNK = 12; // Knoten pro Chunk-Kante
+// ---- Felsobjekte und Bergwerke: EIN gemeinsamer Zeichenfaktor ----
+// Stilguide 11.11: die zwoelf Felsobjekte liegen alle auf 512x512, tragen
+// genau 20 px Bodenrand und ein gemeinsames Blockmass von 62,5 px. Ihre
+// relativen Groessen stecken damit BEREITS im Bild – eine Skala je Datei
+// (das alte scales.json) wuerde sie wieder auseinanderziehen. Es gibt
+// deshalb nur noch FELS_F, die Bildunterkante minus FELS_BODEN ist die
+// Bodenlinie.
+// FELS_F=0.235 -> Blockkante 14,7 px auf dem Schirm; die Flaechenkachel
+// zeigt bei Skala (TILE*2.37)/1024 eine Plattenkante von rund 15 px, die
+// Objekte sind also genauso grob gebrochen wie der Untergrund (11.8,
+// "Objekte feiner gebrochen als der Rest").
+const FELS_F = 0.235;
+const FELS_BODEN = 20;
+// Stilguide 11.11: die sieben Bergwerksbilder liegen auf 320x300, ihre
+// Bodenlinie ist y=288 und die DOMACHSE (Schwerpunkt des oberen Drittels,
+// also der Felsdom) liegt bei 47,4 % der Breite – nicht in der Bildmitte.
+// Verankert wird auf die Domachse, sonst wandert der Dom zwischen den
+// Baustufen seitlich weg. Baufortschritt 51/75/88/100 % steckt im Bild.
+const MINE_F = 0.265;
+const MINE_BODEN = 288;      // Bodenlinie in Bildzeilen (von 300)
+const MINE_DOM = 0.474;      // Domachse als Anteil der Bildbreite
 const OUT='rgba(88,58,34,0.5)';    // Standard-Kontur (warm, weich)
 // natürliche Blickrichtung der Figuren-Bilder: -1 = schaut nach links, 1 = nach rechts
 const UNIT_FACING={
@@ -206,7 +227,7 @@ export class Renderer {
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
-    this._lasurC=null;                          // Fels-Lasurkacheln hängen am Thema
+    this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this.initSheep();
   }
@@ -2127,8 +2148,10 @@ export class Renderer {
                       // Abbruchkante: Stempel an der Unterkante des Eisfelds,
                       // dort wo es deutlich zu einem kahlen Massivknoten
                       // abfaellt. "Unten" des Sprites zeigt hangab.
+                      // Gletscherzunge mit dem GEMEINSAMEN Zeichenfaktor
+                      // (11.11) – nicht mehr aus der Absturzhoehe skaliert
                       const snImg=this.asset('obj_glacier_snout');
-                      if(snImg){
+                      if(snImg&&snImg.naturalWidth){
                         for(const i of cells){
                           if(hash01(i*67+9)>0.55) continue;   // sparsam
                           let best=-1, bd=0;
@@ -2142,12 +2165,15 @@ export class Renderer {
                           const mx4=(ax2+bx2)/2, my4=(ay2+by2)/2;
                           let ux4=bx2-ax2, uy4=by2-ay2;
                           const L4=Math.hypot(ux4,uy4)||1; ux4/=L4; uy4/=L4;
-                          const hh4=26+bd*16, ww4=hh4*(snImg.naturalWidth/snImg.naturalHeight);
+                          const f4=FELS_F*(0.9+hash01(i*83+7)*0.2);
+                          const ww4=snImg.naturalWidth*f4, hh4=snImg.naturalHeight*f4;
                           g.save();
                           g.translate(mx4,my4);
                           g.rotate(Math.atan2(uy4,ux4)-Math.PI/2);
                           g.globalAlpha=0.95;
-                          g.drawImage(snImg,-ww4/2,-hh4*0.3,ww4,hh4);
+                          // gedreht um den Fusspunkt: die Bodenlinie des
+                          // Bildes liegt auf der Abbruchkante
+                          g.drawImage(snImg,-ww4/2,-hh4+FELS_BODEN*f4,ww4,hh4);
                           g.restore();
                         }
                         g.globalAlpha=1;
@@ -2267,10 +2293,12 @@ export class Renderer {
               castShadow=true;
             }
             // 8) Felsnadeln: schlanke, facettierte Einzelfelsen als Akzente
-            //    auf offenen Felsflächen (Referenz: gestufte Nadel). NACH
-            //    dem Massiv-Beschnitt gezeichnet – sie ragen über die
-            //    Facettendecke. Bestellte Bilder obj_rockspire_1..3, bis
-            //    dahin die vorhandenen obj_spire-Nadeln, zur Not Prozedural.
+            //    auf offenen Felsflächen. NACH dem Massiv-Beschnitt
+            //    gezeichnet – sie ragen über die Facettendecke.
+            //    obj_rockspire_1..6 aus der Lieferung, alle mit dem
+            //    GEMEINSAMEN Zeichenfaktor FELS_F (Stilguide 11.11): _1/_5
+            //    sind hohe Nadeln, _3/_4/_6 breite Blockgruppen – das steckt
+            //    im Bild, nicht in einer Skalentabelle.
             //    Sparsam und deterministisch gestreut; Bauplätze, Straßen,
             //    Pässe, Zeichen und belegte Knoten bleiben frei.
             {
@@ -2301,78 +2329,86 @@ export class Renderer {
                   if(onFirn2 && hash01(i*59+3)<0.65) continue;  // auf Firn seltener
                   const [px,py]=pos(i);
                   const ox2=(hash01(i*13+3)-0.5)*18, oy2=(hash01(i*19+11)-0.5)*10;
-                  let hh7=(56+hash01(i*23+1)*30)*(0.85+hash01(i*43+7)*0.45);
-                  // Bodenschatten nach Südost, wie bei allen Objekten
-                  g.fillStyle='rgba(30,27,23,0.26)';
-                  g.beginPath();
-                  g.ellipse(px+ox2+hh7*0.10, py+oy2+2.5, hh7*0.30, hh7*0.11, 0, 0, 7);
-                  g.fill();
-                  const vN=1+((h7*67|0)%3);
-                  const img=this.tintedSpire('obj_rockspire_'+vN)||this.tintedSpire('obj_spire'+vN);
-                  if(img){
-                    // breite Varianten (Blockgruppe/Terrassenturm) flacher
-                    // halten, sonst wachsen sie in die Breite
-                    const ar7=img.width/img.height;
-                    if(ar7>0.85) hh7*=0.8;
-                    const ww7=hh7*ar7;
-                    g.save();
-                    if(hash01(i*7+1)>0.5){
-                      g.translate(px+ox2,0); g.scale(-1,1); g.translate(-(px+ox2),0);
-                    }
-                    g.drawImage(img, px+ox2-ww7/2, py+oy2+3-hh7, ww7, hh7);
-                    g.restore();
-                  } else {
-                    this.drawRockNeedle(g, px+ox2, py+oy2+3, hh7, i);
-                  }
+                  // Streuung je FUNDORT, nicht je Bild: +-12 % brechen die
+                  // Wiederholung, ohne die relativen Groessen der Lieferung
+                  // zu verschieben
+                  const sc7=0.88+hash01(i*43+7)*0.24;
+                  const vN=1+((h7*137|0)%6);
+                  const box=this.drawFelsObj(g,'obj_rockspire_'+vN,
+                                             px+ox2, py+oy2+3, sc7,
+                                             hash01(i*7+1)>0.5, 0.26);
+                  const hh7=box? box.h : 70;
+                  if(!box) this.drawRockNeedle(g, px+ox2, py+oy2+3, hh7, i);
                   // kantige Trümmer am Fuß der Nadel (Referenz: Blöcke
                   // um die Basis)
+                  const bw7=box? box.w : hh7*0.5;
                   for(let k7=0;k7<4;k7++){
-                    const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*hh7*0.7;
+                    const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*bw7*0.9;
                     const by7=py+oy2+2+(hash01(i*31+k7*11)-0.30)*7;
                     this.rockChunklet(g, bx7, by7, 2.8+hash01(i*37+k7)*3.4, i*5+k7);
                   }
                 }
-              // 8b) Felsvorsprung (obj_cliff_ledge): seltener Akzent an
-              //     HOHEN Terrassenkanten – dort, wo das terrassierte Feld
-              //     zu einem deutlich tieferen Nachbarn abbricht. Der
-              //     Balkon sitzt auf der Brinklinie und ragt hangab.
+              // 8b) TERRASSENBRECHER an Abbruchkanten: obj_cliff_ledge
+              //     (Balkon), obj_crag_1 und obj_crag_2 (gedrungene Felsnasen
+              //     aus der Lieferung). Sie sitzen auf der Brinklinie und
+              //     ragen hangab – gegen den gleichmaessigen Stufentakt
+              //     (Leitlinie B). Alle drei mit demselben Zeichenfaktor.
               {
-                const ledge=this.tintedSpire('obj_cliff_ledge');
-                if(ledge){
-                  for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
-                    for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
-                      const i=m.idx(x,y);
-                      if(m.terr[i]!==TER.MOUNT) continue;
-                      // Leitlinie B: haeufiger als Brecher-Akzent an
-                      // Terrassenkanten (0.11 statt 0.05), Schwelle relativ
-                      // zum Massiv-Relief – auch kleine Massive bekommen
-                      // ihre Kantenbrecher
-                      if(hash01(i*97+13)>=0.11) continue;
-                      if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
-                      if(m.pass && m.pass[i]) continue;
-                      if(signs && signs.has(i)) continue;
-                      if(roadSet.has(i)) continue;
-                      if(firnY<90 && m.hgt[i]>firnY-0.5) continue;  // nicht im Firn
-                      // hoechste Abbruchkante zum Nachbarn suchen
-                      let best8=-1, bd8=0;
-                      for(const q of m.nbs(i)){
-                        if(!isMassif(q)) continue;
-                        const d=hgtT(i)-hgtT(q);
-                        if(d>bd8){ bd8=d; best8=q; }
-                      }
-                      if(best8<0 || bd8<Math.min(1.25, 0.45+relEffOf(i)*0.35)) continue;
-                      const [px,py]=pos(i), [qx8,qy8]=pos(best8);
-                      const mx8=px*0.55+qx8*0.45, my8=py*0.55+qy8*0.45;
-                      const lh=40+hash01(i*41+7)*18;
-                      const lw=lh*(ledge.width/ledge.height);
-                      g.save();
-                      if(qx8<px){ g.translate(mx8,0); g.scale(-1,1); g.translate(-mx8,0); }
-                      g.fillStyle='rgba(30,27,23,0.24)';
-                      g.beginPath(); g.ellipse(mx8+lw*0.08,my8+3,lw*0.34,lh*0.10,0,0,7); g.fill();
-                      g.drawImage(ledge, mx8-lw/2, my8+4-lh, lw, lh);
-                      g.restore();
+                const KANT=['obj_cliff_ledge','obj_crag_1','obj_crag_2'];
+                for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
+                  for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
+                    const i=m.idx(x,y);
+                    if(m.terr[i]!==TER.MOUNT) continue;
+                    const h8=hash01(i*97+13);
+                    if(h8>=0.11) continue;
+                    if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
+                    if(m.pass && m.pass[i]) continue;
+                    if(signs && signs.has(i)) continue;
+                    if(roadSet.has(i)) continue;
+                    if(firnY<90 && m.hgt[i]>firnY-0.5) continue;  // nicht im Firn
+                    // hoechste Abbruchkante zum Nachbarn suchen
+                    let best8=-1, bd8=0;
+                    for(const q of m.nbs(i)){
+                      if(!isMassif(q)) continue;
+                      const d=hgtT(i)-hgtT(q);
+                      if(d>bd8){ bd8=d; best8=q; }
                     }
-                }
+                    if(best8<0 || bd8<Math.min(1.25, 0.45+relEffOf(i)*0.35)) continue;
+                    const [px,py]=pos(i), [qx8,qy8]=pos(best8);
+                    const mx8=px*0.55+qx8*0.45, my8=py*0.55+qy8*0.45;
+                    const kk=KANT[(h8*211|0)%KANT.length];
+                    this.drawFelsObj(g, kk, mx8, my8+4,
+                                     0.88+hash01(i*41+7)*0.24, qx8<px, 0.24);
+                  }
+              }
+              // 8c) GIPFELKUPPE obj_summit_1 auf den hoechsten Massivknoten:
+              //     der Berg soll oben als Kuppe abschliessen statt flach
+              //     auszulaufen (Nutzer-Leitlinie "Gebirge muessen aus der
+              //     Wiese HERAUSRAGEN"). Kriterium: konvexer Knoten, der
+              //     ueber allen Nachbarn liegt, mit spuerbarem Relief und
+              //     unterhalb des Firns – dort liegt schon Schnee. Ein
+              //     Gipfel je Kuppe, deterministisch ausgeduennt.
+              {
+                for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
+                  for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
+                    const i=m.idx(x,y);
+                    if(m.terr[i]!==TER.MOUNT) continue;
+                    if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
+                    if(m.pass && m.pass[i]) continue;
+                    if(signs && signs.has(i)) continue;
+                    if(roadSet.has(i)) continue;
+                    if(firnY<90 && m.hgt[i]>firnY-0.6) continue;
+                    if(relEffOf(i)<0.85 || curvOf(i)<0.05) continue;
+                    const hi=hgtT(i);
+                    let top=true;
+                    for(const q of m.nbs(i)) if(hgtT(q)>hi-0.02){ top=false; break; }
+                    if(!top) continue;
+                    if(hash01(i*181+29)>=0.62) continue;   // nicht jede Kuppe
+                    const [px,py]=pos(i);
+                    this.drawFelsObj(g,'obj_summit_1', px, py+3,
+                                     0.92+hash01(i*67+5)*0.22,
+                                     hash01(i*11+9)>0.5, 0.28);
+                  }
               }
               g.restore();
             }
@@ -2804,33 +2840,30 @@ export class Renderer {
           // hoher Absturzhöhe ein Schuttfächer hangab über dem Band –
           // ohne das Bild bleibt das prozedurale Band allein
           {
-            // bestellter Dateiname zuerst, vorhandene Alt-Schreibweise als Rückfall
-            const cone=this.asset('ter_scree_cone')||this.asset('ter_screeCone');
+            const cone=this.tintedSpire('ter_scree_cone');
             if(cone){
-              // Kritik G5 ("Zeltreihe"): Stempel spiegeln, in Groesse und
-              // Kippung variieren und gelegentlich eine flache Blockgruppe
+              // Kritik G5 ("Zeltreihe"): Stempel spiegeln, in Kippung
+              // variieren und gelegentlich eine flache Blockgruppe
               // einstreuen – nie zweimal dieselbe Silhouette in Reihe.
               // Nur talseitig (Kritik G1): der Kegel gehoert zum Schuttfuss.
-              const clus=this.tintedSpire('obj_rockspire_3');
+              // Groesse aus dem GEMEINSAMEN Zeichenfaktor (11.11): der
+              // Kegel ist im Bild breiter und flacher als eine Nadel, das
+              // muss nicht mehr nachskaliert werden. Dafuer duenner
+              // gestreut (0.30 statt 0.45) – ein breiter Faecher deckt
+              // deutlich mehr Kantenlaenge ab als der alte kleine Stempel.
+              const clus=this.tintedSpire('obj_rockspire_6');
               for(const e of eScree){
-                if(e.dp<0.55 || e.uy<-0.15 || hash01(e.i*71+e.n*13)>0.45) continue;
+                if(e.dp<0.55 || e.uy<-0.15 || hash01(e.i*71+e.n*13)>0.30) continue;
                 const h8=hash01(e.i*91+e.n*17);
                 g.save();
                 g.translate(e.mx+e.ux*9, e.my+e.uy*7);
                 g.rotate(Math.atan2(e.uy,e.ux)-Math.PI/2+(h8-0.5)*0.24);
                 if(h8>0.5) g.scale(-1,1);
-                if(clus && h8>0.34 && h8<0.48){
-                  const bh=(16+e.dp*10)*(0.8+h8);
-                  const bw=bh*((clus.width||clus.naturalWidth)/(clus.height||clus.naturalHeight));
-                  g.globalAlpha=0.92;
-                  g.drawImage(clus, -bw/2, -bh*0.15, bw, bh);
-                } else {
-                  const sv=0.72+hash01(e.i*53+e.n*29)*0.55;
-                  const ch=(22+e.dp*17)*sv;
-                  const cw=ch*(cone.naturalWidth/cone.naturalHeight)*(0.9+h8*0.35);
-                  g.globalAlpha=0.82+h8*0.13;
-                  g.drawImage(cone, -cw/2, -ch*0.2, cw, ch);
-                }
+                const im8= (clus && h8>0.34 && h8<0.48)? clus : cone;
+                const f8=FELS_F*(0.88+h8*0.24);
+                const W8=(im8.naturalWidth||im8.width), H8=(im8.naturalHeight||im8.height);
+                g.globalAlpha= im8===clus? 0.92 : 0.86+h8*0.10;
+                g.drawImage(im8, -W8*f8/2, -H8*f8+FELS_BODEN*f8, W8*f8, H8*f8);
                 g.restore();
               }
               g.globalAlpha=1;
@@ -3310,14 +3343,15 @@ export class Renderer {
           // trans_-Pinsel gehören dazu: Chunks, die VOR dem Laden gebaut
           // wurden, haben sonst für immer ein leeres Geröllband/Sandufer
           // (fadedBrush/screeTile merken sich "Bild fehlt")
-          // gebirge*- und obj_(rock)spire-Bilder wirken ebenfalls in die
-          // Chunk-Caches (Felsdecke bzw. eingebackene Felsnadeln)
+          // die Felsobjekte (obj_rockspire/crag/summit/cliff/glacier) wirken
+          // ebenfalls in die Chunk-Caches: sie sind eingebackene Akzente
           if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')
-             ||key.startsWith('gebirge')||key.startsWith('obj_rockspire')||key.startsWith('obj_spire')
-             ||key.startsWith('obj_cliff')||key.startsWith('obj_glacier')) img.onload=()=>{
+             ||key.startsWith('obj_rockspire')||key.startsWith('obj_crag')
+             ||key.startsWith('obj_summit')||key.startsWith('obj_cliff')
+             ||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
-            this._spireTint=null; this._lasurC=null;
+            this._spireTint=null; this._lasurC=null; this._felsBox=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this.chunks.clear();
           };
@@ -3583,6 +3617,65 @@ export class Renderer {
     this._spireTint.set(key,cv);
     return cv;
   }
+  // Alpha-Hüllrechteck eines Felsobjekts, einmal je Bild bestimmt und
+  // gecacht. Die zwölf Bilder haben denselben Rahmen (512x512, 20 px
+  // Bodenrand), aber sehr verschiedene Inhalte (Nadel 202 px breit,
+  // Geröllkegel 492 px). Bodenschatten und Streuabstände richten sich nach
+  // dem INHALT, nicht nach der Leinwand.
+  felsBox(key){
+    if(!this._felsBox) this._felsBox=new Map();
+    let b=this._felsBox.get(key);
+    if(b!==undefined) return b;
+    b=null;
+    const img=this.asset(key);
+    if(img&&img.naturalWidth){
+      const W=img.naturalWidth, H=img.naturalHeight;
+      const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+      const t=cv.getContext('2d',{willReadFrequently:true});
+      t.drawImage(img,0,0);
+      let x0=W, x1=-1, y0=H, y1=-1;
+      try{
+        const d=t.getImageData(0,0,W,H).data;
+        for(let y=0;y<H;y+=2){
+          const row=y*W;
+          for(let x=0;x<W;x+=2){
+            if(d[(row+x)*4+3]<12) continue;
+            if(x<x0)x0=x; if(x>x1)x1=x;
+            if(y<y0)y0=y; if(y>y1)y1=y;
+          }
+        }
+      }catch(e){ /* getImageData gesperrt -> Rueckfall unten */ }
+      b= x1>=0? {x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}
+              : {x0:0,y0:0,x1:W-1,y1:H-1,w:W,h:H};
+    }
+    this._felsBox.set(key,b);
+    return b;
+  }
+  // Felsobjekt zeichnen (Stilguide 11.11): EIN gemeinsamer Zeichenfaktor
+  // FELS_F, Unterkante des Bildinhalts = Bodenlinie am Knoten. sc ist eine
+  // leichte Streuung je FUNDORT (nicht je Bild) – die relativen Größen
+  // kommen aus dem Bild. Liefert die Inhaltsmaße auf dem Schirm zurück.
+  drawFelsObj(g, key, x, y, sc, spiegel, schatten){
+    const img=this.tintedSpire(key);
+    if(!img) return null;
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
+    const f=FELS_F*(sc||1);
+    const dw=W*f, dh=H*f;
+    const bx=this.felsBox(key);
+    const cw=(bx? bx.w : W)*f, ch=(bx? bx.h : H)*f;
+    if(schatten>0){
+      g.fillStyle='rgba(30,27,23,'+schatten+')';
+      g.beginPath();
+      g.ellipse(x+cw*0.10, y+2.5, cw*0.44, cw*0.15, 0, 0, 7);
+      g.fill();
+    }
+    g.save();
+    if(spiegel){ g.translate(x,0); g.scale(-1,1); g.translate(-x,0); }
+    // die Bildunterkante liegt FELS_BODEN unter der Bodenlinie
+    g.drawImage(img, x-dw/2, y-dh+FELS_BODEN*f, dw, dh);
+    g.restore();
+    return {w:cw, h:ch};
+  }
   // Lasur-Kachel für die Felsflächen und -wände (Stilguide 11.1: "Die
   // Textur muss lauter sein als die Schattierung", Kennwert
   // (p95/p5 der Luminanz)/1.82 im Zielband 1.2-1.5).
@@ -3696,15 +3789,24 @@ export class Renderer {
   // weich auslaufende Platte in der Fels-Plattentextur plus Kontaktschatten.
   // Einmal je Thema gebaut und gecacht; deterministisch, kein ctx.filter.
   mineApron(g, x, y, ww){
+    // Die Schürze muss in DERSELBEN Plattengröße laufen wie die Felsfläche
+    // ringsum (Nutzerkritik "die Mine sieht aus wie ein Fremdkörper"): die
+    // Flächenkachel liegt auf dem Schirm bei TILE*2.37 px je Kachel. Die
+    // Schürze wird in einer 220 px breiten Vorlage gebaut und auf aw px
+    // gezeichnet – der Musterfaktor muss diese Verkleinerung ausgleichen.
+    const aw=ww*1.55;
+    const kf=Math.round(aw);
     let ap=this._mineApronC;
-    if(ap===undefined){
+    if(ap===undefined || this._mineApronW!==kf){
       const W=220, H=132;
       ap=document.createElement('canvas'); ap.width=W; ap.height=H;
       const t=ap.getContext('2d');
       const im=this.tintedSpire('ter_rock_top');
       if(im){
         const pt=t.createPattern(im,'repeat');
-        if(pt.setTransform) pt.setTransform(new DOMMatrix().scale(0.14));
+        const iw=im.naturalWidth||im.width||1024;
+        if(pt.setTransform)
+          pt.setTransform(new DOMMatrix().scale((TILE*2.37/iw)*(W/Math.max(1,aw))));
         t.fillStyle=pt;
       } else {
         const P=this.rockPal();
@@ -3729,10 +3831,10 @@ export class Renderer {
       t.fillStyle=rg; t.fillRect(-W/2,-W*0.5,W,W);
       t.restore();
       t.globalCompositeOperation='source-over';
-      this._mineApronC=ap;
+      this._mineApronC=ap; this._mineApronW=kf;
     }
     if(ap){
-      const aw=ww*1.5, ah=aw*(ap.height/ap.width);
+      const ah=aw*(ap.height/ap.width);
       g.drawImage(ap, x-aw/2, y+7-ah*0.56, aw, ah);
     }
     // Kontaktschatten: der Dom steht AUF der Schürze
@@ -6049,7 +6151,6 @@ export class Renderer {
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
-      else if(it.kind==='spire') this.drawSpire(g, m, it.i);
       else if(it.kind==='pass') this.drawPass(g, m, it.i);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
@@ -6550,22 +6651,6 @@ export class Renderer {
     g.drawImage(img, -ww/2, 6-hh, ww, hh);
     g.restore();
   }
-  // Felsnadel / Felsblock auf dem Gebirge
-  drawSpire(g, m, i){
-    const KEYS=['obj_spire1','obj_spire2','obj_spire3'];
-    const k=KEYS[(hash01(i*29+5)*KEYS.length)|0];
-    const img=this.asset(k);
-    if(!img) return;
-    const [x,y]=m.worldPos(i);
-    const sc=0.75+hash01(i*43+7)*0.5;
-    const hh=this.scaleOf(k,60)*sc, ww=hh*(img.naturalWidth/img.naturalHeight);
-    const ox=(hash01(i*13+3)-0.5)*22, oy=(hash01(i*19+11)-0.5)*12;
-    this.shadow(g, x+ox+ww*0.22, y+oy+3, ww*0.42, hh*0.13, 0.26);
-    g.save();
-    if(hash01(i*7+1)>0.5){ g.translate(x+ox,0); g.scale(-1,1); g.translate(-(x+ox),0); }
-    g.drawImage(img, x+ox-ww/2, y+oy+4-hh, ww, hh);
-    g.restore();
-  }
   drawBld(g, m, b){
     const [x,y]=m.worldPos(b.node);
     const s=this.bldSprite(b.type, b.player, b.state==='build'?'build':'done');
@@ -6662,10 +6747,29 @@ export class Renderer {
       ov=this.asset(typeKey);
     }
     if(ov){
-      // Höhen aus dem Sheet-Maßstab (Wohnhaus=Anker); Rückfall: alte Festwerte
-      const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
-      const hh=this.scaleOf(ovKey||typeKey, legacy);
-      const ww=hh*(ov.naturalWidth/ov.naturalHeight);
+      // Bergwerke (Stilguide 11.11): alle sieben Bilder liegen auf 320x300,
+      // die Bodenlinie ist y=288 und die DOMACHSE bei 47,4 % der Breite.
+      // Sie bekommen EINEN gemeinsamen Zeichenfaktor MINE_F – die
+      // Baustufen (Inhaltshoehe 47/69/82 % gegen 92 % der fertigen Mine)
+      // wachsen damit von selbst, ohne eine Skala je Datei. Verankert wird
+      // auf die DOMACHSE statt auf die Bildmitte: der Felsdom bleibt sonst
+      // zwischen den Stufen nicht stehen, weil Stufe 1 kein Gleis hat und
+      // ihre Bounding Box seitlich wegläuft (11.6).
+      const mineNeu = def.size==='MINE'
+                    && ov.naturalWidth===320 && ov.naturalHeight===300;
+      let hh, ww, dx0, dy0;
+      if(mineNeu){
+        ww=320*MINE_F; hh=300*MINE_F;
+        dx0=x-MINE_DOM*ww;
+        dy0=y+4-MINE_BODEN*MINE_F;
+      } else {
+        // Höhen aus dem Sheet-Maßstab (Wohnhaus=Anker); Rückfall: alte Festwerte
+        const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
+        hh=this.scaleOf(ovKey||typeKey, legacy);
+        ww=hh*(ov.naturalWidth/ov.naturalHeight);
+        dx0=x-ww/2;
+        dy0=y-hh+(def.size==='MINE'?8:10);
+      }
       // Die tatsächlichen Bildmaße an die Simulation melden: sie sperrt damit
       // Straßen, die sonst unter dem Haus hindurchliefen. Nur der Zeichner
       // kennt die Maßstäbe aus scales.json.
@@ -6679,7 +6783,7 @@ export class Renderer {
       }
 
       // Bergwerke: neue Bilder bringen ihren Felshügel mit, alte brauchen den Felskragen
-      if(def.size==='MINE' && !this.scaleOf(typeKey, null)){
+      if(def.size==='MINE' && !mineNeu && !this.scaleOf(typeKey, null)){
         const rk=g.createRadialGradient(x,y-hh*0.45,4, x,y-hh*0.45, ww*0.75);
         rk.addColorStop(0,'rgba(112,106,96,0.85)');
         rk.addColorStop(0.65,'rgba(96,90,80,0.55)');
@@ -6696,7 +6800,8 @@ export class Renderer {
         // Minen-Verankerung (Nutzerfoto IMG_7989): unter dem Bergwerk eine
         // Fels-Schürze (Plattentextur, weich auslaufend) und ein Kontakt-
         // schatten – der gemalte Dom sitzt im Terrain statt zu schweben.
-        if(def.size==='MINE') this.mineApron(g, x, y, ww);
+        // Die Schürze liegt unter der DOMACHSE, nicht unter der Bildmitte.
+        if(def.size==='MINE') this.mineApron(g, x, y, ww*0.86);
         // Küstenbauten rücken über die Uferlinie, damit Steg und Rumpf im
         // Wasser stehen statt auf der Wiese zu kleben
         let sx=0, sy=0;
@@ -6712,13 +6817,13 @@ export class Renderer {
           }
           sx=b._wx; sy=b._wy;
         }
-        g.drawImage(this.solidBld(ovKey||typeKey, ov), x+sx-ww/2, y+sy-hh+(def.size==='MINE'?8:10), ww, hh);
+        g.drawImage(this.solidBld(ovKey||typeKey, ov), dx0+sx, dy0+sy, ww, hh);
       }
       // Militärbauten und Hauptburg: Wimpel in Spielerfarbe auf den Turmspitzen
       if((def.mil||b.type==='hq') && b.state==='done'){
         const tips=this.towerTips(ov, ovKey||typeKey);
         const fs=Math.max(9, Math.min(22, hh*0.135));
-        const ox=x-ww/2, oy=y-hh+(def.size==='MINE'?8:10);
+        const ox=dx0, oy=dy0;
         tips.forEach(([fx,fy],k)=>{
           this.drawTowerFlag(g, ox+fx*ww, oy+fy*hh+fs*0.10, fs, b.player, k*1.7+b.id);
         });
