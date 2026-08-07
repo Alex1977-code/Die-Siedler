@@ -1512,6 +1512,39 @@ export class Renderer {
                 snCache.set(i2,sn);
                 return sn;
               };
+              // Nachsorge zum hangabhaengigen Ausapern (2.6): kahle
+              // ZUSAMMENHANGSKOMPONENTEN, die nirgends ans offene Unter-
+              // Firn-Gestein anschliessen (kein Mitglied deutlich unter der
+              // Firngrenze), sind isolierte Steilsplitter mitten im
+              // geschlossenen Eisfeld – sie standen als braune Dreiecksdorne
+              // im Weiss und werden zugedeckt. Die grossen aufgerissenen
+              // Waende an Terrassen und am Feldrand haengen immer am
+              // offenen Fels und bleiben blank. Deterministisch und
+              // chunkuebergreifend stabil (die Flut folgt snOf ueber die
+              // Chunkgrenze hinaus).
+              const iceHole=new Set();
+              if(this.theme!=='winter' && firnY<90){
+                const seen9=new Set();
+                for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+                  for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+                    const i=m.idx(x,y);
+                    if(seen9.has(i) || snOf(i)!==0) continue;
+                    const comp=[i]; seen9.add(i);
+                    let open=false;
+                    // KEIN Fruehabbruch bei "open": die Komponente muss ganz
+                    // in seen9 landen, sonst wuerde ihr Rest bei spaeterem
+                    // Scanstart ohne den offenen Knoten neu bewertet
+                    for(let k=0;k<comp.length && comp.length<400;k++){
+                      if(m.hgt[comp[k]]<firnY-0.8) open=true;
+                      for(const q of m.nbs(comp[k])){
+                        if(seen9.has(q)) continue;
+                        if(snOf(q)===0){ seen9.add(q); comp.push(q); }
+                      }
+                    }
+                    // sehr grosse Komponenten gelten als offen (Abbruch)
+                    if(!open && comp.length<400) for(const q of comp) iceHole.add(q);
+                  }
+              }
               for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
                 for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
                   const i=m.idx(x,y);
@@ -1525,6 +1558,7 @@ export class Renderer {
                     // einen kahlen Massiv-Nachbarn hat – Einzelgänger werden
                     // zugedeckt, größere Felswände bleiben sichtbar.
                     if(this.theme==='winter' && !m.nbs(i).some(q=>snOf(q)===0)) sn=0.95;
+                    else if(iceHole.has(i)) sn=0.9;
                     else continue;
                   }
                   sn=Math.min(1,sn);
@@ -1536,13 +1570,20 @@ export class Renderer {
                   // An Steilstufen wird die Zelle SENKRECHT gestreckt, sonst
                   // stächen zwischen den projizierten Zeilen Felskeile durch.
                   const ystr=1+Math.min(0.8, Math.max(0, this.slopeOf(m,i)-0.35)*0.7);
+                  // Umbau 2.6-Feinschliff: neben KAHLEM Fels zieht sich die
+                  // Decke etwas zurueck – sonst quetschen die ueberhaengenden
+                  // Zellen (Radius > Kachelmass) eine legitime Kahlwand zu
+                  // einem unlesbaren Splitter zusammen. Nur ausserhalb des
+                  // Winters (dort deckt die Randlogik bewusst grosszuegig).
+                  const shrink=(this.theme!=='winter'
+                    && m.nbs(i).some(q=>snOf(q)===0 && !iceHole.has(q)))? 0.80 : 1;
                   // ECKIGE Zelle, HART gefüllt: 6 Ecken mit Winkel-Jitter –
                   // die Firnkante bricht in geraden Stücken über die Block-
                   // kanten (kantiger Übergang statt weichem Alphasaum)
                   mk2.beginPath();
                   for(let k=0;k<6;k++){
                     const a3=k*1.047 + hash01(i*11+1)*0.8 + (hash01(i*19+k*7)-0.5)*0.5;
-                    const rr2=47*(0.80+hash01(i*17+k*5)*0.36)*(0.72+0.28*sn);
+                    const rr2=47*(0.80+hash01(i*17+k*5)*0.36)*(0.72+0.28*sn)*shrink;
                     const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.95*ystr;
                     if(k===0) mk2.moveTo(qx,qy); else mk2.lineTo(qx,qy);
                   }
