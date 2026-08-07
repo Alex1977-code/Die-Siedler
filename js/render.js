@@ -1362,15 +1362,15 @@ export class Renderer {
                 g.lineCap='butt'; g.lineJoin='round';
                 const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
                 g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=5.5; g.stroke(ao);
-                g.strokeStyle='rgba('+fug+',0.08)'; g.lineWidth=1.4; g.stroke(dark);
-                g.strokeStyle='rgba('+fug+',0.16)'; g.lineWidth=1.8; g.stroke(dark2);
+                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=1.4; g.stroke(dark);
+                g.strokeStyle='rgba('+fug+',0.12)'; g.lineWidth=1.8; g.stroke(dark2);
                 g.lineCap='round';
-                g.strokeStyle='rgba('+fug+',0.06)'; g.lineWidth=1.2; g.stroke(soft);
+                g.strokeStyle='rgba('+fug+',0.03)'; g.lineWidth=1.2; g.stroke(soft);
               }
               if(nL){
                 g.lineCap='round';
-                g.strokeStyle='rgba(255,250,238,0.08)'; g.lineWidth=1.0; g.stroke(lite);
-                g.strokeStyle='rgba(255,251,240,0.14)'; g.lineWidth=1.1; g.stroke(lite2);
+                g.strokeStyle='rgba(255,250,238,0.05)'; g.lineWidth=1.0; g.stroke(lite);
+                g.strokeStyle='rgba(255,251,240,0.10)'; g.lineWidth=1.1; g.stroke(lite2);
               }
             }
             // 4b) Gebirgsfuß-AO: entlang der ECHTEN Außensilhouette dunkelt
