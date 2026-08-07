@@ -582,7 +582,7 @@ export class Renderer {
     // der Füllgrad zieht nach, damit auf dem breiten Schirm nicht plötzlich
     // doppelt so viele Tierchen unterwegs sind wie auf dem Handy.
     const zellenF=(sp/zell+1)*(sr/zell+1);
-    const fuellF=Math.min(0.8, 6/zellenF);      // Zielzahl Falter im Blick
+    const fuellF=Math.min(0.8, 2.5/zellenF);    // Zielzahl Falter im Blick
     // Nur der WIRKLICH sichtbare Ausschnitt zählt: das Knotenfenster x0..y1
     // reicht für die hohen Baum- und Hausbilder weit über den Rand hinaus –
     // dort würden Tierchen bloß außerhalb des Bildes gezeichnet. Der Zuschnitt
@@ -685,8 +685,9 @@ export class Renderer {
     const hoch=10 + 5*Math.sin(T*0.79+h3*6.28) + 3.5*Math.sin(T*1.93+h4*6.28);
     const fy=ay - hoch + Math.sin(T*1.09+h2*6.28)*ry*0.5;
     const lx=ax+(h3-0.5)*17, ly=ay-1.0+(h4-0.5)*3;       // Landeplatz auf der Blüte
-    // Flügelschlag 6,6..9,8 Hz, durch eine langsame Schwebung leicht unruhig
-    const fq=6.6+h1*3.2;
+    // Flügelschlag: physikalisch schlägt ein Falter zwar 6-10 Hz, im Bild
+    // wirkte das als Flimmern. Sichtbar gemächlich, mit leichter Schwebung.
+    const fq=1.9+h1*1.1;
     const schlag=Math.sin((T*fq + Math.sin(T*0.53+h2*6.28)*0.17)*6.2832);
     const x=fx+(lx-fx)*s2, y=fy+(ly-fy)*s2;
     return {
