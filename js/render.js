@@ -33,6 +33,26 @@ const CHUNK = 12; // Knoten pro Chunk-Kante
 // "Objekte feiner gebrochen als der Rest").
 const FELS_F = 0.235;
 const FELS_BODEN = 20;
+// ---- Massstab der Felsflaechen-Lasuren ----------------------------------
+// Umbau 3.1 (Nutzerurteil v81: "Steinhaufen / Schotterberg statt Fels").
+// Gemessen: ter_rock_top traegt auf 1024 px 48 Platten mit einer Median-
+// Kante von 80 px, also 1/13 der Kachelbreite. Bei der alten Abdeckung
+// TILE*2.37 = 123 Weltpixel je Kachel wurde eine Platte 9,7 Weltpixel
+// gross; ein Massiv von 10 Knoten Breite (520 px) zeigte ueber 50 Platten
+// nebeneinander. Zum Vergleich: ein Baum ist 40-60 px hoch, ein Wohnhaus
+// rund 80 px – 9,7 px lesen sich zwangslaeufig als Kies.
+// Die Referenzbilder (Stilguide 11.9, "bei gleichen Zahlen gilt das
+// Augenmass") zeigen WENIGE GROSSE Facetten. Die alte Regel "eine Platte
+// hoechstens ein Fuenftel einer Dreieckskante" stammt aus der Zeit, als
+// das Dreiecksraster durchschlug; seit dem Vertexnormalen-Umbau ist das
+// Raster weg und die Regel produziert nur noch Grus. Sie ist ueberholt.
+// Werte sind KACHELABDECKUNGEN in Kachelbreiten (TILE=52):
+//   Plattenmass in Weltpixeln = Asset-Median * TILE * Faktor / 1024
+const FM_TOP    = 7.4;   // Hauptflaeche   80 px -> 30,1 Weltpixel
+const FM_TOP2   = 6.8;   // Nesterlage    113 px -> 39,0 Weltpixel
+const FM_DRITT  = 5.9;   // Drittlage (gedreht, gegen die Wiederholung)
+const FM_RUBBLE = 6.0;   // Geroell        49 px -> 14,9 Weltpixel (feiner)
+const FM_MOSS   = 7.4;   // Moos           70 px -> 27,7 Weltpixel
 // Stilguide 11.11: die sieben Bergwerksbilder liegen auf 320x300, ihre
 // Bodenlinie ist y=288 und die DOMACHSE (Schwerpunkt des oberen Drittels,
 // also der Felsdom) liegt bei 47,4 % der Breite – nicht in der Bildmitte.
@@ -692,6 +712,10 @@ export class Renderer {
     };
     mkTmp1('_tmpChunk'); mkTmp1('_relTmp'); mkTmp1('_relTmp2');
     mkTmp1('_maskTmp'); mkTmp1('_castTmp'); mkTmp1('_texTmp1');
+    // Umbau 3.4: zweite Maskenflaeche fuer die WEICHE Firnkante (der Firn
+    // braucht seine harte Zellmaske und die weichgezeichnete Fassung
+    // gleichzeitig – _blurTmp liegt in Bake-Aufloesung und passt nicht).
+    mkTmp1('_maskTmp2');
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     const ncache=new Map();
     // 1) Dreiecksnetz auf Zwischenfläche zeichnen (mit breitem Überstand für nahtlose Chunks)
@@ -1036,6 +1060,36 @@ export class Renderer {
           // Steilheit auf dem TERRASSIERTEN Feld – Grundlage der cliffMask
           // (2.4) und der hangabhaengigen Schneedecke (2.6)
           const slopeT=(q)=>{ const gv=gradAt(q); return Math.hypot(gv[0],gv[1]); };
+          // GROSSFORM-Gradient (Umbau 3.2): derselbe Operator, aber auf dem
+          // ueber einen Knotenring GEMITTELTEN Hoehenfeld – der Gradient
+          // reicht damit ueber zwei Ringe und ueberspringt die Terrassen-
+          // stufen. Er liefert die grossen zusammenhaengenden Licht- und
+          // Schattenhaenge, an denen das Auge die Bergform abliest; der
+          // rohe Knotengradient sieht auf jeder Hochflaeche nur Null.
+          const hSm=new Map();
+          const hgtS=(q)=>{
+            let v=hSm.get(q);
+            if(v!==undefined) return v;
+            let s2=hgtT(q), n2=1;
+            for(const b3 of m.nbs(q)){ s2+=hgtT(b3); n2++; }
+            v=s2/n2; hSm.set(q,v);
+            return v;
+          };
+          const gradB=new Map();
+          const gradBigAt=(q)=>{
+            let v=gradB.get(q);
+            if(v) return v;
+            let gx=0, gy=0;
+            for(const b3 of m.nbs(q)){
+              const ddx=(m.X(b3)+((m.Y(b3)&1)*0.5))-(m.X(q)+((m.Y(q)&1)*0.5));
+              const ddy=m.Y(b3)-m.Y(q);
+              const dh=hgtS(b3)-hgtS(q);
+              gx+=dh*ddx; gy+=dh*ddy;
+            }
+            v=[gx,gy];
+            gradB.set(q,v);
+            return v;
+          };
           // Naehe zum BERGFUSS (1 = Randknoten, 0.55 = zweite Reihe, sonst 0):
           // Grundlage der Geroellzone (3) und der Moos-Einblendung. Einmal je
           // Knoten bestimmt und gecacht.
@@ -1291,34 +1345,51 @@ export class Renderer {
                 }
                 // Spitzlicht-Deckel (Befund im Umbau-Papier: der Fels war
                 // 45 % heller als alles andere im Bild und sprang heraus)
-                // (156 statt 175: die laute Overlay-Lasur aus 2.3 legt auf
-                //  hellen Platten noch ~15-20 Stufen drauf; Ziel <180 im
-                //  Endbild, gemessen wird nach allen Paessen)
+                // (Umbau 3.2: 168 statt 156. Der Deckel lag so tief, dass
+                //  ALLE Sonnenhaenge auf demselben Wert einrasteten – die
+                //  Grossform wurde oben abgeschnitten. Die Lasur ist im
+                //  selben Zug von 0.86 auf 0.62 zurueckgenommen, sie legt
+                //  entsprechend weniger drauf; Ziel bleibt <180 im Endbild,
+                //  gemessen wird nach allen Paessen.)
                 const lum=0.299*r9+0.587*g9+0.114*b9;
-                if(lum>156){ const f0=156/lum; r9*=f0; g9*=f0; b9*=f0; }
+                if(lum>168){ const f0=168/lum; r9*=f0; g9*=f0; b9*=f0; }
                 return [r9|0,g9|0,b9|0];
               };
+              const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
               const vsh=new Map();
               const shadeAt=(q)=>{
                 let v=vsh.get(q);
                 if(v!==undefined) return v;
-                const gv=gradAt(q);
-                // Sonnenrichtung wie gehabt (West stärker als Nord); Gewinn
-                // moderat, sonst säuft die Ostflanke in Sattschwarz ab
-                const d9=(gv[0]*0.75+gv[1]*0.5)*0.30;
-                v=0.55+0.45*Math.max(-1,Math.min(1,d9));
+                const gv=gradAt(q), gb=gradBigAt(q);
+                // Umbau 3.2 (Nutzerkritik "dem Berg fehlt die GROSSFORM"):
+                // die Schattierung lief bisher NUR ueber den lokalen
+                // Knotengradienten. Auf einem terrassierten Massiv ist der
+                // auf allen Hochflaechen nahe 0 – das ganze Massiv lag damit
+                // auf einem Ton, und die Textur war das einzige Signal.
+                // Jetzt tragen den Ton drei Beitraege, vom Grossen zum
+                // Kleinen:
+                //  a) GROSSFORM: Gradient des ueber zwei Knotenringe
+                //     geglaetteten Hoehenfelds. Er ueberspringt Terrassen-
+                //     stufen und zeichnet ganze Sonnen- und Schattenhaenge.
+                //  b) HOEHENLAGE im Massiv: Gipfel hell, Fuss dunkel – die
+                //     zweite grosse Tonwertflaeche, die ein Berg braucht.
+                //  c) lokaler Hang: nur noch Feinzeichnung.
+                const dB=(gb[0]*0.75+gb[1]*0.5)*0.62;
+                const dL=(gv[0]*0.75+gv[1]*0.5)*0.14;
+                const d9=Math.max(-1,Math.min(1,dB+dL));
+                v=0.55+0.50*d9;
+                v+=(uAt(q)-0.44)*0.44;
                 const cu=curvOf(q);
                 v+= cu>0? cu*0.5 : cu*0.85;
                 // Umbau 2.7c (Gebirge-Papier): Gratlicht +0.12 auf KONVEXEN,
                 // klar sonnenzugewandten Kanten – der Grat bekommt eine
                 // Lichtkante, ohne dass eine Linie gezeichnet werden muss
                 if(cu>0.02 && d9>0.30)
-                  v+=0.12*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
-                v=Math.max(0.24,Math.min(0.88,v));
+                  v+=0.14*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
+                v=Math.max(0.21,Math.min(0.90,v));
                 vsh.set(q,v);
                 return v;
               };
-              const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
               for(const t3 of tris){
                 const {A,B,C}=t3;
                 // leise Blockvarianz: trennt die Platten tonal, der Sprung
@@ -1398,49 +1469,69 @@ export class Renderer {
               // Felspalette (Winter grau, Vulkan dunkel).
               const imT=this.felsLasur('ter_rock_top');
               const w3=imT? (imT.naturalWidth||imT.width) : 1024;
-              const det1= imT? patOf('ter_rock_top',(TILE*2.37)/w3,0,0,0,imT) : null;
+              const det1= imT? patOf('ter_rock_top',(TILE*FM_TOP)/w3,0,0,0,imT) : null;
               if(det1){
                 // Lasur-Alpha ist am Kennwert aus 11.1 eingestellt (gemessen
                 // am Endbild, nicht geschaetzt). Auf dunklem Vulkanfels
                 // wirkt die Aufhellung doppelt so stark -> dort drosseln.
-                const aBase= this.theme==='vulkan'? 0.54
-                           : this.theme==='winter'? 0.72 : 0.86;
+                // Umbau 3.2: leicht zurueckgenommen (0.86 -> 0.78). Weiter
+                // herunter (probiert: 0.50 und 0.62) verlieren die Platten
+                // ihre Fugen und die Flaeche wird teigig – die Lasur ist bei
+                // grossem Massstab NICHT der Gegner der Form: sie arbeitet
+                // auf 30 Weltpixeln (Plattenmass), die Form auf mehreren
+                // hundert. Die beiden Frequenzen stoeren sich nicht. Was die
+                // Form in v81 erschlug, war der Spitzlicht-Deckel bei 156,
+                // auf dem alle Sonnenhaenge einrasteten.
+                const aBase= this.theme==='vulkan'? 0.53
+                           : this.theme==='winter'? 0.68 : 0.78;
                 g.globalCompositeOperation='overlay';
                 g.fillStyle=det1;
                 g.globalAlpha=aBase;
                 g.fillRect(c.ox,c.oy,w,h);
-                // --- zweite Lage ter_rock_top2 per Rauschmaske ---
+                // --- zweite und dritte Lage per Rauschmaske ---
+                // Der grosse Massstab aus 3.1 laesst eine Kachel 385 Welt-
+                // pixel (7,4 Knoten) ueberdecken. Innerhalb eines Bildes
+                // wiederholt sie sich damit kaum noch – dafuer faellt jede
+                // Wiederholung staerker auf. Dagegen stehen zwei weitere
+                // Lagen in Nestern: ter_rock_top2 in eigenem Massstab und
+                // eigener Phase, dazu ter_rock_top selbst noch einmal,
+                // GEDREHT (29 Grad) und anders phasenversetzt. Beide Masken
+                // kommen aus DEMSELBEN Rauschfeld (ein Durchlauf ueber die
+                // Dreiecke), damit das Budget nicht zweimal bezahlt wird.
                 const imT2=this.felsLasur('ter_rock_top2');
-                if(imT2){
-                  const w4=imT2.naturalWidth||imT2.width;
-                  const det2=patOf('ter_rock_top2',(TILE*3.41)/w4,0,
-                                   TILE*0.37, TILE*0.71, imT2);
-                  if(det2){
-                    // weiches Rauschfeld (dieselbe tnoise-Basis wie die
-                    // Terrassierung, andere Frequenz und Phase): Nester von
-                    // 2-4 Knoten Durchmesser statt Flaechendeckung
-                    let any2=false;
+                const w4=imT2? (imT2.naturalWidth||imT2.width) : 1024;
+                const det2= imT2? patOf('ter_rock_top2',(TILE*FM_TOP2)/w4,0,
+                                        TILE*0.37, TILE*0.71, imT2) : null;
+                const det3= patOf('ter_rock_top',(TILE*FM_DRITT)/w3,29,
+                                  TILE*2.9, TILE*1.7, imT);
+                if(det2||det3){
+                  const n2=[], n3=[];
+                  for(const t3 of tris){
+                    const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                    const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                    const f9=tnoise(X9*0.62+311,Y9*0.62+83);
+                    if(f9>=0.58) n2.push(t3);
+                    else if(f9<=0.34) n3.push(t3);
+                  }
+                  const zug=(list,pat,al)=>{
+                    if(!list.length||!pat) return;
                     g.beginPath();
-                    for(const t3 of tris){
-                      const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
-                      const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
-                      if(tnoise(X9*0.62+311,Y9*0.62+83)<0.52) continue;
-                      any2=true;
+                    for(const t3 of list){
                       g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
                       g.lineTo(t3.C[0],t3.C[1]); g.closePath();
                     }
-                    if(any2){
-                      g.fillStyle=det2;
-                      g.globalAlpha=aBase*0.72;
-                      g.fill();
-                    }
-                  }
+                    g.fillStyle=pat; g.globalAlpha=al; g.fill();
+                  };
+                  zug(n2,det2,aBase*0.72);
+                  zug(n3,det3,aBase*0.66);
                 }
                 // --- Geroellzone am Bergfuss: ter_rock_rubble ---
                 const imR=this.felsLasur('ter_rock_rubble');
                 if(imR){
                   const w5=imR.naturalWidth||imR.width;
-                  const detR=patOf('ter_rock_rubble',(TILE*2.05)/w5,0,
+                  // Schutt darf FEINER bleiben als die Hauptflaeche (halbes
+                  // Plattenmass), aber 5 Weltpixel wie in v81 waren Sand.
+                  const detR=patOf('ter_rock_rubble',(TILE*FM_RUBBLE)/w5,0,
                                    TILE*0.53, TILE*0.19, imR);
                   if(detR){
                     let anyR=false;
@@ -1474,7 +1565,7 @@ export class Renderer {
                 // ihr das Gruen heraus).
                 const imM= (warmOnly||this.theme==='winter')? null : this.asset('ter_rock_moss');
                 if(imM && imM.naturalWidth){
-                  const detM=patOf('ter_rock_moss',(TILE*2.63)/imM.naturalWidth,0,
+                  const detM=patOf('ter_rock_moss',(TILE*FM_MOSS)/imM.naturalWidth,0,
                                    TILE*0.83, TILE*0.29, imM);
                   if(detM){
                     // Hoehenlage 0 (Fuss) .. 1 (Gipfel), mit Rauschen
@@ -1664,7 +1755,21 @@ export class Renderer {
                     bgC.clearRect(0,0,w,h);
                     this.blurInto(bgC, this._shadeTmp, 4*S);
                     tex4.globalCompositeOperation='soft-light';
-                    tex4.globalAlpha=0.7;
+                    tex4.globalAlpha=0.88;
+                    tex4.drawImage(this._blurTmp,0,0,w,h);
+                    // Umbau 3.3 (Nutzerkritik "MATERIALBRUCH"): die Wand las
+                    // sich deutlich dunkler und KAELTER (graugruen) als die
+                    // beige Flaeche darueber – wie anderes Gestein statt wie
+                    // die beschattete Seite desselben Berges. Ursache: die
+                    // Wandkachel wurde DECKEND aufgelegt, ihre von felsLasur
+                    // fast neutralisierte Eigenfarbe ersetzte die Palette aus
+                    // colAt. Jetzt zieht ein 'color'-Zug Farbton UND
+                    // Saettigung aus den (weichgezeichneten) Facettentoenen –
+                    // die Wand behaelt ihre eigene HELLIGKEIT und damit die
+                    // senkrechte Kluefzung, sitzt aber in derselben
+                    // Farbfamilie wie die Deckflaeche (Palette 11.2).
+                    tex4.globalCompositeOperation='color';
+                    tex4.globalAlpha=0.92;
                     tex4.drawImage(this._blurTmp,0,0,w,h);
                     tex4.globalAlpha=1;
                   }
@@ -1672,7 +1777,10 @@ export class Renderer {
                   tex4.drawImage(this._maskTmp,0,0,w,h);
                   tex4.globalCompositeOperation='source-over';
                   tex4.restore();   // Hüllrechteck-Clip
-                  g.globalAlpha=0.92;
+                  // 0.78 statt 0.92: der Facettenton (und mit ihm die
+                  // Grossform aus 3.2) scheint durch die Wandzeichnung durch,
+                  // statt von ihr zugedeckt zu werden.
+                  g.globalAlpha=0.78;
                   g.drawImage(this._texTmp, mbx0*S, mby0*S, mbw*S, mbh*S,
                               c.ox+mbx0, c.oy+mby0, mbw, mbh);
                   g.globalAlpha=1;
@@ -1995,13 +2103,19 @@ export class Renderer {
                   // Winters (dort deckt die Randlogik bewusst grosszuegig).
                   const shrink=(this.theme!=='winter'
                     && m.nbs(i).some(q=>snOf(q)===0 && !iceHole.has(q)))? 0.80 : 1;
-                  // ECKIGE Zelle, HART gefüllt: 6 Ecken mit Winkel-Jitter –
-                  // die Firnkante bricht in geraden Stücken über die Block-
-                  // kanten (kantiger Übergang statt weichem Alphasaum)
+                  // Umbau 3.4 (Nutzerkritik "Firn wirkt als weisse Facetten-
+                  // pfuetze mit harten Kanten mitten im Fels"): die Zellen
+                  // bleiben eckig – der Umriss der Decke folgt weiter den
+                  // Blockkanten – aber sie werden GROESSER angelegt und die
+                  // fertige Maske wird anschliessend weichgezeichnet. Die
+                  // Kante laeuft dadurch in den Fels aus: Schnee liegt AUF
+                  // dem Gestein, statt als weisse Flaeche eingelegt zu sein.
+                  // Der Zuschlag 1.10 gleicht aus, was der Weichzeichner am
+                  // Rand wegnimmt.
                   mk2.beginPath();
                   for(let k=0;k<6;k++){
                     const a3=k*1.047 + hash01(i*11+1)*0.8 + (hash01(i*19+k*7)-0.5)*0.5;
-                    const rr2=47*(0.80+hash01(i*17+k*5)*0.36)*(0.72+0.28*sn)*shrink;
+                    const rr2=47*1.10*(0.80+hash01(i*17+k*5)*0.36)*(0.72+0.28*sn)*shrink;
                     const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.95*ystr;
                     if(k===0) mk2.moveTo(qx,qy); else mk2.lineTo(qx,qy);
                   }
@@ -2009,6 +2123,24 @@ export class Renderer {
                   mk2.fill();
                 }
               mk2.restore();
+              if(anySnow){
+                // Weiche Firnkante: die harte Zellmaske ueber _maskTmp2
+                // weichzeichnen (blurInto, kein ctx.filter) und
+                // zurueckschreiben. Zweimal zusaetzlich aufaddiert ergibt das
+                // die Alphakurve 1-(1-a)^3: das INNERE der Decke wird wieder
+                // voll deckend, nur ein schmaler Saum von rund 10 Weltpixeln
+                // laeuft in den Fels aus. Reines Weichzeichnen allein liess
+                // die Decke als Wattewolke schweben.
+                const mb2=this._maskTmp2.getContext('2d');
+                mb2.globalCompositeOperation='copy';
+                this.blurInto(mb2, this._maskTmp, 5);
+                mb2.globalCompositeOperation='source-over';
+                mk2.globalCompositeOperation='copy';
+                mk2.drawImage(this._maskTmp2,0,0,w,h);
+                mk2.globalCompositeOperation='source-over';
+                mk2.drawImage(this._maskTmp2,0,0,w,h);
+                mk2.drawImage(this._maskTmp2,0,0,w,h);
+              }
               if(anySnow && fbw>0 && fbh>0){
                 const tex2=this._texTmp.getContext('2d');
                 tex2.globalCompositeOperation='source-over';
@@ -2140,6 +2272,19 @@ export class Renderer {
                         mkG.closePath(); mkG.fill();
                       }
                       mkG.restore();
+                      // wie die Firnkante weichgezeichnet (3.4): das
+                      // Spaltenfeld ist eine Auflage IM Firn, keine
+                      // eingelegte Facettenscheibe
+                      {
+                        const mg2=this._maskTmp2.getContext('2d');
+                        mg2.globalCompositeOperation='copy';
+                        this.blurInto(mg2, this._maskTmp, 7);
+                        mg2.globalCompositeOperation='source-over';
+                        mkG.globalCompositeOperation='copy';
+                        mkG.drawImage(this._maskTmp2,0,0,w,h);
+                        mkG.globalCompositeOperation='source-over';
+                        mkG.drawImage(this._maskTmp2,0,0,w,h);
+                      }
                       const texG=this._texTmp.getContext('2d');
                       texG.globalCompositeOperation='source-over';
                       texG.clearRect(0,0,w,h);
