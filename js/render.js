@@ -187,6 +187,7 @@ export class Renderer {
     this.chunks=new Map();
     this.chunkVer=new Map();
     this._signsSeen=new Set();
+    this._mineSeen=new Set();
     this.sprites=new Map();
     this.time=0;
     this.loadAssets();
@@ -199,9 +200,11 @@ export class Renderer {
     this.lastTerritoryVer=-1;
     this.borderEdges=[];
     this._signsSeen=new Set();
+    this._mineSeen=new Set();
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
+    this._liftC=null;   // Anhebungs-Cache (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this.initSheep();
   }
@@ -666,6 +669,74 @@ export class Renderer {
       // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
       const msn=this.massifSnow();
       const isMassif=(q)=>{ const t2=m.terr[q]; return t2===TER.MOUNT||t2===TER.LAVA||(t2===TER.SNOW&&msn[q]); };
+      // --- Gebirgskritik G1 / Nutzer-Leitlinien A+C: kleine und schmale
+      // Massive muessen aus der Ebene HERAUSRAGEN statt wie eine Wiese mit
+      // Felstextur zu wirken. Der GEZEICHNETE Fels (nur Zeichnung – m.hgt
+      // und damit Spiellogik/Klickziele bleiben unangetastet) bekommt eine
+      // Hoehen-Anhebung, wo das lokale Relief (Kamm minus Vorland) unter
+      // ~1.7 Hoeheneinheiten liegt: das Defizit wird aufgefuellt. Das
+      // Profil waechst von der Randreihe (0.55) zum Inneren (1.0) – eine
+      // Kuppe mit Wandkante: talseitig eine echte Absturzwand mit
+      // Fallhoehe, bergseitig verdeckt die angehobene Silhouette die
+      // Wiese dahinter. An Paessen und um Bergwerke wird die Anhebung
+      // stark gedaempft, damit Wege und Minen nicht unter dem gemalten
+      // Fels verschwinden. Deterministisch aus Karte+Passnetz+Minen –
+      // chunkuebergreifend stabil; Minenbau markiert die Chunks dreckig
+      // (siehe _mineSeen in draw()).
+      const mineNodes=new Set();
+      for(const b3 of this.game.buildings.values())
+        if(BLD[b3.type] && BLD[b3.type].size==='MINE') mineNodes.add(b3.node);
+      // Cache RENDERER-weit (nicht je Bake): auch Schilder/Fahnen fragen die
+      // Anhebung ab (liftAt), damit sie auf dem angehobenen Fels stehen.
+      // Wird bei Minenbau/-abriss und Spielwechsel geleert.
+      if(!this._liftC) this._liftC=new Map();
+      const liftC=this._liftC;
+      const liftInfo=(q)=>{
+        let v=liftC.get(q);
+        if(v) return v;
+        // Lava hebt sich nie: Lavaflaechen sind Becken, keine Kuppen
+        if(!isMassif(q) || m.terr[q]===TER.LAVA){
+          v={lift:0, rel: m.terr[q]===TER.LAVA? 2.5 : 0}; liftC.set(q,v); return v;
+        }
+        let ring=[q]; const seen4=new Set([q]);
+        let dBnd=5, plainS=0, plainN=0, crest=m.hgt[q];
+        let damp=1;
+        if(m.pass && m.pass[q]) damp=0.12;
+        if(mineNodes.has(q)) damp=0;
+        for(let d4=1; d4<=4; d4++){
+          const nx4=[];
+          for(const p4 of ring) for(const b4 of m.nbs(p4)){
+            if(seen4.has(b4)) continue;
+            seen4.add(b4);
+            if(isMassif(b4)){
+              nx4.push(b4);
+              if(d4<=3 && m.hgt[b4]>crest) crest=m.hgt[b4];
+              if(d4<=2){
+                if(m.pass && m.pass[b4]) damp=Math.min(damp, d4===1?0.25:0.6);
+                if(mineNodes.has(b4)) damp=Math.min(damp, d4===1?0.15:0.5);
+              }
+            } else if(d4<=dBnd){
+              if(d4<dBnd){ dBnd=d4; plainS=0; plainN=0; }
+              plainS+=m.hgt[b4]; plainN++;
+            }
+          }
+          ring=nx4;
+          if(!ring.length) break;
+        }
+        // ohne Ebenen-Kontakt in 4 Ringen: Massiv-Inneres, keine Anhebung
+        const plainH=plainN? plainS/plainN : m.hgt[q]-1.7;
+        const rel=Math.max(0, crest-plainH);
+        const deficit=Math.max(0, 1.7-rel);
+        const prof= dBnd<=1? 0.55 : dBnd===2? 0.9 : 1.0;
+        v={lift: deficit*prof*damp, rel};
+        liftC.set(q,v);
+        return v;
+      };
+      const liftOf=(q)=>liftInfo(q).lift;
+      // effektives Relief NACH Anhebung: Grundlage der RELATIVEN
+      // Wand-/Klippen-Schwellen (Kritik G1: absolute Schwellwerte
+      // erreichten kleine Massive nie)
+      const relEffOf=(q)=>{ const v=liftInfo(q); return Math.max(v.rel, Math.min(1.7, v.rel+v.lift)); };
       for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
         for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
           const i=m.idx(x,y);
@@ -841,12 +912,35 @@ export class Renderer {
           const hgtT=(q)=>{
             let v=hTc.get(q);
             if(v!==undefined) return v;
-            const h9=m.hgt[q];
+            const h9=m.hgt[q]+liftOf(q);   // G1: Anhebung geht in die Zeichnung ein
             if(!isMassif(q)) v=h9;      // Umland bleibt unangetastet
             else {
-              const hIn=h9+(tnoise(m.X(q),m.Y(q))-0.5)*TSTEP*0.4;
+              const X9=m.X(q), Y9=m.Y(q);
+              // Nutzer-Leitlinie B ("die Felsen sehen wie grosse TREPPEN
+              // aus"): drei Stoerungen brechen den gleichmaessigen
+              // Terrassen-Rhythmus.
+              // 1) WARP (langsame Verschiebung): Stufenkanten wandern
+              //    seitlich und verschmelzen stellenweise.
+              // 2) KLUFT (vor allem laengs X laufendes Rauschen):
+              //    senkrechte Phasenspruenge zerschneiden die
+              //    waagerechten Baender in Sporne.
+              // 3) MISCHUNG 0.45..0.85 statt fest 0.7: der Terrassierungs-
+              //    grad schwankt – zwischen harten Stufen liegen gewoelbte
+              //    Kuppen ganz ohne Band.
+              const hIn=h9+(tnoise(X9,Y9)-0.5)*TSTEP*0.4
+                        +(tnoise(X9*0.34+53,Y9*0.34+17)-0.5)*TSTEP*0.9
+                        +(tnoise(X9*1.15+211,Y9*0.27+97)-0.5)*TSTEP*0.55;
               const t9=hIn/TSTEP, f9=t9-Math.floor(t9);
-              v=h9*0.3+(Math.floor(t9)+smT((f9-0.72)/0.28))*TSTEP*0.7;
+              const mix9=0.45+tnoise(X9*0.22+139,Y9*0.22+71)*0.40;
+              v=h9*(1-mix9)+(Math.floor(t9)+smT((f9-0.72)/0.28))*TSTEP*mix9;
+              // Bergwerks-Umfeld glaetten: die Mine steht nie quer ueber
+              // einer gemalten Terrassenkante (Nutzerfoto IMG_7989)
+              if(mineNodes.size){
+                let mf=1;
+                if(mineNodes.has(q)) mf=0;
+                else { for(const b9 of m.nbs(q)) if(mineNodes.has(b9)){ mf=0.3; break; } }
+                if(mf<1) v=h9*(1-mf)+v*mf;
+              }
             }
             hTc.set(q,v);
             return v;
@@ -936,7 +1030,27 @@ export class Renderer {
           //    dazu das Kantennetz (für Fugen- und Lichtkanten)
           const tris=[];
           const wp=new Map();
-          const pos=(q)=>{ let v=wp.get(q); if(!v){ v=m.worldPos(q); wp.set(q,v); } return v; };
+          const pos=(q)=>{
+            let v=wp.get(q);
+            if(!v){
+              v=m.worldPos(q);
+              const L9=liftOf(q);
+              if(L9>0) v[1]-=L9*HSCALE;   // G1: gezeichnete Anhebung
+              else if(!isMassif(q)){
+                // Zeichnungs-Rueckzug (Kritik G4a): Wiesen-Ecken gemischter
+                // Facetten ruecken ~1/3 zur Felsseite – der gemalte Fels
+                // uebergreift die Logik um <0.5 Knoten, Baeume der
+                // Nachbarwiese stehen frei statt mitten auf dem Band
+                let ax9=0, ay9=0, n9=0;
+                for(const b9 of m.nbs(q)) if(isMassif(b9)){
+                  const P9=m.worldPos(b9); ax9+=P9[0]; ay9+=P9[1]; n9++;
+                }
+                if(n9){ v[0]+=(ax9/n9-v[0])*0.34; v[1]+=(ay9/n9-v[1])*0.34; }
+              }
+              wp.set(q,v);
+            }
+            return v;
+          };
           const edges=new Map();
           const edge=(u,v,t3)=>{
             const k5= u<v? u*131072+v : v*131072+u;
@@ -954,9 +1068,13 @@ export class Renderer {
               // Umland. Ausnahme Steilwand: dort spannen sie sich über die
               // ganze Absturzhöhe – blieben sie Wiese/Schnee, stünde am
               // Wandfuß ein Kamm aus hellen Zacken zwischen den Felszähnen.
-              const hmax=Math.max(m.hgt[a2],m.hgt[b2],m.hgt[c2]);
-              const hmin=Math.min(m.hgt[a2],m.hgt[b2],m.hgt[c2]);
-              if(hmax-hmin<1.15) return;
+              // Schwelle RELATIV zum Massiv-Relief (Kritik G1): auch kleine
+              // Massive erreichen ihre Wandkante; Anhebung zaehlt mit.
+              const hE=(q9)=>m.hgt[q9]+liftOf(q9);
+              const hmax=Math.max(hE(a2),hE(b2),hE(c2));
+              const hmin=Math.min(hE(a2),hE(b2),hE(c2));
+              const rq=isMassif(a2)? a2 : isMassif(b2)? b2 : c2;
+              if(hmax-hmin<Math.min(1.15, 0.55+relEffOf(rq)*0.28)) return;
             }
             const A=pos(a2), B=pos(b2), C=pos(c2);
             // Block aus dem SCHWERPUNKT des Dreiecks: rastert die Voronoi-
@@ -985,8 +1103,17 @@ export class Renderer {
             // HalbSCHATTEN – die WAND soll lesbar sein, kein schwarzer Zahn
             // und keine gleißende Folie. Obergrenze 2 statt 3: helle Wand-
             // dreiecke neben dunklen lasen sich als Harlekin-Fächer.
+            // Wand-Schwelle RELATIV zum Massiv-Relief (Kritik G1) und NUR
+            // TALSEITIG (gyM<0: der Hang faellt nach Sueden, zum
+            // Betrachter). Die gestreckten Facetten der RUECKSEITE (gyM>0)
+            // sind die angehobene Silhouette, die die Wiese dahinter
+            // verdeckt – dort Mauerwerk zu zeichnen ergab die
+            // "Stuetzmauer einer Grube" (Nutzerfoto IMG_7988).
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
-            if(spanY>ROWH*1.7) qi=Math.max(1,Math.min(2,qi));
+            const relF=Math.max(relEffOf(a2),relEffOf(b2),relEffOf(c2));
+            const gyM=(ga[1]+gb[1]+gc[1])/3;
+            const wall9=spanY>ROWH*Math.min(1.7, 0.95+relF*0.35) && gyM<0;
+            if(wall9) qi=Math.max(1,Math.min(2,qi));
             const hh=(hgtT(a2)+hgtT(b2)+hgtT(c2))/3;
             const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
             const band=Math.min(4,(u4*5)|0);
@@ -994,7 +1121,7 @@ export class Renderer {
             // kante liegt auf der SONNENSEITE der helleren Platte.
             // wl markiert Wanddreiecke – zwischen ihnen keine Fugen, eine
             // Absturzwand ist EINE Fläche (Fugen zerhackten sie in Zähne).
-            const t3={A,B,C,ci:qi*5+band,blk, wl:spanY>ROWH*1.7,
+            const t3={A,B,C,ci:qi*5+band,blk, wl:wall9, gy:gyM,
                       qa:a2, qb:b2, qc:c2,
                       cx:(A[0]+B[0]+C[0])/3, cy:(A[1]+B[1]+C[1])/3};
             tris.push(t3);
@@ -1213,7 +1340,10 @@ export class Renderer {
                 const cmOf=(q)=>{
                   let v=cmv.get(q);
                   if(v!==undefined) return v;
-                  v= m.terr[q]===TER.LAVA? 0 : smT((slopeT(q)-2.0)/1.2);
+                  // Schwelle RELATIV zum Massiv-Relief (Kritik G1): kleine
+                  // Massive kippen frueher in die Wandtextur
+                  const thrC=Math.max(1.30, Math.min(2.0, relEffOf(q)*0.85));
+                  v= m.terr[q]===TER.LAVA? 0 : smT((slopeT(q)-thrC)/1.2);
                   cmv.set(q,v);
                   return v;
                 };
@@ -1226,6 +1356,9 @@ export class Renderer {
                 for(const t3 of tris){
                   let ma=cmOf(t3.qa), mb=cmOf(t3.qb), mc=cmOf(t3.qc);
                   if(t3.wl){ ma=Math.max(ma,0.9); mb=Math.max(mb,0.9); mc=Math.max(mc,0.9); }
+                  // Rueckseite (Silhouette zur Wiese dahinter): dort keine
+                  // Mauerwerk-Textur – der Rand ist Deckflaeche/Grat
+                  if(t3.gy>0.08){ ma*=0.18; mb*=0.18; mc*=0.18; }
                   if(ma+mb+mc<0.05) continue;
                   anyC=true;
                   const P=[t3.A,t3.B,t3.C], AL=[ma,mb,mc];
@@ -1266,6 +1399,23 @@ export class Renderer {
                   const patC=patOf('ter_rock_cliff',0.37,0,0,0,imC);
                   tex4.fillStyle=patC||'#8a7e68';
                   tex4.fillRect(c.ox,c.oy,w,h);
+                  // Leitlinie B: der Wandtextur-Massstab variiert je WAND-
+                  // SEGMENT (Blockhash) – nicht jede Terrassenstufe zeigt
+                  // dieselbe Schichtung im selben Takt
+                  const patC2=patOf('ter_rock_cliff',0.455,0,37,61,imC);
+                  if(patC2){
+                    tex4.save();
+                    tex4.beginPath();
+                    for(const t3 of tris){
+                      if(hash01(t3.blk*29+3)>=0.42) continue;
+                      tex4.moveTo(t3.A[0],t3.A[1]); tex4.lineTo(t3.B[0],t3.B[1]);
+                      tex4.lineTo(t3.C[0],t3.C[1]); tex4.closePath();
+                    }
+                    tex4.clip();
+                    tex4.fillStyle=patC2;
+                    tex4.fillRect(c.ox,c.oy,w,h);
+                    tex4.restore();
+                  }
                   tex4.restore();
                   // Facettenlicht der Wand uebernehmen: die Toene aus Pass 2
                   // (liegen noch in _shadeTmp) weichgezeichnet als Weichlicht
@@ -1387,6 +1537,7 @@ export class Renderer {
                 return v;
               };
               const p1=new Path2D(); let nB=0;
+              const pL=new Path2D(); let nL2=0;   // helle Oberkante (Grat)
               for(const e of edges.values()){
                 if(e.b) continue;
                 if(!isBnd(e.u)||!isBnd(e.v)) continue;
@@ -1398,7 +1549,30 @@ export class Renderer {
                 if(m.terr[e.u]===TER.SNOW||m.terr[e.v]===TER.SNOW) continue;
                 if(firnY<90 && (m.hgt[e.u]>firnY-0.4||m.hgt[e.v]>firnY-0.4)) continue;
                 const P1=pos(e.u),P2=pos(e.v);
-                p1.moveTo(P1[0],P1[1]); p1.lineTo(P2[0],P2[1]); nB++;
+                // Aussennormale der Silhouettenkante (vom Facetten-
+                // Schwerpunkt weg): trennt Sonnen-/Talseite
+                const mx9=(P1[0]+P2[0])/2, my9=(P1[1]+P2[1])/2;
+                let nx9=mx9-e.a.cx, ny9=my9-e.a.cy;
+                const nl9=Math.hypot(nx9,ny9)||1; nx9/=nl9; ny9/=nl9;
+                // Fuss-AO nur tal-/seitwaerts – auf der RUECKSEITE laege der
+                // Strich mitten auf der angehobenen Deckflaeche
+                if(ny9>-0.45){
+                  // am FUSS der Wand (unangehobene Grundlinie), nicht auf
+                  // der angehobenen Kante selbst
+                  const F1=m.worldPos(e.u), F2=m.worldPos(e.v);
+                  p1.moveTo(F1[0],F1[1]); p1.lineTo(F2[0],F2[1]); nB++;
+                }
+                // Nutzer-Leitlinien A+C: helle OBERKANTE – die sonnen-
+                // zugewandte (NW-)Silhouette kleiner Massive bekommt eine
+                // schmale Lichtkante, der Grat setzt sich von der Wiese
+                // dahinter ab. Lueckenhaft gehasht, sonst leuchtende Paspel.
+                if(nx9*-0.552+ny9*-0.834>0.30
+                   && Math.min(relEffOf(e.u),relEffOf(e.v))<2.4
+                   && hash01(e.u*13+e.v*7+3)<0.78){
+                  pL.moveTo(P1[0]-nx9*0.8,P1[1]-ny9*0.8);
+                  pL.lineTo(P2[0]-nx9*0.8,P2[1]-ny9*0.8);
+                  nL2++;
+                }
               }
               if(nB){
                 g.lineCap='round'; g.lineJoin='round';
@@ -1410,6 +1584,11 @@ export class Renderer {
                 g.strokeStyle='rgba(36,30,24,0.11)'; g.lineWidth=24; g.stroke(p1);
                 g.strokeStyle='rgba(36,30,24,0.13)'; g.lineWidth=10; g.stroke(p1);
                 g.strokeStyle='rgba(36,30,24,0.10)'; g.lineWidth=4;  g.stroke(p1);
+              }
+              if(nL2){
+                g.lineCap='round'; g.lineJoin='round';
+                g.strokeStyle='rgba(255,250,236,0.26)'; g.lineWidth=1.6; g.stroke(pL);
+                g.strokeStyle='rgba(255,246,224,0.10)'; g.lineWidth=3.4; g.stroke(pL);
               }
             }
             // 5) Erzadern NUR dort, wo der Geologe geschürft hat – als weiche
@@ -1897,9 +2076,15 @@ export class Renderer {
                   if(m.terr[i]!==TER.MOUNT) continue;
                   const h7=hash01(i*53+11);
                   // seltener als früher, dafür GROSS: die kleinen Nadeln
-                  // lasen sich nur als graue Stöckchen auf den Platten
-                  if(h7>=0.022) continue;
-                  if(this.slopeOf(m,i)>0.5 || curvOf(i)<-0.02) continue;
+                  // lasen sich nur als graue Stöckchen auf den Platten.
+                  // Leitlinie B: an TERRASSENKANTEN haeufiger – die Sporne
+                  // zerschneiden die waagerechten Stufenbaender.
+                  if(h7>=0.05) continue;
+                  let brink=false;
+                  for(const q of m.nbs(i))
+                    if(isMassif(q) && hgtT(i)-hgtT(q)>0.9){ brink=true; break; }
+                  if(h7>=(brink? 0.05 : 0.022)) continue;
+                  if(!brink && (this.slopeOf(m,i)>0.5 || curvOf(i)<-0.02)) continue;
                   if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                   if(m.pass && m.pass[i]) continue;
                   if(signs && signs.has(i)) continue;
@@ -1950,7 +2135,11 @@ export class Renderer {
                     for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
                       const i=m.idx(x,y);
                       if(m.terr[i]!==TER.MOUNT) continue;
-                      if(hash01(i*97+13)>=0.05) continue;
+                      // Leitlinie B: haeufiger als Brecher-Akzent an
+                      // Terrassenkanten (0.11 statt 0.05), Schwelle relativ
+                      // zum Massiv-Relief – auch kleine Massive bekommen
+                      // ihre Kantenbrecher
+                      if(hash01(i*97+13)>=0.11) continue;
                       if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                       if(m.pass && m.pass[i]) continue;
                       if(signs && signs.has(i)) continue;
@@ -1963,7 +2152,7 @@ export class Renderer {
                         const d=hgtT(i)-hgtT(q);
                         if(d>bd8){ bd8=d; best8=q; }
                       }
-                      if(best8<0 || bd8<1.25) continue;
+                      if(best8<0 || bd8<Math.min(1.25, 0.45+relEffOf(i)*0.35)) continue;
                       const [px,py]=pos(i), [qx8,qy8]=pos(best8);
                       const mx8=px*0.55+qx8*0.45, my8=py*0.55+qy8*0.45;
                       const lh=40+hash01(i*41+7)*18;
@@ -2090,7 +2279,15 @@ export class Renderer {
               const [bx,by]=m.worldPos(n);
               let ux=bx-ax, uy=by-ay;
               const L2=Math.hypot(ux,uy)||1; ux/=L2; uy/=L2;
-              (tn===TER.SNOW? eSnow : eScree).push({i,n,tn,mx:(ax+bx)/2,my:(ay+by)/2,ux,uy});
+              // Kritik G1: das Band lief SYMMETRISCH um alle Seiten – der
+              // "Donut um den Deckel". sf = Schuttfuss-Faktor: talseitig
+              // (Sueden, uy>0) breit, seitlich halb, bergseitig (Norden)
+              // gegen null; grosse Fallhoehe (dp, mit Anhebung) gibt auch
+              // Seitenkanten einen Fuss.
+              const dp=(m.hgt[i]+liftOf(i))-m.hgt[n];
+              const sf=Math.max(Math.min(1, 0.55+uy*0.55),
+                                Math.min(0.5, Math.max(0,(dp-0.8)*0.3)));
+              (tn===TER.SNOW? eSnow : eScree).push({i,n,tn,mx:(ax+bx)/2,my:(ay+by)/2,ux,uy,dp,sf});
             }
           }
         if(eScree.length || eSnow.length){
@@ -2176,32 +2373,34 @@ export class Renderer {
               // unruhig, nicht durch einen breiten Alphaverlauf – ein zu
               // weiter Verlauf läse sich wieder als grauer Nebel auf der Wiese
               // innen: deckt die Wurzeln der Dreieckszähne des Beschnitts
-              cell(mk3, e, e.mx-e.ux*13+tx*tj*0.6, e.my-e.uy*11+ty*tj*0.5, 17+h4*5, 2);
-              // Umbau 2.8 (Gebirge-Papier): das Band darf NIRGENDS gleich-
-              // maessig breit laufen. Das korrelierte Rauschen wn steuert
-              // die Aussenmasse jetzt mit VOLLEM Hub (an wn-Taelern schnuert
-              // sich das Band bis fast auf null ein, an Kaemmen schwillt es
-              // ueber eine halbe Kachel an), die Franszone insgesamt reicht
-              // mit den Zungen ~1,5 Kacheln in die Wiese.
-              // Hauptmasse als ZWEI kleinere, längs versetzte Zellen statt
-              // einer großen: EINE Beule je Kante ergab trotz Jitter einen
-              // gleichmäßigen Wellenrhythmus entlang der ganzen Grenze
+              // (bergseitig kleiner: dort deckt die angehobene Silhouette)
+              cell(mk3, e, e.mx-e.ux*13+tx*tj*0.6, e.my-e.uy*11+ty*tj*0.5,
+                   (17+h4*5)*(1-0.35*Math.max(0,-e.uy)), 2);
+              // Umbau 2.8 + Kritik G1: das Band darf NIRGENDS gleichmaessig
+              // breit laufen UND ist ASYMMETRISCH (e.sf): talseitig der
+              // breite Schuttfuss, bergseitig faellt es weg. Aussenmasse
+              // mit vollem wn-Hub; G4a: Reichweite gestrafft, der gemalte
+              // Uebergriff bleibt unter ~0,5 Knoten (Zungen ausgenommen).
+              const sc9=0.40+0.60*e.sf;
               const o5=8+h4*9, o6=-(7+hash01(e.i*47+e.n)*9);
-              if(wn>0.16 || h4>0.55)
-                cell(mk3, e, e.mx+e.ux*(3+wn*9)+tx*o5, e.my+e.uy*(2+wn*7)+ty*o5*0.8, 8+wn*19+h4*5, 3);
-              if(wn>0.10 || h4<0.45)
-                cell(mk3, e, e.mx+e.ux*(1+wn*6)+tx*o6, e.my+e.uy*(1+wn*5)+ty*o6*0.8, 7+hash01(e.i*31+e.n*3)*8+wn*11, 3);
+              if((wn>0.16 || h4>0.55) && e.sf>0.12)
+                cell(mk3, e, e.mx+e.ux*(2+wn*7)+tx*o5, e.my+e.uy*(2+wn*5)+ty*o5*0.8,
+                     (7+wn*15+h4*4)*sc9, 3);
+              if((wn>0.10 || h4<0.45) && e.sf>0.12)
+                cell(mk3, e, e.mx+e.ux*(1+wn*5)+tx*o6, e.my+e.uy*(1+wn*4)+ty*o6*0.8,
+                     (6+hash01(e.i*31+e.n*3)*7+wn*9)*sc9, 3);
               // Zunge hangabwärts – Geröll fließt der Falllinie nach
-              if(h4<0.62){
+              // (nur talseitig: eine Zunge bergauf gaebe es nicht)
+              if(h4<0.62 && e.sf>0.35){
                 let dx4=e.ux, dy4=e.uy;
                 const gr=this.gradOf(m,e.n);
                 if(gr){ dx4=-gr[0]; dy4=-gr[1]; }
                 // nur wenn die Zunge vom Berg WEG zeigt
                 if(dx4*e.ux+dy4*e.uy>0.1){
-                  cell(mk3, e, e.mx+e.ux*6+dx4*(12+h4*30), e.my+e.uy*5+dy4*(10+h4*24), 9+h4*7, 3);
+                  cell(mk3, e, e.mx+e.ux*5+dx4*(10+h4*20), e.my+e.uy*4+dy4*(8+h4*16), (8+h4*6)*sc9, 3);
                   // lange Zungen laufen in einem zweiten, kleineren Glied aus
                   if(h4<0.30)
-                    cell(mk3, e, e.mx+e.ux*6+dx4*(34+h4*46), e.my+e.uy*5+dy4*(28+h4*38), 6+h4*6, 3);
+                    cell(mk3, e, e.mx+e.ux*5+dx4*(26+h4*34), e.my+e.uy*4+dy4*(21+h4*28), (6+h4*5)*sc9, 3);
                 }
               }
             }
@@ -2238,13 +2437,16 @@ export class Renderer {
             // Band UNTER dem Fels statt daneben
             tex3.save(); tex3.translate(-c.ox,-c.oy);
             for(const e of eScree){
+              // nur talseitig: bergseitig gibt es keinen Wandschatten aufs
+              // Band (dort liegt die Silhouette OBEN)
+              if(e.sf<0.25) continue;
               // Jitter längs der Grenze + flacher: die im Kantenraster
               // gestempelten Schattenkerne lasen sich bei mittlerem Zoom als
               // periodische dunkle Kleckse überm Band
               const tj2=(hash01(e.i*61+e.n*23)-0.5)*20;
               const sx5=e.mx-e.ux*15-e.uy*tj2, sy5=e.my-e.uy*12+e.ux*tj2*0.8;
               const rg=tex3.createRadialGradient(sx5,sy5,2, sx5,sy5,36);
-              rg.addColorStop(0,'rgba(38,34,28,0.17)');
+              rg.addColorStop(0,'rgba(38,34,28,'+(0.10+0.09*e.sf).toFixed(3)+')');
               rg.addColorStop(1,'rgba(38,34,28,0)');
               tex3.fillStyle=rg;
               // LÄNGS der Grenze ausgerichtet und gestreckt: runde Einzel-
@@ -2270,6 +2472,9 @@ export class Renderer {
               g.lineCap='round';
               for(const e of eScree){
                 if(e.tn!==TER.GRASS) continue;
+                // bergseitig der angehobenen Silhouette stuenden die
+                // Bueschel mitten auf dem gemalten Fels
+                if(-e.uy>0.5 && liftOf(e.i)>0.35) continue;
                 const nT=2+((hash01(e.i*77+e.n*31)*7)|0)%2;
                 for(let k=0;k<nT;k++){
                   const hK=hash01(e.i*101+e.n*13+k*37);
@@ -2331,11 +2536,13 @@ export class Renderer {
               cellS(e, e.mx-e.ux*12+tx*tj*0.6, e.my-e.uy*10+ty*tj*0.5, 23+h4*6);
               cellS(e, e.mx+e.ux*(4+wn*5)+tx*tj, e.my+e.uy*(3+wn*4)+ty*tj*0.8, 22+wn*12+h4*5);
               // Hohe Randwände: die Wehe klettert die PROJIZIERTE Wand
-              // hinauf (Höhenversatz HSCALE), sonst ragen die vollen
-              // Wanddreiecke als dunkle Sägezähne aus der weißen Ebene
-              const drop=m.hgt[e.i]-m.hgt[e.n];
+              // hinauf (Höhenversatz HSCALE, inkl. G1-Anhebung), sonst
+              // ragen die vollen Wanddreiecke als dunkle Sägezähne aus
+              // der weißen Ebene
+              const drop=e.dp;
               if(drop>0.55){
-                const [ax2,ay2]=m.worldPos(e.i);
+                const [ax2,ay3]=m.worldPos(e.i);
+                const ay2=ay3-liftOf(e.i)*HSCALE;
                 cellS(e, (ax2+e.mx)/2, (ay2+e.my)/2, 19+drop*7);
                 if(drop>1.1)
                   cellS(e, ax2*0.78+e.mx*0.22, ay2*0.78+e.my*0.22, 15+drop*6);
@@ -2371,15 +2578,30 @@ export class Renderer {
             // bestellter Dateiname zuerst, vorhandene Alt-Schreibweise als Rückfall
             const cone=this.asset('ter_scree_cone')||this.asset('ter_screeCone');
             if(cone){
+              // Kritik G5 ("Zeltreihe"): Stempel spiegeln, in Groesse und
+              // Kippung variieren und gelegentlich eine flache Blockgruppe
+              // einstreuen – nie zweimal dieselbe Silhouette in Reihe.
+              // Nur talseitig (Kritik G1): der Kegel gehoert zum Schuttfuss.
+              const clus=this.tintedSpire('obj_rockspire_3');
               for(const e of eScree){
-                const drop=m.hgt[e.i]-m.hgt[e.n];
-                if(drop<0.55 || hash01(e.i*71+e.n*13)>0.45) continue;
-                const ch=26+drop*20, cw=ch*(cone.naturalWidth/cone.naturalHeight);
+                if(e.dp<0.55 || e.uy<-0.15 || hash01(e.i*71+e.n*13)>0.45) continue;
+                const h8=hash01(e.i*91+e.n*17);
                 g.save();
                 g.translate(e.mx+e.ux*9, e.my+e.uy*7);
-                g.rotate(Math.atan2(e.uy,e.ux)-Math.PI/2);
-                g.globalAlpha=0.9;
-                g.drawImage(cone, -cw/2, -ch*0.2, cw, ch);
+                g.rotate(Math.atan2(e.uy,e.ux)-Math.PI/2+(h8-0.5)*0.24);
+                if(h8>0.5) g.scale(-1,1);
+                if(clus && h8>0.34 && h8<0.48){
+                  const bh=(16+e.dp*10)*(0.8+h8);
+                  const bw=bh*((clus.width||clus.naturalWidth)/(clus.height||clus.naturalHeight));
+                  g.globalAlpha=0.92;
+                  g.drawImage(clus, -bw/2, -bh*0.15, bw, bh);
+                } else {
+                  const sv=0.72+hash01(e.i*53+e.n*29)*0.55;
+                  const ch=(22+e.dp*17)*sv;
+                  const cw=ch*(cone.naturalWidth/cone.naturalHeight)*(0.9+h8*0.35);
+                  g.globalAlpha=0.82+h8*0.13;
+                  g.drawImage(cone, -cw/2, -ch*0.2, cw, ch);
+                }
                 g.restore();
               }
               g.globalAlpha=1;
@@ -2388,6 +2610,8 @@ export class Renderer {
           for(const e of eScree){
             const h5=hash01(e.i*43+e.n*11);
             if(h5>0.34) continue;
+            // bergseitig kaum Streubloecke – die Truemmer rollen talwaerts
+            if(-e.uy>0.6 && h5>0.10) continue;
             const nB=1+((h5*29|0)&1);
             for(let k=0;k<nB;k++){
               const d5=26+hash01(e.i*7+e.n+k*13)*46;
@@ -3177,6 +3401,14 @@ export class Renderer {
     g.closePath();
     g.fillStyle=C(4); g.fill();
     sil(); g.strokeStyle='rgba(40,35,29,0.28)'; g.lineWidth=1.1; g.stroke();
+  }
+  // Gezeichnete Anhebung eines Knotens (G1, aus dem Chunk-Bake gecacht):
+  // Schilder/Fahnen auf angehobenem Fels ruecken um denselben Betrag hoch.
+  // Vor dem ersten Bake der Umgebung 0 – dann steht dort ohnehin noch
+  // kein gebackener Fels im Bild.
+  liftAt(i){
+    const v=this._liftC && this._liftC.get(i);
+    return v? v.lift : 0;
   }
   // Richtung des stärksten Gefälles
   gradOf(m,i){
@@ -4509,6 +4741,24 @@ export class Renderer {
     if(game.signs && game.signs.size!==this._signsSeen.size){
       for(const q of game.signs.keys())
         if(!this._signsSeen.has(q)){ this._signsSeen.add(q); this.markDirtyNode(q); }
+    }
+    // Bergwerke glaetten die gemalte Terrassierung/Anhebung um ihren Knoten
+    // (Minen-Verankerung, Nutzerfoto IMG_7989) – neu gebaute oder abgerissene
+    // Minen backen die betroffenen Chunks neu. Billig: wenige Gebaeude,
+    // seltene Aenderung, Vergleich ueber Anzahl+Knotensumme.
+    {
+      let nM=0, sumM=0;
+      for(const b of game.buildings.values())
+        if(BLD[b.type] && BLD[b.type].size==='MINE'){ nM++; sumM+=b.node; }
+      if(nM!==this._mineSeen.size || sumM!==(this._mineSum|0)){
+        const cur=new Set();
+        for(const b of game.buildings.values())
+          if(BLD[b.type] && BLD[b.type].size==='MINE') cur.add(b.node);
+        for(const q of cur) if(!this._mineSeen.has(q)) this.markDirtyNode(q);
+        for(const q of this._mineSeen) if(!cur.has(q)) this.markDirtyNode(q);
+        this._mineSeen=cur; this._mineSum=sumM;
+        this._liftC=null;   // Anhebung haengt an den Minenknoten
+      }
     }
     this._chunkBudget=2;   // höchstens 2 veraltete Chunks je Frame neu aufbauen
     const halfW=this.vw/2/cam.z, halfH=this.vh/2/cam.z;
@@ -6572,7 +6822,8 @@ export class Renderer {
     }
   }
   drawFlag(g, m, game, i){
-    const [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
+    let [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
+    y-=this.liftAt(i)*HSCALE;          // auf angehobenem Fels (G1)
     const pl=m.owner[i];
     this.shadow(g,x+1,y+1.4,4,1.6,0.28);
     // Mast (etwas kleiner, damit er die Figuren nicht überragt)
@@ -6959,7 +7210,8 @@ export class Renderer {
   }
   // Erzschild des Geologen (Holzpfahl mit Symbolscheibe)
   drawSign(g, m, i, ore){
-    const [x,y]=m.worldPos(i);
+    let [x,y]=m.worldPos(i);
+    y-=this.liftAt(i)*HSCALE;   // steht auf dem ANGEHOBENEN Fels (G1)
     // Asset-Überschreibung: sign_none/coal/iron/gold/granite.png
     const ovS=this.asset('sign_'+(['none','coal','iron','gold','granite'][ore]||'none'));
     if(ovS){
