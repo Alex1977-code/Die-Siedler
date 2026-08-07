@@ -204,7 +204,7 @@ export class Renderer {
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
-    this._liftC=null;   // Anhebungs-Cache (G1) haengt an Karte+Minen
+    this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this.initSheep();
@@ -737,6 +737,7 @@ export class Renderer {
       // Wird bei Minenbau/-abriss und Spielwechsel geleert.
       if(!this._liftC) this._liftC=new Map();
       const liftC=this._liftC;
+      const LF=this.liftField();
       const liftInfo=(q)=>{
         let v=liftC.get(q);
         if(v) return v;
@@ -744,37 +745,25 @@ export class Renderer {
         if(!isMassif(q) || m.terr[q]===TER.LAVA){
           v={lift:0, rel: m.terr[q]===TER.LAVA? 2.5 : 0}; liftC.set(q,v); return v;
         }
-        let ring=[q]; const seen4=new Set([q]);
-        let dBnd=5, plainS=0, plainN=0, crest=m.hgt[q];
+        // Basis aus dem globalen Anhebungsfeld (liftField); oertlich
+        // gedaempft an Paessen (Wege!) und um Bergwerke (Verankerung)
         let damp=1;
         if(m.pass && m.pass[q]) damp=0.12;
         if(mineNodes.has(q)) damp=0;
-        for(let d4=1; d4<=4; d4++){
-          const nx4=[];
-          for(const p4 of ring) for(const b4 of m.nbs(p4)){
-            if(seen4.has(b4)) continue;
-            seen4.add(b4);
-            if(isMassif(b4)){
-              nx4.push(b4);
-              if(d4<=3 && m.hgt[b4]>crest) crest=m.hgt[b4];
-              if(d4<=2){
-                if(m.pass && m.pass[b4]) damp=Math.min(damp, d4===1?0.25:0.6);
-                if(mineNodes.has(b4)) damp=Math.min(damp, d4===1?0.15:0.5);
-              }
-            } else if(d4<=dBnd){
-              if(d4<dBnd){ dBnd=d4; plainS=0; plainN=0; }
-              plainS+=m.hgt[b4]; plainN++;
+        if(damp>0.12){
+          for(const b4 of m.nbs(q)){
+            if(m.pass && m.pass[b4]) damp=Math.min(damp,0.25);
+            if(mineNodes.has(b4)) damp=Math.min(damp,0.15);
+          }
+          if(damp>0.5){
+            outer:
+            for(const b4 of m.nbs(q)) for(const b5 of m.nbs(b4)){
+              if(mineNodes.has(b5)){ damp=Math.min(damp,0.5); break outer; }
+              if(m.pass && m.pass[b5]) damp=Math.min(damp,0.6);
             }
           }
-          ring=nx4;
-          if(!ring.length) break;
         }
-        // ohne Ebenen-Kontakt in 4 Ringen: Massiv-Inneres, keine Anhebung
-        const plainH=plainN? plainS/plainN : m.hgt[q]-1.7;
-        const rel=Math.max(0, crest-plainH);
-        const deficit=Math.max(0, 1.7-rel);
-        const prof= dBnd<=1? 0.55 : dBnd===2? 0.9 : 1.0;
-        v={lift: deficit*prof*damp, rel};
+        v={lift: LF.lift[q]*damp, rel: LF.rel[q]};
         liftC.set(q,v);
         return v;
       };
@@ -1111,7 +1100,10 @@ export class Renderer {
               const hmax=Math.max(hE(a2),hE(b2),hE(c2));
               const hmin=Math.min(hE(a2),hE(b2),hE(c2));
               const rq=isMassif(a2)? a2 : isMassif(b2)? b2 : c2;
-              if(hmax-hmin<Math.min(1.15, 0.55+relEffOf(rq)*0.28)) return;
+              // an ANGEHOBENEN Raendern (kleine Massive) grosszuegiger:
+              // sonst bleiben Luecken zwischen den Wandzaehnen der Suedkante
+              const thr9=Math.min(1.15, 0.55+relEffOf(rq)*0.28-(liftOf(rq)>0.25?0.3:0));
+              if(hmax-hmin<Math.max(0.5,thr9)) return;
             }
             const A=pos(a2), B=pos(b2), C=pos(c2);
             // Block aus dem SCHWERPUNKT des Dreiecks: rastert die Voronoi-
@@ -1367,8 +1359,12 @@ export class Renderer {
               if(det){
                 // Auf dunklem Vulkanfels wirkt die Aufhellung doppelt so
                 // stark -> dort drosseln
+                // 0.44 statt 0.52 (Kritik G1/G6): die volle Lasur machte
+                // den Deckel zum flachen braunen Fleck – etwas leiser
+                // scheint die Kuppen-Schattierung der Facetten durch und
+                // der Grauanker der Palette traegt wieder
                 const aBase= this.theme==='vulkan'? 0.34
-                           : this.theme==='winter'? 0.42 : 0.52;
+                           : this.theme==='winter'? 0.42 : 0.44;
                 g.globalCompositeOperation= det1? 'overlay' : 'soft-light';
                 g.fillStyle=det;
                 g.globalAlpha= det1? aBase : 0.24;
@@ -3557,6 +3553,62 @@ export class Renderer {
     sh.addColorStop(1,'rgba(26,22,18,0)');
     g.fillStyle=sh;
     g.beginPath(); g.ellipse(x+2,y+4, ww*0.55, ww*0.22, 0, 0, 7); g.fill();
+  }
+  // Globales Anhebungsfeld (G1): fuer jeden Massivknoten wird per
+  // Multi-Source-BFS vom Massivrand die Hoehe der angrenzenden Ebene
+  // propagiert; das lokale Relief (Kamm in Reichweite 3 minus Ebene) wird
+  // auf ~1.7 Hoeheneinheiten aufgefuellt. Das Profil waechst vom Rand
+  // (0.55) ueber Ring 2 (0.9) zum Inneren (1.0) – Kuppe statt Donut,
+  // auch bei BREITEN flachen Massiven (die alte je-Knoten-Suche liess
+  // dort das Innere auf 0 fallen: Rand hoch, Mitte tief). Einmal je
+  // Karte gebaut, deterministisch, chunkuebergreifend stabil.
+  liftField(){
+    if(this._liftFld) return this._liftFld;
+    const m=this.game.map;
+    const msn=this.massifSnow();
+    const N=m.terr.length;
+    const isMas=(q)=>{ const t=m.terr[q]; return t===TER.MOUNT||(t===TER.SNOW&&msn[q]); };
+    const dist=new Int32Array(N).fill(1<<29);
+    const plainH=new Float32Array(N);
+    let ring=[];
+    for(let i=0;i<N;i++){
+      if(!isMas(i)) continue;
+      let pS=0, pN=0;
+      for(const q of m.nbs(i))
+        if(!isMas(q) && m.terr[q]!==TER.LAVA){ pS+=m.hgt[q]; pN++; }
+      if(pN){ dist[i]=1; plainH[i]=pS/pN; ring.push(i); }
+    }
+    for(let d=2; ring.length; d++){
+      const nx=[];
+      for(const i of ring) for(const q of m.nbs(i)){
+        if(!isMas(q) || dist[q]<=d) continue;
+        if(dist[q]===(1<<29)){ dist[q]=d; plainH[q]=plainH[i]; nx.push(q); }
+      }
+      ring=nx;
+    }
+    const lift=new Float32Array(N);
+    const rel=new Float32Array(N);
+    for(let i=0;i<N;i++){
+      if(!isMas(i) || dist[i]===(1<<29)) continue;
+      // Kamm in Reichweite 3 (kleiner Ring-BFS je Knoten)
+      let crest=m.hgt[i];
+      let r2=[i]; const seen=new Set([i]);
+      for(let d=0; d<3; d++){
+        const nx=[];
+        for(const p of r2) for(const q of m.nbs(p)){
+          if(seen.has(q)) continue; seen.add(q);
+          if(isMas(q)){ nx.push(q); if(m.hgt[q]>crest) crest=m.hgt[q]; }
+        }
+        r2=nx;
+      }
+      const rl=Math.max(0, crest-plainH[i]);
+      const deficit=Math.max(0, 1.7-rl);
+      const prof= dist[i]<=1? 0.55 : dist[i]===2? 0.9 : 1.0;
+      lift[i]=deficit*prof;
+      rel[i]=rl;
+    }
+    this._liftFld={lift, rel};
+    return this._liftFld;
   }
   // Gezeichnete Anhebung eines Knotens (G1, aus dem Chunk-Bake gecacht):
   // Schilder/Fahnen auf angehobenem Fels ruecken um denselben Betrag hoch.
