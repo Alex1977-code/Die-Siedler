@@ -206,6 +206,7 @@ export class Renderer {
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null;   // Anhebungs-Cache (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
+    this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this.initSheep();
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
@@ -3181,6 +3182,7 @@ export class Renderer {
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
             this._spireTint=null;
+            this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this.chunks.clear();
           };
           img.src='assets/'+name;
@@ -3505,6 +3507,56 @@ export class Renderer {
     g.closePath();
     g.fillStyle=C(4); g.fill();
     sil(); g.strokeStyle='rgba(40,35,29,0.28)'; g.lineWidth=1.1; g.stroke();
+  }
+  // Fels-Schürze unter Bergwerken (Minen-Verankerung, IMG_7989): eine
+  // weich auslaufende Platte in der Fels-Plattentextur plus Kontaktschatten.
+  // Einmal je Thema gebaut und gecacht; deterministisch, kein ctx.filter.
+  mineApron(g, x, y, ww){
+    let ap=this._mineApronC;
+    if(ap===undefined){
+      const W=220, H=132;
+      ap=document.createElement('canvas'); ap.width=W; ap.height=H;
+      const t=ap.getContext('2d');
+      const im=this.tintedSpire('ter_rock_top');
+      if(im){
+        const pt=t.createPattern(im,'repeat');
+        if(pt.setTransform) pt.setTransform(new DOMMatrix().scale(0.14));
+        t.fillStyle=pt;
+      } else {
+        const P=this.rockPal();
+        t.fillStyle='rgb('+(P[2][0]|0)+','+(P[2][1]|0)+','+(P[2][2]|0)+')';
+      }
+      t.beginPath(); t.ellipse(W/2,H/2,W*0.49,H*0.47,0,0,7); t.fill();
+      // leise Plastik: oben-links heller, unten-rechts dunkler (Sonnenseite)
+      const lg=t.createLinearGradient(0,0,W,H);
+      lg.addColorStop(0,'rgba(255,250,238,0.14)');
+      lg.addColorStop(0.5,'rgba(0,0,0,0)');
+      lg.addColorStop(1,'rgba(30,26,20,0.20)');
+      t.globalCompositeOperation='source-atop';
+      t.fillStyle=lg; t.fillRect(0,0,W,H);
+      // weiche Aussenkante ohne ctx.filter: radiale Alphamaske, elliptisch
+      // gestaucht auf die Plattenform
+      t.globalCompositeOperation='destination-in';
+      t.save(); t.translate(W/2,H/2); t.scale(1,H/W);
+      const rg=t.createRadialGradient(0,0,W*0.12, 0,0,W*0.50);
+      rg.addColorStop(0,'rgba(0,0,0,1)');
+      rg.addColorStop(0.68,'rgba(0,0,0,1)');
+      rg.addColorStop(1,'rgba(0,0,0,0)');
+      t.fillStyle=rg; t.fillRect(-W/2,-W*0.5,W,W);
+      t.restore();
+      t.globalCompositeOperation='source-over';
+      this._mineApronC=ap;
+    }
+    if(ap){
+      const aw=ww*1.5, ah=aw*(ap.height/ap.width);
+      g.drawImage(ap, x-aw/2, y+7-ah*0.56, aw, ah);
+    }
+    // Kontaktschatten: der Dom steht AUF der Schürze
+    const sh=g.createRadialGradient(x+2,y+4,2, x+2,y+4, ww*0.55);
+    sh.addColorStop(0,'rgba(26,22,18,0.30)');
+    sh.addColorStop(1,'rgba(26,22,18,0)');
+    g.fillStyle=sh;
+    g.beginPath(); g.ellipse(x+2,y+4, ww*0.55, ww*0.22, 0, 0, 7); g.fill();
   }
   // Gezeichnete Anhebung eines Knotens (G1, aus dem Chunk-Bake gecacht):
   // Schilder/Fahnen auf angehobenem Fels ruecken um denselben Betrag hoch.
@@ -6401,6 +6453,10 @@ export class Renderer {
           g.beginPath(); g.ellipse(rx,ry,4.5,2.4,0,0,7); g.fill();
         }
       } else {
+        // Minen-Verankerung (Nutzerfoto IMG_7989): unter dem Bergwerk eine
+        // Fels-Schürze (Plattentextur, weich auslaufend) und ein Kontakt-
+        // schatten – der gemalte Dom sitzt im Terrain statt zu schweben.
+        if(def.size==='MINE') this.mineApron(g, x, y, ww);
         // Küstenbauten rücken über die Uferlinie, damit Steg und Rumpf im
         // Wasser stehen statt auf der Wiese zu kleben
         let sx=0, sy=0;

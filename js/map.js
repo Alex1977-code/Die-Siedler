@@ -271,7 +271,12 @@ export function genWorld(opts){
   // kompletten Startwald in unter 9 Spielminuten (Kritikbericht) – die
   // Bestände geben jetzt mehr her, das Nachpflanzen erledigt der Förster.
   const treeP = { gruen:0.40, winter:0.24, wueste:0.11, vulkan:0.13, sumpf:0.27, inseln:0.35, gebirge:0.27 }[theme] ?? 0.36;
-  const woodOk = (i)=> map.terr[i]===TER.GRASS || (map.terr[i]===TER.SNOW&&theme==='winter');
+  // Gebirgskritik G4: KEIN Baum auf Knoten mit Fels-Nachbar – der gemalte
+  // Bergfuss (Geroellband, Wandkanten) uebergreift die Logik leicht, Baeume
+  // direkt an der Grenze standen mitten auf dem gemalten Fels. Baeume sind
+  // Sim-Objekte (Holzfaeller!), darum gilt die Regel nur fuer NEUE Karten.
+  const woodOk = (i)=> (map.terr[i]===TER.GRASS || (map.terr[i]===TER.SNOW&&theme==='winter'))
+    && !map.nbs(i).some(q=> map.terr[q]===TER.MOUNT);
   const smooth = (a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   const MAXDENS = 0.60;                       // dichtester Kern: gut 3 von 5 Knoten
   for(let i=0;i<w*h;i++){
@@ -404,7 +409,9 @@ function ensureStartResources(map, s, rng){
   }
   let trees=ring.filter(i=>{const o=map.obj[i]&127; return o===OBJ.TREE||o===OBJ.TREE2||o===OBJ.SAPLING;}).length;
   let stones=ring.filter(i=>map.obj[i]===OBJ.STONE).length;
-  const free=ring.filter(i=> map.terrOkBuild(i)&&!map.obj[i]&&map.bld[i]<0);
+  // G4: auch Garantie-Baeume/-Steine nicht an die Felskante setzen
+  const free=ring.filter(i=> map.terrOkBuild(i)&&!map.obj[i]&&map.bld[i]<0
+    && !map.nbs(i).some(q=> map.terr[q]===TER.MOUNT));
   while(trees<12 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }
   while(stones<3 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=10; stones++; }
 }
