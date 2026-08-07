@@ -1479,26 +1479,32 @@ export class Renderer {
                   if(detM){
                     // Hoehenlage 0 (Fuss) .. 1 (Gipfel), mit Rauschen
                     // aufgeweicht; drei Alphastufen ergeben zusammen mit dem
-                    // Rauschen einen weichen Verlauf ohne Hoehenlinie
-                    const STUF=[[0.00,0.16,1.00],[0.16,0.30,0.62],[0.30,0.44,0.30]];
-                    for(const St of STUF){
-                      let anyM=false;
+                    // Rauschen einen weichen Verlauf ohne Hoehenlinie.
+                    // EIN Durchlauf ueber die Dreiecke, danach je Stufe ein
+                    // Zug – die Hoehenlage ist der teure Teil (G3-Budget).
+                    const STUF=[[0.16,1.00],[0.30,0.62],[0.44,0.30]];
+                    const kb=[[],[],[]];
+                    for(const t3 of tris){
+                      const hm=(hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3;
+                      const u0=(hm-hlo)/spanH;
+                      if(u0>=0.60) continue;          // grob vorsortiert
+                      const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                      const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                      const u9=u0+(tnoise(X9*0.74+7,Y9*0.74+229)-0.5)*0.17;
+                      if(u9<0) continue;
+                      const k9= u9<STUF[0][0]? 0 : u9<STUF[1][0]? 1 : u9<STUF[2][0]? 2 : -1;
+                      if(k9>=0) kb[k9].push(t3);
+                    }
+                    g.globalCompositeOperation='overlay';
+                    g.fillStyle=detM;
+                    for(let k9=0;k9<3;k9++){
+                      if(!kb[k9].length) continue;
                       g.beginPath();
-                      for(const t3 of tris){
-                        const hm=(hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3;
-                        const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
-                        const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
-                        const u9=(hm-hlo)/spanH
-                                 +(tnoise(X9*0.74+7,Y9*0.74+229)-0.5)*0.17;
-                        if(u9<St[0]||u9>=St[1]) continue;
-                        anyM=true;
+                      for(const t3 of kb[k9]){
                         g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
                         g.lineTo(t3.C[0],t3.C[1]); g.closePath();
                       }
-                      if(!anyM) continue;
-                      g.globalCompositeOperation='overlay';
-                      g.fillStyle=detM;
-                      g.globalAlpha=0.46*St[2];
+                      g.globalAlpha=0.46*STUF[k9][1];
                       g.fill();
                     }
                     g.globalAlpha=1;
@@ -1622,25 +1628,29 @@ export class Renderer {
                     [0.55,0.80, imC2, 0.19,   0,  0],
                     [0.80,1.01, imC2, 0.221, 91, 23],
                   ];
-                  for(const L of LAGEN){
+                  // EIN Durchlauf sortiert die Dreiecke in die Toepfe, danach
+                  // je Topf ein Beschnitt-Zug (G3-Budget)
+                  const tb9=[[],[],[]];
+                  for(const t3 of tris){
+                    const hB=hash01(t3.blk*29+3);
+                    if(hB<0.30) continue;
+                    tb9[hB<0.55? 0 : hB<0.80? 1 : 2].push(t3);
+                  }
+                  for(let k9=0;k9<3;k9++){
+                    if(!tb9[k9].length) continue;
+                    const L=LAGEN[k9];
                     const pL=patOf(L[2]===imC?'ter_rock_cliff':'ter_rock_cliff2',
                                    L[3],0,L[4],L[5],L[2],L[3]*CST);
                     if(!pL) continue;
-                    let any9=false;
                     tex4.save();
                     tex4.beginPath();
-                    for(const t3 of tris){
-                      const hB=hash01(t3.blk*29+3);
-                      if(hB<L[0]||hB>=L[1]) continue;
-                      any9=true;
+                    for(const t3 of tb9[k9]){
                       tex4.moveTo(t3.A[0],t3.A[1]); tex4.lineTo(t3.B[0],t3.B[1]);
                       tex4.lineTo(t3.C[0],t3.C[1]); tex4.closePath();
                     }
-                    if(any9){
-                      tex4.clip();
-                      tex4.fillStyle=pL;
-                      tex4.fillRect(c.ox,c.oy,w,h);
-                    }
+                    tex4.clip();
+                    tex4.fillStyle=pL;
+                    tex4.fillRect(c.ox,c.oy,w,h);
                     tex4.restore();
                   }
                   tex4.restore();
@@ -2396,6 +2406,7 @@ export class Renderer {
                   for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
                     const i=m.idx(x,y);
                     if(m.terr[i]!==TER.MOUNT) continue;
+                    if(hash01(i*181+29)>=0.62) continue;   // nicht jede Kuppe
                     if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                     if(m.pass && m.pass[i]) continue;
                     if(signs && signs.has(i)) continue;
@@ -2406,7 +2417,6 @@ export class Renderer {
                     let top=true;
                     for(const q of m.nbs(i)) if(hgtT(q)>hi-0.02){ top=false; break; }
                     if(!top) continue;
-                    if(hash01(i*181+29)>=0.62) continue;   // nicht jede Kuppe
                     const [px,py]=pos(i);
                     this.drawFelsObj(g,'obj_summit_1', px, py+3,
                                      0.92+hash01(i*67+5)*0.22,
