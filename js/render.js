@@ -1464,7 +1464,17 @@ export class Renderer {
                 }
                 if(m.terr[i2]===TER.SNOW) sn=Math.max(sn,0.85); // Gipfel-Eis: immer zu
                 else sn += (fnoise(m.X(i2),m.Y(i2))-0.5)*0.9 + (hash01(i2*13+7)-0.5)*0.2;
-                sn -= Math.max(0, this.slopeOf(m,i2)-0.95)*0.35;
+                // Umbau 2.6 (Gebirge-Papier): Schnee liegt nur, wo es flach
+                // genug ist – steile Waende bleiben blanker Fels. Papier:
+                // snow *= 1 - smoothstep(0.30,0.50,slope); auf die hiesige
+                // Gradientenmetrik uebertragen (Massiv-p50 ~2.0): Fenster
+                // 1.35..2.6 auf der TERRASSIERTEN Steilheit – genau an den
+                // 2.5-Stufen reisst die Decke auf, und 2.4 zeichnet dort die
+                // blanke Wand. Gipfel-Eis (TER.SNOW) bleibt zu; im Winter
+                // gilt weiter die bewaehrte Ausaper-Logik samt leisem
+                // Steilheitsabzug (F9-Regression nicht wieder einreissen).
+                if(this.theme==='winter') sn -= Math.max(0, this.slopeOf(m,i2)-0.95)*0.35;
+                else if(m.terr[i2]!==TER.SNOW) sn *= 1-smT((slopeT(i2)-1.35)/1.25);
                 // Schwelle nicht zu tief: knapp qualifizierte EINZELknoten
                 // ohne qualifizierte Nachbarn stünden als einzelne weiße
                 // Perlen im Abstand des Gitters auf dem Fels
@@ -1541,7 +1551,8 @@ export class Renderer {
                 // Kachel als zerknülltes Papier (und ihre eingebauten
                 // Felsfenster als aufgeklebte braune Späne) – halbe Deck-
                 // kraft macht aus den Sastrugi eine leise Windzeichnung
-                tex2.fillStyle='#e9edf4';
+                // (Grundton = Firn hell #E4E6E2 aus Papier §3)
+                tex2.fillStyle='#e4e6e2';
                 tex2.fillRect(c.ox,c.oy,w,h);
                 const sastr=patOf('ter_ridge_snow',0.5)||patOf('ter_firn',0.4);
                 if(sastr){
@@ -1597,7 +1608,8 @@ export class Renderer {
                   bg2.globalCompositeOperation='copy';
                   bg2.drawImage(this._texTmp,0,0);
                   bg2.globalCompositeOperation='source-in';
-                  bg2.fillStyle='rgb(66,72,86)';
+                  // Spaltentiefe #5E7378 (Papier §3) statt Nachtblau
+                  bg2.fillStyle='rgb(94,115,120)';
                   bg2.fillRect(0,0,w,h);
                   bg2.globalCompositeOperation='source-over';
                   g.globalAlpha=0.30;
@@ -1608,6 +1620,100 @@ export class Renderer {
                 g.globalAlpha=0.94;
                 g.drawImage(this._texTmp, c.ox, c.oy);
                 g.globalAlpha=1;
+                // Umbau 2.6 (Gebirge-Papier): GLETSCHER als eigene Flaeche.
+                // Zusammenhaengende FLACHE Deckenbereiche oberhalb der
+                // Schneegrenze bekommen die Spalten-Kachel ter_glacier
+                // (Firnplatten mit Spaltenlinien); die Abbruchkante nach
+                // unten markieren obj_glacier_snout-Stempel. Kriterium
+                // "zusammenhaengend": der Knoten und mindestens 4 seiner
+                // Nachbarn sind geschlossen verschneit und flach.
+                {
+                  const imG=this.asset('ter_glacier');
+                  if(imG){
+                    const gq=new Map();
+                    const isGl=(q)=>{
+                      let v=gq.get(q);
+                      if(v!==undefined) return v;
+                      v= snOf(q)>=0.8 && m.hgt[q]>firnY+0.15 && slopeT(q)<1.1;
+                      gq.set(q,v);
+                      return v;
+                    };
+                    const cells=[];
+                    for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+                      for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+                        const i=m.idx(x,y);
+                        if(!isGl(i)) continue;
+                        let nn3=0;
+                        for(const q of m.nbs(i)) if(isGl(q)) nn3++;
+                        if(nn3>=4) cells.push(i);
+                      }
+                    if(cells.length>=3){
+                      const mkG=this._maskTmp.getContext('2d');
+                      mkG.globalCompositeOperation='source-over';
+                      mkG.clearRect(0,0,w,h);
+                      mkG.save(); mkG.translate(-c.ox,-c.oy);
+                      mkG.fillStyle='#fff';
+                      for(const i of cells){
+                        const [px,py]=m.worldPos(i);
+                        // gleiche kantige Zellsprache wie die Firnkante
+                        mkG.beginPath();
+                        for(let k=0;k<6;k++){
+                          const a3=k*1.047 + hash01(i*23+5)*0.8 + (hash01(i*31+k*7)-0.5)*0.5;
+                          const rr2=44*(0.80+hash01(i*41+k*5)*0.34);
+                          const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.92;
+                          if(k===0) mkG.moveTo(qx,qy); else mkG.lineTo(qx,qy);
+                        }
+                        mkG.closePath(); mkG.fill();
+                      }
+                      mkG.restore();
+                      const texG=this._texTmp.getContext('2d');
+                      texG.globalCompositeOperation='source-over';
+                      texG.clearRect(0,0,w,h);
+                      texG.save(); texG.translate(-c.ox,-c.oy);
+                      // weltverankert, krumme Skala wie die Felskacheln
+                      const patG=patOf('ter_glacier',0.42);
+                      texG.fillStyle=patG||'#c2cacc';
+                      texG.fillRect(c.ox,c.oy,w,h);
+                      texG.restore();
+                      texG.globalCompositeOperation='destination-in';
+                      texG.drawImage(this._maskTmp,0,0);
+                      texG.globalCompositeOperation='source-over';
+                      // halbtransparent ueber dem Firn: die Sastrugi-Decke
+                      // bleibt am Rand sichtbar, die Spaltenzeichnung traegt
+                      g.globalAlpha=0.85;
+                      g.drawImage(this._texTmp, c.ox, c.oy);
+                      g.globalAlpha=1;
+                      // Abbruchkante: Stempel an der Unterkante des Eisfelds,
+                      // dort wo es deutlich zu einem kahlen Massivknoten
+                      // abfaellt. "Unten" des Sprites zeigt hangab.
+                      const snImg=this.asset('obj_glacier_snout');
+                      if(snImg){
+                        for(const i of cells){
+                          if(hash01(i*67+9)>0.55) continue;   // sparsam
+                          let best=-1, bd=0;
+                          for(const q of m.nbs(i)){
+                            if(isGl(q) || !isMassif(q)) continue;
+                            const d=hgtT(i)-hgtT(q);
+                            if(d>bd){ bd=d; best=q; }
+                          }
+                          if(best<0 || bd<0.5) continue;
+                          const [ax2,ay2]=m.worldPos(i), [bx2,by2]=m.worldPos(best);
+                          const mx4=(ax2+bx2)/2, my4=(ay2+by2)/2;
+                          let ux4=bx2-ax2, uy4=by2-ay2;
+                          const L4=Math.hypot(ux4,uy4)||1; ux4/=L4; uy4/=L4;
+                          const hh4=26+bd*16, ww4=hh4*(snImg.naturalWidth/snImg.naturalHeight);
+                          g.save();
+                          g.translate(mx4,my4);
+                          g.rotate(Math.atan2(uy4,ux4)-Math.PI/2);
+                          g.globalAlpha=0.95;
+                          g.drawImage(snImg,-ww4/2,-hh4*0.3,ww4,hh4);
+                          g.restore();
+                        }
+                        g.globalAlpha=1;
+                      }
+                    }
+                  }
+                }
               }
             }
             // 7) Akzente – sparsam, das Relief machen die Blockfacetten:
@@ -1630,7 +1736,7 @@ export class Renderer {
                   //     auf Firn kühl-blau statt braun (Schnee schattet blau)
                   if(cvv<-0.08){
                     const al=Math.min(0.10,(-cvv-0.08)*1.6);
-                    const ct=onFirn? '104,120,150' : '30,28,26';
+                    const ct=onFirn? '94,115,120' : '30,28,26';
                     const rg2=g.createRadialGradient(px,py,3, px,py,30);
                     rg2.addColorStop(0,'rgba('+ct+','+al.toFixed(3)+')');
                     rg2.addColorStop(1,'rgba('+ct+',0)');
@@ -1649,12 +1755,12 @@ export class Renderer {
                     const gr6=this.gradOf(m,i);
                     const a5=gr6? Math.atan2(gr6[0],-gr6[1]*0.7) : (hash01(i*11+2)-0.5)*0.7;
                     const rx5=6+hash01(i*19+3)*5;
-                    g.fillStyle='rgba(64,66,76,0.16)';
+                    g.fillStyle='rgba(94,115,120,0.18)';
                     g.beginPath(); g.ellipse(px+1.0,py+1.6,rx5*1.05,rx5*0.42,a5,0,7); g.fill();
                     const rg8=g.createRadialGradient(px,py,rx5*0.15, px,py,rx5);
-                    rg8.addColorStop(0,'rgba(240,245,252,0.55)');
-                    rg8.addColorStop(0.7,'rgba(230,238,248,0.30)');
-                    rg8.addColorStop(1,'rgba(230,238,248,0)');
+                    rg8.addColorStop(0,'rgba(228,230,226,0.55)');
+                    rg8.addColorStop(0.7,'rgba(194,202,204,0.30)');
+                    rg8.addColorStop(1,'rgba(194,202,204,0)');
                     g.fillStyle=rg8;
                     g.beginPath(); g.ellipse(px,py,rx5,rx5*0.45,a5,0,7); g.fill();
                   }
