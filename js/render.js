@@ -1837,19 +1837,34 @@ export class Renderer {
               cg.save(); cg.translate(-c.ox,-c.oy);
               cg.fillStyle='#000';
               const SHX=0.552, SHY=0.834;   // Gegenrichtung der Sonne
+              // Gebirgskritik G2: der alte 3-Schritt-Sweep (f=0.35/0.7/1.0)
+              // hinterliess in der Vereinigung harte Dreieckszacken
+              // ("Chevrons" im Nutzerfoto). Jetzt wird je Dreieck das VOLLE
+              // Schattenvolumen gefuellt: Basisdreieck, versetztes Dreieck
+              // und die drei Verbindungs-Vierecke der Kanten – die exakte
+              // kontinuierliche Projektion ohne Stufen. Das Basisdreieck
+              // stanzt der Massiv-Ausschnitt unten ohnehin wieder aus.
               for(const t3 of tris){
                 // Schattenlaenge waechst mit der Hoehe: 0.8..2.6 Kacheln
                 const u4=Math.max(0,Math.min(1,
                   ((hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3-hlo)/spanH));
                 const D=TILE*(0.8+1.8*u4);
-                for(const f9 of [0.35,0.7,1]){
-                  const dx=SHX*D*f9, dy=SHY*D*f9;
+                const dx=SHX*D, dy=SHY*D;
+                const P=[t3.A,t3.B,t3.C];
+                // jede Teilform einzeln fuellen: in EINEM Pfad koennten sich
+                // gegenlaeufig gewundene Teilpfade (nonzero) ausstanzen
+                cg.beginPath();
+                cg.moveTo(P[0][0],P[0][1]); cg.lineTo(P[1][0],P[1][1]);
+                cg.lineTo(P[2][0],P[2][1]); cg.closePath(); cg.fill();
+                cg.beginPath();
+                cg.moveTo(P[0][0]+dx,P[0][1]+dy); cg.lineTo(P[1][0]+dx,P[1][1]+dy);
+                cg.lineTo(P[2][0]+dx,P[2][1]+dy); cg.closePath(); cg.fill();
+                for(let k9=0;k9<3;k9++){
+                  const A=P[k9], B=P[(k9+1)%3];
                   cg.beginPath();
-                  cg.moveTo(t3.A[0]+dx,t3.A[1]+dy);
-                  cg.lineTo(t3.B[0]+dx,t3.B[1]+dy);
-                  cg.lineTo(t3.C[0]+dx,t3.C[1]+dy);
-                  cg.closePath();
-                  cg.fill();
+                  cg.moveTo(A[0],A[1]); cg.lineTo(B[0],B[1]);
+                  cg.lineTo(B[0]+dx,B[1]+dy); cg.lineTo(A[0]+dx,A[1]+dy);
+                  cg.closePath(); cg.fill();
                 }
               }
               // das Massiv wirft den Schatten, traegt ihn aber nicht selbst
@@ -2709,33 +2724,17 @@ export class Renderer {
     return col;
   }
   // ---------- Weichzeichnen ohne ctx.filter ----------
-  // Ältere iOS-Safari kennen CanvasRenderingContext2D.filter nicht. Ohne
-  // Ersatz bleiben alle Masken hartkantig: die Wiese franst zackig aus, an
-  // den Chunk-Grenzen stehen Linien und die Schneekappen liegen als weiße
-  // Sechsecke im Fels. Deshalb wird grundsätzlich selbst weichgezeichnet.
-  static get CANFILTER(){
-    if(Renderer._cf===undefined){
-      try{
-        const c=document.createElement('canvas').getContext('2d');
-        c.filter='blur(2px)';
-        Renderer._cf = c.filter!=='none' && c.filter!=='';
-      }catch(_){ Renderer._cf=false; }
-    }
-    return Renderer._cf;
-  }
+  // ctx.filter ist in diesem Projekt VERBOTEN (Gebirgskritik G2): mehrere
+  // WebKit-Staende bestehen den Setter-Test (filter liest den Wert zurueck),
+  // IGNORIEREN den Filter aber beim Zeichnen – der alte Faehigkeitstest
+  // CANFILTER meldete dort faelschlich "kann Filter" und die Schatten-/
+  // Masken-Weichzeichnung fiel komplett aus (harte Dreieckszacken auf der
+  // Wiese, Nutzerfoto IMG_7988). Deshalb laufen ALLE Nutzer ueber die
+  // filterfreien Pfade; einen Filter-Zweig gibt es nicht mehr.
   // Verkleinern und wieder vergrößern: die bilineare Interpolation der GPU
   // ergibt eine sehr brauchbare Unschärfe und läuft überall.
   blurInto(dst, src, radius, alpha=1){
     const w=src.width, h=src.height;
-    if(Renderer.CANFILTER){
-      dst.save();
-      dst.filter=`blur(${radius}px)`;
-      dst.globalAlpha=alpha;
-      dst.drawImage(src,0,0);
-      dst.restore();
-      dst.filter='none';
-      return;
-    }
     const f=Math.max(2, Math.round(radius*1.35));
     const sw=Math.max(1,Math.round(w/f)), sh=Math.max(1,Math.round(h/f));
     if(!this._blurA) this._blurA=document.createElement('canvas');
@@ -5601,12 +5600,7 @@ export class Renderer {
       const dpr=this.dpr, band=Math.round(this.vh*0.14);
       const soft=(sy,sh,dy,dh,f)=>{
         if(sh<=0) return;
-        if(Renderer.CANFILTER){
-          g.save(); g.filter=`blur(${f}px)`;
-          g.drawImage(this.cv, 0,sy,this.cv.width,sh, 0,dy,this.vw,dh);
-          g.restore(); g.filter='none';
-          return;
-        }
+        // kein ctx.filter (siehe blurInto): WebKit-Falschmeldung G2
         const k=Math.max(2,Math.round(f*1.6));
         const sw2=Math.max(1,Math.round(this.vw/k)), sh2=Math.max(1,Math.round(dh/k));
         if(!this._tsTmp) this._tsTmp=document.createElement('canvas');
