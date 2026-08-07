@@ -212,7 +212,7 @@ export function genWorld(opts){
   //   Ohne Angabe entsteht ein Kessel mit Wahrscheinlichkeit RING_P, also
   //   etwa bei jeder fünften Massivsetzung.
   const ROWQ = ROWH/TILE;                // Zeilenabstand im Spaltenmaß
-  const RING_P = 0.20;
+  const RING_P = 0.26;
 
   // Ein Massiv beschreiben. Alle Zufallszahlen stammen aus dem Karten-Seed.
   const macheMassiv = (cx, cy, R, form)=>{
@@ -237,14 +237,15 @@ export function genWorld(opts){
       M.gipfel.push({ x:cx+u*cs-v*sn, y:cy+u*sn+v*cs,
                       hoch:(k===0?1.0:0.48+rng()*0.34), br:R*(0.13+rng()*0.10) });
     }
-    // Kessel: ein bis zwei Pässe reißen den Kranz auf, damit das Tal begehbar
-    // UND bebaubar bleibt (sonst ist die Fläche für den Spieler wertlos).
-    // br = Winkel, über den der Kranz GANZ offen ist, saum = Auslauf dahinter.
-    // Der Durchlass ist damit ein Keil: am Talrand rund drei, außen sechs bis
-    // acht Knoten breit – breit genug für Weg und Gebäude.
+    // Kessel: ein bis zwei Pässe schneiden den Kranz auf, damit das Tal
+    // begehbar UND bebaubar bleibt (sonst ist die Fläche für den Spieler
+    // wertlos). Der Pass ist ein SCHLITZ konstanter Breite in Knoten, kein
+    // Winkelfenster: ein Winkelfenster kneift am Talrand auf einen halben
+    // Knoten zu (dort ist der Radius klein) und reißt außen unnötig weit auf –
+    // der Kranz sähe dann wie ein Hufeisen aus.
     if(form==='ring'){
-      const nP = 1+(rng()<0.35?1:0);
-      for(let k=0;k<nP;k++) M.paesse.push({ th:rng()*6.2832, br:0.30+rng()*0.14, saum:0.20 });
+      const nP = 1+(rng()<0.22?1:0);
+      for(let k=0;k<nP;k++) M.paesse.push({ th:rng()*6.2832, breite:1.2+rng()*0.5 });
     }
     return M;
   };
@@ -261,15 +262,21 @@ export function genWorld(opts){
                     + M.a5*Math.sin(5*th+M.p3));
     const t=r/Math.max(0.5,Rl);
     if(M.form!=='ring') return 1-t;
-    // Kranzprofil: Höhe auf t=0,68, nach innen wie außen auf 0
-    let s=1-Math.abs(t-0.68)/0.32;
-    // Pässe: im Winkelfenster ist der Kranz GANZ offen (flacher Boden), erst
-    // im Saum dahinter wächst er wieder hoch. Ein bloß spitz zulaufender
-    // Einschnitt wuchs durch das Umrissrauschen wieder zu.
+    // Kranzprofil: breiter Kamm mit flachem Scheitel, nach innen wie außen auf
+    // 0. Der INNENrand rechnet mit dem unverbeulten Radius – sonst zieht eine
+    // Delle des Umrisses das Tal zu und der Kessel hat keinen Boden mehr.
+    // Der Außenrand folgt dem verbeulten Umriss und bleibt unregelmäßig.
+    const tIn=r/M.R;
+    let s=Math.min(1, (tIn-0.30)/0.27, (1.02-t)/0.27);
+    // Pässe: ein Schlitz konstanter Breite vom Tal nach außen. Im Kern ganz
+    // offen (der Abzug übersteigt jede mögliche Kranzhöhe, das Umrissrauschen
+    // kann ihn nicht zuwachsen lassen), daneben ein Saum von 1,6 Knoten.
     for(const p of M.paesse){
-      const d=Math.abs(((th-p.th+9.4248)%6.2832)-3.1416);
-      if(d>=p.br+p.saum) continue;
-      s -= d<=p.br ? 2.0 : 2.0*(1-(d-p.br)/p.saum);
+      const dth=th-p.th;
+      const entlang=r*Math.cos(dth), quer=Math.abs(r*Math.sin(dth));
+      if(entlang<=0) continue;                       // nur in Pass-Richtung
+      if(quer<p.breite) s-=2.0;
+      else if(quer<p.breite+1.0) s-=2.0*(1-(quer-p.breite)/1.0);
     }
     return s;
   };
@@ -304,8 +311,10 @@ export function genWorld(opts){
           if(rr < M.R*0.42) kessel[i]=1;
           else if(rr < M.R*1.15){
             const th=Math.atan2(py-M.cy, px-M.cx);
-            for(const p of M.paesse)
-              if(Math.abs(((th-p.th+9.4248)%6.2832)-3.1416) < p.br+p.saum){ kessel[i]=1; break; }
+            for(const p of M.paesse){
+              const dth=th-p.th;
+              if(rr*Math.cos(dth)>0 && Math.abs(rr*Math.sin(dth)) < p.breite+1.0){ kessel[i]=1; break; }
+            }
           }
         }
         continue;
@@ -390,9 +399,13 @@ export function genWorld(opts){
                  sumpf:{d:0.22, r:[5.0,8.5]},    inseln:{d:0.26, r:[5.0,8.5]},
                  gruen:{d:0.36, r:[6.0,10.5]} }[theme] ?? {d:0.36, r:[6.0,10.5]};
   const ZIEL = Math.max(2, Math.round(MPAR.d*w*h/1000));
+  // Kessel bleiben die Ausnahme: höchstens rund jedes vierte Massiv, sonst
+  // prägen sie die Karte statt sie zu würzen.
+  const RING_MAX = Math.max(1, Math.round(ZIEL/4));
   let ringSoll = opts.ringMassiv===true ? 1 : (opts.ringMassiv|0);
+  let ringeGesetzt = 0;
   for(let k=0;k<ZIEL;k++){
-    const ring = ringSoll>0 ? true : (rng()<RING_P);
+    const ring = ringSoll>0 ? true : (ringeGesetzt<RING_MAX && rng()<RING_P);
     let R = MPAR.r[0] + rng()*(MPAR.r[1]-MPAR.r[0]);
     if(ring) R = Math.max(R, MPAR.r[1])*1.12;   // ein Kessel braucht Umfang
     let bx=-1, by=-1, bs=-1;
@@ -423,6 +436,7 @@ export function genWorld(opts){
     }
     if(bx<0) continue;
     stempeln(macheMassiv(bx, by, R, ring?'ring':'kuppe'));
+    if(ring) ringeGesetzt++;
     if(ringSoll>0) ringSoll--;
   }
   gelaendeSchreiben(0,w-1,0,h-1);
@@ -439,13 +453,22 @@ export function genWorld(opts){
   // von Fels umschlossene Schneefläche liest der Zeichner (massifSnow) als
   // Massivfläche – der Pass käme dann optisch im Berg heraus.
   const ausgangsKnoten = (i)=> offenerKnoten(i) && map.terr[i]!==TER.SNOW;
+  // Einen brauchbaren Knoten auf dem Talboden finden. Über die kessel-Marke
+  // statt über einen festen Kasten: bei einem Lava- oder Wüstenthema kann die
+  // Mitte des Kastens unbegehbar sein, der Talboden daneben aber offen.
+  const talKnoten = (M, taugt)=>{
+    const y0=Math.max(0,Math.floor((M.cy-M.R*0.5)/ROWQ)), y1=Math.min(h-1,Math.ceil((M.cy+M.R*0.5)/ROWQ));
+    const x0=Math.max(0,Math.floor(M.cx-M.R*0.5)), x1=Math.min(w-1,Math.ceil(M.cx+M.R*0.5));
+    for(let Y=y0;Y<=y1;Y++) for(let X=x0;X<=x1;X++){
+      const i=map.idx(X,Y);
+      if(kessel[i] && taugt(i)) return i;
+    }
+    return -1;
+  };
   // Führt offenes (felsfreies) Land vom Talboden über den Kranz hinaus?
   const talHatAusgang = (M)=>{
     const offen=offenerKnoten;
-    let start=-1;
-    for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.3)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.3)/ROWQ)) && start<0; Y++)
-      for(let X=Math.max(0,Math.floor(M.cx-M.R*0.3)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.3)); X++)
-        if(offen(map.idx(X,Y))){ start=map.idx(X,Y); break; }
+    const start=talKnoten(M, offen);
     if(start<0) return false;
     const seen=new Set([start]); let q=[start];
     while(q.length){
@@ -465,6 +488,11 @@ export function genWorld(opts){
     }
     return false;
   };
+  // Läuft ganz am Ende der Erzeugung (nach Bergsee, Startplätzen und
+  // Hausberg): nur dann steht das endgültige Gelände fest. Früher aufgerufen
+  // konnte ein später gesetzter Hausberg den frisch geräumten Pass wieder
+  // zumauern.
+  const kesselDurchlassSichern = ()=>{
   for(const M of massive){
     if(M.form!=='ring' || talHatAusgang(M)) continue;
     const y0=Math.max(0, Math.floor((M.cy-M.R*1.4)/ROWQ)), y1=Math.min(h-1, Math.ceil((M.cy+M.R*1.4)/ROWQ));
@@ -476,10 +504,8 @@ export function genWorld(opts){
       if(r>M.R*1.35) continue;
       const th=Math.atan2(dy,dx);
       for(const p of M.paesse){
-        const d=Math.abs(((th-p.th+9.4248)%6.2832)-3.1416);
-        // im Fenster ganz frei; zusätzlich eine Mindestbreite in Knoten,
-        // damit der Durchlass auch nah am Tal begehbar bleibt
-        if(d<p.br || d*Math.max(r,1)<1.8){
+        const dth=th-p.th;
+        if(r*Math.cos(dth)>0 && Math.abs(r*Math.sin(dth)) < p.breite+0.6){
           const i=map.idx(X,Y); mv[i]=0; mtop[i]=0; kessel[i]=1;
         }
       }
@@ -490,10 +516,7 @@ export function genWorld(opts){
     // weil der Pass in die See zeigt): kürzesten Weg vom Tal ins offene Land
     // suchen und ihn freiräumen. Über Wasser geht der Weg nicht. Damit kann
     // ein Kessel nie vollständig abgeriegelt bleiben.
-    let quelle=-1;
-    for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.3)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.3)/ROWQ)) && quelle<0; Y++)
-      for(let X=Math.max(0,Math.floor(M.cx-M.R*0.3)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.3)); X++)
-        if(map.terrOkRoad(map.idx(X,Y))){ quelle=map.idx(X,Y); break; }
+    const quelle=talKnoten(M, (i)=>map.terrOkRoad(i));
     if(quelle<0) continue;
     const vor=new Map([[quelle,-1]]); let welle=[quelle], ziel=-1;
     while(welle.length && ziel<0){
@@ -520,6 +543,10 @@ export function genWorld(opts){
     }
     if(bx3>=0) gelaendeSchreiben(bx2,bx3,by2,by3);
   }
+  // Was durch das Räumen kein Fels mehr ist, trägt auch kein Erz und keinen
+  // Felsbewuchs mehr.
+  for(let i=0;i<w*h;i++) if(mv[i]<=0 && map.oreT[i]){ map.oreT[i]=0; map.oreA[i]=0; }
+  };
   // Bergsee im Kessel: das Tal eines großen Ringmassivs bekommt gelegentlich
   // ein kleines Gewässer. Der begehbare Talboden ringsum bleibt erhalten.
   for(const M of massive){
@@ -676,6 +703,9 @@ export function genWorld(opts){
       if(map.terr[i]===TER.MOUNT && !map.oreT[i]) erzSetzen(i);
     }
   }
+  // Jetzt steht das Gelände endgültig: Kessel-Durchlässe prüfen und notfalls
+  // freiräumen (siehe kesselDurchlassSichern).
+  kesselDurchlassSichern();
   // Garantierte Ressourcen nahe Start: Bäume + Steine
   for(const s of starts) ensureStartResources(map, s, rng);
 
