@@ -97,6 +97,11 @@ export const Sound = {
         this.osc('sawtooth',430,0.12,0.14,-40);
         setTimeout(()=>this.osc('sawtooth',360,0.2,0.16,-70),110);
         break;
+      case 'zwitscher': // Singvogel fliegt auf: zwei, drei kurze helle Triller
+        this.osc('sine',2450,0.055,0.055,900);
+        setTimeout(()=>this.osc('sine',2750,0.05,0.05,-700),75);
+        setTimeout(()=>this.osc('sine',2300,0.06,0.045,1100),145);
+        break;
       case 'oink':   // zufriedenes Grunzen
         this.osc('sawtooth',120,0.09,0.16,60);
         this.noise(0.07,0.2,200,700);

@@ -222,6 +222,25 @@ const BLD_FX = {
   market:     [ {k:'pennants', a:[0.42,0.33], s:1, on:'always'} ],
 };
 
+// ---------- Kleintier-Deko: Schmetterlinge und Vögel ----------
+// REINE ZIERDE: keine Sim-Objekte, kein Speicherstand, keine Jagd, keine
+// Kollision. Platz und Farbvariante stecken deterministisch im Knoten-Hash,
+// die Bewegung hängt allein an this.time – derselbe Spielstand sieht in zwei
+// Läufen gleich aus. Kein Math.random() pro Bild.
+// Falter: [Flügel hell, Flügel halb (abgewandte Seite), Saum dunkel, Körper]
+const FALTER_FARBEN = [
+  ['#f8f4e6','#e4ddc6','#c9bd9d','#4b4438'],   // Weißling
+  ['#f5db63','#e4c541','#c09622','#584422'],   // Zitronenfalter
+  ['#e79148','#cd7330','#9a4c1c','#4a3220'],   // Fuchs (orange-braun)
+  ['#b0d7f0','#8cbadb','#6091b9','#3c4652'],   // Bläuling
+];
+// Singvögel: [Rücken, Kopf/Flügel/Schwanz, Brust/Bauch]
+const VOGEL_FARBEN = [
+  ['#8d6e4c','#5c452d','#dccdb1'],   // Spatz
+  ['#7e6351','#4d3a2b','#d97b45'],   // Rotkehlchen
+  ['#71805b','#3e4933','#e8db7d'],   // Meise
+];
+
 export class Renderer {
   constructor(canvas){
     this.cv=canvas; this.ctx=canvas.getContext('2d');
@@ -231,6 +250,9 @@ export class Renderer {
     this._mineSeen=new Set();
     this.sprites=new Map();
     this.time=0;
+    // Kleintier-Deko (Falter, Singvögel, Zugvögel) – reiner Schalter fürs
+    // Abschalten bei Leistungsmessungen, ohne Wirkung aufs Spiel
+    this.dekoTiere=true;
     this.loadAssets();
   }
   setGame(game){
@@ -531,22 +553,402 @@ export class Renderer {
     g.fillStyle='#f4f1e8';
     g.beginPath(); g.arc(x-7,y-3.4,1.7,0,7); g.fill();
   }
-  drawBirds(g, cw, chh, wx0, wx1, wy0, wy1){
-    for(let f=0; f<3; f++){
-      const spd=24+f*8;
-      const bx=((this.time/1000*spd + f*2381)%(cw+500))-250;
-      const by=((f*761)%(chh*0.8))+90 + Math.sin(this.time/1900+f*2.4)*46;
-      if(bx+80<wx0||bx-80>wx1||by+40<wy0||by-40>wy1) continue;
-      g.strokeStyle='rgba(40,44,52,0.75)';
-      g.lineWidth=1.6;
-      for(let k=0;k<4;k++){
-        const ox=bx-k*15-(k%2)*7, oy=by+(k%2)*9+k*2.4;
-        const flap=Math.sin(this.time/130+f*3+k*1.3)*2.8;
+  // ================= Kleintier-Deko: Falter, Singvögel, Zugvögel =================
+  // Die Plätze werden je Bild aus dem SICHTBAREN Knotenfenster gehasht – es
+  // gibt keinen Vorrat, nichts wird gespeichert, außerhalb des Fensters wird
+  // gar nicht erst gerechnet. Die Anzahl ist hart gedeckelt und die Dichte an
+  // die Fenstergröße gekoppelt, damit ein großer Bildschirm keinen Schwarm
+  // bekommt. Sichtbarkeit hängt am Zoom: bei weitem Blick wären die Tierchen
+  // nur Pixelrauschen und würden bloß Leistung kosten.
+
+  // Falter und Singvögel des sichtbaren Fensters in die Tiefensortierung
+  // einreihen. figs = Figurenliste desselben Bildes (fürs Aufscheuchen).
+  sammleKleintiere(items, figs, m, x0, x1, y0, y1, cam){
+    if(this.dekoTiere===false) return;
+    const zF = cam.z>=1.15;          // Schmetterlinge: nur bei nahem Zoom
+    const zV = cam.z>=1.05;          // Bodenvögel: nur bei näherem Zoom
+    if(!zF && !zV) return;
+    // Rasterzellen statt Würfeln je Knoten: so verteilen sich die Tierchen
+    // gleichmäßig über die sichtbare Wiese (kein Schwarm, aber auch keine
+    // leere Ecke), die Anzahl hängt nicht am Bildschirmformat, und je Bild
+    // werden nur ein paar Dutzend Knoten geprüft statt des ganzen Fensters.
+    // Die Rasterweite kommt aus Sichtfeld und Zoom – NICHT aus dem gerundeten
+    // Knotenfenster, sonst würden die Tierchen beim Schieben der Karte
+    // springen, weil das Fenster mal eine Spalte mehr umfasst.
+    const sp=this.vw/cam.z/TILE, sr=this.vh/cam.z/ROWH;   // sichtbare Spalten/Zeilen
+    const zell=Math.max(2, Math.min(16, Math.round(Math.sqrt(Math.max(4,sp*sr)/7))));
+    // Nur der WIRKLICH sichtbare Ausschnitt zählt: das Knotenfenster x0..y1
+    // reicht für die hohen Baum- und Hausbilder weit über den Rand hinaus –
+    // dort würden Tierchen bloß außerhalb des Bildes gezeichnet. Der Zuschnitt
+    // läuft über die WELTLAGE des Knotens, nicht über Spaltennummern: eine
+    // Spalte ist bei nahem Zoom ein Drittel Bildschirmbreite.
+    const hw=this.vw/2/cam.z, hh=this.vh/2/cam.z;
+    const vx0=cam.x-hw-16, vx1=cam.x+hw+16, vy0=cam.y-hh-16, vy1=cam.y+hh+20;
+    const ax0=Math.max(x0, Math.floor(vx0/TILE)), ax1=Math.min(x1, Math.ceil(vx1/TILE));
+    const ay0=Math.max(y0, Math.floor(vy0/ROWH)), ay1=Math.min(y1, Math.ceil(vy1/ROWH)+1);
+    if(ax1<ax0 || ay1<ay0) return;
+    const MAXF=12, MAXV=6;           // harte Obergrenze je Bild
+    let nF=0, nV=0;
+    // ---- Schmetterlinge: Wiese und Acker, am liebsten bei den Blumen ----
+    if(zF) for(let cy=Math.floor(ay0/zell); cy<=Math.floor(ay1/zell) && nF<MAXF; cy++)
+      for(let cx=Math.floor(ax0/zell); cx<=Math.floor(ax1/zell) && nF<MAXF; cx++){
+        const hz=(Math.imul(cx,73856093)^Math.imul(cy,19349663))|0;
+        if(hash01(hz^0x51ab)>0.62) continue;          // die meisten Zellen bleiben leer
+        const i=this.wiesenKnoten(m, hz, cx, cy, zell, ax0,ax1,ay0,ay1, true);
+        if(i<0) continue;
+        const [px,py]=m.worldPos(i);
+        if(px<vx0||px>vx1||py<vy0||py>vy1) continue;
+        items.push({kind:'falter', f:this.falterLage(i, m), y:py+2});
+        nF++;
+      }
+    // ---- Singvögel: freie Wiese, am liebsten in Baumnähe (gröberes Raster) ----
+    const zellV=Math.max(3, Math.min(24, Math.round(zell*1.3)));
+    if(zV) for(let cy=Math.floor(ay0/zellV); cy<=Math.floor(ay1/zellV) && nV<MAXV; cy++)
+      for(let cx=Math.floor(ax0/zellV); cx<=Math.floor(ax1/zellV) && nV<MAXV; cx++){
+        const hz=(Math.imul(cx,83492791)^Math.imul(cy,29349673))|0;
+        if(hash01(hz^0x2cd1)>0.7) continue;
+        const i=this.wiesenKnoten(m, hz, cx, cy, zellV, ax0,ax1,ay0,ay1, false);
+        if(i<0) continue;
+        const [px,py]=m.worldPos(i);
+        if(px<vx0||px>vx1||py<vy0||py>vy1) continue;
+        const v=this.vogelLage(i, m, figs);
+        items.push({kind:'singvogel', v, y:v.gy+2});
+        nV++;
+      }
+    // Aufscheuch-Merker aufräumen: was 20 s nicht im Blick war, ist längst
+    // außer Sicht – der Vogel darf dort ohne sichtbaren Sprung zurückfallen.
+    const fl=this._vogelFlucht;
+    if(fl && fl.size>48)
+      for(const [k,s] of fl) if(this.time-s.seen>20000) fl.delete(k);
+  }
+  // Sucht in einer Rasterzelle den passendsten Knoten. Für Falter zählt Wiese
+  // oder Acker, Blumenbüschel und Feld am stärksten; für Singvögel nur freie
+  // Wiese, dort zählt Baumnähe am stärksten. -1 = diese Zelle bleibt leer.
+  // Der GEWÄHLTE Platz hängt nur an der Zelle, nicht am Sichtfenster – beim
+  // Schieben der Karte bleiben die Tierchen deshalb dort stehen, wo sie waren;
+  // das Fenster entscheidet nur, ob die Zelle überhaupt zum Zug kommt.
+  wiesenKnoten(m, hz, cx, cy, zell, x0, x1, y0, y1, falter){
+    let best=-1, bw=0;
+    for(let k=0;k<4;k++){
+      const nx=cx*zell+((hash01(hz^(0x7a3b+k*977))*zell)|0);
+      const ny=cy*zell+((hash01(hz^(0x9e37+k*613))*zell)|0);
+      if(nx<x0||nx>x1||ny<y0||ny>y1||!m.inb(nx,ny)) continue;
+      const i=m.idx(nx,ny);
+      if(!m.explored[i] || m.bld[i]>=0) continue;
+      const t=m.terr[i], o=m.obj[i]&127;
+      let w=0;
+      if(falter){
+        const acker=(o===OBJ.FIELD0||o===OBJ.FIELD1||o===OBJ.FIELD2);
+        if(t!==TER.GRASS && !acker) continue;
+        // Die Blumenbüschel sitzen im Chunk-Bake auf genau diesen Knoten
+        // (terrainBrush: h>0.97 und Blumen aus dem Deko-Vorrat)
+        const blume=t===TER.GRASS && hash01(i*17+9)>0.97 && hash01(i*31+5)<0.22;
+        w=(blume||acker)? 3 : (o===OBJ.NONE? 2 : 1);
+      } else {
+        if(t!==TER.GRASS || o!==OBJ.NONE || m.flag[i]) continue;
+        w=1;
+        for(const n of m.nbs(i)){
+          const q=m.obj[n]&127;
+          if(q===OBJ.TREE||q===OBJ.TREE2||q===OBJ.SAPLING){ w=3; break; }
+        }
+      }
+      if(w>bw){ bw=w; best=i; if(w>=3) break; }
+    }
+    // Singvögel setzen sich nur ausnahmsweise weit weg von jedem Baum
+    if(!falter && bw<3 && hash01(hz^0x3f11)>0.5) return -1;
+    return best;
+  }
+
+  // ---------- Schmetterling: taumelnde Bahn um seinen Ankerknoten ----------
+  // Kein gerader Kurs: die Bahn entsteht aus unharmonischen Schwingungen.
+  // Am Ende jeder Runde landet er kurz auf einer Blüte und klappt die Flügel
+  // zusammen, dann flattert er weiter.
+  falterLage(i, m){
+    const [ax,ay]=m.worldPos(i);
+    const T=this.time*0.001;
+    const h1=hash01(i*911+3), h2=hash01(i*1733+7), h3=hash01(i*2477+13), h4=hash01(i*3181+17);
+    const zyk=8+h1*6;                                    // Sekunden je Runde
+    const ph=((T+h2*zyk)%zyk)/zyk;                       // 0..1
+    // Sitzphase: weich anfliegen, kurz verharren, weich abheben
+    let sitz=0;
+    if(ph>0.72) sitz=Math.min(1,(ph-0.72)/0.08)*Math.min(1,(1-ph)/0.06);
+    const s2=sitz*sitz*(3-2*sitz);
+    const rx=12+h3*10, ry=6+h4*5;
+    const fx=ax + Math.sin(T*1.27+h1*6.28)*rx + Math.sin(T*2.13+h2*6.28)*rx*0.42;
+    const hoch=10 + 5*Math.sin(T*0.79+h3*6.28) + 3.5*Math.sin(T*1.93+h4*6.28);
+    const fy=ay - hoch + Math.sin(T*1.09+h2*6.28)*ry*0.5;
+    const lx=ax+(h3-0.5)*17, ly=ay-1.0+(h4-0.5)*3;       // Landeplatz auf der Blüte
+    // Flügelschlag 6,6..9,8 Hz, durch eine langsame Schwebung leicht unruhig
+    const fq=6.6+h1*3.2;
+    const schlag=Math.sin((T*fq + Math.sin(T*0.53+h2*6.28)*0.17)*6.2832);
+    const x=fx+(lx-fx)*s2, y=fy+(ly-fy)*s2;
+    return {
+      x, y, gy:ay, hoehe:Math.max(0, ay-y),
+      s: 2.6+h3*1.0,                                     // halbe Spannweite
+      v: (h4*4)|0,                                       // Farbvariante
+      sitz: s2,
+      // Flügelbreite perspektivisch: flach offen bis zusammengeklappt
+      br: (0.18+0.82*Math.abs(schlag))*(1-s2) + 0.14*s2,
+      hb: (1-Math.abs(schlag))*(1-s2),                   // angehobene Spitzen
+      kipp: (h2-0.5)*0.5,
+    };
+  }
+  zeichneFalter(g, f){
+    const S=f.s, sitzt=f.sitz>0.55;
+    // hauchzarter Bodenschatten – er verrät, wie hoch der Falter gerade steht
+    const a=Math.max(0.03, 0.14-f.hoehe*0.005);
+    if(a>0.05) this.shadow(g, f.x+f.hoehe*0.14, f.gy+0.8, S*0.40, S*0.14, a);
+    g.save();
+    g.translate(f.x, f.y);
+    g.rotate(f.kipp);
+    // gemalte Fassung zuerst (Draufsicht offen bzw. sitzend zusammengeklappt)
+    const key='deco_falter'+(f.v+1)+(sitzt?'_sitz':'');
+    const bild=this.asset(key) || (sitzt? this.asset('deco_falter'+(f.v+1)) : null);
+    if(bild){
+      const hh=S*2.0, ww=hh*(bild.naturalWidth/bild.naturalHeight)*(sitzt?1:f.br);
+      g.drawImage(bild, -ww/2, -hh*0.55, ww, hh);
+      g.restore();
+      return;
+    }
+    const [hell,halb,saum,koerper]=FALTER_FARBEN[f.v];
+    if(sitzt){
+      // sitzend: beide Flügel senkrecht über dem Rücken zusammengeklappt,
+      // der hintere lugt schmaler und dunkler hervor
+      g.fillStyle=halb;
+      g.beginPath(); g.ellipse(-S*0.20,-S*0.48, S*0.21, S*0.58, -0.10, 0,7); g.fill();
+      g.fillStyle=hell;
+      g.beginPath(); g.ellipse( S*0.08,-S*0.56, S*0.26, S*0.66,  0.08, 0,7); g.fill();
+      g.fillStyle=saum;                                  // Saum an der Flügelkante
+      g.beginPath(); g.ellipse( S*0.28,-S*0.66, S*0.08, S*0.32,  0.16, 0,7); g.fill();
+      g.fillStyle=koerper;                               // Hinterleib und Fühler
+      g.beginPath(); g.ellipse(0,-S*0.10, S*0.10, S*0.20, 0,0,7); g.fill();
+      g.strokeStyle=koerper; g.lineWidth=0.4;
+      g.beginPath();
+      g.moveTo(S*0.06,-S*0.26); g.quadraticCurveTo(S*0.30,-S*0.54, S*0.44,-S*0.64);
+      g.stroke();
+    } else {
+      const owx=Math.max(0.35,S*1.02*f.br), owy=S*0.62;   // Oberflügel
+      const uwx=Math.max(0.28,S*0.72*f.br), uwy=S*0.44;   // Unterflügel
+      const hb=f.hb*S*0.5;
+      for(const sd of [1,-1]){
+        g.fillStyle = sd>0? hell : halb;                  // Schräglage lesbar machen
+        g.beginPath(); g.ellipse(sd*uwx*0.9,  S*0.26-hb*0.5, uwx, uwy, sd*0.34, 0,7); g.fill();
+        g.beginPath(); g.ellipse(sd*owx*0.95,-S*0.20-hb,     owx, owy, -sd*0.22, 0,7); g.fill();
+      }
+      g.fillStyle=saum;                                   // dunkler Flügelsaum
+      for(const sd of [1,-1]){
+        g.beginPath(); g.ellipse(sd*owx*1.48,-S*0.34-hb, owx*0.32, owy*0.32, 0,0,7); g.fill();
+      }
+      g.fillStyle=koerper;
+      g.beginPath(); g.ellipse(0,0,S*0.12,S*0.44,0,0,7); g.fill();
+      g.strokeStyle=koerper; g.lineWidth=0.4;
+      g.beginPath();
+      g.moveTo(-S*0.05,-S*0.34); g.quadraticCurveTo(-S*0.28,-S*0.70,-S*0.40,-S*0.80);
+      g.moveTo( S*0.05,-S*0.34); g.quadraticCurveTo( S*0.28,-S*0.70, S*0.40,-S*0.80);
+      g.stroke();
+    }
+    g.restore();
+  }
+
+  // ---------- Singvogel: hüpft, pickt, fliegt vor Figuren auf ----------
+  // Hüpfen und Picken laufen rein aus this.time und dem Knoten-Hash. Nur das
+  // Aufscheuchen braucht einen winzigen Merker (Startzeit + Versatz), damit
+  // der Vogel sich woanders hinsetzen kann.
+  vogelLage(i, m, figs){
+    const [ax,ay]=m.worldPos(i);
+    const T=this.time*0.001;
+    const h1=hash01(i*577+5), h2=hash01(i*1279+11), h3=hash01(i*1993+19);
+    if(!this._vogelFlucht) this._vogelFlucht=new Map();
+    let st=this._vogelFlucht.get(i);
+    let vx=0, vy=0, flug=0, hoehe=0;
+    if(st){
+      st.seen=this.time;
+      const fl=(this.time-st.t0)/1250;
+      if(fl<1){
+        flug=1;
+        const e=fl*fl*(3-2*fl);
+        vx=st.ox+(st.zx-st.ox)*e; vy=st.oy+(st.zy-st.oy)*e;
+        hoehe=Math.sin(fl*Math.PI)*26;
+      } else { vx=st.zx; vy=st.zy; }
+    }
+    const gx=ax+vx, gy=ay+vy;                    // Standplatz (Boden)
+    let bx=gx, by=gy-hoehe, pick=0, richt=1, bogen=0;
+    if(flug){
+      richt = (st.zx>=st.ox)? 1 : -1;
+    } else {
+      // Hüpfen: kurze Sprünge zwischen festen Plätzchen, dazwischen picken
+      const takt=1.5+h1*1.1;
+      const u0=T/takt + h2*97;
+      const k=Math.floor(u0), u=u0-k;
+      const pkt=(kk)=>[gx+(hash01(i*31+kk*17+3)-0.5)*24, gy+(hash01(i*37+kk*23+9)-0.5)*10];
+      const p0=pkt(k-1), p1=pkt(k);
+      const s=Math.min(1,u/0.24), e=s*s*(3-2*s);
+      bx=p0[0]+(p1[0]-p0[0])*e; by=p0[1]+(p1[1]-p0[1])*e;
+      bogen = u<0.24? Math.sin(s*Math.PI)*3.4 : 0;
+      richt = (p1[0]>=p0[0])? 1 : -1;
+      if(u>0.38) pick=Math.max(0, Math.sin((u-0.38)*Math.PI*5.5));
+      by-=bogen;
+    }
+    // Aufscheuchen: kommt eine Figur zu nah, fliegt er auf und setzt sich um
+    if(!flug){
+      let nah=false;
+      for(const q of figs){
+        if(Math.abs(q.x-bx)>40) continue;
+        const dx=q.x-bx, dy=q.y-by;
+        if(dx*dx+dy*dy < 1156){ nah=true; break; }      // 34 px
+      }
+      if(nah && (!st || this.time-st.t0>2400)){
+        const n=st? (st.n+1)&255 : 1;
+        st={ t0:this.time, n, ox:bx-ax, oy:by-ay,
+             zx:(hash01(i*53+n*29)-0.5)*76, zy:(hash01(i*59+n*31)-0.5)*36,
+             seen:this.time };
+        this._vogelFlucht.set(i, st);
+        this.vogelZwitschern(i, n, bx, by);
+      }
+    }
+    return { x:bx, y:by, gy, flug, hoehe:hoehe+bogen, pick, richt,
+             v:(h3*3)|0, ph:h2*6.28, s:0.92+h1*0.24 };
+  }
+  zeichneSingvogel(g, v){
+    const S=3.1*v.s;
+    const a=v.flug? Math.max(0.05, 0.20-v.hoehe*0.006) : 0.22;
+    this.shadow(g, v.x+1, v.gy+1.4, S*0.7*(v.flug?0.7:1), S*0.24, a);
+    g.save();
+    g.translate(v.x, v.y);
+    if(v.richt<0) g.scale(-1,1);
+    // gemalte Fassung zuerst (Stand- bzw. Flugbild)
+    const bild=this.asset('deco_singvogel'+(v.v+1)+(v.flug?'_flug':''))
+            || this.asset('deco_singvogel'+(v.v+1));
+    if(bild){
+      const hh=S*1.9, ww=hh*(bild.naturalWidth/bild.naturalHeight);
+      g.drawImage(bild, -ww/2, -hh, ww, hh);
+      g.restore();
+      return;
+    }
+    const [ruecken,kopf,bauch]=VOGEL_FARBEN[v.v];
+    if(v.flug){
+      // Flugbild: Flügel weit auf und ab, Körper waagerechter
+      const fl=Math.sin(this.time*0.009+v.ph);
+      g.fillStyle=kopf;
+      for(const sd of [1,-1]){
         g.beginPath();
-        g.moveTo(ox-5,oy-flap*0.4);
-        g.quadraticCurveTo(ox-2,oy-3-flap, ox,oy);
-        g.quadraticCurveTo(ox+2,oy-3-flap, ox+5,oy-flap*0.4);
+        g.moveTo(0,-S*0.7);
+        g.quadraticCurveTo(sd*S*0.9,-S*0.7-fl*S*0.9, sd*S*1.55,-S*0.6-fl*S*1.15);
+        g.quadraticCurveTo(sd*S*0.9,-S*0.35-fl*S*0.75, 0,-S*0.42);
+        g.closePath(); g.fill();
+      }
+      g.fillStyle=ruecken;
+      g.beginPath(); g.ellipse(0,-S*0.58, S*0.72, S*0.44, -0.12, 0,7); g.fill();
+      g.fillStyle=bauch;
+      g.beginPath(); g.ellipse(S*0.12,-S*0.48, S*0.42, S*0.26, -0.12, 0,7); g.fill();
+      g.fillStyle=kopf;
+      g.beginPath(); g.arc(S*0.72,-S*0.76, S*0.34, 0,7); g.fill();
+      g.beginPath();                                        // Schwanzfächer
+      g.moveTo(-S*0.62,-S*0.66); g.lineTo(-S*1.35,-S*0.86);
+      g.lineTo(-S*1.30,-S*0.44); g.closePath(); g.fill();
+      g.fillStyle='#e8b53c';
+      g.beginPath(); g.moveTo(S*1.0,-S*0.78); g.lineTo(S*1.32,-S*0.70); g.lineTo(S*1.0,-S*0.64); g.closePath(); g.fill();
+      g.restore();
+      return;
+    }
+    // Standbild: sitzt aufrecht, beim Picken kippt er nach vorn
+    g.rotate(v.pick*0.42);
+    g.strokeStyle='#c98a3e'; g.lineWidth=0.6;
+    g.beginPath();
+    g.moveTo(-S*0.12,-S*0.3); g.lineTo(-S*0.16,0);
+    g.moveTo( S*0.16,-S*0.3); g.lineTo( S*0.20,0);
+    g.stroke();
+    g.fillStyle=ruecken;                                     // Körper
+    g.beginPath(); g.ellipse(0,-S*0.66, S*0.66, S*0.56, -0.18, 0,7); g.fill();
+    g.fillStyle=bauch;                                       // helle Brust
+    g.beginPath(); g.ellipse(S*0.20,-S*0.56, S*0.40, S*0.38, -0.18, 0,7); g.fill();
+    g.fillStyle=kopf;                                        // Flügel angelegt
+    g.beginPath(); g.ellipse(-S*0.12,-S*0.70, S*0.42, S*0.30, 0.24, 0,7); g.fill();
+    g.beginPath();                                           // Schwanz
+    g.moveTo(-S*0.52,-S*0.82); g.lineTo(-S*1.28,-S*1.22);
+    g.lineTo(-S*1.14,-S*0.76); g.closePath(); g.fill();
+    g.beginPath(); g.arc(S*0.52,-S*1.20, S*0.40, 0,7); g.fill();   // Kopf
+    g.fillStyle='#e8b53c';                                   // Schnäbelchen
+    g.beginPath();
+    g.moveTo(S*0.86,-S*1.24); g.lineTo(S*1.22,-S*1.14); g.lineTo(S*0.86,-S*1.06);
+    g.closePath(); g.fill();
+    g.fillStyle='#1c1a16';                                   // Auge
+    g.beginPath(); g.arc(S*0.66,-S*1.30, S*0.11, 0,7); g.fill();
+    g.restore();
+  }
+  // leises, seltenes Zwitschern beim Auffliegen – mit großzügiger Sperre,
+  // damit auf einer belebten Wiese kein Dauergezirpe entsteht
+  vogelZwitschern(i, n, bx, by){
+    if(!this.onAmbient) return;
+    if(this.time - (this._zwitscherT||-1e9) < 7000) return;
+    if(hash01(i*97+n*13) > 0.4) return;
+    const cam=this._lastCam;
+    if(!cam) return;
+    const d=Math.hypot(bx-cam.x, by-cam.y)*cam.z;
+    if(d>420) return;
+    this._zwitscherT=this.time;
+    this.onAmbient('zwitscher', Math.max(0.12, (1-d/420)*0.5));
+  }
+
+  // ---------- Zugvögel: ab und zu zieht eine kleine Schar über die Karte ----------
+  // Deterministisch aus this.time: die Zeit ist in Fenster geteilt, in gut der
+  // Hälfte davon zieht eine Schar in V- oder Reihenformation von Rand zu Rand.
+  // Sie liegen ÜBER allem (nach der Tiefensortierung gezeichnet), aber unter
+  // der Bedienoberfläche.
+  zeichneZugvoegel(g, cw, chh, wx0, wx1, wy0, wy1, cam){
+    if(this.dekoTiere===false) return;
+    if(cam.z<0.55) return;                       // bei weitem Blick nur Rauschen
+    const T=this.time*0.001;
+    const ZYK=60;                                // Sekunden je Zeitfenster
+    const L=Math.hypot(cw,chh)*1.25;
+    for(let s=-1; s<=0; s++){
+      const nr=Math.floor(T/ZYK)+s;
+      if(hash01(nr*7919+13) < 0.55) continue;    // nicht in jedem Fenster zieht einer
+      const t0=nr*ZYK + hash01(nr*31+5)*12;
+      const dauer=30+hash01(nr*47+9)*12;         // gemächlicher Überflug
+      const u=(T-t0)/dauer;
+      if(u<0 || u>1) continue;
+      // flache Zugrichtung: quer über die Karte, höchstens leicht schräg
+      const ang=(hash01(nr*13+3)<0.5? 0 : Math.PI) + (hash01(nr*19+11)-0.5)*0.7;
+      const dx=Math.cos(ang), dy=Math.sin(ang);
+      const off=(hash01(nr*17+7)-0.5)*chh*0.85;
+      const px=cw/2 + dx*(u-0.5)*L - dy*off;
+      const py=chh/2 + dy*(u-0.5)*L + dx*off;
+      const n=3+((hash01(nr*23+21)*5)|0);        // 3..7 Tiere
+      const reihe=hash01(nr*29+17)>0.55;         // sonst V-Formation
+      const bob=Math.sin(T*0.31+nr)*4;
+      // klein und weich gehalten: sie sollen hoch am Himmel wirken, nicht wie
+      // Striche auf der Wiese liegen
+      g.strokeStyle='rgba(46,52,62,0.6)';
+      g.lineWidth=1.15;
+      g.fillStyle='rgba(46,52,62,0.6)';
+      for(let k=0;k<n;k++){
+        let zur, quer;
+        if(reihe){ zur=k*10; quer=k*3.6; }
+        else { const rang=Math.ceil(k/2), sd=(k%2)?1:-1; zur=rang*11; quer=sd*rang*8; }
+        const bx=px - dx*zur - dy*quer + (hash01(nr*7+k*37)-0.5)*4;
+        const by=py - dy*zur + dx*quer + bob + (hash01(nr*11+k*41)-0.5)*4;
+        if(bx+12<wx0||bx-12>wx1||by+12<wy0||by-12>wy1) continue;
+        // gemächlicher Schlag, je Tier leicht versetzt -> die Schar wellt
+        const fq=1.8+hash01(nr*5+k*19)*0.7;
+        const flap=Math.sin((T*fq)*6.2832 + k*0.55);
+        const W=3.8, H=flap*2.0;
+        const bild=this.asset('deco_zugvogel'+(1+Math.min(2,(Math.abs(flap)*3)|0)));
+        if(bild){
+          const hh=6, ww=hh*(bild.naturalWidth/bild.naturalHeight);
+          g.save(); g.translate(bx,by);
+          if(dx<0) g.scale(-1,1);
+          g.drawImage(bild,-ww/2,-hh/2,ww,hh);
+          g.restore();
+          continue;
+        }
+        g.beginPath();
+        g.moveTo(bx-W, by-H*0.35);
+        g.quadraticCurveTo(bx-W*0.42, by-H-0.5, bx, by);
+        g.quadraticCurveTo(bx+W*0.42, by-H-0.5, bx+W, by-H*0.35);
         g.stroke();
+        // winziger Rumpf: ohne ihn liest sich der Bogen als bloßer Kringel
+        g.beginPath(); g.ellipse(bx, by-0.1, 0.85, 0.5, 0, 0, 7); g.fill();
       }
     }
   }
@@ -6317,6 +6719,9 @@ export class Renderer {
     if(this.pigs) for(const herd of this.pigs.values()) for(const p of herd) items.push({kind:'pig', p, y:p.y+3});
     // Wild (Rehe, Hasen, Wildschweine) aus der Simulation
     if(game.animals) for(const a of game.animals) items.push({kind:'animal', a, y:a.y+3});
+    // Kleintier-Deko: Falter und Singvögel reihen sich wie die Schafe ein
+    // (figs liefert die Figurenplätze fürs Aufscheuchen der Vögel)
+    this.sammleKleintiere(items, figs, m, x0, x1, y0, y1, cam);
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
@@ -6335,6 +6740,8 @@ export class Renderer {
       else if(it.kind==='sheep') this.drawSheep(g, it.sh);
       else if(it.kind==='pig') this.drawPig(g, it.p);
       else if(it.kind==='animal') this.drawAnimal(g, it.a);
+      else if(it.kind==='falter') this.zeichneFalter(g, it.f);
+      else if(it.kind==='singvogel') this.zeichneSingvogel(g, it.v);
     }
     this.drawFx(g, game);
     // Wolkenschatten ziehen über das Land
@@ -6370,8 +6777,8 @@ export class Renderer {
       g.beginPath(); g.arc(0,0,300,0,7); g.fill();
       g.restore();
     }
-    // Vogelschwärme
-    this.drawBirds(g, cw, chh, wx0, wx1, wy0, wy1);
+    // ziehende Vogelscharen – über allem, aber unter der Bedienoberfläche
+    this.zeichneZugvoegel(g, cw, chh, wx0, wx1, wy0, wy1, cam);
     // Schafe & Schweine: Positionen aktualisieren (gezeichnet tiefensortiert oben)
     this.updateSheep(dtMs);
     this.updatePigs(dtMs);
