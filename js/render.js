@@ -791,10 +791,10 @@ export class Renderer {
         if(!this._rockPats) this._rockPats={};
         const pats=this._rockPats;
         // Muster mit Welt-Transformation, je (Bild, Lage) nur einmal erzeugt
-        const patOf=(key,sc,rot,tx2,ty2)=>{
+        const patOf=(key,sc,rot,tx2,ty2,imOv)=>{
           const ck=key+'|'+sc+'|'+(rot||0);
           if(pats[ck]!==undefined) return pats[ck];
-          const im=this.asset(key);
+          const im=imOv||this.asset(key);
           let pt=null;
           if(im){
             pt=g.createPattern(im,'repeat');
@@ -1008,16 +1008,25 @@ export class Renderer {
                 let r9=lerp5(P0[0],P1[0],f9)*fb;
                 let g9=lerp5(P0[1],P1[1],f9)*fb;
                 let b9=lerp5(P0[2],P1[2],f9)*fb;
+                // Ambient aus der Wiese (Papier §3): #5C5540 dezent in die
+                // Schatten – bindet den Fels an das Gruen der Umgebung.
+                // Nicht auf Vulkan/Wueste (eigene Farbwelt) und nicht im
+                // Winter (dort liegt keine gruene Wiese um den Berg).
+                if(!warmOnly && this.theme!=='winter' && s9<0.42){
+                  const ta=Math.min(0.16,(0.42-s9)*0.6);
+                  r9+=(92-r9)*ta; g9+=(85-g9)*ta; b9+=(64-b9)*ta;
+                }
                 if(!warmOnly && u9>0.55){
                   const t4=Math.min(0.10,(u9-0.55)*0.28);
                   r9+=(kalt[0]-r9)*t4; g9+=(kalt[1]-g9)*t4; b9+=(kalt[2]-b9)*t4;
                 }
                 // Spitzlicht-Deckel (Befund im Umbau-Papier: der Fels war
                 // 45 % heller als alles andere im Bild und sprang heraus)
-                // (164 statt 175: die Weichlicht-Lasur legt auf hellen
-                //  Platten noch ~10-15 Stufen drauf; Ziel <180 im Endbild)
+                // (156 statt 175: die laute Overlay-Lasur aus 2.3 legt auf
+                //  hellen Platten noch ~15-20 Stufen drauf; Ziel <180 im
+                //  Endbild, gemessen wird nach allen Paessen)
                 const lum=0.299*r9+0.587*g9+0.114*b9;
-                if(lum>164){ const f0=164/lum; r9*=f0; g9*=f0; b9*=f0; }
+                if(lum>156){ const f0=156/lum; r9*=f0; g9*=f0; b9*=f0; }
                 return [r9|0,g9|0,b9|0];
               };
               const vsh=new Map();
@@ -1091,35 +1100,46 @@ export class Renderer {
               sg2.restore();
               g.drawImage(this._shadeTmp, c.ox, c.oy);
             }
-            // 3) Detail-Lasur: die bestellte Felsplatten-Kachel (gebirge3)
-            //    gibt Nahzoom-Detail; bis sie geliefert ist, bricht die
-            //    GROSS skalierte Kluft-Kachel die weiten Flächen. Bewusst
-            //    schwach – die Facetten bleiben flach, kein Krümelrauschen.
+            // 3) Detail-Lasur, Umbau 2.3 (Gebirge-Papier): die bestellte
+            //    Platten-Kachel ter_rock_top (dicht gepackte kleine Platten,
+            //    hoher Eigenkontrast) TRAEGT jetzt das Bild – die Textur ist
+            //    lauter als die Schattierung. 'overlay' statt leisem Weich-
+            //    licht; Ziel laut Papier ~25 Helligkeitsstufen zwischen
+            //    dunkelster Fuge und hellstem Plattenruecken im Endbild.
+            //    Eine Platte laeuft bei Skala 2.37 Kanten je 1024er-Kachel
+            //    und 12-16 Platten je Kachelbreite ~6-8x ueber eine
+            //    Dreieckskante (Faustregel: hoechstens 1/5 Kante je Platte).
+            //    gebirge3 bleibt Rueckfall, solange die Kachel fehlt.
             {
-              // Umbau 2.2 (Gebirge-Papier): Textur vom Gitter entkoppelt.
-              // Zwei Lagen derselben Felskachel in KRUMMEN Vielfachen der
+              // Umbau 2.2 bleibt: zwei Lagen in KRUMMEN Vielfachen der
               // Kantenlänge (2.37 und 5.83 Kanten je Kachel), die zweite
               // versetzt - so rastet das Muster nie am Dreiecksgitter ein
-              // und die Wiederholung verschwindet. Mischung 65/35.
-              const im3=this.asset('gebirge3');
-              const det1= im3? patOf('gebirge3',(TILE*2.37)/im3.naturalWidth) : null;
-              const det2= im3? patOf('gebirge3',(TILE*5.83)/im3.naturalWidth,0,
-                                     TILE*5.83*0.31, TILE*5.83*0.67) : null;
+              // und die Wiederholung verschwindet.
+              // tintedSpire toent die Kachel auf die Thema-Felspalette
+              // (Winter grau, Vulkan dunkel) – im Standardthema entspricht
+              // sie ohnehin der Papier-Palette.
+              const imT=this.tintedSpire('ter_rock_top');
+              const im3=imT||this.asset('gebirge3');
+              const key3=imT? 'ter_rock_top' : 'gebirge3';
+              const w3=im3? (im3.naturalWidth||im3.width) : 1;
+              const det1= im3? patOf(key3,(TILE*2.37)/w3,0,0,0,im3) : null;
+              const det2= im3? patOf(key3,(TILE*5.83)/w3,0,
+                                     TILE*5.83*0.31, TILE*5.83*0.67,im3) : null;
               // Kluft-Rückfall NICHT im Winter: die braune Kachel färbte
               // die kühlen Wände schmutzig ein
               const det=det1 || (this.theme==='winter'? null : patOf('ter_rock_crack',0.95,33,171,63));
               if(det){
-                // Auf dunklem Vulkanfels wirkt Weichlicht doppelt so stark
-                // (die beige Kachel hellt jede Zelle auf) -> dort drosseln
-                const aBase= this.theme==='vulkan'? 0.20
-                           : this.theme==='winter'? 0.24 : 0.30;
-                g.globalCompositeOperation='soft-light';
+                // Auf dunklem Vulkanfels wirkt die Aufhellung doppelt so
+                // stark -> dort drosseln
+                const aBase= this.theme==='vulkan'? 0.34
+                           : this.theme==='winter'? 0.42 : 0.52;
+                g.globalCompositeOperation= det1? 'overlay' : 'soft-light';
                 g.fillStyle=det;
-                g.globalAlpha= det1? aBase*0.65 : 0.24;
+                g.globalAlpha= det1? aBase : 0.24;
                 g.fillRect(c.ox,c.oy,w,h);
                 if(det1 && det2){
                   g.fillStyle=det2;
-                  g.globalAlpha=aBase*0.35;
+                  g.globalAlpha=aBase*0.5;
                   g.fillRect(c.ox,c.oy,w,h);
                 }
                 g.globalAlpha=1;
@@ -1171,7 +1191,7 @@ export class Renderer {
                 // knapp INNERHALB der hellen Platte gesäumt. Ein Teil der
                 // Kanten setzt bewusst aus – durchgehende Lichtkanten längs
                 // ganzer Terrassen lasen sich als leuchtende Paspel.
-                if(dq<1 || hash01(e.u*7+e.v*13+5)<0.35) continue;
+                if(dq<1 || hash01(e.u*7+e.v*13+5)<0.62) continue;
                 const L4=qa>=qb? e.a : e.b;
                 const mx4=(P1[0]+P2[0])/2, my4=(P1[1]+P2[1])/2;
                 let nx4=L4.cx-mx4, ny4=L4.cy-my4;
@@ -1190,18 +1210,23 @@ export class Renderer {
                 // dunklen "Kapsel"-Strichen (Ästchen-Optik); in Ketten
                 // teilen sich die Segmente ihre Endpunkte, da braucht es
                 // keine Rundung
+                // Umbau 2.3 (Gebirge-Papier): STARK zurueckgenommen – das
+                // Fugennetz liegt jetzt in der ter_rock_top-Kachel; die
+                // gezeichneten geraden Fugenlinien lasen sich daneben wie
+                // Kratzer. Es bleibt nur ein leiser AO-Hauch an echten
+                // Tonstufen, der die grossen Blockgrenzen erdet.
                 g.lineCap='butt'; g.lineJoin='round';
                 const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
-                g.strokeStyle='rgba('+fug+',0.10)'; g.lineWidth=5.5; g.stroke(ao);
-                g.strokeStyle='rgba('+fug+',0.20)'; g.lineWidth=1.7; g.stroke(dark);
-                g.strokeStyle='rgba('+fug+',0.38)'; g.lineWidth=2.2; g.stroke(dark2);
+                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=5.5; g.stroke(ao);
+                g.strokeStyle='rgba('+fug+',0.08)'; g.lineWidth=1.4; g.stroke(dark);
+                g.strokeStyle='rgba('+fug+',0.16)'; g.lineWidth=1.8; g.stroke(dark2);
                 g.lineCap='round';
-                g.strokeStyle='rgba('+fug+',0.14)'; g.lineWidth=1.4; g.stroke(soft);
+                g.strokeStyle='rgba('+fug+',0.06)'; g.lineWidth=1.2; g.stroke(soft);
               }
               if(nL){
                 g.lineCap='round';
-                g.strokeStyle='rgba(255,250,238,0.18)'; g.lineWidth=1.1; g.stroke(lite);
-                g.strokeStyle='rgba(255,251,240,0.30)'; g.lineWidth=1.3; g.stroke(lite2);
+                g.strokeStyle='rgba(255,250,238,0.08)'; g.lineWidth=1.0; g.stroke(lite);
+                g.strokeStyle='rgba(255,251,240,0.14)'; g.lineWidth=1.1; g.stroke(lite2);
               }
             }
             // 4b) Gebirgsfuß-AO: entlang der ECHTEN Außensilhouette dunkelt
@@ -2419,7 +2444,8 @@ export class Renderer {
           // gebirge*- und obj_(rock)spire-Bilder wirken ebenfalls in die
           // Chunk-Caches (Felsdecke bzw. eingebackene Felsnadeln)
           if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')
-             ||key.startsWith('gebirge')||key.startsWith('obj_rockspire')||key.startsWith('obj_spire')) img.onload=()=>{
+             ||key.startsWith('gebirge')||key.startsWith('obj_rockspire')||key.startsWith('obj_spire')
+             ||key.startsWith('obj_cliff')||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
             this._spireTint=null;
@@ -2615,7 +2641,10 @@ export class Renderer {
       wueste:[[112,94,70],[150,129,98],[182,160,126],[205,187,153],[221,206,177]],
       winter:[[76,75,74],[110,109,107],[143,142,139],[174,174,171],[200,201,199]],
     };
-    this._palRock=PALS[this.theme]||[[78,71,62],[113,105,93],[150,142,127],[183,175,159],[207,200,185]];
+    // Standard (gruen/gebirge/...): exakt die fuenf Felstoene aus dem
+    // Umbau-Papier §3 – Tiefschatten #57503F, Schatten #6A5C4A, mittel
+    // #8A7E68, hell #A49B8A (= Strassen-Stein), Spitzlicht #BCAE93.
+    this._palRock=PALS[this.theme]||[[87,80,63],[106,92,74],[138,126,104],[164,155,138],[188,174,147]];
     return this._palRock;
   }
   // Kleiner kantiger Trümmerblock: unregelmäßiges Fünfeck mit dunkler
