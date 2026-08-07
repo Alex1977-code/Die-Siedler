@@ -680,26 +680,35 @@ export function genWorld(opts){
     let nah=0; for(const i of seen) if(map.terr[i]===TER.MOUNT) nah++;
     if(nah>=18) continue;
     const sx=map.X(s)+(map.Y(s)&1)*0.5, sy=map.Y(s)*ROWQ;
-    let bx=-1, by=-1, bs=-1;
-    for(let t=0;t<200;t++){
-      const th=rng()*6.2832, rr=10+rng()*3.5;
-      const cx=sx+Math.cos(th)*rr, cy=sy+Math.sin(th)*rr;
-      if(cx<7||cy<7||cx>w-8||cy>(h-8)*ROWQ) continue;
-      let ok=true;
-      for(const M of massive) if(Math.hypot(cx-M.cx,cy-M.cy) < 0.85*(5.4+M.R)){ ok=false; break; }
-      if(!ok) continue;
-      let land=0, prob=0;
-      for(let a=0;a<9;a++){
-        const X=Math.round(cx+Math.cos(a*1.4)*3.6), Y=Math.round((cy+Math.sin(a*1.4)*3.6)/ROWQ);
-        if(X<0||Y<0||X>=w||Y>=h) continue;
-        prob++; if(raw[map.idx(X,Y)]>=SEA) land++;
+    let bx=-1, by=-1, bs=-1, radius=4.6+rng()*1.4;
+    // Zwei Anläufe: erst der Wunschplatz (freistehend, ganz auf Land, 10-13
+    // Knoten entfernt), dann ein genügsamer Anlauf (näher/weiter, kleiner,
+    // etwas Küste erlaubt). An einer Steilküste oder zwischen zwei Massiven
+    // fand der strenge Anlauf sonst nichts und der Spieler blieb ohne Mine.
+    for(let anlauf=0; anlauf<2 && bx<0; anlauf++){
+      const rMin = anlauf? 7.5 : 10, rSpan = anlauf? 9.0 : 3.5;
+      const frei = anlauf? 0.62 : 0.85, abst = anlauf? 0.62 : 0.85;
+      if(anlauf) radius = 3.9+rng()*1.1;
+      for(let t=0;t<260;t++){
+        const th=rng()*6.2832, rr=rMin+rng()*rSpan;
+        const cx=sx+Math.cos(th)*rr, cy=sy+Math.sin(th)*rr;
+        if(cx<6||cy<6||cx>w-7||cy>(h-7)*ROWQ) continue;
+        let ok=true;
+        for(const M of massive) if(Math.hypot(cx-M.cx,cy-M.cy) < abst*(radius+0.8+M.R)){ ok=false; break; }
+        if(!ok) continue;
+        let land=0, prob=0;
+        for(let a=0;a<9;a++){
+          const X=Math.round(cx+Math.cos(a*1.4)*radius*0.78), Y=Math.round((cy+Math.sin(a*1.4)*radius*0.78)/ROWQ);
+          if(X<0||Y<0||X>=w||Y>=h) continue;
+          prob++; if(raw[map.idx(X,Y)]>=SEA) land++;
+        }
+        if(prob<7 || land<prob*frei) continue;
+        const sc=rng();
+        if(sc>bs){ bs=sc; bx=cx; by=cy; }
       }
-      if(prob<7 || land<prob*0.85) continue;
-      const sc=rng();
-      if(sc>bs){ bs=sc; bx=cx; by=cy; }
     }
     if(bx<0) continue;
-    const kasten=stempeln(macheMassiv(bx, by, 4.6+rng()*1.4, 'kuppe'));
+    const kasten=stempeln(macheMassiv(bx, by, radius, 'kuppe'));
     gelaendeSchreiben(kasten.x0,kasten.x1,kasten.y0,kasten.y1);
     // was jetzt Fels ist, trägt keine Bäume/Brocken mehr und bekommt Erz
     for(let Y=kasten.y0;Y<=kasten.y1;Y++) for(let X=kasten.x0;X<=kasten.x1;X++){
