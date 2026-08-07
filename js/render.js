@@ -206,6 +206,7 @@ export class Renderer {
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
+    this._lasurC=null;                          // Fels-Lasurkacheln hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this.initSheep();
   }
@@ -891,9 +892,17 @@ export class Renderer {
       {
         if(!this._rockPats) this._rockPats={};
         const pats=this._rockPats;
-        // Muster mit Welt-Transformation, je (Bild, Lage) nur einmal erzeugt
-        const patOf=(key,sc,rot,tx2,ty2,imOv)=>{
-          const ck=key+'|'+sc+'|'+(rot||0);
+        // Muster mit Welt-Transformation, je (Bild, Lage) nur einmal erzeugt.
+        // scy (optional): EIGENER y-Faktor. Die Wandkacheln sind seit der
+        // Gebirgs-Lieferung nicht mehr quadratisch (1024x1536), die
+        // Schichtung braucht deshalb eine getrennte Hoehenskala – ohne sie
+        // laege die Wandzeichnung um das Seitenverhaeltnis daneben. Fehlt
+        // scy, wird wie bisher uniform skaliert (alle Altaufrufer bleiben
+        // unveraendert). Versatz gehoert in den Schluessel, sonst teilen
+        // sich zwei Lagen mit gleichem Massstab dasselbe Muster.
+        const patOf=(key,sc,rot,tx2,ty2,imOv,scy)=>{
+          const sy=(scy===undefined||scy===null)? sc : scy;
+          const ck=key+'|'+sc+'|'+sy+'|'+(rot||0)+'|'+(tx2||0)+'|'+(ty2||0);
           if(pats[ck]!==undefined) return pats[ck];
           const im=imOv||this.asset(key);
           let pt=null;
@@ -903,8 +912,8 @@ export class Renderer {
               let mtx=new DOMMatrix();
               if(tx2||ty2) mtx=mtx.translate(tx2,ty2);
               if(rot) mtx=mtx.rotate(rot);
-              pt.setTransform(mtx.scale(sc));
-            } else if(rot) pt=null;      // ohne setTransform keine gedrehte Zweitlage
+              pt.setTransform(mtx.scale(sc,sy));
+            } else if(rot||sy!==sc) pt=null;   // ohne setTransform keine Zweitlage
           }
           pats[ck]=pt;
           return pt;
@@ -1006,6 +1015,22 @@ export class Renderer {
           // Steilheit auf dem TERRASSIERTEN Feld – Grundlage der cliffMask
           // (2.4) und der hangabhaengigen Schneedecke (2.6)
           const slopeT=(q)=>{ const gv=gradAt(q); return Math.hypot(gv[0],gv[1]); };
+          // Naehe zum BERGFUSS (1 = Randknoten, 0.55 = zweite Reihe, sonst 0):
+          // Grundlage der Geroellzone (3) und der Moos-Einblendung. Einmal je
+          // Knoten bestimmt und gecacht.
+          const footC=new Map();
+          const footOf=(q)=>{
+            let v=footC.get(q);
+            if(v!==undefined) return v;
+            v=0;
+            const nb=m.nbs(q);
+            if(nb.some(b9=>!isMassif(b9))) v=1;
+            else {
+              for(const b9 of nb){ if(m.nbs(b9).some(c9=>!isMassif(c9))){ v=0.55; break; } }
+            }
+            footC.set(q,v);
+            return v;
+          };
           // --- Block-Gitter: jeder Knoten gehört zu EINEM Felsblock ---
           // Zentren auf einem groben, je Zelle verwackelten Gitter in
           // Knotenkoordinaten – deterministisch aus der Gitterzelle gehasht
@@ -1328,54 +1353,137 @@ export class Renderer {
               sg2.restore();
               g.drawImage(this._shadeTmp, c.ox, c.oy, w, h);
             }
-            // 3) Detail-Lasur, Umbau 2.3 (Gebirge-Papier): die bestellte
-            //    Platten-Kachel ter_rock_top (dicht gepackte kleine Platten,
-            //    hoher Eigenkontrast) TRAEGT jetzt das Bild – die Textur ist
-            //    lauter als die Schattierung. 'overlay' statt leisem Weich-
-            //    licht; Ziel laut Papier ~25 Helligkeitsstufen zwischen
-            //    dunkelster Fuge und hellstem Plattenruecken im Endbild.
-            //    Eine Platte laeuft bei Skala 2.37 Kanten je 1024er-Kachel
-            //    und 12-16 Platten je Kachelbreite ~6-8x ueber eine
-            //    Dreieckskante (Faustregel: hoechstens 1/5 Kante je Platte).
-            //    gebirge3 bleibt Rueckfall, solange die Kachel fehlt.
+            // 3) Detail-Lasur (Stilguide 11.1): die Textur muss LAUTER sein
+            //    als die Schattierung, sonst scheint das Dreiecksgitter durch.
+            //    Kennwert (p95/p5 der Luminanz)/1.82, Zielband 1.2-1.5.
+            //    ter_rock_top (verwitterter Fels) traegt die Flaeche.
+            //    Dazu drei weitere Kacheln aus der Lieferung:
+            //      ter_rock_top2   ZWEITE LAGE per Rauschmaske – gegen den
+            //                      Fehler "Kachel liest sich als Kiesbett"
+            //                      (11.8: "im Shader zweite Textur-Lage per
+            //                      Rauschmaske"). Grosse Platten in Nestern,
+            //                      nicht flaechendeckend.
+            //      ter_rock_rubble Geroell-/Uebergangszone am Bergfuss; dort
+            //                      ERSETZT die kantige Schuttkachel die feine
+            //                      Platte (Kritik "graue Matschwolken").
+            //      ter_rock_moss   niedrigste Massivlagen nahe der Wiese,
+            //                      ueber die Hoehe weich eingeblendet (drei
+            //                      Alphastufen mit verrauschter Grenze –
+            //                      keine harte Kante, keine Hoehenlinie).
             {
-              // Umbau 2.2 bleibt: zwei Lagen in KRUMMEN Vielfachen der
-              // Kantenlänge (2.37 und 5.83 Kanten je Kachel), die zweite
-              // versetzt - so rastet das Muster nie am Dreiecksgitter ein
-              // und die Wiederholung verschwindet.
-              // tintedSpire toent die Kachel auf die Thema-Felspalette
-              // (Winter grau, Vulkan dunkel) – im Standardthema entspricht
-              // sie ohnehin der Papier-Palette.
-              const imT=this.tintedSpire('ter_rock_top');
-              const im3=imT||this.asset('gebirge3');
-              const key3=imT? 'ter_rock_top' : 'gebirge3';
-              const w3=im3? (im3.naturalWidth||im3.width) : 1;
-              const det1= im3? patOf(key3,(TILE*2.37)/w3,0,0,0,im3) : null;
-              const det2= im3? patOf(key3,(TILE*5.83)/w3,0,
-                                     TILE*5.83*0.31, TILE*5.83*0.67,im3) : null;
-              // Kluft-Rückfall NICHT im Winter: die braune Kachel färbte
-              // die kühlen Wände schmutzig ein
-              const det=det1 || (this.theme==='winter'? null : patOf('ter_rock_crack',0.95,33,171,63));
-              if(det){
-                // Auf dunklem Vulkanfels wirkt die Aufhellung doppelt so
-                // stark -> dort drosseln
-                // 0.44 statt 0.52 (Kritik G1/G6): die volle Lasur machte
-                // den Deckel zum flachen braunen Fleck – etwas leiser
-                // scheint die Kuppen-Schattierung der Facetten durch und
-                // der Grauanker der Palette traegt wieder
-                const aBase= this.theme==='vulkan'? 0.34
-                           : this.theme==='winter'? 0.42 : 0.44;
-                g.globalCompositeOperation= det1? 'overlay' : 'soft-light';
-                g.fillStyle=det;
-                g.globalAlpha= det1? aBase : 0.24;
+              // Umbau 2.2 bleibt: KRUMME Vielfache der Kantenlänge, damit das
+              // Muster nie am Dreiecksgitter einrastet und die Wiederholung
+              // verschwindet. tintedSpire toent die Kachel auf die Thema-
+              // Felspalette (Winter grau, Vulkan dunkel).
+              const imT=this.felsLasur('ter_rock_top');
+              const w3=imT? (imT.naturalWidth||imT.width) : 1024;
+              const det1= imT? patOf('ter_rock_top',(TILE*2.37)/w3,0,0,0,imT) : null;
+              if(det1){
+                // Lasur-Alpha ist am Kennwert aus 11.1 eingestellt (gemessen
+                // am Endbild, nicht geschaetzt). Auf dunklem Vulkanfels
+                // wirkt die Aufhellung doppelt so stark -> dort drosseln.
+                const aBase= this.theme==='vulkan'? 0.62
+                           : this.theme==='winter'? 0.74 : 0.86;
+                g.globalCompositeOperation='overlay';
+                g.fillStyle=det1;
+                g.globalAlpha=aBase;
                 g.fillRect(c.ox,c.oy,w,h);
-                if(det1 && det2){
-                  g.fillStyle=det2;
-                  g.globalAlpha=aBase*0.5;
-                  g.fillRect(c.ox,c.oy,w,h);
+                // --- zweite Lage ter_rock_top2 per Rauschmaske ---
+                const imT2=this.felsLasur('ter_rock_top2');
+                if(imT2){
+                  const w4=imT2.naturalWidth||imT2.width;
+                  const det2=patOf('ter_rock_top2',(TILE*3.41)/w4,0,
+                                   TILE*0.37, TILE*0.71, imT2);
+                  if(det2){
+                    // weiches Rauschfeld (dieselbe tnoise-Basis wie die
+                    // Terrassierung, andere Frequenz und Phase): Nester von
+                    // 2-4 Knoten Durchmesser statt Flaechendeckung
+                    let any2=false;
+                    g.beginPath();
+                    for(const t3 of tris){
+                      const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                      const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                      if(tnoise(X9*0.62+311,Y9*0.62+83)<0.52) continue;
+                      any2=true;
+                      g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+                      g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+                    }
+                    if(any2){
+                      g.fillStyle=det2;
+                      g.globalAlpha=aBase*0.72;
+                      g.fill();
+                    }
+                  }
+                }
+                // --- Geroellzone am Bergfuss: ter_rock_rubble ---
+                const imR=this.felsLasur('ter_rock_rubble');
+                if(imR){
+                  const w5=imR.naturalWidth||imR.width;
+                  const detR=patOf('ter_rock_rubble',(TILE*2.05)/w5,0,
+                                   TILE*0.53, TILE*0.19, imR);
+                  if(detR){
+                    let anyR=false;
+                    g.beginPath();
+                    for(const t3 of tris){
+                      if(t3.wl) continue;              // Waende bleiben Wand
+                      const fo=Math.max(footOf(t3.qa),footOf(t3.qb),footOf(t3.qc));
+                      if(fo<0.5) continue;
+                      // verrauschte Grenze: kein gleichmaessiger Ring um den
+                      // Berg (Leitlinie B)
+                      const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                      const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                      if(fo<0.9 && tnoise(X9*0.85+41,Y9*0.85+167)<0.46) continue;
+                      anyR=true;
+                      g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+                      g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+                    }
+                    if(anyR){
+                      g.fillStyle=detR;
+                      g.globalAlpha=Math.min(0.86,aBase*1.5);
+                      g.fill();
+                    }
+                  }
                 }
                 g.globalAlpha=1;
                 g.globalCompositeOperation='source-over';
+                // --- Moos in den niedrigsten Massivlagen ---
+                // NICHT auf Vulkan/Wueste/Winter: dort waechst nichts, und
+                // Gruen in der grauen bzw. dunklen Palette laese sich als
+                // Fehlfarbe. Die Kachel bleibt UNGETOENT (tintedSpire zoege
+                // ihr das Gruen heraus).
+                const imM= (warmOnly||this.theme==='winter')? null : this.asset('ter_rock_moss');
+                if(imM && imM.naturalWidth){
+                  const detM=patOf('ter_rock_moss',(TILE*2.63)/imM.naturalWidth,0,
+                                   TILE*0.83, TILE*0.29, imM);
+                  if(detM){
+                    // Hoehenlage 0 (Fuss) .. 1 (Gipfel), mit Rauschen
+                    // aufgeweicht; drei Alphastufen ergeben zusammen mit dem
+                    // Rauschen einen weichen Verlauf ohne Hoehenlinie
+                    const STUF=[[0.00,0.16,1.00],[0.16,0.30,0.62],[0.30,0.44,0.30]];
+                    for(const St of STUF){
+                      let anyM=false;
+                      g.beginPath();
+                      for(const t3 of tris){
+                        const hm=(hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3;
+                        const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                        const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                        const u9=(hm-hlo)/spanH
+                                 +(tnoise(X9*0.74+7,Y9*0.74+229)-0.5)*0.17;
+                        if(u9<St[0]||u9>=St[1]) continue;
+                        anyM=true;
+                        g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+                        g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+                      }
+                      if(!anyM) continue;
+                      g.globalCompositeOperation='overlay';
+                      g.fillStyle=detM;
+                      g.globalAlpha=0.46*St[2];
+                      g.fill();
+                    }
+                    g.globalAlpha=1;
+                    g.globalCompositeOperation='source-over';
+                  }
+                }
               }
             }
             // 3b) Umbau 2.4 (Gebirge-Papier), Klippenpass: steile Haenge
@@ -1394,7 +1502,7 @@ export class Renderer {
             //     Alpha-Verlaeufe wie beim Gouraud) – kein hartes Umschalten
             //     je Dreieck. Wanddreiecke (t3.wl) sind immer Wand.
             {
-              const imC=this.tintedSpire('ter_rock_cliff');
+              const imC=this.felsLasur('ter_rock_cliff');
               if(imC){
                 const cmv=new Map();
                 const cmOf=(q)=>{
@@ -1455,28 +1563,60 @@ export class Renderer {
                   tex4.save();
                   tex4.beginPath(); tex4.rect(mbx0,mby0,mbw,mbh); tex4.clip();
                   tex4.save(); tex4.translate(-c.ox,-c.oy);
-                  // Bandmassstab: ~8 Baender je 1024er-Kachel, Skala 0.37
-                  // -> ein Band ~47 px, an einer typischen Wand (100-150 px
-                  // projizierte Hoehe) 2-3 lesbare Baender. 0.37 ist zudem
-                  // ein krummes Verhaeltnis zu TILE/ROWH – kein Einrasten.
-                  const patC=patOf('ter_rock_cliff',0.37,0,0,0,imC);
+                  // Bandmassstab: die Wandkachel ist 1024x1536 (Stilguide
+                  // 11.11), ihre Saeulen laufen ueber die volle Hoehe, die
+                  // Baender liegen quer. Skala 0.37 in x -> Kachelbreite
+                  // ~379 px, eine Saeule ~50 px; 0.37 ist ein krummes
+                  // Verhaeltnis zu TILE/ROWH – kein Einrasten am Gitter.
+                  //
+                  // Stilguide 11.11: cliffScale.y = cliffScale.x * 1.5 / 0.64
+                  // (Seitenverhaeltnis x Stauchung bei 40 Grad). Die Formel
+                  // ist in SHADER-Schreibweise notiert: dort ist "scale" die
+                  // Zahl der Wiederholungen je Welteinheit, also der KEHRWERT
+                  // eines Zeichenfaktors, und das Seitenverhaeltnis 1.5 muss
+                  // dort von Hand hinein, weil der Shader auf eine quadrat-
+                  // ische Kachel normiert. patOf zeichnet das Bild in seinem
+                  // EIGENEN Format 1024:1536 – der Faktor 1.5 steckt also
+                  // schon im Bild. Uebrig bleibt die Stauchung bei 40 Grad:
+                  //     scY = scX * 0.64      (= scX * 1.5 / (1.5/0.64))
+                  // Damit steht die Schichtung wieder in der Kameraneigung
+                  // statt um 1.5 daneben.
+                  const CST=0.64;
+                  const patC=patOf('ter_rock_cliff',0.37,0,0,0,imC,0.37*CST);
                   tex4.fillStyle=patC||'#8a7e68';
                   tex4.fillRect(c.ox,c.oy,w,h);
-                  // Leitlinie B: der Wandtextur-Massstab variiert je WAND-
-                  // SEGMENT (Blockhash) – nicht jede Terrassenstufe zeigt
-                  // dieselbe Schichtung im selben Takt
-                  const patC2=patOf('ter_rock_cliff',0.455,0,37,61,imC);
-                  if(patC2){
+                  // Leitlinie B (keine gleichmaessigen TREPPEN): jedes WAND-
+                  // SEGMENT bekommt deterministisch eine eigene Lage aus
+                  // Kachel (cliff/cliff2), Massstab und PHASE. Damit laufen
+                  // die Schichtbaender nicht mehr im selben Takt quer ueber
+                  // alle Terrassenstufen. Vier Toepfe, der erste ist die
+                  // Grundfuellung oben – es bleiben drei Zusatzlagen.
+                  const imC2=this.felsLasur('ter_rock_cliff2')||imC;
+                  const LAGEN=[
+                    // [von, bis, Bild, scX, tx, ty]
+                    [0.30,0.55, imC,  0.455, 37, 61],
+                    [0.55,0.80, imC2, 0.37,  0,  0],
+                    [0.80,1.01, imC2, 0.425, 91, 23],
+                  ];
+                  for(const L of LAGEN){
+                    const pL=patOf(L[2]===imC?'ter_rock_cliff':'ter_rock_cliff2',
+                                   L[3],0,L[4],L[5],L[2],L[3]*CST);
+                    if(!pL) continue;
+                    let any9=false;
                     tex4.save();
                     tex4.beginPath();
                     for(const t3 of tris){
-                      if(hash01(t3.blk*29+3)>=0.42) continue;
+                      const hB=hash01(t3.blk*29+3);
+                      if(hB<L[0]||hB>=L[1]) continue;
+                      any9=true;
                       tex4.moveTo(t3.A[0],t3.A[1]); tex4.lineTo(t3.B[0],t3.B[1]);
                       tex4.lineTo(t3.C[0],t3.C[1]); tex4.closePath();
                     }
-                    tex4.clip();
-                    tex4.fillStyle=patC2;
-                    tex4.fillRect(c.ox,c.oy,w,h);
+                    if(any9){
+                      tex4.clip();
+                      tex4.fillStyle=pL;
+                      tex4.fillRect(c.ox,c.oy,w,h);
+                    }
                     tex4.restore();
                   }
                   tex4.restore();
@@ -3177,7 +3317,7 @@ export class Renderer {
              ||key.startsWith('obj_cliff')||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
-            this._spireTint=null;
+            this._spireTint=null; this._lasurC=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this.chunks.clear();
           };
@@ -3443,7 +3583,55 @@ export class Renderer {
     this._spireTint.set(key,cv);
     return cv;
   }
-  // Prozedurale Felsnadel als Rückfall, solange obj_rockspire_*/obj_spire*
+  // Lasur-Kachel für die Felsflächen und -wände (Stilguide 11.1: "Die
+  // Textur muss lauter sein als die Schattierung", Kennwert
+  // (p95/p5 der Luminanz)/1.82 im Zielband 1.2-1.5).
+  //
+  // Roh aufgelegt reicht keine Kachel an dieses Band heran: 'overlay' auf
+  // einen hellen Untergrund staucht die dunkle Haelfte, aus 1.14 der
+  // Quellkachel werden im Endbild rund 1.0 – das Dreiecksgitter scheint
+  // durch. Deshalb wird die Kachel EINMAL je Bild/Thema vorbehandelt:
+  //   1) Kontrast anheben, indem die Kachel mit SICH SELBST 'overlay'
+  //      ueberlagert wird (kein ctx.filter – der ist auf iOS gesperrt).
+  //      Fugen werden tiefer, Plattenruecken heller, der Mittelton bleibt.
+  //   2) Farbe auf die Thema-Felspalette ziehen und dabei entsaettigen:
+  //      'overlay' multipliziert die Kanaldifferenzen, eine Kachel mit
+  //      voller Saettigung 0.40 landet im Endbild sonst bei 0.50.
+  //      Ziel laut 11.7: 0.38-0.42.
+  // Gecacht wie tintedSpire; wird beim Nachladen von Bildern verworfen.
+  felsLasur(key){
+    if(!this._lasurC) this._lasurC=new Map();
+    if(this._lasurC.has(key)) return this._lasurC.get(key);
+    const img=this.asset(key);
+    if(!img||!img.naturalWidth){ this._lasurC.set(key,null); return null; }
+    const W=img.naturalWidth, H=img.naturalHeight;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    // 1) Eigenkontrast
+    t.globalCompositeOperation='overlay';
+    t.globalAlpha=0.82;
+    t.drawImage(img,0,0);
+    // 2) Farbton/Saettigung auf die entsaettigte Palettenmitte
+    const P=this.rockPal()[2];
+    const Lp=0.299*P[0]+0.587*P[1]+0.114*P[2];
+    // 'overlay' MULTIPLIZIERT den Farbstich von Untergrund und Lasur (aus
+    // zweimal r/b=1.33 wird 1.77). Die Lasur muss deshalb fast neutral
+    // sein – die Farbe kommt aus der Palette in colAt, die Lasur liefert
+    // nur die Zeichnung. Mit voller Kachelsaettigung landete der Fels im
+    // Endbild bei 0.58 statt bei den geforderten 0.38-0.42.
+    const d=0.95;                       // Entsaettigung der Lasur
+    const cc=[P[0]+(Lp-P[0])*d, P[1]+(Lp-P[1])*d, P[2]+(Lp-P[2])*d];
+    t.globalCompositeOperation='color';
+    t.globalAlpha=0.92;
+    t.fillStyle='rgb('+(cc[0]|0)+','+(cc[1]|0)+','+(cc[2]|0)+')';
+    t.fillRect(0,0,W,H);
+    t.globalAlpha=1;
+    t.globalCompositeOperation='source-over';
+    this._lasurC.set(key,cv);
+    return cv;
+  }
+  // Prozedurale Felsnadel als Rückfall, solange obj_rockspire_*
   // fehlen: schlanker, gestufter Keil mit heller Westflanke, dunkler
   // Ostflanke, Stufenkanten und Spitzenlicht (Referenz: Felsnadel).
   drawRockNeedle(g,x,y,h,seed){
