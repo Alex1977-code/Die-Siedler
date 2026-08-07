@@ -814,6 +814,39 @@ export class Renderer {
           const PAL=this.rockPal();
           const [hlo,hhi]=this.massifHiLo();
           const spanH=(hhi-hlo)||1;
+          // Umbau 2.5 (Gebirge-Papier): das Hoehenfeld wird VOR der
+          // Schattierung terrassiert – NUR fuer den Massiv-Pass, reine
+          // Zeichensache (m.hgt und damit Geometrie/Spiellogik unveraendert).
+          // Formel aus dem Papier: Rauschen addieren (damit die Stufenkanten
+          // nicht dem Gitter folgen), floor + smoothstep(0.72..1.0) auf den
+          // Nachkommateil, Mischung 0.7. step=1.9 entspricht ~3.5 der
+          // 0.55er-Hoehenstufen, auf die der Kartengenerator Fels einrastet.
+          // Ergebnis: breite Plateaus und steile Stufen, die 2.4 automatisch
+          // als Wand zeichnet.
+          const TSTEP=1.9;
+          const smT=(u)=> u<=0?0 : u>=1?1 : u*u*(3-2*u);
+          const tvv=(xx,yy)=>hash01((Math.imul(xx,73856093)^Math.imul(yy,19349663)^0x7a3b)|0);
+          const tnoise=(X,Y)=>{
+            const gx0=X*0.7, gy0=Y*0.7;
+            const x2=Math.floor(gx0), y2=Math.floor(gy0);
+            const fx=smT(gx0-x2), fy=smT(gy0-y2);
+            return (tvv(x2,y2)*(1-fx)+tvv(x2+1,y2)*fx)*(1-fy)
+                 + (tvv(x2,y2+1)*(1-fx)+tvv(x2+1,y2+1)*fx)*fy;
+          };
+          const hTc=new Map();
+          const hgtT=(q)=>{
+            let v=hTc.get(q);
+            if(v!==undefined) return v;
+            const h9=m.hgt[q];
+            if(!isMassif(q)) v=h9;      // Umland bleibt unangetastet
+            else {
+              const hIn=h9+(tnoise(m.X(q),m.Y(q))-0.5)*TSTEP*0.4;
+              const t9=hIn/TSTEP, f9=t9-Math.floor(t9);
+              v=h9*0.3+(Math.floor(t9)+smT((f9-0.72)/0.28))*TSTEP*0.7;
+            }
+            hTc.set(q,v);
+            return v;
+          };
           // Wölbung je Knoten: Grat (konvex) fängt Licht, Kessel (konkav)
           // liegt im Eigenschatten – das eingebaute Ambient-Occlusion
           const curv=new Map();
@@ -821,8 +854,8 @@ export class Renderer {
             let v=curv.get(q);
             if(v!==undefined) return v;
             let s2=0, n2=0;
-            for(const b3 of m.nbs(q)){ s2+=m.hgt[b3]; n2++; }
-            v=n2? m.hgt[q]-s2/n2 : 0;
+            for(const b3 of m.nbs(q)){ s2+=hgtT(b3); n2++; }
+            v=n2? hgtT(q)-s2/n2 : 0;
             curv.set(q,v);
             return v;
           };
@@ -839,13 +872,16 @@ export class Renderer {
             for(const b3 of m.nbs(q)){
               const ddx=(m.X(b3)+((m.Y(b3)&1)*0.5))-(m.X(q)+((m.Y(q)&1)*0.5));
               const ddy=m.Y(b3)-m.Y(q);
-              const dh=m.hgt[b3]-m.hgt[q];
+              const dh=hgtT(b3)-hgtT(q);
               gx+=dh*ddx; gy+=dh*ddy;
             }
             v=[gx,gy];
             grad.set(q,v);
             return v;
           };
+          // Steilheit auf dem TERRASSIERTEN Feld – Grundlage der cliffMask
+          // (2.4) und der hangabhaengigen Schneedecke (2.6)
+          const slopeT=(q)=>{ const gv=gradAt(q); return Math.hypot(gv[0],gv[1]); };
           // --- Block-Gitter: jeder Knoten gehört zu EINEM Felsblock ---
           // Zentren auf einem groben, je Zelle verwackelten Gitter in
           // Knotenkoordinaten – deterministisch aus der Gitterzelle gehasht
@@ -947,7 +983,7 @@ export class Renderer {
             // dreiecke neben dunklen lasen sich als Harlekin-Fächer.
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
             if(spanY>ROWH*1.7) qi=Math.max(1,Math.min(2,qi));
-            const hh=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
+            const hh=(hgtT(a2)+hgtT(b2)+hgtT(c2))/3;
             const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
             const band=Math.min(4,(u4*5)|0);
             // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
@@ -1040,11 +1076,16 @@ export class Renderer {
                 v=0.55+0.45*Math.max(-1,Math.min(1,d9));
                 const cu=curvOf(q);
                 v+= cu>0? cu*0.5 : cu*0.85;
+                // Umbau 2.7c (Gebirge-Papier): Gratlicht +0.12 auf KONVEXEN,
+                // klar sonnenzugewandten Kanten – der Grat bekommt eine
+                // Lichtkante, ohne dass eine Linie gezeichnet werden muss
+                if(cu>0.02 && d9>0.30)
+                  v+=0.12*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
                 v=Math.max(0.24,Math.min(0.88,v));
                 vsh.set(q,v);
                 return v;
               };
-              const uAt=(q)=>Math.max(0,Math.min(1,(m.hgt[q]-hlo)/spanH));
+              const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
               for(const t3 of tris){
                 const {A,B,C}=t3;
                 // leise Blockvarianz: trennt die Platten tonal, der Sprung
@@ -1144,6 +1185,105 @@ export class Renderer {
                 }
                 g.globalAlpha=1;
                 g.globalCompositeOperation='source-over';
+              }
+            }
+            // 3b) Umbau 2.4 (Gebirge-Papier), Klippenpass: steile Haenge
+            //     zeigen die WANDtextur ter_rock_cliff statt der Draufsicht-
+            //     Lasur. Verankerung sinngemaess zu uvCliff des Papiers:
+            //     horizontal die Welt-x-Achse, vertikal die Welt-y-Achse des
+            //     Bildschirms – die projizierte y-Koordinate enthaelt den
+            //     Hoehenversatz (worldPos zieht hgt*HSCALE ab), an einer Wand
+            //     ist sie also praktisch die Hoehenachse: die Schichtbaender
+            //     liegen waagerecht am Bildschirm und wandern mit der Hoehe.
+            //     cliffMask als smoothstep ueber die terrassierte Steilheit
+            //     (Papier: 0.42-0.62 auf normierter slope; auf die hiesige
+            //     Gradientenmetrik uebertragen: p50~2.0, p75~3.0 der
+            //     Massivknoten -> Fenster 2.0..3.2). Die Maske wird je ECKE
+            //     bestimmt und ueber das Dreieck interpoliert (drei additive
+            //     Alpha-Verlaeufe wie beim Gouraud) – kein hartes Umschalten
+            //     je Dreieck. Wanddreiecke (t3.wl) sind immer Wand.
+            {
+              const imC=this.tintedSpire('ter_rock_cliff');
+              if(imC){
+                const cmv=new Map();
+                const cmOf=(q)=>{
+                  let v=cmv.get(q);
+                  if(v!==undefined) return v;
+                  v= m.terr[q]===TER.LAVA? 0 : smT((slopeT(q)-2.0)/1.2);
+                  cmv.set(q,v);
+                  return v;
+                };
+                const mk4=this._maskTmp.getContext('2d');
+                mk4.globalCompositeOperation='source-over';
+                mk4.clearRect(0,0,w,h);
+                mk4.globalCompositeOperation='lighter';
+                mk4.save(); mk4.translate(-c.ox,-c.oy);
+                let anyC=false;
+                for(const t3 of tris){
+                  let ma=cmOf(t3.qa), mb=cmOf(t3.qb), mc=cmOf(t3.qc);
+                  if(t3.wl){ ma=Math.max(ma,0.9); mb=Math.max(mb,0.9); mc=Math.max(mc,0.9); }
+                  if(ma+mb+mc<0.05) continue;
+                  anyC=true;
+                  const P=[t3.A,t3.B,t3.C], AL=[ma,mb,mc];
+                  const path=()=>{ mk4.beginPath();
+                    mk4.moveTo(P[0][0],P[0][1]); mk4.lineTo(P[1][0],P[1][1]);
+                    mk4.lineTo(P[2][0],P[2][1]); mk4.closePath(); };
+                  let flat=false;
+                  for(let k=0;k<3 && !flat;k++){
+                    const A=P[k], B=P[(k+1)%3], D=P[(k+2)%3];
+                    const ex=D[0]-B[0], ey=D[1]-B[1];
+                    const L9=ex*ex+ey*ey;
+                    if(L9<1e-6){ flat=true; break; }
+                    const t9=((A[0]-B[0])*ex+(A[1]-B[1])*ey)/L9;
+                    const fx=B[0]+ex*t9, fy=B[1]+ey*t9;
+                    if(Math.hypot(A[0]-fx,A[1]-fy)<0.5){ flat=true; break; }
+                    const gr9=mk4.createLinearGradient(fx,fy,A[0],A[1]);
+                    gr9.addColorStop(0,'rgba(255,255,255,0)');
+                    gr9.addColorStop(1,'rgba(255,255,255,'+AL[k].toFixed(3)+')');
+                    mk4.fillStyle=gr9;
+                    path(); mk4.fill();
+                  }
+                  if(flat){
+                    mk4.fillStyle='rgba(255,255,255,'+((AL[0]+AL[1]+AL[2])/3).toFixed(3)+')';
+                    path(); mk4.fill();
+                  }
+                }
+                mk4.restore();
+                mk4.globalCompositeOperation='source-over';
+                if(anyC){
+                  const tex4=this._texTmp.getContext('2d');
+                  tex4.globalCompositeOperation='source-over';
+                  tex4.clearRect(0,0,w,h);
+                  tex4.save(); tex4.translate(-c.ox,-c.oy);
+                  // Bandmassstab: ~8 Baender je 1024er-Kachel, Skala 0.37
+                  // -> ein Band ~47 px, an einer typischen Wand (100-150 px
+                  // projizierte Hoehe) 2-3 lesbare Baender. 0.37 ist zudem
+                  // ein krummes Verhaeltnis zu TILE/ROWH – kein Einrasten.
+                  const patC=patOf('ter_rock_cliff',0.37,0,0,0,imC);
+                  tex4.fillStyle=patC||'#8a7e68';
+                  tex4.fillRect(c.ox,c.oy,w,h);
+                  tex4.restore();
+                  // Facettenlicht der Wand uebernehmen: die Toene aus Pass 2
+                  // (liegen noch in _shadeTmp) weichgezeichnet als Weichlicht
+                  // auf die Wandtextur – die Wand bleibt im Halbschatten der
+                  // Vertex-Schattierung statt flach beleuchtet zu wirken
+                  {
+                    const bgC=this._blurTmp.getContext('2d');
+                    bgC.globalCompositeOperation='source-over';
+                    bgC.clearRect(0,0,w,h);
+                    this.blurInto(bgC, this._shadeTmp, 4);
+                    tex4.globalCompositeOperation='soft-light';
+                    tex4.globalAlpha=0.7;
+                    tex4.drawImage(this._blurTmp,0,0);
+                    tex4.globalAlpha=1;
+                  }
+                  tex4.globalCompositeOperation='destination-in';
+                  tex4.drawImage(this._maskTmp,0,0);
+                  tex4.globalCompositeOperation='source-over';
+                  g.globalAlpha=0.92;
+                  g.drawImage(this._texTmp, c.ox, c.oy);
+                  g.globalAlpha=1;
+                }
               }
             }
             // 4) Fugen + Kantenlicht, GERICHTET statt Drahtgitter: jede
