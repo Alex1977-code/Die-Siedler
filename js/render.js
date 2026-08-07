@@ -657,6 +657,10 @@ export class Renderer {
     {
       const perT=new Map();
       const gorge=[], ridgeSnow=[];
+      // Umbau 2.7b: der Massiv-Pass baut die Schlagschatten-Silhouette in
+      // _castTmp; aufgelegt wird sie erst NACH dem Bergfuss-Band (der
+      // Schatten liegt auch auf Geroell und Grasbuescheln der Ebene)
+      let castShadow=false;
       // Massiv-Zugehörigkeit: MOUNT/LAVA immer, SNOW nur als vereister Gipfelkamm.
       // Diese Knoten malt der Massiv-Pass komplett selbst – sie fallen aus den
       // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
@@ -1398,9 +1402,14 @@ export class Renderer {
               }
               if(nB){
                 g.lineCap='round'; g.lineJoin='round';
-                // zwei ineinanderliegende weiche Säume statt ctx.filter
-                g.strokeStyle='rgba(36,30,24,0.10)'; g.lineWidth=13; g.stroke(p1);
-                g.strokeStyle='rgba(36,30,24,0.12)'; g.lineWidth=6;  g.stroke(p1);
+                // zwei ineinanderliegende weiche Säume statt ctx.filter.
+                // Umbau 2.7a: auf Papier-Staerke angehoben (Ziel dort:
+                // 1-0.35*smoothstep(2,0,dist)) – zusammen mit dem neuen
+                // Schlagschatten der Ebene traegt der Fuss jetzt ~0.3
+                // Verdunklung an der Kante statt vorher ~0.2.
+                g.strokeStyle='rgba(36,30,24,0.11)'; g.lineWidth=24; g.stroke(p1);
+                g.strokeStyle='rgba(36,30,24,0.13)'; g.lineWidth=10; g.stroke(p1);
+                g.strokeStyle='rgba(36,30,24,0.10)'; g.lineWidth=4;  g.stroke(p1);
               }
             }
             // 5) Erzadern NUR dort, wo der Geologe geschürft hat – als weiche
@@ -1767,6 +1776,53 @@ export class Renderer {
                 }
             }
             g.restore();
+            // 7b) Umbau 2.7b (Gebirge-Papier): SCHLAGSCHATTEN – die Massiv-
+            //     Silhouette wird entlang des Lichtvektors (Sonne aus Nord-
+            //     west) auf die Ebene projiziert. Hier wird nur die scharfe
+            //     Sweep-Maske gebaut (Dreiecke in 3 Schritten hoehenabhaengig
+            //     versetzt, Massivflaeche ausgestanzt); weichgezeichnet und
+            //     aufgelegt wird sie NACH dem Bergfuss-Band. Alles bake-
+            //     zeitig im Chunk; chunkuebergreifend konsistent, weil die
+            //     Dreiecksliste die Massivknoten der Umgebung (3 Knoten
+            //     Ueberhang) mitliest und deterministisch ist.
+            {
+              if(!this._castTmp || this._castTmp.width!==w || this._castTmp.height!==h){
+                this._castTmp=document.createElement('canvas');
+                this._castTmp.width=w; this._castTmp.height=h;
+              }
+              const cg=this._castTmp.getContext('2d');
+              cg.globalCompositeOperation='source-over';
+              cg.clearRect(0,0,w,h);
+              cg.save(); cg.translate(-c.ox,-c.oy);
+              cg.fillStyle='#000';
+              const SHX=0.552, SHY=0.834;   // Gegenrichtung der Sonne
+              for(const t3 of tris){
+                // Schattenlaenge waechst mit der Hoehe: 0.8..2.6 Kacheln
+                const u4=Math.max(0,Math.min(1,
+                  ((hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3-hlo)/spanH));
+                const D=TILE*(0.8+1.8*u4);
+                for(const f9 of [0.35,0.7,1]){
+                  const dx=SHX*D*f9, dy=SHY*D*f9;
+                  cg.beginPath();
+                  cg.moveTo(t3.A[0]+dx,t3.A[1]+dy);
+                  cg.lineTo(t3.B[0]+dx,t3.B[1]+dy);
+                  cg.lineTo(t3.C[0]+dx,t3.C[1]+dy);
+                  cg.closePath();
+                  cg.fill();
+                }
+              }
+              // das Massiv wirft den Schatten, traegt ihn aber nicht selbst
+              cg.globalCompositeOperation='destination-out';
+              cg.beginPath();
+              for(const t3 of tris){
+                cg.moveTo(t3.A[0],t3.A[1]); cg.lineTo(t3.B[0],t3.B[1]);
+                cg.lineTo(t3.C[0],t3.C[1]); cg.closePath();
+              }
+              cg.fill();
+              cg.globalCompositeOperation='source-over';
+              cg.restore();
+              castShadow=true;
+            }
             // 8) Felsnadeln: schlanke, facettierte Einzelfelsen als Akzente
             //    auf offenen Felsflächen (Referenz: gestufte Nadel). NACH
             //    dem Massiv-Beschnitt gezeichnet – sie ragen über die
@@ -2191,30 +2247,9 @@ export class Renderer {
             g.drawImage(this._texTmp,0,0);
             g.globalAlpha=1;
           }
-          // ---- 4) Schlagschatten NUR auf der lichtabgewandten Südostseite ----
-          // Sonne steht wie beim Facettenlicht im Nordwesten. Der alte
-          // Rundum-Schatten machte aus jedem Randknoten einen Grauklecks –
-          // zusammen der kritisierte Nebelrahmen.
-          g.save(); g.translate(-c.ox,-c.oy);
-          for(const arr of [eScree,eSnow]) for(const e of arr){
-            const fac=e.ux*0.55+e.uy*0.83;
-            if(fac<=0.05) continue;
-            // zurückhaltend: an stark gewundenen Grenzen stapeln sich die
-            // Kleckse benachbarter Kanten – zu viel Alpha gäbe Schmutzflecken.
-            // Auf Schnee KÜHL und leiser: der warme Braunschatten stand als
-            // Dreckfleck im Weiß (Schnee schattet blaugrau).
-            const snowy=arr===eSnow;
-            const al=(snowy? 0.15 : 0.22)*Math.min(1,fac);
-            const ct=snowy? '88,96,122' : '38,34,30';
-            const sx5=e.mx+e.ux*10+5, sy5=e.my+e.uy*8+6;
-            const rg=g.createRadialGradient(sx5,sy5,3, sx5,sy5,30);
-            rg.addColorStop(0,'rgba('+ct+','+al.toFixed(3)+')');
-            rg.addColorStop(0.65,'rgba('+ct+','+(al*0.45).toFixed(3)+')');
-            rg.addColorStop(1,'rgba('+ct+',0)');
-            g.fillStyle=rg;
-            g.beginPath(); g.ellipse(sx5,sy5,30,24,0,0,7); g.fill();
-          }
-          g.restore();
+          // (---- 4) entfallen: die Radialkleckse auf der Suedostseite sind
+          // durch den PROJIZIERTEN Schlagschatten aus 2.7b ersetzt, der nach
+          // diesem Block als Ganzes aufgelegt wird.)
           // ---- 5) kantige TRÜMMERBLÖCKE laufen in die Ebene aus ----
           // Referenzstil: eckige Einzelblöcke mit heller Deckfläche und
           // dunkler Schattenseite statt runder Kiesel. Nicht auf Schnee
@@ -2254,6 +2289,28 @@ export class Renderer {
           }
           g.restore();
         }
+      }
+      // Umbau 2.7b (Gebirge-Papier): den in 7b gebauten Schlagschatten weich
+      // (blurInto, kein ctx.filter) auf die Ebene legen – NACH dem Bergfuss-
+      // Band, damit Geroell, Saum und Grasbueschel mit im Schatten liegen.
+      // Wiese x0.78 laut Papier -> deckendes Dunkel mit Alpha 0.22; im
+      // Winter kuehler und leiser (Schnee schattet blaugrau).
+      if(castShadow){
+        const bgS=this._blurTmp.getContext('2d');
+        bgS.globalCompositeOperation='copy';
+        bgS.fillStyle='rgba(0,0,0,0)'; bgS.fillRect(0,0,w,h);
+        bgS.globalCompositeOperation='source-over';
+        bgS.clearRect(0,0,w,h);
+        this.blurInto(bgS, this._castTmp, 8);
+        if(this.theme==='winter'){
+          bgS.globalCompositeOperation='source-in';
+          bgS.fillStyle='rgb(70,84,110)';
+          bgS.fillRect(0,0,w,h);
+          bgS.globalCompositeOperation='source-over';
+        }
+        g.globalAlpha= this.theme==='winter'? 0.16 : 0.22;
+        g.drawImage(this._blurTmp,0,0);
+        g.globalAlpha=1;
       }
       // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
       // im Weichlicht-Modus aufgelegt -> Hänge, Kuppen und Senken werden sichtbar
