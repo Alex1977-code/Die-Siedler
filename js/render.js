@@ -651,8 +651,24 @@ export class Renderer {
       ctx.globalCompositeOperation='source-over';
       return ctx;
     };
-    mkTmpC('_tmpChunk'); mkTmpC('_texTmp'); mkTmpC('_maskTmp');
-    mkTmpC('_shadeTmp'); mkTmpC('_blurTmp'); mkTmpC('_castTmp');
+    mkTmpC('_texTmp');
+    mkTmpC('_shadeTmp'); mkTmpC('_blurTmp');
+    // Gouraud-Basis, Reliefpass, Masken, Schattensilhouette und der
+    // Boden-Schichtenpass sind per Definition WEICHE Formen – sie backen
+    // in 1x (S wuerde nur Fuellrate kosten, keine Schaerfe bringen); die
+    // Compose-Schritte mit expliziten Zielmassen skalieren sie hoch.
+    const mkTmp1=(nm)=>{
+      if(!this[nm] || this[nm].width!==w || this[nm].height!==h){
+        this[nm]=document.createElement('canvas');
+        this[nm].width=w; this[nm].height=h;
+      }
+      const ctx=this[nm].getContext('2d');
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.globalCompositeOperation='source-over';
+      return ctx;
+    };
+    mkTmp1('_tmpChunk'); mkTmp1('_relTmp'); mkTmp1('_relTmp2');
+    mkTmp1('_maskTmp'); mkTmp1('_castTmp'); mkTmp1('_texTmp1');
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     const ncache=new Map();
     // 1) Dreiecksnetz auf Zwischenfläche zeichnen (mit breitem Überstand für nahtlose Chunks)
@@ -690,6 +706,9 @@ export class Renderer {
       // _castTmp; aufgelegt wird sie erst NACH dem Bergfuss-Band (der
       // Schatten liegt auch auf Geroell und Grasbuescheln der Ebene)
       let castShadow=false;
+      // Huellrechteck fuer die Schlagschatten-Anwendung (wird im
+      // Massiv-Pass gesetzt; Anwendung erfolgt erst nach dem Bergfuss-Band)
+      let sbx0=0, sby0=0, sbw=0, sbh=0;
       // Massiv-Zugehörigkeit: MOUNT/LAVA immer, SNOW nur als vereister Gipfelkamm.
       // Diese Knoten malt der Massiv-Pass komplett selbst – sie fallen aus den
       // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
@@ -800,7 +819,7 @@ export class Renderer {
       // Firndecke im Massiv-Pass
       if(ridgeSnow.length) layers.push({key:'firn', nodes:ridgeSnow,
         pat:this.asset('ter_firn')? 'firn' : TER.SNOW});
-      const tex=this._texTmp.getContext('2d');
+      const tex=this._texTmp1.getContext('2d');
       const mk=this._maskTmp.getContext('2d');
       for(const L of layers){
         const pat=this.terrainPattern(L.pat, tex);
@@ -848,10 +867,10 @@ export class Renderer {
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
-        tex.drawImage(this._maskTmp,0,0,w,h);
+        tex.drawImage(this._maskTmp,0,0);
         tex.globalCompositeOperation='source-over';
         g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
-        g.drawImage(this._texTmp,0,0,w,h);
+        g.drawImage(this._texTmp1,0,0,w,h);
         g.globalAlpha=1;
       }
       // Farb-Lasur: das weiche Farbnetz gibt Region, Küstennähe und Höhe vor,
@@ -860,7 +879,7 @@ export class Renderer {
         const bg=this._blurTmp.getContext('2d');
         bg.globalCompositeOperation='source-over';
         bg.clearRect(0,0,w,h);
-        this.blurInto(bg, this._tmpChunk, 9*S);
+        this.blurInto(bg, this._tmpChunk, 9, 1, W2, H2);
         g.save();
         g.globalCompositeOperation='color';
         g.globalAlpha=0.3;
@@ -1155,6 +1174,33 @@ export class Renderer {
               facet(i,iSE,iSW);
             }
           }
+          // Massiv-Hüllrechteck in CHUNK-LOKALEN Weltkoordinaten: die
+          // teuren Vollflächen-Pässe (Klippentextur, Firn, Schlagschatten,
+          // Geröllband) beschneiden ihre Füll-/Compose-Schritte darauf –
+          // auf Chunks mit schmalem Massivanteil spart das den Großteil
+          // der Füllrate der hochaufgelösten Bake-Flächen (G3-Budget).
+          let mbx0=1e9, mby0=1e9, mbx1=-1e9, mby1=-1e9;
+          for(const t3 of tris){
+            for(const P9 of [t3.A,t3.B,t3.C]){
+              if(P9[0]<mbx0) mbx0=P9[0];
+              if(P9[0]>mbx1) mbx1=P9[0];
+              if(P9[1]<mby0) mby0=P9[1];
+              if(P9[1]>mby1) mby1=P9[1];
+            }
+          }
+          const mrx0=mbx0-c.ox, mry0=mby0-c.oy, mrx1=mbx1-c.ox, mry1=mby1-c.oy;
+          mbx0=Math.max(0, mrx0-8); mby0=Math.max(0, mry0-8);
+          mbx1=Math.min(w, mrx1+8); mby1=Math.min(h, mry1+8);
+          const mbw=Math.max(0,mbx1-mbx0), mbh=Math.max(0,mby1-mby0);
+          // grosszuegigere Huelle fuer den Firn: die Zellen ragen (senkrecht
+          // gestreckt, ystr bis 1.8) gut 100 px ueber die Knoten hinaus
+          const fbx0=Math.max(0, mrx0-110), fby0=Math.max(0, mry0-110);
+          const fbx1=Math.min(w, mrx1+110), fby1=Math.min(h, mry1+110);
+          const fbw=Math.max(0,fbx1-fbx0), fbh=Math.max(0,fby1-fby0);
+          // Schlagschatten-Huelle: Versatz (bis 2.6 Kacheln) + Blur-Saum
+          sbx0=Math.max(0, mrx0-40); sby0=Math.max(0, mry0-40);
+          const sbx1=Math.min(w, mrx1+TILE*2.6*0.552+80), sby1=Math.min(h, mry1+TILE*2.6*0.834+80);
+          sbw=Math.max(0,sbx1-sbx0); sbh=Math.max(0,sby1-sby0);
           if(tris.length){
             g.save(); g.translate(-c.ox,-c.oy);
             // Massiv-Umriss als EIN Beschnittpfad – alles Weitere (Decke,
@@ -1404,10 +1450,13 @@ export class Renderer {
                 }
                 mk4.restore();
                 mk4.globalCompositeOperation='source-over';
-                if(anyC){
+                if(anyC && mbw>0 && mbh>0){
                   const tex4=this._texTmp.getContext('2d');
                   tex4.globalCompositeOperation='source-over';
                   tex4.clearRect(0,0,w,h);
+                  // alles auf das Massiv-Hüllrechteck beschneiden (G3-Budget)
+                  tex4.save();
+                  tex4.beginPath(); tex4.rect(mbx0,mby0,mbw,mbh); tex4.clip();
                   tex4.save(); tex4.translate(-c.ox,-c.oy);
                   // Bandmassstab: ~8 Baender je 1024er-Kachel, Skala 0.37
                   // -> ein Band ~47 px, an einer typischen Wand (100-150 px
@@ -1451,8 +1500,10 @@ export class Renderer {
                   tex4.globalCompositeOperation='destination-in';
                   tex4.drawImage(this._maskTmp,0,0,w,h);
                   tex4.globalCompositeOperation='source-over';
+                  tex4.restore();   // Hüllrechteck-Clip
                   g.globalAlpha=0.92;
-                  g.drawImage(this._texTmp, c.ox, c.oy, w, h);
+                  g.drawImage(this._texTmp, mbx0*S, mby0*S, mbw*S, mbh*S,
+                              c.ox+mbx0, c.oy+mby0, mbw, mbh);
                   g.globalAlpha=1;
                 }
               }
@@ -1787,10 +1838,13 @@ export class Renderer {
                   mk2.fill();
                 }
               mk2.restore();
-              if(anySnow){
+              if(anySnow && fbw>0 && fbh>0){
                 const tex2=this._texTmp.getContext('2d');
                 tex2.globalCompositeOperation='source-over';
                 tex2.clearRect(0,0,w,h);
+                // Firn-Huellrechteck (G3-Budget)
+                tex2.save();
+                tex2.beginPath(); tex2.rect(fbx0,fby0,fbw,fbh); tex2.clip();
                 tex2.save(); tex2.translate(-c.ox,-c.oy);
                 // bestellte Sastrugi-Kachel (ter_ridge_snow) GEDÄMPFT über
                 // weichem Firngrund: pur gefüllt las sich die hartkantige
@@ -1859,13 +1913,16 @@ export class Renderer {
                   bg2.fillRect(0,0,w,h);
                   bg2.globalCompositeOperation='source-over';
                   g.globalAlpha=0.30;
-                  g.drawImage(this._blurTmp, c.ox+1.8, c.oy+2.8, w, h);
+                  g.drawImage(this._blurTmp, fbx0*S, fby0*S, fbw*S, fbh*S,
+                              c.ox+fbx0+1.8, c.oy+fby0+2.8, fbw, fbh);
                 }
                 // fast deckend: einzelne dunkle Steilstufen mitten im
                 // Eisfeld sollen nur ahnbar durchscheinen
                 g.globalAlpha=0.94;
-                g.drawImage(this._texTmp, c.ox, c.oy, w, h);
+                g.drawImage(this._texTmp, fbx0*S, fby0*S, fbw*S, fbh*S,
+                            c.ox+fbx0, c.oy+fby0, fbw, fbh);
                 g.globalAlpha=1;
+                tex2.restore();   // Firn-Huellrechteck-Clip
                 // Umbau 2.6 (Gebirge-Papier): GLETSCHER als eigene Flaeche.
                 // Zusammenhaengende FLACHE Deckenbereiche oberhalb der
                 // Schneegrenze bekommen die Spalten-Kachel ter_glacier
@@ -1927,7 +1984,8 @@ export class Renderer {
                       // halbtransparent ueber dem Firn: die Sastrugi-Decke
                       // bleibt am Rand sichtbar, die Spaltenzeichnung traegt
                       g.globalAlpha=0.85;
-                      g.drawImage(this._texTmp, c.ox, c.oy, w, h);
+                      g.drawImage(this._texTmp, fbx0*S, fby0*S, fbw*S, fbh*S,
+                                  c.ox+fbx0, c.oy+fby0, fbw, fbh);
                       g.globalAlpha=1;
                       // Abbruchkante: Stempel an der Unterkante des Eisfelds,
                       // dort wo es deutlich zu einem kahlen Massivknoten
@@ -2335,6 +2393,26 @@ export class Renderer {
             };
             this.softShape(gctx, path, cx4, cy4, steps);
           };
+          // Band-Huellrechteck (G3-Budget): Trockensaum und Geroellband
+          // beschneiden ihre Vollflaechen-Schritte auf die Grenzkanten-
+          // Umgebung. Die SCHNEEWEHE bleibt unbeschnitten – ihre Zellen
+          // klettern die projizierten Waende weit ueber die Kantenmitte
+          // hinauf (ein zu enger Clip riss dort Sägezahn-Löcher).
+          let ebx0=1e9, eby0=1e9, ebx1=-1e9, eby1=-1e9;
+          for(const e of eScree){
+            if(e.mx<ebx0) ebx0=e.mx; if(e.mx>ebx1) ebx1=e.mx;
+            if(e.my<eby0) eby0=e.my; if(e.my>eby1) eby1=e.my;
+          }
+          ebx0=Math.max(0, ebx0-c.ox-115); eby0=Math.max(0, eby0-c.oy-115);
+          ebx1=Math.min(w, ebx1-c.ox+115); eby1=Math.min(h, eby1-c.oy+115);
+          const ebw=Math.max(0,ebx1-ebx0), ebh=Math.max(0,eby1-eby0);
+          const clipE=(ctx)=>{ ctx.save(); ctx.beginPath(); ctx.rect(ebx0,eby0,ebw,ebh); ctx.clip(); };
+          const drawE=(alpha)=>{
+            if(ebw<=0||ebh<=0) return;
+            g.globalAlpha=alpha;
+            g.drawImage(this._texTmp, ebx0*S, eby0*S, ebw*S, ebh*S, c.ox+ebx0, c.oy+eby0, ebw, ebh);
+            g.globalAlpha=1;
+          };
           // ---- 1) trockener Saum außen, nur gegen Wiese (im Winter liegt
           //         dort ohnehin Schnee statt Dürre) ----
           const dryE=eScree.filter(e=>e.tn===TER.GRASS);
@@ -2350,6 +2428,7 @@ export class Renderer {
             mk3.restore();
             tex3.globalCompositeOperation='source-over';
             tex3.clearRect(0,0,w,h);
+            clipE(tex3);
             // ausgedörrter Boden: flacher fahler Ton plus Sandkorn; die halbe
             // Deckkraft lässt die Graszeichnung durchscheinen -> vertrocknetes
             // Gras statt aufgemalter Farbstreifen
@@ -2365,9 +2444,8 @@ export class Renderer {
             tex3.globalCompositeOperation='destination-in';
             tex3.drawImage(this._maskTmp,0,0,w,h);
             tex3.globalCompositeOperation='source-over';
-            g.globalAlpha=0.42;
-            g.drawImage(this._texTmp,0,0,w,h);
-            g.globalAlpha=1;
+            tex3.restore();
+            drawE(0.42);
           }
           // ---- 2) Geröllband über der Grenze ----
           if(eScree.length){
@@ -2420,6 +2498,7 @@ export class Renderer {
             mk3.restore();
             tex3.globalCompositeOperation='source-over';
             tex3.clearRect(0,0,w,h);
+            clipE(tex3);
             tex3.save(); tex3.translate(-c.ox,-c.oy);
             const tile=this.screeTile(S);
             if(tile){
@@ -2471,9 +2550,8 @@ export class Renderer {
             }
             tex3.restore();
             tex3.globalCompositeOperation='source-over';
-            g.globalAlpha=0.94;
-            g.drawImage(this._texTmp,0,0,w,h);
-            g.globalAlpha=1;
+            tex3.restore();   // Band-Huellrechteck
+            drawE(0.94);
             // ---- 2b) Grasüberwuchs: von der Wiese her wachsen Büschel über
             //      den äußeren Bandrand – Fels und Wiese verzahnen sich,
             //      statt an einer Linie aneinanderzustoßen. Deterministisch
@@ -2659,7 +2737,7 @@ export class Renderer {
         bgS.fillStyle='rgba(0,0,0,0)'; bgS.fillRect(0,0,w,h);
         bgS.globalCompositeOperation='source-over';
         bgS.clearRect(0,0,w,h);
-        this.blurInto(bgS, this._castTmp, 8*S);
+        this.blurInto(bgS, this._castTmp, 8, 1, W2, H2);
         if(this.theme==='winter'){
           bgS.globalCompositeOperation='source-in';
           bgS.fillStyle='rgb(70,84,110)';
@@ -2667,13 +2745,18 @@ export class Renderer {
           bgS.globalCompositeOperation='source-over';
         }
         g.globalAlpha= this.theme==='winter'? 0.16 : 0.22;
-        g.drawImage(this._blurTmp,0,0,w,h);
+        if(sbw>0 && sbh>0)
+          g.drawImage(this._blurTmp, sbx0*S, sby0*S, sbw*S, sbh*S,
+                      c.ox+sbx0, c.oy+sby0, sbw, sbh);
         g.globalAlpha=1;
       }
       // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
       // im Weichlicht-Modus aufgelegt -> Hänge, Kuppen und Senken werden sichtbar
       {
-        const sg=this._shadeTmp.getContext('2d');
+        // in 1x-Aufloesung (_relTmp, siehe mkTmp1): der Pass ist ein
+        // weiches Verlaufsrelief – hoehere Bake-Aufloesung (G3) braechte
+        // keine Schaerfe, kostete aber die vierfache Fuellrate
+        const sg=this._relTmp.getContext('2d');
         sg.globalCompositeOperation='source-over';
         sg.clearRect(0,0,w,h);
         // Gouraud braucht eine transparente Fläche im Modus 'lighter';
@@ -2695,7 +2778,7 @@ export class Renderer {
         sg.restore();
         // nur dort belichten, wo überhaupt Gelände liegt
         sg.globalCompositeOperation='destination-in';
-        sg.drawImage(this._tmpChunk,0,0,w,h);
+        sg.drawImage(this._tmpChunk,0,0);
         sg.globalCompositeOperation='source-over';
         // Additiv-Überlauf kappen: an hohen Steilwänden überlappen sich die
         // PROJIZIERTEN Dreiecke (die obere Geländeetage schiebt sich auf dem
@@ -2706,19 +2789,19 @@ export class Renderer {
         // Alphamaske wird danach wiederhergestellt, sonst färbte der Deckel
         // auch das Nicht-Gelände ein.
         {
-          const bg2=this._blurTmp.getContext('2d');
+          const bg2=this._relTmp2.getContext('2d');
           bg2.globalCompositeOperation='copy';
-          bg2.drawImage(this._shadeTmp,0,0,w,h);
+          bg2.drawImage(this._relTmp,0,0);
           bg2.globalCompositeOperation='darken';
           bg2.fillStyle='rgb(188,180,162)';
           bg2.fillRect(0,0,w,h);
           bg2.globalCompositeOperation='destination-in';
-          bg2.drawImage(this._shadeTmp,0,0,w,h);
+          bg2.drawImage(this._relTmp,0,0);
           bg2.globalCompositeOperation='source-over';
         }
         g.save();
         g.globalCompositeOperation='soft-light';
-        g.drawImage(this._blurTmp,0,0,w,h);
+        g.drawImage(this._relTmp2,0,0,w,h);
         g.restore();
         // KEIN zweiter Durchgang mehr fürs Gebirge: die Felsplastik kommt
         // jetzt aus der Facettenschattierung des Massiv-Passes – doppelt
@@ -2971,17 +3054,17 @@ export class Renderer {
   // filterfreien Pfade; einen Filter-Zweig gibt es nicht mehr.
   // Verkleinern und wieder vergrößern: die bilineare Interpolation der GPU
   // ergibt eine sehr brauchbare Unschärfe und läuft überall.
-  blurInto(dst, src, radius, alpha=1){
-    const w=src.width, h=src.height;
+  blurInto(dst, src, radius, alpha=1, dw=0, dh=0){
+    const w=dw||src.width, h=dh||src.height;
     const f=Math.max(2, Math.round(radius*1.35));
-    const sw=Math.max(1,Math.round(w/f)), sh=Math.max(1,Math.round(h/f));
+    const sw=Math.max(1,Math.round(src.width/f)), sh=Math.max(1,Math.round(src.height/f));
     if(!this._blurA) this._blurA=document.createElement('canvas');
     const a2=this._blurA;
     if(a2.width!==sw||a2.height!==sh){ a2.width=sw; a2.height=sh; }
     const ag=a2.getContext('2d');
     ag.setTransform(1,0,0,1,0,0);
     ag.globalCompositeOperation='copy';
-    ag.imageSmoothingEnabled=true; ag.imageSmoothingQuality='high';
+    ag.imageSmoothingEnabled=true; ag.imageSmoothingQuality='medium';
     ag.drawImage(src,0,0,sw,sh);
     ag.globalCompositeOperation='source-over';
     dst.save();
@@ -2989,7 +3072,7 @@ export class Renderer {
     // Basis-Skalierung (Bake-Aufloesung), die hier nicht doppelt wirken darf
     dst.setTransform(1,0,0,1,0,0);
     dst.globalAlpha=alpha;
-    dst.imageSmoothingEnabled=true; dst.imageSmoothingQuality='high';
+    dst.imageSmoothingEnabled=true; dst.imageSmoothingQuality='medium';
     dst.drawImage(a2,0,0,sw,sh,0,0,w,h);
     dst.restore();
   }
@@ -4781,7 +4864,9 @@ export class Renderer {
         this._liftC=null;   // Anhebung haengt an den Minenknoten
       }
     }
-    this._chunkBudget=2;   // höchstens 2 veraltete Chunks je Frame neu aufbauen
+    // hoechstens 2 veraltete Chunks je Frame neu aufbauen; im teureren
+    // 2x-Bake (G3) nur 1 – die Nachbauten verteilen sich auf mehr Frames
+    this._chunkBudget= (this._chunkScale===2)? 1 : 2;
     // Kritik G3: Bake-Aufloesung an devicePixelRatio*Zoom koppeln. Ueber
     // q=1.75 backen Chunks doppelt aufgeloest (Fels so scharf wie die
     // Baeume), unter 1.35 wieder einfach – die Hysterese verhindert
@@ -5887,30 +5972,38 @@ export class Renderer {
     g.fillRect(0,0,this.vw,this.vh);
     g.globalCompositeOperation='source-over';
     // Tilt-Shift: weiche Unschärfebänder oben/unten -> Diorama-Gefühl.
-    // Ohne ctx.filter über Verkleinern/Vergrößern, damit es überall wirkt.
+    // Ohne ctx.filter (siehe blurInto: WebKit-Falschmeldung G2). SCHNELL:
+    // EIN kleiner Schnappschuss der beiden Randbänder je Frame (bilinear,
+    // keine High-Quality-Filterung – das kostete pro Band einen teuren
+    // Lese-/Resampling-Pass und verdoppelte die Frametime; auf iOS lief
+    // dieser Pfad schon immer) und daraus zwei Vergrößerungs-Züge je Band.
     {
       const dpr=this.dpr, band=Math.round(this.vh*0.14);
-      const soft=(sy,sh,dy,dh,f)=>{
-        if(sh<=0) return;
-        // kein ctx.filter (siehe blurInto): WebKit-Falschmeldung G2
-        const k=Math.max(2,Math.round(f*1.6));
-        const sw2=Math.max(1,Math.round(this.vw/k)), sh2=Math.max(1,Math.round(dh/k));
-        if(!this._tsTmp) this._tsTmp=document.createElement('canvas');
-        const t=this._tsTmp;
-        if(t.width!==sw2||t.height!==sh2){ t.width=sw2; t.height=sh2; }
-        const tg2=t.getContext('2d');
-        tg2.globalCompositeOperation='copy';
-        tg2.imageSmoothingQuality='high';
-        tg2.drawImage(this.cv, 0,sy,this.cv.width,sh, 0,0,sw2,sh2);
-        tg2.globalCompositeOperation='source-over';
-        g.imageSmoothingQuality='high';
-        g.drawImage(t, 0,0,sw2,sh2, 0,dy,this.vw,dh);
-      };
-      soft(0, band*dpr, 0, band, 2.4);
-      soft(this.cv.height-band*dpr, band*dpr, this.vh-band, band, 2.4);
       const b2=Math.round(band*0.55);
-      soft(band*dpr, b2*dpr, band, b2, 1.2);
-      soft(this.cv.height-(band+b2)*dpr, b2*dpr, this.vh-band-b2, b2, 1.2);
+      const K=4;                                  // Verkleinerungsfaktor
+      const sw2=Math.max(1,Math.round(this.vw/K));
+      const shTop=Math.max(1,Math.round((band+b2)/K));
+      if(!this._tsTmp) this._tsTmp=document.createElement('canvas');
+      const t=this._tsTmp;
+      if(t.width!==sw2||t.height!==shTop*2){ t.width=sw2; t.height=shTop*2; }
+      const tg2=t.getContext('2d');
+      tg2.globalCompositeOperation='copy';
+      // oberes und unteres Band in EINEM kleinen Canvas (bilinear)
+      tg2.drawImage(this.cv, 0,0,this.cv.width,(band+b2)*dpr, 0,0,sw2,shTop);
+      tg2.globalCompositeOperation='source-over';
+      tg2.drawImage(this.cv, 0,this.cv.height-(band+b2)*dpr,this.cv.width,(band+b2)*dpr,
+                    0,shTop,sw2,shTop);
+      const fTop=shTop/(band+b2);                 // Kleinbild-px je Bild-px
+      // starkes Band aussen, halbstarkes innen (wie zuvor 2.4/1.2)
+      g.globalAlpha=1;
+      g.drawImage(t, 0,0,sw2,band*fTop, 0,0,this.vw,band);
+      g.globalAlpha=0.55;
+      g.drawImage(t, 0,band*fTop,sw2,b2*fTop, 0,band,this.vw,b2);
+      g.globalAlpha=1;
+      g.drawImage(t, 0,shTop+b2*fTop,sw2,band*fTop, 0,this.vh-band,this.vw,band);
+      g.globalAlpha=0.55;
+      g.drawImage(t, 0,shTop,sw2,b2*fTop, 0,this.vh-band-b2,this.vw,b2);
+      g.globalAlpha=1;
     }
     // Kartenrand: außerhalb der Karte liegt kein Nichts, sondern ein
     // dunkler Saum, der weich zur Bildkante hin ausläuft. Vorher brach die
