@@ -590,12 +590,18 @@ export class Renderer {
   getChunk(cx,cy){
     const key=this.chunkKey(cx,cy);
     const ver=this.chunkVer.get(key)||0;
+    // Kritik G3: Chunks werden bei nahem Zoom in dpr-gekoppelter, DOPPELTER
+    // Aufloesung gebacken (S=2) und beim Zeichnen herunterskaliert – der
+    // Fels wird so scharf wie die pro Frame gezeichneten Baeume daneben.
+    // S bestimmt draw() aus dpr*zoom mit Hysterese (this._chunkScale).
+    const S=this._chunkScale||1;
     let c=this.chunks.get(key);
-    if(c && c.ver===ver){ c.used=this.time; return c; }
+    if(c && c.ver===ver && c.scale===S){ c.used=this.time; return c; }
     // Veralteter Chunk, aber Frame-Budget aufgebraucht? Dann diesmal den
     // alten Stand zeigen – mehrere gleichzeitig ungültige Chunks (frische
-    // Erzader am Chunk-Rand) bauen sich über die nächsten Frames verteilt
-    // neu auf, statt in EINEM Frame zu ruckeln.
+    // Erzader am Chunk-Rand, Aufloesungswechsel beim Zoomen) bauen sich
+    // über die nächsten Frames verteilt neu auf, statt in EINEM Frame zu
+    // ruckeln.
     if(c && this._chunkBudget!==undefined){
       if(this._chunkBudget<=0){ c.used=this.time; return c; }
       this._chunkBudget--;
@@ -603,33 +609,53 @@ export class Renderer {
     const m=this.game.map;
     const pad=TILE*1.5;
     const w=CHUNK*TILE+pad*2, h=CHUNK*ROWH+pad*2+HSCALE*8;
+    const W2=Math.round(w*S), H2=Math.round(h*S);
     if(!c){
       // Speicherbremse: jeder Chunk ist ein großes Canvas – selten benutzte
       // Chunks werden verworfen, bevor der Speicher auf dem Handy volläuft.
       // Gerade sichtbare (frisch benutzte) bleiben aber IMMER stehen, sonst
       // verwirft die Bremse bei maximalem Zoom-raus auf großen Bildschirmen
       // Chunks, die im nächsten Frame teuer neu gebaut werden müssten.
-      if(this.chunks.size>44){
+      // Gewichtet nach SPEICHER (S=2 wiegt 4x), damit die hochaufgeloesten
+      // Nah-Chunks das Handy-Budget nicht sprengen.
+      let mem=0; for(const cc of this.chunks.values()) mem+=cc.mem||1;
+      if(mem>46){
         const olds=[...this.chunks.entries()].sort((a2,b2)=>(a2[1].used||0)-(b2[1].used||0));
-        for(let k=0;k<16 && k<olds.length;k++){
+        for(let k=0;k<olds.length && mem>34;k++){
           if((olds[k][1].used||0) > this.time-400) break;
+          mem-=olds[k][1].mem||1;
           this.chunks.delete(olds[k][0]);
         }
       }
-      c={cv:document.createElement('canvas')}; c.cv.width=w; c.cv.height=h; this.chunks.set(key,c);
+      c={cv:document.createElement('canvas')}; this.chunks.set(key,c);
     }
     c.used=this.time;
     c.ver=ver;
+    c.scale=S; c.mem=S*S; c.dw=w; c.dh=h;
     c.ox=cx*CHUNK*TILE-pad; c.oy=cy*CHUNK*ROWH-pad-HSCALE*6;
+    if(c.cv.width!==W2 || c.cv.height!==H2){ c.cv.width=W2; c.cv.height=H2; }
     const g=c.cv.getContext('2d');
+    // Grundtransformation S: der GESAMTE Bake-Code arbeitet unveraendert in
+    // Weltpixeln; save/restore erhalten die Basis. Compose-Schritte zwischen
+    // den Zwischenflaechen geben die Zielgroesse (w,h) explizit an.
+    g.setTransform(S,0,0,S,0,0);
     g.clearRect(0,0,w,h);
+    // Zwischenflaechen zentral in Bake-Aufloesung anlegen (frueher verstreut)
+    const mkTmpC=(nm)=>{
+      if(!this[nm] || this[nm].width!==W2 || this[nm].height!==H2){
+        this[nm]=document.createElement('canvas');
+        this[nm].width=W2; this[nm].height=H2;
+      }
+      const ctx=this[nm].getContext('2d');
+      ctx.setTransform(S,0,0,S,0,0);
+      ctx.globalCompositeOperation='source-over';
+      return ctx;
+    };
+    mkTmpC('_tmpChunk'); mkTmpC('_texTmp'); mkTmpC('_maskTmp');
+    mkTmpC('_shadeTmp'); mkTmpC('_blurTmp'); mkTmpC('_castTmp');
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     const ncache=new Map();
     // 1) Dreiecksnetz auf Zwischenfläche zeichnen (mit breitem Überstand für nahtlose Chunks)
-    if(!this._tmpChunk || this._tmpChunk.width!==w || this._tmpChunk.height!==h){
-      this._tmpChunk=document.createElement('canvas');
-      this._tmpChunk.width=w; this._tmpChunk.height=h;
-    }
     const tg=this._tmpChunk.getContext('2d');
     tg.globalCompositeOperation='source-over';
     tg.clearRect(0,0,w,h);
@@ -651,7 +677,7 @@ export class Renderer {
     tg.restore();
     tg.globalCompositeOperation='source-over';
     // 2) direkt übernehmen – die Gouraud-Fläche ist bereits stufenlos
-    g.drawImage(this._tmpChunk,0,0);
+    g.drawImage(this._tmpChunk,0,0,w,h);
     // 3) Geländetexturen geschichtet: jede Terrainart bekommt eine weich
     //    gefiederte Maske; die Arten werden von "Untergrund" nach "Auflage"
     //    gezeichnet, dadurch gehen sie ineinander über statt hart zu stoßen.
@@ -765,11 +791,6 @@ export class Renderer {
              && m.nbs(i).some(q=>m.terr[q]===TER.SNOW && this.slopeOf(m,q)>0.42))
             ridgeSnow.push(i);
         }
-      if(!this._texTmp || this._texTmp.width!==w || this._texTmp.height!==h){
-        this._texTmp=document.createElement('canvas'); this._texTmp.width=w; this._texTmp.height=h;
-        this._maskTmp=document.createElement('canvas'); this._maskTmp.width=w; this._maskTmp.height=h;
-        this._shadeTmp=document.createElement('canvas'); this._shadeTmp.width=w; this._shadeTmp.height=h;
-      }
       // Zeichenreihenfolge: weiche Böden zuerst, Fels/Lava zuletzt
       // Fels wird NICHT weich eingeblendet – ihn zeichnet der Massiv-Pass
       // unten als durchgehende Felsdecke mit Facettenlicht.
@@ -827,27 +848,23 @@ export class Renderer {
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
-        tex.drawImage(this._maskTmp,0,0);
+        tex.drawImage(this._maskTmp,0,0,w,h);
         tex.globalCompositeOperation='source-over';
         g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
-        g.drawImage(this._texTmp,0,0);
+        g.drawImage(this._texTmp,0,0,w,h);
         g.globalAlpha=1;
       }
       // Farb-Lasur: das weiche Farbnetz gibt Region, Küstennähe und Höhe vor,
       // die Kachel behält ihre Zeichnung ('color' übernimmt nur Farbton)
-      if(this._blurTmp==null || this._blurTmp.width!==w || this._blurTmp.height!==h){
-        this._blurTmp=document.createElement('canvas');
-        this._blurTmp.width=w; this._blurTmp.height=h;
-      }
       {
         const bg=this._blurTmp.getContext('2d');
         bg.globalCompositeOperation='source-over';
         bg.clearRect(0,0,w,h);
-        this.blurInto(bg, this._tmpChunk, 9);
+        this.blurInto(bg, this._tmpChunk, 9*S);
         g.save();
         g.globalCompositeOperation='color';
         g.globalAlpha=0.3;
-        g.drawImage(this._blurTmp,0,0);
+        g.drawImage(this._blurTmp,0,0,w,h);
         g.restore();
       }
       // ---------- Bergmassiv: blockig facettierter Fels ----------
@@ -1270,7 +1287,7 @@ export class Renderer {
               // (2b Plattenvolumen entfällt: die interpolierte Vertex-
               //  Schattierung liefert das Volumen jetzt direkt)
               sg2.restore();
-              g.drawImage(this._shadeTmp, c.ox, c.oy);
+              g.drawImage(this._shadeTmp, c.ox, c.oy, w, h);
             }
             // 3) Detail-Lasur, Umbau 2.3 (Gebirge-Papier): die bestellte
             //    Platten-Kachel ter_rock_top (dicht gepackte kleine Platten,
@@ -1425,17 +1442,17 @@ export class Renderer {
                     const bgC=this._blurTmp.getContext('2d');
                     bgC.globalCompositeOperation='source-over';
                     bgC.clearRect(0,0,w,h);
-                    this.blurInto(bgC, this._shadeTmp, 4);
+                    this.blurInto(bgC, this._shadeTmp, 4*S);
                     tex4.globalCompositeOperation='soft-light';
                     tex4.globalAlpha=0.7;
-                    tex4.drawImage(this._blurTmp,0,0);
+                    tex4.drawImage(this._blurTmp,0,0,w,h);
                     tex4.globalAlpha=1;
                   }
                   tex4.globalCompositeOperation='destination-in';
-                  tex4.drawImage(this._maskTmp,0,0);
+                  tex4.drawImage(this._maskTmp,0,0,w,h);
                   tex4.globalCompositeOperation='source-over';
                   g.globalAlpha=0.92;
-                  g.drawImage(this._texTmp, c.ox, c.oy);
+                  g.drawImage(this._texTmp, c.ox, c.oy, w, h);
                   g.globalAlpha=1;
                 }
               }
@@ -1792,7 +1809,7 @@ export class Renderer {
                 }
                 tex2.restore();
                 tex2.globalCompositeOperation='destination-in';
-                tex2.drawImage(this._maskTmp,0,0);
+                tex2.drawImage(this._maskTmp,0,0,w,h);
                 // Relief AUF der Decke: die Facettentöne (liegen noch in
                 // _shadeTmp) scheinen gedämpft durchs Weiß – die Block-
                 // struktur bleibt unterm Schnee lesbar, mit kühlen
@@ -1808,7 +1825,7 @@ export class Renderer {
                   bg3.fillStyle='rgba(0,0,0,0)'; bg3.fillRect(0,0,w,h);
                   bg3.globalCompositeOperation='source-over';
                   bg3.clearRect(0,0,w,h);
-                  this.blurInto(bg3, this._shadeTmp, 4);
+                  this.blurInto(bg3, this._shadeTmp, 4*S);
                   // Dunkel-Deckel VOR dem Weichlicht: hohe Absturzwände
                   // liegen in den Facettentönen fast schwarz – durch das
                   // Weichlicht stachen sie als scharfer grauer Polygon-Dorn
@@ -1823,11 +1840,11 @@ export class Renderer {
                   bg3.globalCompositeOperation='source-over';
                   tex2.globalCompositeOperation='soft-light';
                   tex2.globalAlpha=0.62;
-                  tex2.drawImage(this._blurTmp,0,0);
+                  tex2.drawImage(this._blurTmp,0,0,w,h);
                   tex2.globalAlpha=1;
                 }
                 tex2.globalCompositeOperation='destination-in';
-                tex2.drawImage(this._maskTmp,0,0);
+                tex2.drawImage(this._maskTmp,0,0,w,h);
                 tex2.globalCompositeOperation='source-over';
                 // Schattenlippe: die dunkle Silhouette der Decke leicht nach
                 // Südost versetzt ZUERST – die harte Firnkante steht dadurch
@@ -1835,19 +1852,19 @@ export class Renderer {
                 {
                   const bg2=this._blurTmp.getContext('2d');
                   bg2.globalCompositeOperation='copy';
-                  bg2.drawImage(this._texTmp,0,0);
+                  bg2.drawImage(this._texTmp,0,0,w,h);
                   bg2.globalCompositeOperation='source-in';
                   // Spaltentiefe #5E7378 (Papier §3) statt Nachtblau
                   bg2.fillStyle='rgb(94,115,120)';
                   bg2.fillRect(0,0,w,h);
                   bg2.globalCompositeOperation='source-over';
                   g.globalAlpha=0.30;
-                  g.drawImage(this._blurTmp, c.ox+1.8, c.oy+2.8);
+                  g.drawImage(this._blurTmp, c.ox+1.8, c.oy+2.8, w, h);
                 }
                 // fast deckend: einzelne dunkle Steilstufen mitten im
                 // Eisfeld sollen nur ahnbar durchscheinen
                 g.globalAlpha=0.94;
-                g.drawImage(this._texTmp, c.ox, c.oy);
+                g.drawImage(this._texTmp, c.ox, c.oy, w, h);
                 g.globalAlpha=1;
                 // Umbau 2.6 (Gebirge-Papier): GLETSCHER als eigene Flaeche.
                 // Zusammenhaengende FLACHE Deckenbereiche oberhalb der
@@ -1905,12 +1922,12 @@ export class Renderer {
                       texG.fillRect(c.ox,c.oy,w,h);
                       texG.restore();
                       texG.globalCompositeOperation='destination-in';
-                      texG.drawImage(this._maskTmp,0,0);
+                      texG.drawImage(this._maskTmp,0,0,w,h);
                       texG.globalCompositeOperation='source-over';
                       // halbtransparent ueber dem Firn: die Sastrugi-Decke
                       // bleibt am Rand sichtbar, die Spaltenzeichnung traegt
                       g.globalAlpha=0.85;
-                      g.drawImage(this._texTmp, c.ox, c.oy);
+                      g.drawImage(this._texTmp, c.ox, c.oy, w, h);
                       g.globalAlpha=1;
                       // Abbruchkante: Stempel an der Unterkante des Eisfelds,
                       // dort wo es deutlich zu einem kahlen Massivknoten
@@ -2006,10 +2023,6 @@ export class Renderer {
             //     Dreiecksliste die Massivknoten der Umgebung (3 Knoten
             //     Ueberhang) mitliest und deterministisch ist.
             {
-              if(!this._castTmp || this._castTmp.width!==w || this._castTmp.height!==h){
-                this._castTmp=document.createElement('canvas');
-                this._castTmp.width=w; this._castTmp.height=h;
-              }
               const cg=this._castTmp.getContext('2d');
               cg.globalCompositeOperation='source-over';
               cg.clearRect(0,0,w,h);
@@ -2350,10 +2363,10 @@ export class Renderer {
               tex3.restore(); tex3.globalAlpha=1;
             }
             tex3.globalCompositeOperation='destination-in';
-            tex3.drawImage(this._maskTmp,0,0);
+            tex3.drawImage(this._maskTmp,0,0,w,h);
             tex3.globalCompositeOperation='source-over';
             g.globalAlpha=0.42;
-            g.drawImage(this._texTmp,0,0);
+            g.drawImage(this._texTmp,0,0,w,h);
             g.globalAlpha=1;
           }
           // ---- 2) Geröllband über der Grenze ----
@@ -2408,21 +2421,22 @@ export class Renderer {
             tex3.globalCompositeOperation='source-over';
             tex3.clearRect(0,0,w,h);
             tex3.save(); tex3.translate(-c.ox,-c.oy);
-            const tile=this.screeTile();
+            const tile=this.screeTile(S);
             if(tile){
-              // weltverankert wie die Felsdecke; Muster einmal erzeugt und
-              // über Chunks wiederverwendet
-              if(!this._screePatC){
+              // weltverankert wie die Felsdecke; Muster einmal je
+              // Bake-Aufloesung erzeugt und über Chunks wiederverwendet
+              if(!this._screePatC || this._screePatS!==S){
                 this._screePatC=tex3.createPattern(tile,'repeat');
                 if(this._screePatC.setTransform)
-                  this._screePatC.setTransform(new DOMMatrix().scale(0.66));
+                  this._screePatC.setTransform(new DOMMatrix().scale(0.66/S));
+                this._screePatS=S;
               }
               tex3.fillStyle=this._screePatC;
             } else tex3.fillStyle='#8b857c';   // Bild (noch) nicht da: neutraler Schutt
             tex3.fillRect(c.ox,c.oy,w,h);
             tex3.restore();
             tex3.globalCompositeOperation='destination-in';
-            tex3.drawImage(this._maskTmp,0,0);
+            tex3.drawImage(this._maskTmp,0,0,w,h);
             tex3.globalCompositeOperation='source-atop';
             // Farbangleich: die hellen trans_scree-Steine werden zur
             // Felsfarbe des Themas hingezogen – sonst steht ein fast weißes
@@ -2458,7 +2472,7 @@ export class Renderer {
             tex3.restore();
             tex3.globalCompositeOperation='source-over';
             g.globalAlpha=0.94;
-            g.drawImage(this._texTmp,0,0);
+            g.drawImage(this._texTmp,0,0,w,h);
             g.globalAlpha=1;
             // ---- 2b) Grasüberwuchs: von der Wiese her wachsen Büschel über
             //      den äußeren Bandrand – Fels und Wiese verzahnen sich,
@@ -2557,10 +2571,10 @@ export class Renderer {
             tex3.fillRect(c.ox,c.oy,w,h);
             tex3.restore();
             tex3.globalCompositeOperation='destination-in';
-            tex3.drawImage(this._maskTmp,0,0);
+            tex3.drawImage(this._maskTmp,0,0,w,h);
             tex3.globalCompositeOperation='source-over';
             g.globalAlpha=0.97;
-            g.drawImage(this._texTmp,0,0);
+            g.drawImage(this._texTmp,0,0,w,h);
             g.globalAlpha=1;
           }
           // (---- 4) entfallen: die Radialkleckse auf der Suedostseite sind
@@ -2645,7 +2659,7 @@ export class Renderer {
         bgS.fillStyle='rgba(0,0,0,0)'; bgS.fillRect(0,0,w,h);
         bgS.globalCompositeOperation='source-over';
         bgS.clearRect(0,0,w,h);
-        this.blurInto(bgS, this._castTmp, 8);
+        this.blurInto(bgS, this._castTmp, 8*S);
         if(this.theme==='winter'){
           bgS.globalCompositeOperation='source-in';
           bgS.fillStyle='rgb(70,84,110)';
@@ -2653,7 +2667,7 @@ export class Renderer {
           bgS.globalCompositeOperation='source-over';
         }
         g.globalAlpha= this.theme==='winter'? 0.16 : 0.22;
-        g.drawImage(this._blurTmp,0,0);
+        g.drawImage(this._blurTmp,0,0,w,h);
         g.globalAlpha=1;
       }
       // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
@@ -2681,7 +2695,7 @@ export class Renderer {
         sg.restore();
         // nur dort belichten, wo überhaupt Gelände liegt
         sg.globalCompositeOperation='destination-in';
-        sg.drawImage(this._tmpChunk,0,0);
+        sg.drawImage(this._tmpChunk,0,0,w,h);
         sg.globalCompositeOperation='source-over';
         // Additiv-Überlauf kappen: an hohen Steilwänden überlappen sich die
         // PROJIZIERTEN Dreiecke (die obere Geländeetage schiebt sich auf dem
@@ -2694,17 +2708,17 @@ export class Renderer {
         {
           const bg2=this._blurTmp.getContext('2d');
           bg2.globalCompositeOperation='copy';
-          bg2.drawImage(this._shadeTmp,0,0);
+          bg2.drawImage(this._shadeTmp,0,0,w,h);
           bg2.globalCompositeOperation='darken';
           bg2.fillStyle='rgb(188,180,162)';
           bg2.fillRect(0,0,w,h);
           bg2.globalCompositeOperation='destination-in';
-          bg2.drawImage(this._shadeTmp,0,0);
+          bg2.drawImage(this._shadeTmp,0,0,w,h);
           bg2.globalCompositeOperation='source-over';
         }
         g.save();
         g.globalCompositeOperation='soft-light';
-        g.drawImage(this._blurTmp,0,0);
+        g.drawImage(this._blurTmp,0,0,w,h);
         g.restore();
         // KEIN zweiter Durchgang mehr fürs Gebirge: die Felsplastik kommt
         // jetzt aus der Facettenschattierung des Massiv-Passes – doppelt
@@ -2965,11 +2979,15 @@ export class Renderer {
     const a2=this._blurA;
     if(a2.width!==sw||a2.height!==sh){ a2.width=sw; a2.height=sh; }
     const ag=a2.getContext('2d');
+    ag.setTransform(1,0,0,1,0,0);
     ag.globalCompositeOperation='copy';
     ag.imageSmoothingEnabled=true; ag.imageSmoothingQuality='high';
     ag.drawImage(src,0,0,sw,sh);
     ag.globalCompositeOperation='source-over';
     dst.save();
+    // rein in PIXELN arbeiten – die Chunk-Kontexte tragen seit G3 eine
+    // Basis-Skalierung (Bake-Aufloesung), die hier nicht doppelt wirken darf
+    dst.setTransform(1,0,0,1,0,0);
     dst.globalAlpha=alpha;
     dst.imageSmoothingEnabled=true; dst.imageSmoothingQuality='high';
     dst.drawImage(a2,0,0,sw,sh,0,0,w,h);
@@ -3238,13 +3256,16 @@ export class Renderer {
   // werden zufällig gedrehte Ausschnitte mit Umgriff (±Kachelmaß in beide
   // Richtungen) übereinandergeworfen – das Ergebnis kachelt nahtlos und
   // liefert dem Geröllband am Bergfuß echte Einzelsteine statt Grauschleier.
-  screeTile(){
-    if(this._screeTile) return this._screeTile;
+  screeTile(res=1){
+    if(this._screeTile && this._screeTileRes===res) return this._screeTile;
     const img=this.asset('trans_scree');
     if(!img) return null;                 // noch nicht geladen -> später erneut
     const S=256;
-    const cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+    // res>1 (G3): Kachel in Bake-Aufloesung – gleiche Weltmasse, mehr Pixel
+    const cv=document.createElement('canvas'); cv.width=S*res; cv.height=S*res;
     const t=cv.getContext('2d');
+    t.scale(res,res);
+    this._screeTileRes=res;
     const W=img.naturalWidth, H=img.naturalHeight;
     for(let k=0;k<46;k++){
       const sw=Math.min(W, 70+hash01(k*7+1)*60);
@@ -4761,6 +4782,18 @@ export class Renderer {
       }
     }
     this._chunkBudget=2;   // höchstens 2 veraltete Chunks je Frame neu aufbauen
+    // Kritik G3: Bake-Aufloesung an devicePixelRatio*Zoom koppeln. Ueber
+    // q=1.75 backen Chunks doppelt aufgeloest (Fels so scharf wie die
+    // Baeume), unter 1.35 wieder einfach – die Hysterese verhindert
+    // Rebake-Pendeln beim Pinch. Der Wechsel invalidiert die Chunks ueber
+    // den c.scale-Vergleich in getChunk, verteilt aufs Frame-Budget.
+    {
+      const q=this.dpr*cam.z;
+      const cs=this._chunkScale||1;
+      if(cs===1 && q>1.75) this._chunkScale=2;
+      else if(cs===2 && q<1.35) this._chunkScale=1;
+      else if(!this._chunkScale) this._chunkScale=cs;
+    }
     const halfW=this.vw/2/cam.z, halfH=this.vh/2/cam.z;
     const wx0=cam.x-halfW-TILE*2, wx1=cam.x+halfW+TILE*2;
     const wy0=cam.y-halfH-ROWH*2, wy1=cam.y+halfH+ROWH*3;
@@ -4769,7 +4802,16 @@ export class Renderer {
     for(let cy=Math.max(0,cy0); cy<=Math.min(Math.ceil(m.h/CHUNK)-1,cy1); cy++)
       for(let cx=Math.max(0,cx0); cx<=Math.min(Math.ceil(m.w/CHUNK)-1,cx1); cx++){
         const c=this.getChunk(cx,cy);
-        g.drawImage(c.cv, c.ox, c.oy);
+        // Nur den SICHTBAREN Ausschnitt zeichnen (Quellrechteck in
+        // Bake-Pixeln, Ziel in Weltpixeln): das Herunterfiltern des ganzen
+        // hochaufgeloesten Canvas (G3) kostete sonst ein Vielfaches des
+        // Sichtfelds an Fuellrate – gerade auf dem Handy.
+        const sc=c.scale||1;
+        const ix0=Math.max(c.ox, wx0-8), ix1=Math.min(c.ox+c.dw, wx1+8);
+        const iy0=Math.max(c.oy, wy0-8), iy1=Math.min(c.oy+c.dh, wy1+8);
+        if(ix1<=ix0 || iy1<=iy0) continue;
+        g.drawImage(c.cv, (ix0-c.ox)*sc, (iy0-c.oy)*sc, (ix1-ix0)*sc, (iy1-iy0)*sc,
+                    ix0, iy0, ix1-ix0, iy1-iy0);
       }
     const x0=Math.max(0,Math.floor(wx0/TILE)-1), x1=Math.min(m.w-1,Math.ceil(wx1/TILE)+1);
     const y0=Math.max(0,Math.floor(wy0/ROWH)-2), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+6);
