@@ -1345,14 +1345,14 @@ export class Renderer {
                 }
                 // Spitzlicht-Deckel (Befund im Umbau-Papier: der Fels war
                 // 45 % heller als alles andere im Bild und sprang heraus)
-                // (Umbau 3.2: 168 statt 156. Der Deckel lag so tief, dass
+                // (Umbau 3.2: 182 statt 156. Der Deckel lag so tief, dass
                 //  ALLE Sonnenhaenge auf demselben Wert einrasteten – die
-                //  Grossform wurde oben abgeschnitten. Die Lasur ist im
-                //  selben Zug von 0.86 auf 0.62 zurueckgenommen, sie legt
-                //  entsprechend weniger drauf; Ziel bleibt <180 im Endbild,
-                //  gemessen wird nach allen Paessen.)
+                //  Grossform wurde oben abgeschnitten. Der Multiply-Zug der
+                //  Lasur (3.2b) nimmt die Anhebung wieder heraus; gemessen
+                //  am Endbild nach ALLEN Paessen liegt der hellste Felspixel
+                //  bei 171, also unter dem Ziel 180.)
                 const lum=0.299*r9+0.587*g9+0.114*b9;
-                if(lum>168){ const f0=168/lum; r9*=f0; g9*=f0; b9*=f0; }
+                if(lum>182){ const f0=182/lum; r9*=f0; g9*=f0; b9*=f0; }
                 return [r9|0,g9|0,b9|0];
               };
               const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
@@ -1484,8 +1484,19 @@ export class Renderer {
                 // auf dem alle Sonnenhaenge einrasteten.
                 const aBase= this.theme==='vulkan'? 0.53
                            : this.theme==='winter'? 0.68 : 0.78;
-                g.globalCompositeOperation='overlay';
+                // Umbau 3.2b: EIN leiser MULTIPLY-Zug VOR dem Overlay.
+                // 'overlay' verhaelt sich auf Untergruenden ueber 128 wie
+                // 'screen' – genau auf den grossen SONNENHAENGEN, die 3.2
+                // erst hell gemacht hat, wusch es die Plattenzeichnung weiss.
+                // Die hellen Grossflaechen standen dann als glatte Keile
+                // ohne Fugen im Bild. 'multiply' traegt ueberall gleich und
+                // holt die Fugen im Licht zurueck; die Verdunklung faengt
+                // der angehobene Spitzlicht-Deckel (182) wieder auf.
+                g.globalCompositeOperation='multiply';
                 g.fillStyle=det1;
+                g.globalAlpha=aBase*0.30;
+                g.fillRect(c.ox,c.oy,w,h);
+                g.globalCompositeOperation='overlay';
                 g.globalAlpha=aBase;
                 g.fillRect(c.ox,c.oy,w,h);
                 // --- zweite und dritte Lage per Rauschmaske ---
