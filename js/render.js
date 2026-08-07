@@ -1403,8 +1403,8 @@ export class Renderer {
                 // Lasur-Alpha ist am Kennwert aus 11.1 eingestellt (gemessen
                 // am Endbild, nicht geschaetzt). Auf dunklem Vulkanfels
                 // wirkt die Aufhellung doppelt so stark -> dort drosseln.
-                const aBase= this.theme==='vulkan'? 0.62
-                           : this.theme==='winter'? 0.74 : 0.86;
+                const aBase= this.theme==='vulkan'? 0.54
+                           : this.theme==='winter'? 0.72 : 0.86;
                 g.globalCompositeOperation='overlay';
                 g.fillStyle=det1;
                 g.globalAlpha=aBase;
@@ -1585,25 +1585,28 @@ export class Renderer {
                   tex4.beginPath(); tex4.rect(mbx0,mby0,mbw,mbh); tex4.clip();
                   tex4.save(); tex4.translate(-c.ox,-c.oy);
                   // Bandmassstab: die Wandkachel ist 1024x1536 (Stilguide
-                  // 11.11), ihre Saeulen laufen ueber die volle Hoehe, die
-                  // Baender liegen quer. Skala 0.37 in x -> Kachelbreite
-                  // ~379 px, eine Saeule ~50 px; 0.37 ist ein krummes
-                  // Verhaeltnis zu TILE/ROWH – kein Einrasten am Gitter.
+                  // 11.11) und traegt Bloecke von rund 135x140 Bildpixeln.
+                  // scX=0.225 -> eine Saeule ist 30 Weltpixel breit, gut ein
+                  // halber Knotenabstand; ueber eine typische Wand laufen
+                  // damit 3-5 Saeulen. 0.225 ist ein krummes Verhaeltnis zu
+                  // TILE/ROWH – kein Einrasten am Gitter.
                   //
                   // Stilguide 11.11: cliffScale.y = cliffScale.x * 1.5 / 0.64
-                  // (Seitenverhaeltnis x Stauchung bei 40 Grad). Die Formel
-                  // ist in SHADER-Schreibweise notiert: dort ist "scale" die
-                  // Zahl der Wiederholungen je Welteinheit, also der KEHRWERT
-                  // eines Zeichenfaktors, und das Seitenverhaeltnis 1.5 muss
-                  // dort von Hand hinein, weil der Shader auf eine quadrat-
-                  // ische Kachel normiert. patOf zeichnet das Bild in seinem
-                  // EIGENEN Format 1024:1536 – der Faktor 1.5 steckt also
-                  // schon im Bild. Uebrig bleibt die Stauchung bei 40 Grad:
-                  //     scY = scX * 0.64      (= scX * 1.5 / (1.5/0.64))
-                  // Damit steht die Schichtung wieder in der Kameraneigung
-                  // statt um 1.5 daneben.
-                  const CST=0.64;
-                  const patC=patOf('ter_rock_cliff',0.37,0,0,0,imC,0.37*CST);
+                  // (Seitenverhaeltnis x Stauchung bei 40 Grad) = 2.344.
+                  // Die Wandkachel ist mit 1024x1536 nicht quadratisch, ihre
+                  // Bloecke sind im Bild rund 135x140 px, also fast quadrat-
+                  // isch. Uniform gezeichnet stehen auf dem Schirm ebenso
+                  // quadratische Bloecke – und damit fuehrt die waagerechte
+                  // SCHICHTUNG, was 11.8 ausdruecklich verbietet
+                  // ("Wandtextur wie Trockenmauerwerk: Schichtung fuehrt
+                  // statt zu folgen -> Baender zuruecknehmen, Saeulen
+                  // dominieren lassen"). Mit der Formel wird die Kachel in
+                  // der Hoehe gestreckt: aus 30x31 px Bloecken werden
+                  // 30x74 px SAEULEN, die Baender treten zurueck. Das
+                  // arbeitet zugleich gegen Leitlinie B – waagerechte
+                  // Baender auf jeder Terrassenstufe lasen sich als Treppe.
+                  const CST=1.5/0.64;
+                  const patC=patOf('ter_rock_cliff',0.19,0,0,0,imC,0.19*CST);
                   tex4.fillStyle=patC||'#8a7e68';
                   tex4.fillRect(c.ox,c.oy,w,h);
                   // Leitlinie B (keine gleichmaessigen TREPPEN): jedes WAND-
@@ -1615,9 +1618,9 @@ export class Renderer {
                   const imC2=this.felsLasur('ter_rock_cliff2')||imC;
                   const LAGEN=[
                     // [von, bis, Bild, scX, tx, ty]
-                    [0.30,0.55, imC,  0.455, 37, 61],
-                    [0.55,0.80, imC2, 0.37,  0,  0],
-                    [0.80,1.01, imC2, 0.425, 91, 23],
+                    [0.30,0.55, imC,  0.237, 37, 61],
+                    [0.55,0.80, imC2, 0.19,   0,  0],
+                    [0.80,1.01, imC2, 0.221, 91, 23],
                   ];
                   for(const L of LAGEN){
                     const pL=patOf(L[2]===imC?'ter_rock_cliff':'ter_rock_cliff2',
@@ -3713,10 +3716,10 @@ export class Renderer {
     // sein – die Farbe kommt aus der Palette in colAt, die Lasur liefert
     // nur die Zeichnung. Mit voller Kachelsaettigung landete der Fels im
     // Endbild bei 0.58 statt bei den geforderten 0.38-0.42.
-    const d=0.95;                       // Entsaettigung der Lasur
+    const d=0.97;                       // Entsaettigung der Lasur
     const cc=[P[0]+(Lp-P[0])*d, P[1]+(Lp-P[1])*d, P[2]+(Lp-P[2])*d];
     t.globalCompositeOperation='color';
-    t.globalAlpha=0.92;
+    t.globalAlpha=0.94;
     t.fillStyle='rgb('+(cc[0]|0)+','+(cc[1]|0)+','+(cc[2]|0)+')';
     t.fillRect(0,0,W,H);
     t.globalAlpha=1;
