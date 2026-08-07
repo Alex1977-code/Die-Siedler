@@ -209,8 +209,10 @@ export function genWorld(opts){
   // RINGMASSIV GEZIELT ANFORDERN (für Kampagnenkarten):
   //     genWorld({ ..., ringMassiv:true })  -> das erste Massiv wird Kessel
   //     genWorld({ ..., ringMassiv:3 })     -> die ersten drei werden Kessel
-  //   Ohne Angabe entsteht ein Kessel mit Wahrscheinlichkeit RING_P, also
-  //   etwa bei jeder fünften Massivsetzung.
+  //   Ohne Angabe entscheidet RING_P; zusammen mit der Obergrenze RING_MAX
+  //   (s.u.) ergibt das gemessen über 40 Karten jede 5,0. Massivsetzung.
+  //   genWorld liefert die gesetzten Körper als `massive` zurück
+  //   ([{cx,cy,R,form}]) – daran findet ein Kampagnenskript den Kessel wieder.
   const ROWQ = ROWH/TILE;                // Zeilenabstand im Spaltenmaß
   const RING_P = 0.26;
 
@@ -256,7 +258,7 @@ export function genWorld(opts){
     const cs=Math.cos(M.dreh), sn=Math.sin(M.dreh);
     const u=(dx*cs+dy*sn)/M.streck, v=(-dx*sn+dy*cs)*M.streck;
     const r=Math.hypot(u,v);
-    if(r>M.R*1.45) return -1;
+    if(r>M.R*1.45) return -9;              // Fernfeld-Kennwert, s.u. in stempeln
     const th=Math.atan2(v,u);
     const Rl=M.R*(1 + M.a2*Math.sin(2*th+M.p1) + M.a3*Math.sin(3*th+M.p2)
                     + M.a5*Math.sin(5*th+M.p3));
@@ -270,7 +272,7 @@ export function genWorld(opts){
     let s=Math.min(1, (tIn-0.30)/0.27, (1.02-t)/0.27);
     // Pässe: ein Schlitz konstanter Breite vom Tal nach außen. Im Kern ganz
     // offen (der Abzug übersteigt jede mögliche Kranzhöhe, das Umrissrauschen
-    // kann ihn nicht zuwachsen lassen), daneben ein Saum von 1,6 Knoten.
+    // kann ihn nicht zuwachsen lassen), daneben ein Saum von einem Knoten.
     for(const p of M.paesse){
       const dth=th-p.th;
       const entlang=r*Math.cos(dth), quer=Math.abs(r*Math.sin(dth));
@@ -296,7 +298,11 @@ export function genWorld(opts){
     for(let Y=y0;Y<=y1;Y++) for(let X=x0;X<=x1;X++){
       const i=map.idx(X,Y), px=X+(Y&1)*0.5, py=Y*ROWQ;
       let s=massivWert(M,px,py);
-      if(s<=-0.4) continue;
+      // NUR das Fernfeld überspringen. Nicht nach s abschneiden: im Pass-
+      // Schlitz ist s stark negativ, und genau dort müssen Vorland- und
+      // Talmarke gesetzt werden – sonst bliebe der Durchlass im Winter
+      // Schnee und der Zeichner läse ihn als Massivfläche.
+      if(s<=-8) continue;
       // ausgefranster Saum: das Rauschen verbeult nur den äußersten Rand,
       // der Körper selbst bleibt geschlossen
       s += (sample(grids[3], X*2.7+M.cx*3.1, Y*2.7+M.cy*2.3)-0.5)*0.34;
