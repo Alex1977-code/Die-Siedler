@@ -833,7 +833,8 @@ export class Renderer {
   }
   zeichneSingvogel(g, v){
     const S=3.1*v.s;
-    const a=v.flug? Math.max(0.05, 0.20-v.hoehe*0.006) : 0.22;
+    // Schatten verblasst mit der Höhe – das gilt fürs Auffliegen wie fürs Hüpfen
+    const a=Math.max(0.05, 0.22-v.hoehe*0.006);
     this.shadow(g, v.x+1, v.gy+1.4, S*0.7*(v.flug?0.7:1), S*0.24, a);
     g.save();
     g.translate(v.x, v.y);
