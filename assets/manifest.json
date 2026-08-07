@@ -363,5 +363,9 @@
 "tool_hacke.png",
 "tool_hammer.png",
 "tool_angel.png",
-"tool_saatsack.png"
+"tool_saatsack.png",
+"ter_rock_top.png",
+"ter_rock_cliff.png",
+"obj_cliff_ledge.png",
+"obj_glacier_snout.png"
 ]
