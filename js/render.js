@@ -1883,6 +1883,44 @@ export class Renderer {
                     this.rockChunklet(g, bx7, by7, 2.8+hash01(i*37+k7)*3.4, i*5+k7);
                   }
                 }
+              // 8b) Felsvorsprung (obj_cliff_ledge): seltener Akzent an
+              //     HOHEN Terrassenkanten – dort, wo das terrassierte Feld
+              //     zu einem deutlich tieferen Nachbarn abbricht. Der
+              //     Balkon sitzt auf der Brinklinie und ragt hangab.
+              {
+                const ledge=this.tintedSpire('obj_cliff_ledge');
+                if(ledge){
+                  for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
+                    for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
+                      const i=m.idx(x,y);
+                      if(m.terr[i]!==TER.MOUNT) continue;
+                      if(hash01(i*97+13)>=0.05) continue;
+                      if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
+                      if(m.pass && m.pass[i]) continue;
+                      if(signs && signs.has(i)) continue;
+                      if(roadSet.has(i)) continue;
+                      if(firnY<90 && m.hgt[i]>firnY-0.5) continue;  // nicht im Firn
+                      // hoechste Abbruchkante zum Nachbarn suchen
+                      let best8=-1, bd8=0;
+                      for(const q of m.nbs(i)){
+                        if(!isMassif(q)) continue;
+                        const d=hgtT(i)-hgtT(q);
+                        if(d>bd8){ bd8=d; best8=q; }
+                      }
+                      if(best8<0 || bd8<1.25) continue;
+                      const [px,py]=pos(i), [qx8,qy8]=pos(best8);
+                      const mx8=px*0.55+qx8*0.45, my8=py*0.55+qy8*0.45;
+                      const lh=40+hash01(i*41+7)*18;
+                      const lw=lh*(ledge.width/ledge.height);
+                      g.save();
+                      if(qx8<px){ g.translate(mx8,0); g.scale(-1,1); g.translate(-mx8,0); }
+                      g.fillStyle='rgba(30,27,23,0.24)';
+                      g.beginPath(); g.ellipse(mx8+lw*0.08,my8+3,lw*0.34,lh*0.10,0,0,7); g.fill();
+                      g.drawImage(ledge, mx8-lw/2, my8+4-lh, lw, lh);
+                      g.restore();
+                    }
+                }
+              }
               g.restore();
             }
           }
@@ -2083,20 +2121,32 @@ export class Renderer {
               // weiter Verlauf läse sich wieder als grauer Nebel auf der Wiese
               // innen: deckt die Wurzeln der Dreieckszähne des Beschnitts
               cell(mk3, e, e.mx-e.ux*13+tx*tj*0.6, e.my-e.uy*11+ty*tj*0.5, 17+h4*5, 2);
+              // Umbau 2.8 (Gebirge-Papier): das Band darf NIRGENDS gleich-
+              // maessig breit laufen. Das korrelierte Rauschen wn steuert
+              // die Aussenmasse jetzt mit VOLLEM Hub (an wn-Taelern schnuert
+              // sich das Band bis fast auf null ein, an Kaemmen schwillt es
+              // ueber eine halbe Kachel an), die Franszone insgesamt reicht
+              // mit den Zungen ~1,5 Kacheln in die Wiese.
               // Hauptmasse als ZWEI kleinere, längs versetzte Zellen statt
               // einer großen: EINE Beule je Kante ergab trotz Jitter einen
               // gleichmäßigen Wellenrhythmus entlang der ganzen Grenze
               const o5=8+h4*9, o6=-(7+hash01(e.i*47+e.n)*9);
-              cell(mk3, e, e.mx+e.ux*(3+wn*6)+tx*o5, e.my+e.uy*(2+wn*5)+ty*o5*0.8, 14+wn*10+h4*5, 3);
-              cell(mk3, e, e.mx+e.ux*(1+wn*5)+tx*o6, e.my+e.uy*(1+wn*4)+ty*o6*0.8, 11+hash01(e.i*31+e.n*3)*9+wn*6, 3);
+              if(wn>0.16 || h4>0.55)
+                cell(mk3, e, e.mx+e.ux*(3+wn*9)+tx*o5, e.my+e.uy*(2+wn*7)+ty*o5*0.8, 8+wn*19+h4*5, 3);
+              if(wn>0.10 || h4<0.45)
+                cell(mk3, e, e.mx+e.ux*(1+wn*6)+tx*o6, e.my+e.uy*(1+wn*5)+ty*o6*0.8, 7+hash01(e.i*31+e.n*3)*8+wn*11, 3);
               // Zunge hangabwärts – Geröll fließt der Falllinie nach
-              if(h4<0.5){
+              if(h4<0.62){
                 let dx4=e.ux, dy4=e.uy;
                 const gr=this.gradOf(m,e.n);
                 if(gr){ dx4=-gr[0]; dy4=-gr[1]; }
                 // nur wenn die Zunge vom Berg WEG zeigt
-                if(dx4*e.ux+dy4*e.uy>0.1)
-                  cell(mk3, e, e.mx+e.ux*6+dx4*(12+h4*24), e.my+e.uy*5+dy4*(10+h4*19), 9+h4*7, 3);
+                if(dx4*e.ux+dy4*e.uy>0.1){
+                  cell(mk3, e, e.mx+e.ux*6+dx4*(12+h4*30), e.my+e.uy*5+dy4*(10+h4*24), 9+h4*7, 3);
+                  // lange Zungen laufen in einem zweiten, kleineren Glied aus
+                  if(h4<0.30)
+                    cell(mk3, e, e.mx+e.ux*6+dx4*(34+h4*46), e.my+e.uy*5+dy4*(28+h4*38), 6+h4*6, 3);
+                }
               }
             }
             mk3.restore();
@@ -2167,7 +2217,10 @@ export class Renderer {
                 const nT=2+((hash01(e.i*77+e.n*31)*7)|0)%2;
                 for(let k=0;k<nT;k++){
                   const hK=hash01(e.i*101+e.n*13+k*37);
-                  const d8=9+hK*15;
+                  // Umbau 2.8: das erste Bueschel jeder Kante LIEGT AUF der
+                  // Grenze (halb Fels, halb Gras) statt nur davor – Wiese
+                  // und Fels verzahnen sich ueber die Kante hinweg
+                  const d8= k===0? -3+hK*10 : 9+hK*15;
                   const sw8=(hash01(e.i*59+e.n*7+k*17)-0.5)*28;
                   const bx8=e.mx+e.ux*d8-e.uy*sw8, by8=e.my+e.uy*d8*0.85+e.ux*sw8*0.8;
                   // Schattenbett: das Büschel liegt AUF dem Schutt
@@ -2286,6 +2339,17 @@ export class Renderer {
               const bx5=e.mx+e.ux*d5-e.uy*sw5, by5=e.my+e.uy*d5*0.8+e.ux*sw5*0.8;
               this.rockChunklet(g, bx5, by5, 2.6+hash01(e.i*23+e.n+k*17)*3.6, e.i*13+e.n*5+k*29);
             }
+          }
+          // Umbau 2.8: Bloecke DIREKT AUF der Grenze – sie ueberlappen die
+          // Kante (halb Fels, halb Gras) und zerschneiden jede Restlinie,
+          // die das Band uebrig laesst
+          for(const e of eScree){
+            const h6=hash01(e.i*83+e.n*19);
+            if(h6>0.30) continue;
+            const sw6=(hash01(e.i*89+e.n*7)-0.5)*26;
+            const d6=-3+h6*20;
+            const bx6=e.mx+e.ux*d6-e.uy*sw6, by6=e.my+e.uy*d6*0.8+e.ux*sw6*0.8;
+            this.rockChunklet(g, bx6, by6, 3.0+hash01(e.i*97+e.n*3)*3.4, e.i*17+e.n*11+3);
           }
           g.restore();
         }
