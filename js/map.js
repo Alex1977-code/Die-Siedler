@@ -164,14 +164,16 @@ export function genWorld(opts){
   const detail = (x,y)=> sample(grids[3],x*9.1+29,y*9.1+19)*0.62
                        + sample(grids[2],x*4.6+61,y*4.6+37)*0.38 - 0.5;
   // Gratrauschen: 1-|2n-1| hat sein Maximum auf einer LINIE, nicht auf einer
-  // Fläche. Mehrere Oktaven übereinander ergeben ein verästeltes Kammnetz –
-  // daraus entstehen schmale Gebirgszüge statt breiter Hochebenen.
+  // Fläche. Als QUELLE des Gebirges taugt es deshalb nicht – jede Schwelle
+  // darauf liefert zwangsläufig schmale, gewundene Rippen (am alten Stand
+  // gemessen: Median-Dicke 3 Knoten, Achsverhältnis 2,4-3,0 – das gemeldete
+  // "Bandwurmgebirge"). Es bleibt erhalten, moduliert jetzt aber nur noch die
+  // OBERFLÄCHE eines Massivs: Grate, Rinnen und Sporne auf einem Körper, der
+  // anderswo entsteht (siehe Abschnitt Gebirgsmassive).
   const ridgeAt = (x,y)=>
       (1-Math.abs(sample(grids[2],x*1.35+91,y*1.35+53)*2-1))*0.58
     + (1-Math.abs(sample(grids[1],x*2.9+17, y*2.9+29 )*2-1))*0.28
     + (1-Math.abs(sample(grids[3],x*5.7+61, y*5.7+11 )*2-1))*0.14;
-  // sanft ansteigendes Vorland um jeden Kamm
-  const foothill = (x,y)=> sample(grids[0], x*1.1+37, y*1.1+83);
 
   // Inselmaske: Rand fällt ab
   const edge = (x,y)=>{
@@ -191,75 +193,344 @@ export function genWorld(opts){
 
   const SEA = theme==='inseln'?0.34: theme==='gebirge'?0.24: 0.30;
   const AMP = 4.2;                       // Reliefüberhöhung (Höhe -> Bildversatz)
-  // Anteil der Landfläche, der Fels werden soll. Die Schwelle auf dem
-  // Gratrauschen wird daraus BERECHNET statt geraten – sonst kippt eine
-  // Karte je nach Startwert zwischen "kein Fels" und "alles Fels".
-  const ROCK_SHARE = { gebirge:0.42, winter:0.20, vulkan:0.26, wueste:0.13,
-                       sumpf:0.11, inseln:0.13, gruen:0.17 }[theme] ?? 0.17;
   const raw = Float32Array.from(map.hgt);
-  // Kammstärke je Knoten: 0 = flaches Land, 1 = Gipfelgrat
-  const spine = new Float32Array(w*h);
-  const rawSpine = new Float32Array(w*h);
-  const landVals=[];
-  for(let i=0;i<w*h;i++){
-    const X=map.X(i), Y=map.Y(i);
-    const r=ridgeAt(X,Y);
-    // Gebirge wächst nur dort, wo das Land ohnehin schon höher liegt –
-    // sonst stünde ein Grat mitten in der Küstenebene
-    const land=Math.max(0, Math.min(1, (raw[i]-SEA)/0.34));
-    const lift=0.55+0.45*foothill(X,Y);
-    const v=r*lift*(0.45+0.55*land);
-    rawSpine[i]=v;
-    if(raw[i]>=SEA) landVals.push(v);
+
+  // ---------------- Gebirgsmassive ----------------
+  // Ein Massiv ist ein KÖRPER: Mittelpunkt, welliger Umriss, Höhenprofil vom
+  // Fuß zum Gipfel. Vorher entstand Fels aus einer Schwelle auf dem
+  // Gratrauschen – das ergab zwangsläufig 2-4 Knoten schmale Bänder quer über
+  // die Karte. Jetzt werden einzelne Körper gesetzt; berühren sie sich am
+  // Rand, wächst daraus ein Gebirgsstock mit Ausläufern statt eines
+  // Rippennetzes.
+  //
+  // Formen:  'kuppe' – geschlossener Stock mit ein bis drei Gipfeln
+  //          'ring'  – Kessel: Bergkranz um ein Tal, mit Pass-Durchlass
+  //
+  // RINGMASSIV GEZIELT ANFORDERN (für Kampagnenkarten):
+  //     genWorld({ ..., ringMassiv:true })  -> das erste Massiv wird Kessel
+  //     genWorld({ ..., ringMassiv:3 })     -> die ersten drei werden Kessel
+  //   Ohne Angabe entsteht ein Kessel mit Wahrscheinlichkeit RING_P, also
+  //   etwa bei jeder fünften Massivsetzung.
+  const ROWQ = ROWH/TILE;                // Zeilenabstand im Spaltenmaß
+  const RING_P = 0.20;
+
+  // Ein Massiv beschreiben. Alle Zufallszahlen stammen aus dem Karten-Seed.
+  const macheMassiv = (cx, cy, R, form)=>{
+    const M = { cx, cy, R, form,
+      p1:rng()*6.2832, p2:rng()*6.2832, p3:rng()*6.2832,
+      // drei Harmonische verbeulen den Umriss: rundlich-unregelmäßig,
+      // aber ohne Einschnürung, die den Körper in ein Band zerlegen würde
+      a2:0.13+rng()*0.12, a3:0.08+rng()*0.09, a5:0.04+rng()*0.06,
+      dreh:rng()*3.1416,
+      // Streckung gedeckelt: ein Massiv darf länglich sein, nie ein Band
+      streck:1.00+rng()*0.26,
+      gipfel:[], paesse:[] };
+    // Gipfelpunkte: beim Stock im Kern, beim Kessel auf dem Kranz. Ein
+    // Hauptgipfel, dazu ein bis zwei Nebengipfel – kein gleichmäßiges Plateau.
+    const nG = form==='ring' ? 2+((rng()*3)|0) : 1+((rng()*3)|0);
+    for(let k=0;k<nG;k++){
+      const th = rng()*6.2832;
+      const rr = form==='ring' ? 0.58+rng()*0.18 : 0.04+rng()*0.28;
+      // lokale Polarkoordinate in Weltkoordinaten zurückrechnen
+      const u=Math.cos(th)*rr*R*M.streck, v=Math.sin(th)*rr*R/M.streck;
+      const cs=Math.cos(M.dreh), sn=Math.sin(M.dreh);
+      M.gipfel.push({ x:cx+u*cs-v*sn, y:cy+u*sn+v*cs,
+                      hoch:(k===0?1.0:0.48+rng()*0.34), br:R*(0.13+rng()*0.10) });
+    }
+    // Kessel: ein bis zwei Pässe reißen den Kranz auf, damit das Tal begehbar
+    // UND bebaubar bleibt (sonst ist die Fläche für den Spieler wertlos).
+    // br = Winkel, über den der Kranz GANZ offen ist, saum = Auslauf dahinter.
+    // Der Durchlass ist damit ein Keil: am Talrand rund drei, außen sechs bis
+    // acht Knoten breit – breit genug für Weg und Gebäude.
+    if(form==='ring'){
+      const nP = 1+(rng()<0.35?1:0);
+      for(let k=0;k<nP;k++) M.paesse.push({ th:rng()*6.2832, br:0.30+rng()*0.14, saum:0.20 });
+    }
+    return M;
+  };
+
+  // Massivstärke an einem Weltpunkt: 1 im Kern, 0 am Fuß, negativ außerhalb.
+  const massivWert = (M, px, py)=>{
+    const dx=px-M.cx, dy=py-M.cy;
+    const cs=Math.cos(M.dreh), sn=Math.sin(M.dreh);
+    const u=(dx*cs+dy*sn)/M.streck, v=(-dx*sn+dy*cs)*M.streck;
+    const r=Math.hypot(u,v);
+    if(r>M.R*1.45) return -1;
+    const th=Math.atan2(v,u);
+    const Rl=M.R*(1 + M.a2*Math.sin(2*th+M.p1) + M.a3*Math.sin(3*th+M.p2)
+                    + M.a5*Math.sin(5*th+M.p3));
+    const t=r/Math.max(0.5,Rl);
+    if(M.form!=='ring') return 1-t;
+    // Kranzprofil: Höhe auf t=0,68, nach innen wie außen auf 0
+    let s=1-Math.abs(t-0.68)/0.32;
+    // Pässe: im Winkelfenster ist der Kranz GANZ offen (flacher Boden), erst
+    // im Saum dahinter wächst er wieder hoch. Ein bloß spitz zulaufender
+    // Einschnitt wuchs durch das Umrissrauschen wieder zu.
+    for(const p of M.paesse){
+      const d=Math.abs(((th-p.th+9.4248)%6.2832)-3.1416);
+      if(d>=p.br+p.saum) continue;
+      s -= d<=p.br ? 2.0 : 2.0*(1-(d-p.br)/p.saum);
+    }
+    return s;
+  };
+
+  const mv     = new Float32Array(w*h);   // Massivstärke 0..1 (0 = Ebene)
+  const mtop   = new Float32Array(w*h);   // Gipfelaufsatz
+  const kessel = new Uint8Array(w*h);     // Talboden eines Ringmassivs
+  const fuss   = new Uint8Array(w*h);     // Vorland ringsum (Bergfuß)
+  const massive = [];
+
+  // Ein Massiv in die Felder stempeln; liefert den betroffenen Kasten zurück.
+  const stempeln = (M)=>{
+    const y0=Math.max(0, Math.floor((M.cy-M.R*1.5)/ROWQ));
+    const y1=Math.min(h-1, Math.ceil((M.cy+M.R*1.5)/ROWQ));
+    const x0=Math.max(0, Math.floor(M.cx-M.R*1.5));
+    const x1=Math.min(w-1, Math.ceil(M.cx+M.R*1.5));
+    for(let Y=y0;Y<=y1;Y++) for(let X=x0;X<=x1;X++){
+      const i=map.idx(X,Y), px=X+(Y&1)*0.5, py=Y*ROWQ;
+      let s=massivWert(M,px,py);
+      if(s<=-0.4) continue;
+      // ausgefranster Saum: das Rauschen verbeult nur den äußersten Rand,
+      // der Körper selbst bleibt geschlossen
+      s += (sample(grids[3], X*2.7+M.cx*3.1, Y*2.7+M.cy*2.3)-0.5)*0.34;
+      if(s<=0){
+        fuss[i]=1;                       // Vorland: reicht bis rund 1,4 R
+        // Talsystem eines Kessels merken: der Talboden UND der Pass-Einschnitt.
+        // Beides wird zu Wiese (siehe gelaendeSchreiben) – ein Pass aus
+        // Schnee, rundum von Fels umschlossen, läse der Zeichner sonst als
+        // Massivfläche und der Durchlass wäre optisch zugemauert.
+        if(M.form==='ring'){
+          const rr=Math.hypot(px-M.cx,py-M.cy);
+          if(rr < M.R*0.42) kessel[i]=1;
+          else if(rr < M.R*1.15){
+            const th=Math.atan2(py-M.cy, px-M.cx);
+            for(const p of M.paesse)
+              if(Math.abs(((th-p.th+9.4248)%6.2832)-3.1416) < p.br+p.saum){ kessel[i]=1; break; }
+          }
+        }
+        continue;
+      }
+      if(s>1) s=1;
+      if(s>mv[i]) mv[i]=s;
+      let g0=0;
+      for(const G of M.gipfel){
+        const d=Math.hypot(px-G.x, py-G.y)/G.br;
+        if(d<2.6) g0+=G.hoch*Math.exp(-d*d);
+      }
+      if(g0>mtop[i]) mtop[i]=g0;
+    }
+    massive.push(M);
+    return {x0,x1,y0,y1};
+  };
+
+  // Gelände und Darstellungshöhe aus Grundrelief + Massivfeld schreiben.
+  // Als Funktion, weil der Hausberg (s.u.) einen Ausschnitt nachträglich
+  // neu schreiben muss.
+  const gelaendeSchreiben = (x0,x1,y0,y1)=>{
+    for(let Y=y0;Y<=y1;Y++) for(let X=x0;X<=x1;X++){
+      const i=map.idx(X,Y);
+      const e=raw[i], sp=mv[i];
+      if(e < SEA){ map.terr[i]=TER.WATER; }
+      else if(sp > 0){
+        // Kern vereist, Flanke blanker Fels
+        map.terr[i] = (sp>0.62 && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
+      }
+      else {
+        map.terr[i]=TER.GRASS;
+        const m2 = sample(grids[2], X*1.9+53, Y*1.9+29);
+        if(theme==='wueste' && m2>0.35) map.terr[i]=TER.DESERT;
+        if(theme==='gruen' && m2>0.87) map.terr[i]=TER.SWAMP;
+        if(theme==='sumpf' && m2>0.52) map.terr[i]=TER.SWAMP;
+        // Im Winter bleibt der BERGFUSS schneefrei (aperes Vorland). Das gibt
+        // dem Massiv den grünen Saum, den es sonst nur in milden Themen hat –
+        // und es verhindert, dass eine ringsum von Fels eingeschlossene
+        // Schneeebene vom Zeichner als Massivfläche gelesen wird (massifSnow):
+        // sie bekäme Felstextur, und ein Pass durch sie hindurch wäre optisch
+        // zugemauert.
+        if(theme==='winter' && m2>0.45 && !fuss[i]) map.terr[i]=TER.SNOW;
+        if(theme==='vulkan'){ if(m2>0.84) map.terr[i]=TER.LAVA; else if(m2>0.6) map.terr[i]=TER.DESERT; }
+        // Talboden eines Kessels ist WIESE. Ein Sumpf- oder Lavatal wäre
+        // unbebaubar (und genau das Bauen ist der Reiz des Bergkessels); ein
+        // reines Schneetal würde der Zeichner obendrein als Massivfläche
+        // lesen, weil es rundum von Fels umschlossen ist – der Kessel bekäme
+        // dann Felstextur statt Talboden.
+        if(kessel[i]) map.terr[i]=TER.GRASS;
+      }
+      let hv;
+      if(map.terr[i]===TER.WATER) hv=-0.10;                // Wasserspiegel unter Land
+      else {
+        // Ebene sanft gewellt; im Massiv tritt das Feinrelief zurück, damit
+        // das Profil des Körpers die Form bestimmt und nicht das Rauschen
+        hv=(e-SEA)*AMP + detail(X,Y)*2.1*(1-0.55*sp);
+        if(sp>0){
+          // Profil vom Fuß zum Gipfel: der Exponent unter 1 zieht den Fuß
+          // breit auseinander (dort greift das Moosband des Zeichners), die
+          // Gipfelaufsätze setzen einzelne Spitzen statt eines Plateaus.
+          // Das Gratrauschen moduliert nur die Flanke – Grate und Rinnen auf
+          // dem Körper, keine eigenständige Form mehr.
+          hv += Math.pow(sp,0.70)*4.5*(0.80+0.38*ridgeAt(X,Y))
+              + Math.pow(sp,1.8)*1.1
+              + mtop[i]*1.9;
+        }
+      }
+      // Fels rastet auf GANZE Höhenstufen ein – so wie in Siedler 2. Erst
+      // dadurch entstehen die klar getrennten Facettenbänder, aus denen das
+      // Gebirge gelesen wird; Zwischenhöhen verwischen sie.
+      const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
+      const step = rocky? 0.55 : 0.42;
+      const q    = rocky? 1.00 : 0.14;
+      map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
+    }
+  };
+
+  // Anzahl und Größe der Massive je Thema. Wenige große Körper: ein Massiv
+  // soll typisch 10-24 Knoten Durchmesser haben, nicht 2-4 Knoten Breite.
+  const MPAR = { gebirge:{d:0.58, r:[10.0,15.5]}, winter:{d:0.34, r:[6.5,11.0]},
+                 vulkan:{d:0.36, r:[6.5,11.0]},  wueste:{d:0.26, r:[5.5,9.5]},
+                 sumpf:{d:0.22, r:[5.0,8.5]},    inseln:{d:0.26, r:[5.0,8.5]},
+                 gruen:{d:0.36, r:[6.0,10.5]} }[theme] ?? {d:0.36, r:[6.0,10.5]};
+  const ZIEL = Math.max(2, Math.round(MPAR.d*w*h/1000));
+  let ringSoll = opts.ringMassiv===true ? 1 : (opts.ringMassiv|0);
+  for(let k=0;k<ZIEL;k++){
+    const ring = ringSoll>0 ? true : (rng()<RING_P);
+    let R = MPAR.r[0] + rng()*(MPAR.r[1]-MPAR.r[0]);
+    if(ring) R = Math.max(R, MPAR.r[1])*1.12;   // ein Kessel braucht Umfang
+    let bx=-1, by=-1, bs=-1;
+    for(let t=0;t<220;t++){
+      const cx = R*0.75 + rng()*Math.max(1, w-1-R*1.5);
+      const cy = R*0.75 + rng()*Math.max(1, (h-1)*ROWQ-R*1.5);
+      // Mindestabstand: Massive dürfen sich am Saum berühren, aber nicht
+      // ineinander sacken – sonst entsteht wieder ein zusammenhängender Teppich
+      let frei=true;
+      for(const M of massive) if(Math.hypot(cx-M.cx,cy-M.cy) < 0.92*(R+M.R)){ frei=false; break; }
+      if(!frei) continue;
+      // Untergrund: der Körper muss überwiegend auf Land stehen. Beim Kessel
+      // zusätzlich das TAL prüfen – ein Ring um eine Bucht ergäbe ein
+      // abgeriegeltes Wasserloch statt einer nutzbaren Talwiese.
+      let land=0, prob=0, hs=0, innenNass=false;
+      for(let a=0;a<13;a++){
+        const rr = a===0?0 : R*(a<7?0.5:0.9), th=a*1.35;
+        const X=Math.round(cx+Math.cos(th)*rr), Y=Math.round((cy+Math.sin(th)*rr)/ROWQ);
+        if(X<0||Y<0||X>=w||Y>=h) continue;
+        prob++; const q2=map.idx(X,Y);
+        if(raw[q2]>=SEA){ land++; hs+=raw[q2]; }
+        else if(rr<R*0.55) innenNass=true;
+      }
+      if(prob<8 || land<prob*(ring?0.92:0.74)) continue;
+      if(ring && innenNass) continue;
+      const sc = hs/land + rng()*0.03;          // höher gelegenes Land bevorzugt
+      if(sc>bs){ bs=sc; bx=cx; by=cy; }
+    }
+    if(bx<0) continue;
+    stempeln(macheMassiv(bx, by, R, ring?'ring':'kuppe'));
+    if(ringSoll>0) ringSoll--;
   }
-  landVals.sort((a,b)=>a-b);
-  const T  = landVals.length? landVals[Math.floor(landVals.length*(1-ROCK_SHARE))] : 1;
-  const HI = landVals.length? landVals[landVals.length-1] : 1;
-  const span = Math.max(1e-4, HI-T);
-  for(let i=0;i<w*h;i++) spine[i]=Math.max(0,(rawSpine[i]-T)/span);
-  for(let i=0;i<w*h;i++){
-    const e=raw[i];
-    const sp=spine[i];
-    if(e < SEA){ map.terr[i]=TER.WATER; }
-    else if(sp > 0){
-      // der Kamm selbst ist Fels, in der Höhe vereist
-      map.terr[i] = (sp>0.66 && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
+  gelaendeSchreiben(0,w-1,0,h-1);
+  // Kessel-Durchlass sicherstellen. Das Umrissrauschen kann einen Pass
+  // zuwachsen lassen; dann wäre das Tal nur über den Fels erreichbar und für
+  // den Spieler praktisch wertlos. Ist das Tal vom offenen Land abgeschnitten,
+  // wird der Durchlass entlang des vorgesehenen Winkels sauber freigeräumt.
+  // "offen" = gehört zu KEINEM Massiv und ist begehbar. Über das Massivfeld
+  // statt über die Geländeart, weil im Winter auch die Ebene TER.SNOW trägt –
+  // die ist offenes Land, kein Berg.
+  const offenerKnoten = (i)=> mv[i]<=0 && map.terrOkRoad(i);
+  // Ein Ausgang zählt nur auf Grund, den der Zeichner auch als offenes Land
+  // malt. Schnee scheidet aus: im Winter trägt die Ebene TER.SNOW, und eine
+  // von Fels umschlossene Schneefläche liest der Zeichner (massifSnow) als
+  // Massivfläche – der Pass käme dann optisch im Berg heraus.
+  const ausgangsKnoten = (i)=> offenerKnoten(i) && map.terr[i]!==TER.SNOW;
+  // Führt offenes (felsfreies) Land vom Talboden über den Kranz hinaus?
+  const talHatAusgang = (M)=>{
+    const offen=offenerKnoten;
+    let start=-1;
+    for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.3)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.3)/ROWQ)) && start<0; Y++)
+      for(let X=Math.max(0,Math.floor(M.cx-M.R*0.3)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.3)); X++)
+        if(offen(map.idx(X,Y))){ start=map.idx(X,Y); break; }
+    if(start<0) return false;
+    const seen=new Set([start]); let q=[start];
+    while(q.length){
+      const nx=[];
+      for(const i of q) for(const b of map.nbs(i)){
+        if(seen.has(b) || !offen(b)) continue;
+        // Ausgang zählt nur, wenn er WEIT draußen liegt und dort auch breit
+        // ist: ein einzelner offener Knoten zwischen Felsen ist kein Pass.
+        // Im Winter läge er als vom Fels umschlossene Schneezelle vor – der
+        // Zeichner malt so etwas als Massivfläche, nicht als Durchgang.
+        if(ausgangsKnoten(b)
+           && Math.hypot(map.X(b)+(map.Y(b)&1)*0.5-M.cx, map.Y(b)*ROWQ-M.cy) > M.R*1.35
+           && map.nbs(b).filter(offen).length >= 4) return true;
+        seen.add(b); nx.push(b);
+      }
+      q=nx;
     }
-    else {
-      map.terr[i]=TER.GRASS;
-      const m = sample(grids[2], map.X(i)*1.9+53, map.Y(i)*1.9+29);
-      if(theme==='wueste' && m>0.35) map.terr[i]=TER.DESERT;
-      if(theme==='gruen' && m>0.87) map.terr[i]=TER.SWAMP;
-      if(theme==='sumpf' && m>0.52) map.terr[i]=TER.SWAMP;
-      if(theme==='winter' && m>0.45) map.terr[i]=TER.SNOW;
-      if(theme==='vulkan'){ if(m>0.84) map.terr[i]=TER.LAVA; else if(m>0.6) map.terr[i]=TER.DESERT; }
-    }
-    // Darstellungshöhe: Ebene sanft gewellt, der Grat türmt sich schmal auf.
-    // Die Kammstärke geht mit einer Potenz ein -> die Flanken fallen steil ab,
-    // der Gipfel bleibt eine Linie und keine Platte.
-    let hv;
-    if(map.terr[i]===TER.WATER) hv=-0.10;                 // Wasserspiegel unter Land
-    else {
-      const X=map.X(i), Y=map.Y(i);
-      hv=(e-SEA)*AMP + detail(X,Y)*2.1;                  // gewellte Ebene
-      if(sp>0){
-        // Deutlich flacher als zuvor: ein Knoten darf höchstens rund vier
-        // Bildzeilen nach oben rutschen, sonst schiebt sich der Berg über
-        // die Reihen dahinter und Wasser landet optisch auf dem Gipfel.
-        hv += Math.pow(sp,0.72)*4.4                       // Kammhöhe
-            + Math.pow(sp,2.2)*2.0;                       // Gipfel überhöht
+    return false;
+  };
+  for(const M of massive){
+    if(M.form!=='ring' || talHatAusgang(M)) continue;
+    const y0=Math.max(0, Math.floor((M.cy-M.R*1.4)/ROWQ)), y1=Math.min(h-1, Math.ceil((M.cy+M.R*1.4)/ROWQ));
+    const x0=Math.max(0, Math.floor(M.cx-M.R*1.4)), x1=Math.min(w-1, Math.ceil(M.cx+M.R*1.4));
+    // Durchlass freiräumen: Keil um den Pass-Winkel, ohne Umrissrauschen
+    for(let Y=y0;Y<=y1;Y++) for(let X=x0;X<=x1;X++){
+      const px=X+(Y&1)*0.5, py=Y*ROWQ;
+      const dx=px-M.cx, dy=py-M.cy, r=Math.hypot(dx,dy);
+      if(r>M.R*1.35) continue;
+      const th=Math.atan2(dy,dx);
+      for(const p of M.paesse){
+        const d=Math.abs(((th-p.th+9.4248)%6.2832)-3.1416);
+        // im Fenster ganz frei; zusätzlich eine Mindestbreite in Knoten,
+        // damit der Durchlass auch nah am Tal begehbar bleibt
+        if(d<p.br || d*Math.max(r,1)<1.8){
+          const i=map.idx(X,Y); mv[i]=0; mtop[i]=0; kessel[i]=1;
+        }
       }
     }
-    // Fels wird nur GANZ leicht terrassiert. Starke Rasterung ließ den Berg
-    // wie ein Amphitheater aussehen; ein Grat lebt von der durchgehenden
-    // Flanke, die Absätze setzt der Renderer als Klippen obendrauf.
-    // Fels rastet auf GANZE Höhenstufen ein – so wie in Siedler 2. Erst
-    // dadurch entstehen die klar getrennten Facettenbänder, aus denen das
-    // Gebirge gelesen wird; Zwischenhöhen verwischen sie.
-    const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
-    const step = rocky? 0.55 : 0.42;
-    const q    = rocky? 1.00 : 0.14;
-    map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
+    gelaendeSchreiben(x0,x1,y0,y1);
+    if(talHatAusgang(M)) continue;
+    // Immer noch dicht (z.B. weil gleich das nächste Massiv anschließt, oder
+    // weil der Pass in die See zeigt): kürzesten Weg vom Tal ins offene Land
+    // suchen und ihn freiräumen. Über Wasser geht der Weg nicht. Damit kann
+    // ein Kessel nie vollständig abgeriegelt bleiben.
+    let quelle=-1;
+    for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.3)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.3)/ROWQ)) && quelle<0; Y++)
+      for(let X=Math.max(0,Math.floor(M.cx-M.R*0.3)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.3)); X++)
+        if(map.terrOkRoad(map.idx(X,Y))){ quelle=map.idx(X,Y); break; }
+    if(quelle<0) continue;
+    const vor=new Map([[quelle,-1]]); let welle=[quelle], ziel=-1;
+    while(welle.length && ziel<0){
+      const nx=[];
+      for(const i of welle) for(const b of map.nbs(i)){
+        if(vor.has(b) || !map.terrOkRoad(b)) continue;
+        if(Math.hypot(map.X(b)+(map.Y(b)&1)*0.5-M.cx, map.Y(b)*ROWQ-M.cy) > M.R*3.0) continue;
+        vor.set(b,i);
+        if(ausgangsKnoten(b) && map.nbs(b).filter(offenerKnoten).length>=4
+           && Math.hypot(map.X(b)+(map.Y(b)&1)*0.5-M.cx, map.Y(b)*ROWQ-M.cy) > M.R*1.35){ ziel=b; break; }
+        nx.push(b);
+      }
+      welle=nx;
+    }
+    if(ziel<0) continue;
+    let bx2=map.w, bx3=-1, by2=map.h, by3=-1;
+    for(let k=ziel; k>=0; k=vor.get(k)){
+      for(const q2 of [k, ...map.nbs(k)]){
+        mv[q2]=0; mtop[q2]=0; kessel[q2]=1;
+        const X=map.X(q2), Y=map.Y(q2);
+        if(X<bx2) bx2=X; if(X>bx3) bx3=X;
+        if(Y<by2) by2=Y; if(Y>by3) by3=Y;
+      }
+    }
+    if(bx3>=0) gelaendeSchreiben(bx2,bx3,by2,by3);
+  }
+  // Bergsee im Kessel: das Tal eines großen Ringmassivs bekommt gelegentlich
+  // ein kleines Gewässer. Der begehbare Talboden ringsum bleibt erhalten.
+  for(const M of massive){
+    if(M.form!=='ring' || M.R<11 || rng()>=0.45) continue;
+    for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.4)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.4)/ROWQ)); Y++)
+      for(let X=Math.max(0,Math.floor(M.cx-M.R*0.4)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.4)); X++){
+        const i=map.idx(X,Y);
+        if(!kessel[i]) continue;
+        if(Math.hypot(X+(Y&1)*0.5-M.cx, Y*ROWQ-M.cy) > M.R*0.22) continue;
+        map.terr[i]=TER.WATER; map.hgt[i]=-0.10;
+      }
   }
 
   // ---- Wälder ----
@@ -316,14 +587,14 @@ export function genWorld(opts){
   // anderen Erze: das Steinbergwerk ist die verlässliche Dauerquelle des
   // Mittelspiels, wenn die Oberflächen-Brocken abgetragen sind – eine Mine
   // soll eine lange Partie tragen (Kritikbericht Stein-Spirale).
-  for(let i=0;i<w*h;i++){
-    if(map.terr[i]!==TER.MOUNT) continue;
+  const erzSetzen = (i)=>{
     const r=rng();
     if(r<0.30*res){ map.oreT[i]=1; map.oreA[i]=26+((rng()*30)|0); }      // Kohle
     else if(r<0.52*res){ map.oreT[i]=2; map.oreA[i]=22+((rng()*26)|0); } // Eisen
     else if(r<0.62*res){ map.oreT[i]=3; map.oreA[i]=16+((rng()*18)|0); } // Gold
     else if(r<0.80*res){ map.oreT[i]=4; map.oreA[i]=60+((rng()*60)|0); } // Granit
-  }
+  };
+  for(let i=0;i<w*h;i++) if(map.terr[i]===TER.MOUNT) erzSetzen(i);
   // Fische in Küstennähe
   for(let i=0;i<w*h;i++){
     if(map.terr[i]!==TER.WATER) continue;
@@ -361,6 +632,50 @@ export function genWorld(opts){
     clearArea(map, best, 3);
     starts.push(best);
   }
+  // Hausberg: Minen brauchen Gebirgsknoten in Laufweite. Seit die Karte nur
+  // noch wenige große Massive trägt (statt eines flächendeckenden Rippen-
+  // netzes) kann ein Startplatz weit von jedem Fels liegen – dann ließe sich
+  // nie eine Mine bauen. Fehlt Fels im Umkreis, wird ein kleiner eigener
+  // Stock gesetzt.
+  for(const s of starts){
+    const seen=new Set([s]); let ring=[s];
+    for(let d=0; d<14; d++){
+      const nx=[];
+      for(const i of ring) for(const b of map.nbs(i)) if(!seen.has(b)){ seen.add(b); nx.push(b); }
+      ring=nx;
+    }
+    let nah=0; for(const i of seen) if(map.terr[i]===TER.MOUNT) nah++;
+    if(nah>=18) continue;
+    const sx=map.X(s)+(map.Y(s)&1)*0.5, sy=map.Y(s)*ROWQ;
+    let bx=-1, by=-1, bs=-1;
+    for(let t=0;t<200;t++){
+      const th=rng()*6.2832, rr=10+rng()*3.5;
+      const cx=sx+Math.cos(th)*rr, cy=sy+Math.sin(th)*rr;
+      if(cx<7||cy<7||cx>w-8||cy>(h-8)*ROWQ) continue;
+      let ok=true;
+      for(const M of massive) if(Math.hypot(cx-M.cx,cy-M.cy) < 0.85*(5.4+M.R)){ ok=false; break; }
+      if(!ok) continue;
+      let land=0, prob=0;
+      for(let a=0;a<9;a++){
+        const X=Math.round(cx+Math.cos(a*1.4)*3.6), Y=Math.round((cy+Math.sin(a*1.4)*3.6)/ROWQ);
+        if(X<0||Y<0||X>=w||Y>=h) continue;
+        prob++; if(raw[map.idx(X,Y)]>=SEA) land++;
+      }
+      if(prob<7 || land<prob*0.85) continue;
+      const sc=rng();
+      if(sc>bs){ bs=sc; bx=cx; by=cy; }
+    }
+    if(bx<0) continue;
+    const kasten=stempeln(macheMassiv(bx, by, 4.6+rng()*1.4, 'kuppe'));
+    gelaendeSchreiben(kasten.x0,kasten.x1,kasten.y0,kasten.y1);
+    // was jetzt Fels ist, trägt keine Bäume/Brocken mehr und bekommt Erz
+    for(let Y=kasten.y0;Y<=kasten.y1;Y++) for(let X=kasten.x0;X<=kasten.x1;X++){
+      const i=map.idx(X,Y);
+      if(map.terr[i]!==TER.MOUNT && map.terr[i]!==TER.SNOW) continue;
+      map.obj[i]=OBJ.NONE; map.amt[i]=0;
+      if(map.terr[i]===TER.MOUNT && !map.oreT[i]) erzSetzen(i);
+    }
+  }
   // Garantierte Ressourcen nahe Start: Bäume + Steine
   for(const s of starts) ensureStartResources(map, s, rng);
 
@@ -375,7 +690,11 @@ export function genWorld(opts){
     if(best>=0){ gate=best; clearArea(map,best,1); map.obj[best]=OBJ.GATE; }
   }
   map.computePasses();
-  return { map, starts, gate };
+  // massive: Beschreibung der gesetzten Bergkörper ({cx,cy,R,form}) – für
+  // Kampagnenskripte und Messungen. Wird NICHT gespeichert; ein geladener
+  // Spielstand hat die Liste nicht (die Karte selbst steckt im Spielstand).
+  return { map, starts, gate,
+           massive: massive.map(M=>({ cx:M.cx, cy:M.cy, R:M.R, form:M.form })) };
 }
 
 function clearArea(map, center, r){
