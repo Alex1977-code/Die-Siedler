@@ -271,6 +271,7 @@ export class Renderer {
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
+    this._vogelFlucht=null; this._zugSchar=null;   // Kleintier-Deko neu anfangen
     this.initSheep();
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
@@ -916,32 +917,49 @@ export class Renderer {
     this.onAmbient('zwitscher', Math.max(0.12, (1-d/420)*0.5));
   }
 
-  // ---------- Zugvögel: ab und zu zieht eine kleine Schar über die Karte ----------
-  // Deterministisch aus this.time: die Zeit ist in Fenster geteilt, in gut der
-  // Hälfte davon zieht eine Schar in V- oder Reihenformation von Rand zu Rand.
-  // Sie liegen ÜBER allem (nach der Tiefensortierung gezeichnet), aber unter
-  // der Bedienoberfläche.
-  zeichneZugvoegel(g, cw, chh, wx0, wx1, wy0, wy1, cam){
+  // ---------- Zugvögel: ab und zu zieht eine kleine Schar vorbei ----------
+  // Die Zeit ist in Fenster geteilt; in gut der Hälfte davon zieht eine Schar
+  // von 3..7 Tieren in V- oder Reihenformation vorbei. Bahn, Richtung und
+  // Länge werden EINMAL beim Aufbruch gemerkt (winziger Merker, nichts davon
+  // wird gespeichert) – so wandert die Schar beim Schieben der Karte nicht
+  // mit und zieht trotzdem in Sichtweite vorbei statt irgendwo am anderen
+  // Ende der Karte. Sie liegen ÜBER allem (nach der Tiefensortierung
+  // gezeichnet), aber unter der Bedienoberfläche und unter dem Nebel.
+  zeichneZugvoegel(g, wx0, wx1, wy0, wy1, cam){
     if(this.dekoTiere===false) return;
     if(cam.z<0.55) return;                       // bei weitem Blick nur Rauschen
     const T=this.time*0.001;
-    const ZYK=60;                                // Sekunden je Zeitfenster
-    const L=Math.hypot(cw,chh)*1.25;
-    for(let s=-1; s<=0; s++){
-      const nr=Math.floor(T/ZYK)+s;
-      if(hash01(nr*7919+13) < 0.55) continue;    // nicht in jedem Fenster zieht einer
-      const t0=nr*ZYK + hash01(nr*31+5)*12;
-      const dauer=30+hash01(nr*47+9)*12;         // gemächlicher Überflug
-      const u=(T-t0)/dauer;
-      if(u<0 || u>1) continue;
-      // flache Zugrichtung: quer über die Karte, höchstens leicht schräg
-      const ang=(hash01(nr*13+3)<0.5? 0 : Math.PI) + (hash01(nr*19+11)-0.5)*0.7;
-      const dx=Math.cos(ang), dy=Math.sin(ang);
-      const off=(hash01(nr*17+7)-0.5)*chh*0.85;
-      const px=cw/2 + dx*(u-0.5)*L - dy*off;
-      const py=chh/2 + dy*(u-0.5)*L + dx*off;
-      const n=3+((hash01(nr*23+21)*5)|0);        // 3..7 Tiere
-      const reihe=hash01(nr*29+17)>0.55;         // sonst V-Formation
+    const ZYK=65;                                // Sekunden je Zeitfenster
+    const nr=Math.floor(T/ZYK);
+    let s=this._zugSchar;
+    if(s && s.nr!==nr){ s=null; this._zugSchar=null; }
+    if(!s && hash01(nr*7919+13)>0.4){             // nicht in jedem Fenster zieht eine
+      const t0=nr*ZYK + hash01(nr*31+5)*10;
+      // gemächlich: die Schar braucht rund acht Sekunden quer durchs Bild
+      const dauer=38+hash01(nr*47+9)*14;
+      // Erst BEIM AUFBRUCH anlegen und nur, solange die Schar noch weit vor
+      // dem Bild steht – sonst würde sie mitten im Bild aufpoppen.
+      if(T>=t0 && T<=t0+dauer*0.2){
+        // flache Zugrichtung: quer vorbei, höchstens leicht schräg
+        const ang=(hash01(nr*13+3)<0.5? 0 : Math.PI) + (hash01(nr*19+11)-0.5)*0.6;
+        // Bahnlänge so, dass sie klar außerhalb des Bildes anfängt und endet
+        const L=(this.vw+this.vh)/cam.z + 700;
+        s={ nr, t0, dauer, L,
+            dx:Math.cos(ang), dy:Math.sin(ang),
+            ax:cam.x+(hash01(nr*53+7)-0.5)*L*0.16,
+            ay:cam.y+(hash01(nr*59+3)-0.5)*L*0.20,
+            n:3+((hash01(nr*23+21)*5)|0),
+            reihe:hash01(nr*29+17)>0.55 };
+        this._zugSchar=s;
+      }
+    }
+    if(!s) return;
+    const u=(T-s.t0)/s.dauer;
+    if(u<0 || u>1) return;
+    {
+      const nr=s.nr, dx=s.dx, dy=s.dy, n=s.n, reihe=s.reihe;
+      const px=s.ax + dx*(u-0.5)*s.L;
+      const py=s.ay + dy*(u-0.5)*s.L;
       const bob=Math.sin(T*0.31+nr)*4;
       // klein und weich gehalten: sie sollen hoch am Himmel wirken, nicht wie
       // Striche auf der Wiese liegen
@@ -6804,7 +6822,7 @@ export class Renderer {
       g.restore();
     }
     // ziehende Vogelscharen – über allem, aber unter der Bedienoberfläche
-    this.zeichneZugvoegel(g, cw, chh, wx0, wx1, wy0, wy1, cam);
+    this.zeichneZugvoegel(g, wx0, wx1, wy0, wy1, cam);
     // Schafe & Schweine: Positionen aktualisieren (gezeichnet tiefensortiert oben)
     this.updateSheep(dtMs);
     this.updatePigs(dtMs);
