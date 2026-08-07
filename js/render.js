@@ -232,7 +232,7 @@ const FALTER_FARBEN = [
   ['#f8f4e6','#e4ddc6','#c9bd9d','#4b4438'],   // Weißling
   ['#f5db63','#e4c541','#c09622','#584422'],   // Zitronenfalter
   ['#e79148','#cd7330','#9a4c1c','#4a3220'],   // Fuchs (orange-braun)
-  ['#b0d7f0','#8cbadb','#6091b9','#3c4652'],   // Bläuling
+  ['#9cc9ea','#7cabd2','#5386ae','#3c4652'],   // Bläuling
 ];
 // Singvögel: [Rücken, Kopf/Flügel/Schwanz, Brust/Bauch]
 const VOGEL_FARBEN = [
@@ -577,6 +577,11 @@ export class Renderer {
     // springen, weil das Fenster mal eine Spalte mehr umfasst.
     const sp=this.vw/cam.z/TILE, sr=this.vh/cam.z/ROWH;   // sichtbare Spalten/Zeilen
     const zell=Math.max(2, Math.min(16, Math.round(Math.sqrt(Math.max(4,sp*sr)/7))));
+    // Die Rasterweite ist ganzzahlig und trifft die Zielzahl deshalb nur grob;
+    // der Füllgrad zieht nach, damit auf dem breiten Schirm nicht plötzlich
+    // doppelt so viele Tierchen unterwegs sind wie auf dem Handy.
+    const zellenF=(sp/zell+1)*(sr/zell+1);
+    const fuellF=Math.min(0.8, 6/zellenF);      // Zielzahl Falter im Blick
     // Nur der WIRKLICH sichtbare Ausschnitt zählt: das Knotenfenster x0..y1
     // reicht für die hohen Baum- und Hausbilder weit über den Rand hinaus –
     // dort würden Tierchen bloß außerhalb des Bildes gezeichnet. Der Zuschnitt
@@ -593,7 +598,7 @@ export class Renderer {
     if(zF) for(let cy=Math.floor(ay0/zell); cy<=Math.floor(ay1/zell) && nF<MAXF; cy++)
       for(let cx=Math.floor(ax0/zell); cx<=Math.floor(ax1/zell) && nF<MAXF; cx++){
         const hz=(Math.imul(cx,73856093)^Math.imul(cy,19349663))|0;
-        if(hash01(hz^0x51ab)>0.62) continue;          // die meisten Zellen bleiben leer
+        if(hash01(hz^0x51ab)>fuellF) continue;        // die meisten Zellen bleiben leer
         const i=this.wiesenKnoten(m, hz, cx, cy, zell, ax0,ax1,ay0,ay1, true);
         if(i<0) continue;
         const [px,py]=m.worldPos(i);
@@ -603,10 +608,11 @@ export class Renderer {
       }
     // ---- Singvögel: freie Wiese, am liebsten in Baumnähe (gröberes Raster) ----
     const zellV=Math.max(3, Math.min(24, Math.round(zell*1.3)));
+    const fuellV=Math.min(0.75, 3.6/((sp/zellV+1)*(sr/zellV+1)));
     if(zV) for(let cy=Math.floor(ay0/zellV); cy<=Math.floor(ay1/zellV) && nV<MAXV; cy++)
       for(let cx=Math.floor(ax0/zellV); cx<=Math.floor(ax1/zellV) && nV<MAXV; cx++){
         const hz=(Math.imul(cx,83492791)^Math.imul(cy,29349673))|0;
-        if(hash01(hz^0x2cd1)>0.7) continue;
+        if(hash01(hz^0x2cd1)>fuellV) continue;
         const i=this.wiesenKnoten(m, hz, cx, cy, zellV, ax0,ax1,ay0,ay1, false);
         if(i<0) continue;
         const [px,py]=m.worldPos(i);
@@ -684,17 +690,23 @@ export class Renderer {
     const x=fx+(lx-fx)*s2, y=fy+(ly-fy)*s2;
     return {
       x, y, gy:ay, hoehe:Math.max(0, ay-y),
-      s: 2.6+h3*1.0,                                     // halbe Spannweite
+      // Grundmaß: voll aufgeschlagen misst er rund 7..9 Weltpixel Spannweite,
+      // im Mittel des Schlags gut 5 – deutlich kleiner als der Singvogel
+      // (knapp 8 px lang) und ein Bruchteil der Siedlerhöhe (17 px).
+      s: 1.8+h3*0.7,
       v: (h4*4)|0,                                       // Farbvariante
       sitz: s2,
       // Flügelbreite perspektivisch: flach offen bis zusammengeklappt
-      br: (0.18+0.82*Math.abs(schlag))*(1-s2) + 0.14*s2,
+      br: (0.24+0.76*Math.abs(schlag))*(1-s2) + 0.16*s2,
       hb: (1-Math.abs(schlag))*(1-s2),                   // angehobene Spitzen
       kipp: (h2-0.5)*0.5,
     };
   }
   zeichneFalter(g, f){
     const S=f.s, sitzt=f.sitz>0.55;
+    // Feinheiten (Fühler, Flügelsaum) erst, wenn sie überhaupt ein paar Pixel
+    // breit werden – darunter sind es nur teure Unterpixel-Striche
+    const fein=S*((this._lastCam&&this._lastCam.z)||1) > 4.2;
     // hauchzarter Bodenschatten – er verrät, wie hoch der Falter gerade steht
     const a=Math.max(0.03, 0.14-f.hoehe*0.005);
     if(a>0.05) this.shadow(g, f.x+f.hoehe*0.14, f.gy+0.8, S*0.40, S*0.14, a);
@@ -719,33 +731,42 @@ export class Renderer {
       g.fillStyle=hell;
       g.beginPath(); g.ellipse( S*0.08,-S*0.56, S*0.26, S*0.66,  0.08, 0,7); g.fill();
       g.fillStyle=saum;                                  // Saum an der Flügelkante
-      g.beginPath(); g.ellipse( S*0.28,-S*0.66, S*0.08, S*0.32,  0.16, 0,7); g.fill();
-      g.fillStyle=koerper;                               // Hinterleib und Fühler
-      g.beginPath(); g.ellipse(0,-S*0.10, S*0.10, S*0.20, 0,0,7); g.fill();
-      g.strokeStyle=koerper; g.lineWidth=0.4;
-      g.beginPath();
-      g.moveTo(S*0.06,-S*0.26); g.quadraticCurveTo(S*0.30,-S*0.54, S*0.44,-S*0.64);
-      g.stroke();
+      g.beginPath(); g.ellipse( S*0.28,-S*0.66, S*0.09, S*0.34,  0.16, 0,7); g.fill();
+      g.fillStyle=koerper;                               // Hinterleib
+      g.beginPath(); g.ellipse(0,-S*0.10, S*0.12, S*0.22, 0,0,7); g.fill();
+      if(fein){
+        g.strokeStyle=koerper; g.lineWidth=0.4;          // ein Fühler
+        g.beginPath();
+        g.moveTo(S*0.06,-S*0.26); g.quadraticCurveTo(S*0.30,-S*0.54, S*0.44,-S*0.64);
+        g.stroke();
+      }
     } else {
-      const owx=Math.max(0.35,S*1.02*f.br), owy=S*0.62;   // Oberflügel
-      const uwx=Math.max(0.28,S*0.72*f.br), uwy=S*0.44;   // Unterflügel
+      // Flügeltiefe bewusst kräftig: bei mittlerem Zoom soll die Silhouette
+      // ein Falter bleiben und kein waagerechter Strich werden
+      const owx=Math.max(0.3,S*1.02*f.br), owy=S*0.70;    // Oberflügel
+      const uwx=Math.max(0.24,S*0.72*f.br), uwy=S*0.50;   // Unterflügel
       const hb=f.hb*S*0.5;
       for(const sd of [1,-1]){
         g.fillStyle = sd>0? hell : halb;                  // Schräglage lesbar machen
-        g.beginPath(); g.ellipse(sd*uwx*0.9,  S*0.26-hb*0.5, uwx, uwy, sd*0.34, 0,7); g.fill();
-        g.beginPath(); g.ellipse(sd*owx*0.95,-S*0.20-hb,     owx, owy, -sd*0.22, 0,7); g.fill();
+        g.beginPath(); g.ellipse(sd*uwx*0.9,  S*0.30-hb*0.5, uwx, uwy, sd*0.34, 0,7); g.fill();
+        g.beginPath(); g.ellipse(sd*owx*0.95,-S*0.24-hb,     owx, owy, -sd*0.22, 0,7); g.fill();
       }
+      // Saum und Leib bleiben IMMER: ohne sie verschmelzen die beiden Flügel
+      // bei mittlerem Zoom zu einem farbigen Klecks
       g.fillStyle=saum;                                   // dunkler Flügelsaum
-      for(const sd of [1,-1]){
-        g.beginPath(); g.ellipse(sd*owx*1.48,-S*0.34-hb, owx*0.32, owy*0.32, 0,0,7); g.fill();
-      }
-      g.fillStyle=koerper;
-      g.beginPath(); g.ellipse(0,0,S*0.12,S*0.44,0,0,7); g.fill();
-      g.strokeStyle=koerper; g.lineWidth=0.4;
       g.beginPath();
-      g.moveTo(-S*0.05,-S*0.34); g.quadraticCurveTo(-S*0.28,-S*0.70,-S*0.40,-S*0.80);
-      g.moveTo( S*0.05,-S*0.34); g.quadraticCurveTo( S*0.28,-S*0.70, S*0.40,-S*0.80);
-      g.stroke();
+      g.ellipse( owx*1.48,-S*0.34-hb, owx*0.32, owy*0.32, 0,0,7);
+      g.ellipse(-owx*1.48,-S*0.34-hb, owx*0.32, owy*0.32, 0,0,7);
+      g.fill();
+      g.fillStyle=koerper;                                // Leib trennt die Flügel
+      g.beginPath(); g.ellipse(0,-S*0.06,S*0.17,S*0.50,0,0,7); g.fill();
+      if(fein){
+        g.strokeStyle=koerper; g.lineWidth=0.35;          // Fühlerpaar
+        g.beginPath();
+        g.moveTo(-S*0.05,-S*0.34); g.quadraticCurveTo(-S*0.22,-S*0.58,-S*0.32,-S*0.66);
+        g.moveTo( S*0.05,-S*0.34); g.quadraticCurveTo( S*0.22,-S*0.58, S*0.32,-S*0.66);
+        g.stroke();
+      }
     }
     g.restore();
   }
@@ -852,12 +873,15 @@ export class Renderer {
       return;
     }
     // Standbild: sitzt aufrecht, beim Picken kippt er nach vorn
+    const fein=S*((this._lastCam&&this._lastCam.z)||1) > 4.5;
     g.rotate(v.pick*0.42);
-    g.strokeStyle='#c98a3e'; g.lineWidth=0.6;
-    g.beginPath();
-    g.moveTo(-S*0.12,-S*0.3); g.lineTo(-S*0.16,0);
-    g.moveTo( S*0.16,-S*0.3); g.lineTo( S*0.20,0);
-    g.stroke();
+    if(fein){
+      g.strokeStyle='#c98a3e'; g.lineWidth=0.6;              // Beinchen
+      g.beginPath();
+      g.moveTo(-S*0.12,-S*0.3); g.lineTo(-S*0.16,0);
+      g.moveTo( S*0.16,-S*0.3); g.lineTo( S*0.20,0);
+      g.stroke();
+    }
     g.fillStyle=ruecken;                                     // Körper
     g.beginPath(); g.ellipse(0,-S*0.66, S*0.66, S*0.56, -0.18, 0,7); g.fill();
     g.fillStyle=bauch;                                       // helle Brust
@@ -872,8 +896,10 @@ export class Renderer {
     g.beginPath();
     g.moveTo(S*0.86,-S*1.24); g.lineTo(S*1.22,-S*1.14); g.lineTo(S*0.86,-S*1.06);
     g.closePath(); g.fill();
-    g.fillStyle='#1c1a16';                                   // Auge
-    g.beginPath(); g.arc(S*0.66,-S*1.30, S*0.11, 0,7); g.fill();
+    if(fein){
+      g.fillStyle='#1c1a16';                                 // Auge
+      g.beginPath(); g.arc(S*0.66,-S*1.30, S*0.11, 0,7); g.fill();
+    }
     g.restore();
   }
   // leises, seltenes Zwitschern beim Auffliegen – mit großzügiger Sperre,
