@@ -1258,7 +1258,10 @@ export class Renderer {
             }
           }
         }
-        v={lift: LF.lift[q]*damp, rel: LF.rel[q]};
+        // Die Randstufe unterliegt derselben Daempfung: an Paessen und um
+        // Bergwerke darf der Fels nicht hochspringen, sonst haengt der Weg
+        // in der Luft und der Minendom sitzt neben seinem Loch.
+        v={lift: (LF.lift[q]+(LF.rand? LF.rand[q] : 0))*damp, rel: LF.rel[q]};
         liftC.set(q,v);
         return v;
       };
@@ -5370,6 +5373,21 @@ export class Renderer {
     }
     const lift=new Float32Array(N);
     const rel=new Float32Array(N);
+    // RANDSTUFE (Nutzerurteil zu v93: "Perspektive?"). Die Anhebung oben
+    // greift nur bei kleinen Massiven - sie schliesst die Luecke zu einem
+    // Mindestrelief von 1,7. Ein grosses Massiv bringt sein Relief selbst
+    // mit und wurde deshalb GAR NICHT angehoben; an seiner Aussenkante stieg
+    // der Fels nur um die Hoehendifferenz der Karte (gemessen im Median 13
+    // Bildschirmpixel) und las sich als flacher Aufkleber auf der Wiese.
+    // Deshalb bekommt JEDER Massivknoten zusaetzlich eine feste Stufe. Weil
+    // die Wiese nicht angehoben wird, entsteht sie genau da, wo sie hin
+    // gehoert: an der Grenze Fels/Wiese. RAND=1.45 sind 38 Bildschirmpixel -
+    // knapp eine Baumhoehe, das liest sich als Absatz statt als Kante.
+    // Sie geht NICHT in rel ein: das effektive Relief steuert die
+    // Wand- und Klippenschwellen, eine Scheinerhoehung wuerde sie
+    // verschieben.
+    const RAND=1.45;
+    const rand=new Float32Array(N);
     for(let i=0;i<N;i++){
       if(!isMas(i) || dist[i]===(1<<29)) continue;
       // Kamm in Reichweite 3 (kleiner Ring-BFS je Knoten)
@@ -5388,8 +5406,12 @@ export class Renderer {
       const prof= dist[i]<=1? 0.55 : dist[i]===2? 0.9 : 1.0;
       lift[i]=deficit*prof;
       rel[i]=rl;
+      // Die Stufe faehrt ueber die ersten drei Reihen hoch, damit die
+      // Deckflaeche nicht als Tischplatte auf einem Sockel sitzt: aussen
+      // voll (dort steht die Wand), nach innen leicht abnehmend.
+      rand[i]=RAND*(dist[i]<=1? 1.0 : dist[i]===2? 0.94 : 0.88);
     }
-    this._liftFld={lift, rel};
+    this._liftFld={lift, rel, rand};
     return this._liftFld;
   }
   // Gezeichnete Anhebung eines Knotens (G1, aus dem Chunk-Bake gecacht):
@@ -7980,11 +8002,16 @@ export class Renderer {
   // Türfahnen-Enden ziehen bis vor den Gebäudeeingang)
   roadPts(r){
     const m=this.game.map;
+    // Anhebung des Untergrunds mitnehmen (Randstufe v94): eine Strasse ueber
+    // den Fels lag sonst 38 px unter der gezeichneten Felsoberflaeche.
+    // An Paessen ist die Anhebung ohnehin auf 12 % gedaempft - dort, wo die
+    // Wege ueber das Massiv fuehren, aendert sich also kaum etwas.
     return r.path.map((n,ix)=>{
       if(ix===0 || ix===r.path.length-1) return this.doorVisualPos(n);
       const [x,y]=m.worldPos(n);
-      if(m.flag[n]) return [x,y];
-      return [x+(hash01(n*3+1)-0.5)*6, y+(hash01(n*5+2)-0.5)*5];
+      const yl=y-this.liftAt(n)*HSCALE;
+      if(m.flag[n]) return [x,yl];
+      return [x+(hash01(n*3+1)-0.5)*6, yl+(hash01(n*5+2)-0.5)*5];
     });
   }
   roadPos(r, pos){
@@ -9242,6 +9269,17 @@ export class Renderer {
     const a=this.game.lerpA? this.game.lerpA() : 1;
     let ox=(u._px!==undefined)? (u._px+(u.x-u._px)*a)-u.x : 0;
     let oy=(u._py!==undefined)? (u._py+(u.y-u._py)*a)-u.y : 0;
+    // Anhebung des Untergrunds mitnehmen: seit der RANDSTUFE (v94) liegt
+    // die gezeichnete Felsoberflaeche bis zu 38 px ueber ihrer Weltposition.
+    // Eine Figur, die das nicht mitrechnet, versinkt auf dem Fels bis zur
+    // Hueffte in der Flanke. Fahnen und Erzschilder rechnen es laengst mit.
+    {
+      const nq=this.game.map.nearestNode(u.x,u.y);
+      if(nq>=0){
+        const lf=this.liftAt(nq);
+        if(lf>0) oy-=lf*HSCALE;
+      }
+    }
     ox+=u._doX||0; oy+=u._doY||0;
     if(Math.abs(ox)>0.01 || Math.abs(oy)>0.01){
       g.save(); g.translate(ox,oy);
