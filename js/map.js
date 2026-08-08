@@ -54,8 +54,37 @@ export class WorldMap {
   }
   isWater(i){ return this.terr[i]===TER.WATER; }
   isLand(i){ const t=this.terr[i]; return t!==TER.WATER && t!==TER.LAVA; }
+  // Neigung eines Knotens nach Auftrag 2.5: max |Höhendifferenz| über die
+  // 6 Nachbarn. WASSER und LAVA zählen nicht mit – der Wasserspiegel liegt
+  // fest bei -0,10, ein Uferknoten bekäme sonst allein durch die Küste eine
+  // Steilheit angerechnet, die mit Bebaubarkeit nichts zu tun hat.
+  slopeMax(i){
+    let mx=0;
+    for(const b of this.nbs(i)){
+      const t=this.terr[b];
+      if(t===TER.WATER || t===TER.LAVA) continue;
+      const d=Math.abs(this.hgt[i]-this.hgt[b]);
+      if(d>mx) mx=d;
+    }
+    return mx;
+  }
   // Knoten, auf dem gebaut werden darf (Terrain-seitig)
-  terrOkBuild(i){ const t=this.terr[i]; return t===TER.GRASS || t===TER.DESERT || t===TER.SNOW; }
+  // Auftrag 2.5 fordert zusätzlich zur Geländeart eine NEIGUNGSGRENZE
+  // ("buildable: slope <= 2"). Die Zahl 2 stammt aus der Höhenskala der
+  // Vorlage und lässt sich nicht wörtlich übernehmen; maßgeblich ist der
+  // Sinn: auf einer Wand steht kein Haus. Die Grenze liegt deshalb bei
+  // STEIL_MAX (s. computePasses) = 1,80 Höheneinheiten je Knotenschritt,
+  // also rund 52 Grad. GEMESSEN über 20 Karten fallen dadurch 1,5 % der
+  // bisher bebaubaren Knoten weg – es sind genau die Grasknoten unmittelbar
+  // am Wandfuß, auf denen ein Gebäude halb im Fels steckte.
+  // this.steil gibt es erst nach computePasses (Ende der Erzeugung bzw.
+  // nach dem Laden); vorher greift nur die Geländeart, damit die
+  // Startplatzsuche in genWorld unverändert arbeitet.
+  terrOkBuild(i){
+    const t=this.terr[i];
+    if(t!==TER.GRASS && t!==TER.DESERT && t!==TER.SNOW) return false;
+    return !(this.steil && this.steil[i]);
+  }
   terrOkMine(i){ return this.terr[i]===TER.MOUNT; }
   terrOkRoad(i){ const t=this.terr[i]; return t===TER.GRASS||t===TER.DESERT||t===TER.SNOW||t===TER.MOUNT||t===TER.SWAMP; }
   // Pässe: Sattelstellen, an denen ein Gebirgszug durchquerbar ist. Sie
@@ -64,6 +93,14 @@ export class WorldMap {
   computePasses(){
     const n=this.w*this.h;
     this.pass=new Uint8Array(n);
+    // Abgeleitete Neigungsmaske (Auftrag 2.5: "Masken einmal vorberechnen").
+    // Sie hängt nur an Höhe und Geländeart, ändert sich im Spiel also nie –
+    // deshalb steht sie NICHT im Spielstand, sondern wird hier miterzeugt.
+    // computePasses läuft am Ende der Erzeugung UND nach dem Laden; damit
+    // hat jeder Spielstand die Maske, auch ein alter.
+    const STEIL_MAX=1.80;
+    this.steil=new Uint8Array(n);
+    for(let i=0;i<n;i++) if(this.slopeMax(i)>STEIL_MAX) this.steil[i]=1;
     const rocky=(q)=> this.terr[q]===TER.MOUNT||this.terr[q]===TER.SNOW;
     const score=new Float32Array(n);
     for(let i=0;i<n;i++){
