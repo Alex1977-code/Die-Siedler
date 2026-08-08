@@ -1509,6 +1509,23 @@ export class Renderer {
           // Steilheit auf dem TERRASSIERTEN Feld – Grundlage der cliffMask
           // (2.4) und der hangabhaengigen Schneedecke (2.6)
           const slopeT=(q)=>{ const gv=gradAt(q); return Math.hypot(gv[0],gv[1]); };
+          // NEIGUNG NACH AUFTRAG 2.5: slope(node) = max |dHoehe| ueber die
+          // 6 Nachbarn, normiert auf den 35-Grad-Talus. Ein Knotenschritt
+          // sind TILE=52 px waagerecht, eine Hoeheneinheit HSCALE=26 px
+          // senkrecht: 35 Grad entsprechen tan(35)*52/26 = 1,40. Der
+          // normierte Wert ist damit direkt der Wert, mit dem der Auftrag
+          // rechnet (2.4: >0,55 Fels, 0,3-0,55 Geroell).
+          const TALUS35=1.40;
+          const slpC=new Map();
+          const slopeN=(q)=>{
+            let v=slpC.get(q);
+            if(v!==undefined) return v;
+            let mx=0;
+            const h0=hgtT(q);
+            for(const b9 of m.nbs(q)){ const d=Math.abs(hgtT(b9)-h0); if(d>mx) mx=d; }
+            v=mx/TALUS35; slpC.set(q,v);
+            return v;
+          };
           // GROSSFORM-Gradient (Umbau 3.2): derselbe Operator, aber auf dem
           // ueber einen Knotenring GEMITTELTEN Hoehenfeld – der Gradient
           // reicht damit ueber zwei Ringe und ueberspringt die Terrassen-
@@ -2249,17 +2266,30 @@ export class Renderer {
                   const detR=patOf('mat|'+kR,(TILE*FM_RUBBLE)/w5,0,
                                    TILE*0.53, TILE*0.19, imR);
                   if(detR){
+                    // Umbau 4.0 (Auftrag 2.4 "terrainType nach Hoehe UND
+                    // NEIGUNG: Neigung > 0,55 -> Fels; 0,3-0,55 -> Geroell").
+                    // Die Geroellzone haengt jetzt an der NEIGUNG, nicht mehr
+                    // allein am Ringabstand zum Bergrand. Das ist die
+                    // eigentliche Aussage des Auftrags: Geroell liegt dort, wo
+                    // der Hang flach genug ist, dass loses Material liegen
+                    // bleibt – am Fuss, aber auch auf Absaetzen und flach
+                    // auslaufenden Flanken mitten im Massiv. Der Ringabstand
+                    // bleibt als ZWEITE Quelle erhalten: der aeusserste
+                    // Knotenkranz bekommt seinen Schuttsaum auch dann, wenn er
+                    // rechnerisch noch etwas steiler ist.
                     let anyR=false;
                     g.beginPath();
                     for(const t3 of tris){
                       if(t3.wl) continue;              // Waende bleiben Wand
                       const fo=Math.max(footOf(t3.qa),footOf(t3.qb),footOf(t3.qc));
-                      if(fo<0.5) continue;
+                      const sn=(slopeN(t3.qa)+slopeN(t3.qb)+slopeN(t3.qc))/3;
+                      const imBand= sn>=0.30 && sn<=0.55;
+                      if(!imBand && fo<0.5) continue;
                       // verrauschte Grenze: kein gleichmaessiger Ring um den
                       // Berg (Leitlinie B)
                       const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
                       const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
-                      if(fo<0.9 && tnoise(X9*0.85+41,Y9*0.85+167)<0.46) continue;
+                      if(!imBand && fo<0.9 && tnoise(X9*0.85+41,Y9*0.85+167)<0.46) continue;
                       anyR=true;
                       g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
                       g.lineTo(t3.C[0],t3.C[1]); g.closePath();
@@ -3507,8 +3537,21 @@ export class Renderer {
               // gegen null; grosse Fallhoehe (dp, mit Anhebung) gibt auch
               // Seitenkanten einen Fuss.
               const dp=(m.hgt[i]+liftOf(i))-m.hgt[n];
-              const sf=Math.max(Math.min(1, 0.55+uy*0.55),
-                                Math.min(0.5, Math.max(0,(dp-0.8)*0.3)));
+              let sf=Math.max(Math.min(1, 0.55+uy*0.55),
+                              Math.min(0.5, Math.max(0,(dp-0.8)*0.3)));
+              // Auftrag 2.4/1.2: das Geroell sammelt sich dort, wo der Hang
+              // flach genug ist, dass loses Material liegen bleibt. An einer
+              // STEILWAND (Neigung ueber dem 35-Grad-Talus) liegt oben kein
+              // Schutt – der faellt herunter. Solche Kanten bekommen deshalb
+              // nur noch das halbe Band; flach auslaufende Flanken das volle.
+              // Ohne diese Kopplung lag der Saum ueberall gleich breit, und
+              // die Abbruchseite sah aus wie die Geroellseite (Auftrag 1.2:
+              // "nie beidseitig gleich steil").
+              {
+                const sn=Math.abs(m.hgt[i]-m.hgt[n])/1.40;
+                if(sn>1.0) sf*=0.5;
+                else if(sn<0.30) sf*=0.75;   // fast eben: kaum Schuttnachschub
+              }
               (tn===TER.SNOW? eSnow : eScree).push({i,n,tn,mx:(ax+bx)/2,my:(ay+by)/2,ux,uy,dp,sf});
             }
           }
