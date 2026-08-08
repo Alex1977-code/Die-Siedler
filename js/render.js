@@ -2370,7 +2370,15 @@ export class Renderer {
             //     Alpha-Verlaeufe wie beim Gouraud) – kein hartes Umschalten
             //     je Dreieck. Wanddreiecke (t3.wl) sind immer Wand.
             {
-              const imC=this.felsLasur('ter_rock_cliff');
+              // v89b: die Wandkachel laeuft jetzt genauso wie die
+              // Flaechenkacheln ueber felsMaterial() – reine Struktur ohne
+              // eingebackenes Licht, multiplizierend aufgelegt. Solange sie
+              // ihre eigene Beleuchtung mitbrachte, kaempfte diese gegen die
+              // (seit v89 deutlich kraeftigere) Facettenschattierung: ihre
+              // ueber die volle Kachelhoehe laufenden Kluefte standen als
+              // dunkle senkrechte Striche quer ueber der Bergflanke – die
+              // "Farbnasen" aus den Nutzerbildern.
+              const imC=this.felsMaterial('ter_rock_cliff');
               if(imC){
                 const cmv=new Map();
                 const cmOf=(q)=>{
@@ -2502,7 +2510,7 @@ export class Renderer {
                   // 300-500 Weltpixel) zogen sich als durchgehende dunkle
                   // Striche über mehrere Knotenreihen. Mit fünf Phasenlagen
                   // bricht die Klüftung alle 2,6 Knoten (Blockmaß BQ).
-                  const imC2=this.felsLasur('ter_rock_cliff2')||imC;
+                  const imC2=this.felsMaterial('ter_rock_cliff2')||imC;
                   const LAGEN=[
                     // [Bild, scX, tx, ty]
                     [imC,  0.237,  37,  61],
@@ -2534,45 +2542,21 @@ export class Renderer {
                     tex4.restore();
                   }
                   tex4.restore();
-                  // Facettenlicht der Wand uebernehmen: die Toene aus Pass 2
-                  // (liegen noch in _shadeTmp) weichgezeichnet als Weichlicht
-                  // auf die Wandtextur – die Wand bleibt im Halbschatten der
-                  // Vertex-Schattierung statt flach beleuchtet zu wirken
-                  {
-                    const bgC=this._blurTmp.getContext('2d');
-                    bgC.globalCompositeOperation='source-over';
-                    bgC.clearRect(0,0,w,h);
-                    this.blurInto(bgC, this._shadeTmp, 4*S);
-                    tex4.globalCompositeOperation='soft-light';
-                    tex4.globalAlpha=0.88;
-                    tex4.drawImage(this._blurTmp,0,0,w,h);
-                    // Umbau 3.3 (Nutzerkritik "MATERIALBRUCH"): die Wand las
-                    // sich deutlich dunkler und KAELTER (graugruen) als die
-                    // beige Flaeche darueber – wie anderes Gestein statt wie
-                    // die beschattete Seite desselben Berges. Ursache: die
-                    // Wandkachel wurde DECKEND aufgelegt, ihre von felsLasur
-                    // fast neutralisierte Eigenfarbe ersetzte die Palette aus
-                    // colAt. Jetzt zieht ein 'color'-Zug Farbton UND
-                    // Saettigung aus den (weichgezeichneten) Facettentoenen –
-                    // die Wand behaelt ihre eigene HELLIGKEIT und damit die
-                    // senkrechte Kluefzung, sitzt aber in derselben
-                    // Farbfamilie wie die Deckflaeche (Palette 11.2).
-                    tex4.globalCompositeOperation='color';
-                    tex4.globalAlpha=0.92;
-                    tex4.drawImage(this._blurTmp,0,0,w,h);
-                    tex4.globalAlpha=1;
-                  }
+                  // Der frueher noetige Weichlicht- und 'color'-Zug entfaellt:
+                  // er war die Reparatur der EIGENFARBE und EIGENBELEUCHTUNG
+                  // der Kachel. felsMaterial() liefert eine reine Graustruktur
+                  // um 236; multipliziert traegt sie nur noch Klueftung, die
+                  // Farbe und das Licht kommen aus dem Fuellpass darunter.
                   tex4.globalCompositeOperation='destination-in';
                   tex4.drawImage(this._maskTmp,0,0,w,h);
                   tex4.globalCompositeOperation='source-over';
                   tex4.restore();   // Hüllrechteck-Clip
-                  // 0.78 statt 0.92: der Facettenton (und mit ihm die
-                  // Grossform aus 3.2) scheint durch die Wandzeichnung durch,
-                  // statt von ihr zugedeckt zu werden.
-                  g.globalAlpha=0.42;
+                  g.globalCompositeOperation='multiply';
+                  g.globalAlpha=0.85;
                   g.drawImage(this._texTmp, mbx0*S, mby0*S, mbw*S, mbh*S,
                               c.ox+mbx0, c.oy+mby0, mbw, mbh);
                   g.globalAlpha=1;
+                  g.globalCompositeOperation='source-over';
                 }
               }
             }
