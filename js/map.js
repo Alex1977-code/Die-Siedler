@@ -548,7 +548,23 @@ export function genWorld(opts){
       // Schwelle: der Übergang von feiner zu grober Stufe ist stetig.
       if(rocky && hv>PLAT_H){
         const pf=Math.min(1,(hv-PLAT_H)/PLAT_BAND);
-        step *= 1+3.2*pf;                 // v96: 2 -> 3,2 (s. PLAT_H oben)
+        // v98: Faktor 2 -> 3,2 -> 4,6. Die Zahl ist NICHT geraten, sondern
+        // aus einer Messreihe: sechs Kombinationen aus Schwelle und Faktor,
+        // je drei Karten, gemessen am Flachanteil der Innenfläche und an der
+        // grössten zusammenhängenden Hochfläche.
+        //   2,0 / 3,2 (v96):  0,326 Mittel, grösste 61 Knoten
+        //   1,4 / 3,2:        0,311             53
+        //   2,0 / 4,6:        0,453             90   <- gewählt
+        //   1,4 / 4,6:        0,371             90
+        //   1,4 / 6,0:        0,440            105   aber 0,385/0,538/0,397,
+        //                                      also stark kartenabhängig
+        //   0,9 / 4,6:        0,399             90
+        // 2,0/4,6 ist der beste Wert UND der gleichmässigste über die
+        // Karten. Ein per-Massiv geschnittener Etagenpass wurde vorher
+        // versucht und wieder verworfen: in allen drei Fassungen fiel der
+        // Flachanteil, weil jede Nachbearbeitung die exakt gleichen Höhen,
+        // die diese Quantisierung erzeugt, wieder auseinanderzieht.
+        step *= 1+4.6*pf;
       }
       map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
     }

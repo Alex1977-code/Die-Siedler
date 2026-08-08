@@ -3523,76 +3523,67 @@ export class Renderer {
               //      mit dem Fusscharakter aus liftField mit - wo der Fels
               //      flach auslaeuft, ist die Wand niedrig und die Halde
               //      schmal.
+              //      v98 - Nutzerurteil zu v97: "die rand kieshaufen passen
+              //      nicht". Zu Recht. Die Halde bestand aus gefuellten
+              //      Ellipsen mit Geroellmuster darin, in gleichem Abstand
+              //      an JEDER Fusskante aufgereiht - eine Kette immer
+              //      derselben runden Kieshaufen rund um den Berg. Zwei
+              //      Fehler in einem: immer dieselbe Form, und ueberall.
+              //      Jetzt:
+              //        die Form kommt aus felsGruppe, also aus den echten
+              //        gemalten Felsbildern in wechselnder Zusammenstellung
+              //        und Groesse
+              //        sie liegt NICHT mehr durchgehend, sondern in Faechern:
+              //        ein weiches Rauschfeld (Wellenlaenge rund 5 Knoten)
+              //        entscheidet, wo etwas herunterkommt. Unter einer Rinne
+              //        haeuft es sich, daneben liegt blanker Fels - so sieht
+              //        ein Wandfuss aus, nicht wie ein umlaufender Wall.
               if(flankeFuss && flankeFuss.length){
-                const PH=this.rockPal();
-                const imH=this.felsMaterial(this.geroellKey()||'ter_rock_rubble');
-                const halde=new Path2D();
-                let nH=0, hMin=1e9, hMax=-1e9;
-                // Huellrechteck: die Materiallage und der Auslaufverlauf
-                // fuellen sonst die GANZE Chunkflaeche, nur um sie gleich
-                // wieder auf die Halde zu beschneiden. Gemessen kostete das
-                // im Bake-Spitzenwert rund 6 ms je Chunk.
-                let hbx0=1e9, hbx1=-1e9;
-                const brocken=[];
+                const hs2=(a,b)=>hash01(Math.imul(a,73856093)^Math.imul(b,19349663));
+                const smf=(t)=>t*t*(3-2*t);
+                const fanN=(X,Y)=>{
+                  const x2=Math.floor(X), y2=Math.floor(Y);
+                  const fx=smf(X-x2), fy=smf(Y-y2);
+                  return (hs2(x2,y2)*(1-fx)+hs2(x2+1,y2)*fx)*(1-fy)
+                       + (hs2(x2,y2+1)*(1-fx)+hs2(x2+1,y2+1)*fx)*fy;
+                };
+                g.save();
                 for(const f of flankeFuss){
-                  if(f.hh<14) continue;                  // niedrige Stufe: kein Kegel
-                  const hoch=Math.max(7, Math.min(30, f.hh*0.30));
+                  if(f.hh<11) continue;
+                  // FEINER SAUM ueberall: ein paar kleine Brocken direkt an
+                  // der Fusslinie. Er deckt die Gitterkante auch dort, wo
+                  // kein Fächer liegt - ohne ihn stand die gerade Kante
+                  // zwischen zwei Fächern wieder blank im Bild.
                   const L=Math.hypot(f.x2-f.x1, f.y2-f.y1)||1;
-                  const nk=Math.max(2, Math.min(5, Math.round(L/17)));
-                  for(let k=0;k<=nk;k++){
-                    const t=k/nk;
-                    const hs=hash01(f.u*37+f.v*11+k*7);
-                    const hs2=hash01(f.u*13+f.v*53+k*3);
-                    const cx4=f.x1+(f.x2-f.x1)*t+(hs-0.5)*10;
-                    const cy4=f.y1+(f.y2-f.y1)*t-hoch*0.30+(hs2-0.5)*4;
-                    const rx=hoch*(0.75+hs*0.85), ry=hoch*(0.44+hs2*0.40);
-                    halde.moveTo(cx4+rx,cy4);
-                    halde.ellipse(cx4,cy4,rx,ry,0,0,7);
-                    nH++;
-                    if(cy4-ry<hMin) hMin=cy4-ry;
-                    if(cy4+ry>hMax) hMax=cy4+ry;
-                    if(cx4-rx<hbx0) hbx0=cx4-rx;
-                    if(cx4+rx>hbx1) hbx1=cx4+rx;
-                    // ein paar echte Brocken davor, damit die Halde eine
-                    // Korngroesse bekommt statt nur eine Silhouette
-                    if(hs2>0.62) brocken.push([cx4+(hs-0.5)*rx*1.5,
-                                               cy4+ry*0.72, hoch*(0.16+hs*0.14),
-                                               (f.u*7+k)|0]);
+                  const ns=Math.min(2, 1+((L/40)|0));
+                  for(let k=0;k<ns;k++){
+                    const t=(k+0.5)/ns+(hash01(f.u*7+f.v*3+k*19)-0.5)*0.30;
+                    this.rockChunklet(g,
+                      f.x1+(f.x2-f.x1)*t+(hash01(f.u*5+k*11)-0.5)*9,
+                      f.y1+(f.y2-f.y1)*t-1+(hash01(f.u*23+k*3)-0.5)*5,
+                      2.4+hash01(f.u*41+k*13)*3.4,
+                      (f.u*31+f.v*5+k*7)|0, -0.14);
+                  }
+                  if(f.hh<15) continue;                  // niedrige Stufe: kein Kegel
+                  const X9=(m.X(f.u)+m.X(f.v))/2, Y9=(m.Y(f.u)+m.Y(f.v))/2;
+                  const fan=fanN(X9*0.21+53.7, Y9*0.25+91.3);
+                  // Schwelle sinkt mit der Wandhoehe: unter einer hohen Wand
+                  // faellt haeufiger etwas herunter
+                  if(fan < 0.44-Math.min(0.20,(f.hh-15)/260)) continue;
+                  const staerke=Math.min(1,(fan-0.30)/0.50);
+                  const sc9=(0.20+staerke*0.24)*Math.min(1.4, 0.7+f.hh/80);
+                  const nk=hash01(f.u*29+f.v*13)>0.62? 2 : 1;
+                  for(let k=0;k<nk;k++){
+                    const t=(k+0.5+ (hash01(f.u*17+f.v*7+k*23)-0.5)*0.6)/nk;
+                    const px9=f.x1+(f.x2-f.x1)*t;
+                    const py9=f.y1+(f.y2-f.y1)*t;
+                    this.felsGruppe(g,'halde', px9, py9-1,
+                                    sc9*(0.78+hash01(f.u*11+k*31)*0.55),
+                                    (f.u*101+f.v*7+k*13)|0, -0.12,
+                                    2+((hash01(f.u*61+k*17)*1.9)|0), false);
                   }
                 }
-                if(nH){
-                  const bw9=hbx1-hbx0+6, bh9=hMax-hMin+8;
-                  g.save();
-                  g.fillStyle='rgb('+(PH[2][0]|0)+','+(PH[2][1]|0)+','+(PH[2][2]|0)+')';
-                  g.fill(halde);
-                  if(imH){
-                    const ph=this._haldePat || (this._haldePat=(()=>{
-                      const pt=g.createPattern(imH,'repeat');
-                      if(pt && pt.setTransform)
-                        pt.setTransform(new DOMMatrix().scale(0.055,0.055));
-                      return pt;
-                    })());
-                    if(ph){
-                      g.save(); g.clip(halde);
-                      g.globalCompositeOperation='multiply';
-                      g.globalAlpha=0.9;
-                      g.fillStyle=ph; g.fillRect(hbx0-3,hMin-4,bw9,bh9);
-                      g.restore();
-                    }
-                  }
-                  // nach unten ausblenden: die Halde soll in die Wiese
-                  // auslaufen, nicht mit einer Kante darauf enden
-                  g.save(); g.clip(halde);
-                  const hg=g.createLinearGradient(0,hMax-24,0,hMax+3);
-                  hg.addColorStop(0,'rgba(58,50,38,0)');
-                  hg.addColorStop(1,'rgba(58,50,38,0.30)');
-                  g.fillStyle=hg; g.fillRect(hbx0-3,hMax-24,bw9,30);
-                  g.restore();
-                  for(const b9 of brocken)
-                    this.rockChunklet(g,b9[0],b9[1],b9[2],b9[3],-0.10);
-                  g.restore();
-                  void hMin;
-                }
+                g.restore();
               }
               g.restore();
             }
@@ -4898,9 +4889,17 @@ export class Renderer {
     }
     // Einzelflecken herauswerfen: eine Firndecke aus zwei, drei Knoten
     // steht als weisser Klecks mitten in der Flanke (Handybild v86). Nur
-    // zusammenhaengende Felder ab sechs Knoten bleiben – das ist eine
+    // zusammenhaengende Felder ab MIN_FIRN Knoten bleiben – das ist eine
     // Kappe, kein Fleck.
+    // v98: 6 -> 14. Seit die Hochflaechen breiter sind (Quantisierung
+    // 2,0/4,6 in map.js), liegt auf einem Plateau fast alles nahe am
+    // Massivgipfel - die Firnschwelle trifft dann Streuflecken mitten auf
+    // der ebenen Flaeche, und ein Feld von sechs Knoten wird mit seinem
+    // weichen Saum als handtellergrosse Schneepfuetze gezeichnet. GEMESSEN
+    // auf drei Karten liegen die Felder bei 7 bis 152 Knoten; ab 14 bleiben
+    // die zusammenhaengenden Kappen, die Pfuetzen fallen heraus.
     {
+      const MIN_FIRN=14;
       const oben=(q)=> map[q]>0 && m.hgt[q]>map[q]-0.4;
       const seen2=new Uint8Array(n);
       for(let i=0;i<n;i++){
@@ -4909,7 +4908,7 @@ export class Renderer {
         for(let k=0;k<comp.length;k++)
           for(const b of m.nbs(comp[k]))
             if(!seen2[b] && oben(b)){ seen2[b]=1; comp.push(b); }
-        if(comp.length<6) for(const q of comp) map[q]=0;
+        if(comp.length<MIN_FIRN) for(const q of comp) map[q]=0;
       }
     }
     this._firnMap=map;
@@ -5108,6 +5107,82 @@ export class Renderer {
   // liegen die Trümmer dann als weiße Popcornkörner im Dunkeln (Handybild
   // v84). Mit ihr rutscht die ganze Blockfärbung eine Palettenstufe nach
   // unten bzw. oben.
+  // ---------- Formationen ZUSAMMENSTELLEN statt einzelner Bilder ----------
+  // Nutzerwunsch v97: "du brauchst ggf mehr objekte oder du brauchst
+  // objekte die du selbst verschieden zusammenstellen kannst". Das zweite
+  // ist das bessere: geliefert sind 21 Felsbilder, und bisher setzte jeder
+  // Felsknoten GENAU EINES davon. Bei zehn Bildern im Topf wiederholt sich
+  // damit auf einem grossen Massiv alles paar Knoten - und die Halde am
+  // Wandfuss war sogar immer dieselbe Form.
+  // felsGruppe stellt statt dessen aus 2 bis 5 Stuecken eine Gruppe
+  // zusammen: eigener Massstab, eigene Seite, eigene Lage, von hinten nach
+  // vorn gezeichnet und bewusst UEBERLAPPEND, damit sie als ein Koerper
+  // liest und nicht als nebeneinandergestellte Aufkleber. Aus denselben
+  // Bildern werden so praktisch unbegrenzt viele verschiedene Formationen.
+  felsVorrat(art){
+    if(!this._vorrat) this._vorrat=new Map();
+    let v=this._vorrat.get(art);
+    if(v) return v;
+    const L={
+      halde:  ['obj_kieshaufen','obj_steinhaufen','obj_stein_1','obj_stein_2',
+               'obj_stein_3','obj_stein_4','obj_steingruppe'],
+      block:  ['obj_findling_gross','obj_findling_mittel','obj_blockstapel',
+               'obj_steinplatte','obj_steingruppe','obj_stein_2','obj_stein_4'],
+      zinne:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
+               'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
+               'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
+      misch:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
+               'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
+               'obj_findling_gross','obj_findling_mittel','obj_steingruppe',
+               'obj_blockstapel','obj_steinplatte','obj_steinhaufen',
+               'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
+    }[art] || [];
+    v=L.filter(k=>this.asset(k));
+    this._vorrat.set(art,v);
+    return v;
+  }
+  // sc0 ist der Massstab des ANKERSTUECKS; die uebrigen ordnen sich unter.
+  // n gibt die gewuenschte Stueckzahl vor (0 = aus dem Zufall).
+  // saum=false: kein Stueck bekommt Kontaktschatten und Schuttsaum. Das ist
+  // fuer Gruppen gedacht, die ohnehin in einem Schuttfeld stehen (Wandfuss);
+  // dort ist der Saum doppelt und kostet nur Zeichenzeit.
+  felsGruppe(g, art, x, y, sc0, seed, lum, n, saum=true){
+    const pool=this.felsVorrat(art);
+    if(!pool.length) return 0;
+    const anz=n || Math.max(2, Math.min(5, 2+((hash01(seed*7+1)*3.2)|0)));
+    const teile=[];
+    for(let k=0;k<anz;k++){
+      const h1=hash01(seed*31+k*17), h2=hash01(seed*53+k*11), h3=hash01(seed*97+k*7);
+      // Das Ankerstueck steht mittig und in voller Groesse, die anderen
+      // lehnen kleiner daneben und davor. Ohne diesen Unterschied haette
+      // die Gruppe keinen Schwerpunkt und liefe als Kieselreihe auseinander.
+      const gross= k===0;
+      teile.push({
+        key: pool[(h1*pool.length)|0],
+        sc:  sc0*(gross? 1 : 0.40+h2*0.50),
+        dx:  (h3-0.5)*(gross? sc0*22 : sc0*118),
+        dy:  gross? 0 : (h2-0.30)*sc0*38,
+        sp:  h1>0.5,
+        sd:  (seed*13+k*29)|0,
+      });
+    }
+    teile.sort((a,b)=>a.dy-b.dy);            // hinten zuerst, vorn zuletzt
+    let nz=0;
+    for(const t of teile){
+      // NUR das Ankerstueck bekommt Kontaktschatten und Schuttsaum.
+      // drawFelsObj malt sonst je Stueck bis zu sechs Bruchstuecke dazu -
+      // bei einer Gruppe aus vier Teilen also zwei Dutzend, und entlang
+      // einer ganzen Wandfusslinie waren das tausende. GEMESSEN stieg die
+      // Ladezeit der ersten Ansicht dadurch von 1,4 auf 9,3 Sekunden.
+      // Innerhalb einer Gruppe bringt der Saum ohnehin nichts: die Stuecke
+      // ueberlappen einander schon.
+      const anker= saum && (t===teile[teile.length-1] || t.sc>=sc0*0.99);
+      if(this.drawFelsObj(g, t.key, x+t.dx, y+t.dy, t.sc, t.sp,
+                          anker? 0.26 : 0, lum,
+                          anker? t.sd : undefined)) nz++;
+    }
+    return nz;
+  }
   rockChunklet(g,x,y,r,seed,lum){
     const P=this.rockPal();
     const st= lum===undefined? 0 : lum<-0.22? -1 : lum>0.34? 1 : 0;
