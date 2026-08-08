@@ -7894,7 +7894,13 @@ export class Renderer {
       }
       case OBJ.STONE: {
         this.shadow(g,x,y+2,14,4.6,0.22);
-        const ovO=this.asset('obj_stone');
+        // Lieferung D: vier Abbaustufen. Der Steinmetz traegt m.amt ab
+        // (Startwert 8-16, HQ-Ring 10); die Stufen zeigen das an, statt bis
+        // zum letzten Brocken gleich gross zu bleiben. Die Bilder teilen
+        // sich eine Grundflaeche, deshalb genuegt EIN Anker.
+        const amt9=m.amt? m.amt[i] : 0;
+        const st9= amt9>11? 1 : amt9>7? 2 : amt9>3? 3 : 4;
+        const ovO=this.asset('obj_stein_'+st9) || this.asset('obj_stone');
         if(ovO){
           const hh=34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
           g.drawImage(ovO, x-ww/2, y+8-hh, ww, hh);
@@ -8025,6 +8031,12 @@ export class Renderer {
       const v=b.id%3;
       if(v>0 && this.asset('bld_cottage'+(v+1))) typeKey='bld_cottage'+(v+1);
     }
+    // Lieferung D: erschoepftes Bergwerk. Die Meldung "Umgebung erschoepft"
+    // gab es schon, das Bild blieb aber unveraendert - man musste ins Menue
+    // schauen, um es zu merken. Jetzt wechselt der Eingang sichtbar auf die
+    // vernagelte Fassung, sobald das Bild geliefert ist.
+    if(b.exhausted && def.size==='MINE' && b.state==='done'
+       && this.asset(typeKey+'_leer')) typeKey=typeKey+'_leer';
     // gemalte Bodenellipse + Richtungsschatten nur für Prozedural-/Altbilder –
     // die neuen Cartoon-Bilder bringen ihren eigenen Bodenschatten mit
     if(!this.scaleOf(typeKey, null)){
@@ -8163,7 +8175,38 @@ export class Renderer {
         // Fels-Schürze (Plattentextur, weich auslaufend) und ein Kontakt-
         // schatten – der gemalte Dom sitzt im Terrain statt zu schweben.
         // Die Schürze liegt unter der DOMACHSE, nicht unter der Bildmitte.
-        if(def.size==='MINE') this.mineApron(g, x, y, ww*0.86);
+        if(def.size==='MINE'){
+          this.mineApron(g, x, y, ww*0.86);
+          // Lieferung D: Karrenspur und Aushubhaufen VOR dem Eingang.
+          // Sie liegen Richtung Tuerfahne, also dorthin, wo der Traeger
+          // wirklich laeuft - ein Aushub auf der falschen Seite laese sich
+          // als Deko statt als Betriebsspur.
+          let rx9=0, ry9=1;
+          if(b.door!=null && b.door>=0){
+            const [fx9,fy9]=m.worldPos(b.door);
+            const dl=Math.hypot(fx9-x, fy9-y)||1;
+            rx9=(fx9-x)/dl; ry9=(fy9-y)/dl;
+          }
+          const spur=this.asset('deco_karrenspur');
+          if(spur){
+            const sw9=ww*0.95, sh9=sw9*(spur.naturalHeight/spur.naturalWidth);
+            g.save();
+            g.globalAlpha=0.55;
+            g.translate(x+rx9*ww*0.34, y+ry9*10+6);
+            g.rotate(Math.atan2(ry9*0.5, rx9));
+            g.drawImage(spur, -sw9/2, -sh9/2, sw9, sh9);
+            g.restore();
+          }
+          const aus=this.asset('deco_aushub');
+          if(aus){
+            const ah9=this.scaleOf('deco_aushub',18)*(0.9+((b.id%5)*0.06));
+            const aw9=ah9*(aus.naturalWidth/aus.naturalHeight);
+            const axp=x+rx9*ww*0.30-ry9*ww*0.16;
+            const ayp=y+ry9*8+4;
+            this.shadow(g, axp+1.5, ayp+1.5, aw9*0.44, aw9*0.16, 0.22);
+            g.drawImage(aus, axp-aw9/2, ayp-ah9+3, aw9, ah9);
+          }
+        }
         // Küstenbauten rücken über die Uferlinie, damit Steg und Rumpf im
         // Wasser stehen statt auf der Wiese zu kleben
         let sx=0, sy=0;
