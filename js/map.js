@@ -628,6 +628,44 @@ export function genWorld(opts){
     else if(r<0.80*res){ map.oreT[i]=4; map.oreA[i]=60+((rng()*60)|0); } // Granit
   };
   for(let i=0;i<w*h;i++) if(map.terr[i]===TER.MOUNT) erzSetzen(i);
+  // ---- Felsformationen im Gebirge (OBJ.ROCK) ----
+  // Nutzerwunsch: "viele verschiedene steinobjekte kieshaufen steinhaufen
+  // klippen ... mit kollisionskontrolle im spiel". Bis hierher waren die
+  // Felsobjekte reine Zeichnung im Renderer – man konnte mitten durch sie
+  // hindurchlaufen und eine Mine hineinsetzen. Jetzt stehen sie als echte
+  // Objekte auf der Karte: kein Bauplatz, keine Strasse, kein Durchgang.
+  // Drei Regeln halten das Gebirge trotzdem begehbar:
+  //   1) Paesse und deren Nachbarschaft bleiben frei – der Durchgang durch
+  //      das Massiv darf nie zuwachsen.
+  //   2) Kein Fels neben einem schon gesetzten Fels: so entstehen einzelne
+  //      Formationen statt geschlossener Riegel.
+  //   3) Nur im INNEREN des Massivs; die aeusserste Felsreihe bleibt frei,
+  //      damit Bergwerke am Fuss und der Geroellsaum Platz behalten.
+  {
+    const istBerg=(q)=>map.terr[q]===TER.MOUNT;
+    const dichte=0.17;
+    for(let i=0;i<w*h;i++){
+      if(!istBerg(i) || map.obj[i]) continue;
+      if(map.pass && map.pass[i]) continue;
+      const nb=map.nbs(i);
+      if(nb.some(q=>map.pass && map.pass[q])) continue;
+      if(nb.some(q=>!istBerg(q))) continue;              // Randreihe frei
+      if(nb.some(q=>(map.obj[q]&127)===OBJ.ROCK)) continue;
+      if(rng()>=dichte) continue;
+      map.obj[i]=OBJ.ROCK;
+    }
+    // Sicherung: kein Massivknoten darf komplett eingemauert werden – sonst
+    // waere ein Erzvorkommen dahinter fuer immer unerreichbar.
+    for(let i=0;i<w*h;i++){
+      if(!istBerg(i) || (map.obj[i]&127)===OBJ.ROCK) continue;
+      const nb=map.nbs(i);
+      const zu=nb.filter(q=>(map.obj[q]&127)===OBJ.ROCK
+                         || map.terr[q]===TER.WATER || map.terr[q]===TER.LAVA).length;
+      if(zu>=nb.length-1){
+        for(const q of nb) if((map.obj[q]&127)===OBJ.ROCK){ map.obj[q]=OBJ.NONE; break; }
+      }
+    }
+  }
   // Fische in Küstennähe
   for(let i=0;i<w*h;i++){
     if(map.terr[i]!==TER.WATER) continue;

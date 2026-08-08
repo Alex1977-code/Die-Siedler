@@ -917,7 +917,8 @@ export class Game {
   }
   callGeologist(pl, flagNode){
     if(!this.map.flag[flagNode]) return 'noflag';
-    const near=this.nodesInRange(flagNode,8).some(n=>this.map.terr[n]===TER.MOUNT && !this.signs.has(n));
+    const near=this.nodesInRange(flagNode,8).some(n=>this.map.terr[n]===TER.MOUNT
+      && (this.map.obj[n]&127)!==OBJ.ROCK && !this.signs.has(n));
     if(!near) return 'nomount';
     if(!this.takeGood(pl,'pick')) return 'nopick';   // Geologe braucht eine Spitzhacke
     const hq=this.buildings.get(this.players[pl].hq);
@@ -934,7 +935,10 @@ export class Game {
     } else if(u.state==='seek'){
       let best=-1;
       for(const n of this.nodesInRange(u.flag,8)){
+        // nicht in eine Felsformation hinein: der Geologe kaeme nicht hin
+        // und sein Schild staende mitten im Block
         if(m.terr[n]!==TER.MOUNT || this.signs.has(n) || m.bld[n]>=0) continue;
+        if((m.obj[n]&127)===OBJ.ROCK) continue;
         best=n; break;
       }
       if(best<0 || u.probes<=0){ u.state='home'; return; }
@@ -1995,7 +1999,12 @@ export class Game {
     const m=this.map;
     const from=m.nearestNode(u.x,u.y), to=m.nearestNode(tx,ty);
     if(from<0 || to<0 || from===to) return null;
-    const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA;
+    // Felsformationen sind Hindernisse: Figuren laufen aussen herum
+    // (Nutzerwunsch "Kollisionskontrolle"). Der Startknoten zaehlt
+    // immer als begehbar - sonst haengt eine Figur fest, die aus
+    // irgendeinem Grund auf einem Fels steht.
+    const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA
+                     && (n===from || (m.obj[n]&127)!==OBJ.ROCK);
     if(!fest(to)) return null;
     const prev=new Map([[from,-1]]);
     const q=[from];

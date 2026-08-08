@@ -3,7 +3,12 @@
 
 export const TER = { WATER:0, GRASS:1, DESERT:2, MOUNT:3, SNOW:4, SWAMP:5, LAVA:6 };
 
-export const OBJ = { NONE:0, SAPLING:1, TREE2:2, TREE:3, STONE:4, FIELD0:5, FIELD1:6, FIELD2:7, RUIN:8, GATE:9 };
+// ROCK: Felsformation IM Gebirge (Nadeln, Bloecke, Geroell-, Kieshaufen,
+// Klippen). Anders als STONE ist sie kein Rohstoff, sondern ein HINDERNIS:
+// dort laesst sich nicht bauen, keine Strasse fuehrt hindurch und Figuren
+// laufen aussen herum. Die Zeichnung im Renderer liest genau diese Knoten –
+// Bild und Kollision koennen deshalb nicht auseinanderlaufen.
+export const OBJ = { NONE:0, SAPLING:1, TREE2:2, TREE:3, STONE:4, FIELD0:5, FIELD1:6, FIELD2:7, RUIN:8, GATE:9, ROCK:10 };
 
 export const GOODS = {
   trunk:  { name:'Baumstamm' },
