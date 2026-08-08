@@ -6518,9 +6518,22 @@ export class Renderer {
       q.restore();
     };
     const st={};
+    // Lieferung F: gemalte Glanzlichter. fx_glanz liegt als EIN Blatt mit
+    // vier Zellen nebeneinander vor; jede Zelle wird ein Stempel. Fehlt das
+    // Bild, bleiben die prozeduralen Radialverlaeufe darunter stehen.
+    const glanzBlatt=this.asset('fx_glanz');
+    if(glanzBlatt && glanzBlatt.naturalWidth){
+      st.glints=[];
+      const zw=glanzBlatt.naturalWidth/4, zh=glanzBlatt.naturalHeight;
+      for(let v=0; v<4; v++){
+        st.glints.push(mk(Math.round(zw), Math.round(zh), (q,w2,h2)=>{
+          q.drawImage(glanzBlatt, v*zw, 0, zw, zh, 0, 0, w2, h2);
+        }));
+      }
+    }
     // 4 Glanzlicht-Varianten: 1-2 überlappende, horizontal gestreckte Flecken
-    st.glints=[];
-    for(let v=0; v<4; v++){
+    if(!st.glints) st.glints=[];
+    for(let v=0; st.glints.length<4 && v<4; v++){
       st.glints.push(mk(52,22,(q,w,h)=>{
         const n=1+(v&1);
         for(let k=0;k<=n;k++){
@@ -6553,13 +6566,18 @@ export class Renderer {
       catch(_){ st.patB=st.patA; }
     } else st.patB=st.patA;
     // Ufersaum: länglicher, unregelmäßiger Schaumfleck (heller Kern, weicher Rand)
-    st.foam=mk(72,30,(q,w,h)=>{
+    // Lieferung F: fx_schaum ersetzt den prozeduralen Fleck, wenn vorhanden.
+    const schaum=this.asset('fx_schaum');
+    st.foam= (schaum && schaum.naturalWidth)
+      ? mk(schaum.naturalWidth, schaum.naturalHeight,
+           (q,w2,h2)=>q.drawImage(schaum,0,0,w2,h2))
+      : mk(72,30,(q,w,h)=>{
       blob(q,w/2,h/2,12,2.6,0.9,'rgba(244,250,255,',0.30);
       blob(q,w/2,h/2,9,2.3,0.75,'rgba(248,252,255,',0.42);
       for(let k=-1;k<=1;k++)
         blob(q, w/2+k*17+(hash01(k*5+11)-0.5)*6, h/2+(hash01(k*3+21)-0.5)*4,
              4.6+hash01(k*7+31)*2, 1.25, 0.85, 'rgba(250,253,255,', 0.5);
-    });
+      });
     this._waterStamps=st;
     return st;
   }
@@ -8396,6 +8414,23 @@ export class Renderer {
   statusSchild(g, x, y, kind, id=0){
     const bob=Math.sin(this.time/520+id*1.3)*1.6;
     const cy=y+bob;
+    // Lieferung F: gemaltes Statusschild, sobald es geliefert ist. Das
+    // prozedurale unten bleibt als Rueckfall stehen – es ist lesbar, aber
+    // es ist eben gezeichnete Geometrie und kein Bild aus derselben Hand
+    // wie der Rest.
+    {
+      const bild=this.asset('ui_status_'+kind);
+      if(bild && bild.naturalWidth){
+        const hh=this.scaleOf('ui_status_'+kind, 22);
+        const ww=hh*(bild.naturalWidth/bild.naturalHeight);
+        g.save();
+        g.fillStyle='rgba(15,20,12,0.30)';
+        g.beginPath(); g.ellipse(x, y+11, ww*0.36, 2.4, 0, 0, 7); g.fill();
+        g.drawImage(bild, x-ww/2, cy-hh/2, ww, hh);
+        g.restore();
+        return;
+      }
+    }
     const w=19, h=15, r=3;
     g.save();
     // weicher Schatten unterm Schild
@@ -9750,7 +9785,10 @@ export class Renderer {
         const key=gx+','+gy;
         if(!seen.has(key)){
           seen.add(key);
-          this.borderPosts.push({pl:o, x:mx, y:myL});
+          // Lieferung F: auf Fels braucht der Pfosten einen Steinsockel –
+          // ein in den Boden gerammter Pfahl geht dort nicht hinein.
+          const fels=(m.terr[i]===TER.MOUNT||m.terr[n]===TER.MOUNT);
+          this.borderPosts.push({pl:o, x:mx, y:myL, fels});
         }
       }
     }
@@ -9759,11 +9797,13 @@ export class Renderer {
   // Das Band am gemalten Pfosten ist REIN weiß und flach (so im Stilguide
   // gefordert). Genau daran erkennt man es: Sättigung ~0 und Helligkeit am
   // Anschlag, während der Schaft gebrochen weiß und schattiert ist.
-  postTinted(pl){
-    const img=this.asset('obj_borderpost');
+  postTinted(pl, keyOv){
+    const key= (keyOv && this.asset(keyOv))? keyOv : 'obj_borderpost';
+    const img=this.asset(key);
     if(!img) return null;
     if(!this._postT) this._postT=new Map();
-    let cv=this._postT.get(pl);
+    const ck=key+'|'+pl;
+    let cv=this._postT.get(ck);
     if(cv!==undefined) return cv;
     const w=img.naturalWidth, h=img.naturalHeight;
     cv=document.createElement('canvas'); cv.width=w; cv.height=h;
@@ -9785,7 +9825,7 @@ export class Renderer {
       }
       t.putImageData(id,0,0);
     }catch(_){ cv=null; }
-    this._postT.set(pl,cv);
+    this._postT.set(ck,cv);
     return cv;
   }
   // Schild mit Text in der Karte (gleicher Stil überall). u = 1/Zoom,
@@ -10009,9 +10049,10 @@ export class Renderer {
   // umlaufenden Band in der Farbe des Gebietsbesitzers.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
-    const tint=this.postTinted(pl);
+    const tint=this.postTinted(pl, p.fels? 'obj_borderpost_fels' : null);
     if(tint){
-      const hh=this.scaleOf('obj_borderpost',22), ww=hh*(tint.width/tint.height);
+      const hh=this.scaleOf(p.fels&&this.asset('obj_borderpost_fels')?'obj_borderpost_fels':'obj_borderpost',22),
+            ww=hh*(tint.width/tint.height);
       this.shadow(g, x+2, y+1.2, ww*0.5, 1.4, 0.28);
       g.drawImage(tint, x-ww/2, y+2-hh, ww, hh);
       return;
