@@ -410,7 +410,9 @@ export class Game {
     // Aber nur der Kriegsschaden hinterlaesst eine Ruine, die den Platz
     // blockiert - beim Abriss will der Spieler sofort neu bauen koennen,
     // eine Sperre waere hier eine Spielaenderung und keine Grafik.
-    this.fx.push({type:'burn', node:b.node, t0:this.t,
+    // 'typ' geht mit, damit der Renderer zuerst ein Brandblatt DIESES
+    // Gebaeudes sucht (fx_burn_<typ>_1..3) und erst danach das der Klasse.
+    this.fx.push({type:'burn', node:b.node, t0:this.t, typ:b.type,
                   big:dfB.size==='L', kl, kurz:!byWar});
     if(byWar){
       if(this.map.obj[b.node]===OBJ.NONE){

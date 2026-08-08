@@ -8825,7 +8825,13 @@ export class Renderer {
       // Baustelle zeigt bewusst NUR das eckige Holzgerüst (Phase 1/2),
       // nie das fast fertige Haus – das erscheint erst beim Umschalten auf 'done'
       const total=80+30*((def.cost.board||0)+(def.cost.stone||0));
-      const drei=(sizeKey==='turm'||sizeKey==='mine');
+      // Drei Baustufen, sobald es für DIESEN Bau ein eigenes drittes Blatt
+      // gibt – Türme und Minen haben es von Haus aus. Bewusst NICHT über die
+      // Größenklasse: deren `_3` zeigt das fast fertige Haus, und genau das
+      // soll die Baustelle nicht vorwegnehmen. Ein eigenes Blatt je Gebäude
+      // wirkt dagegen sofort, ohne weitere Codeänderung.
+      const drei=(sizeKey==='turm' || sizeKey==='mine'
+                  || !!this.asset(`bld_build_${b.type}_3`));
       const f2=b.progress/total;
       const ph= drei ? (f2<0.4?1: f2<0.75?2:3) : (f2<0.55?1:2);
       ovKey=`bld_build_${b.type}_${ph}`;
@@ -9715,13 +9721,17 @@ export class Renderer {
         // Dachstuhl -> Vollbrand -> rauchende Truemmer). Es liegt UEBER
         // dem Platz, an dem das Haus stand; die prozeduralen Flammen
         // entfallen dann, der Rauch laeuft weiter mit.
-        let gemalt=null;
+        let gemalt=null, bKey=null;
         if(f.kl){
           const ph=age<dauer*0.30? 1 : age<dauer*0.62? 2 : 3;
-          gemalt=this.asset('fx_burn_'+f.kl+'_'+ph);
+          // Erst das Brandblatt DIESES Gebäudes, sonst das der Größenklasse.
+          // Damit lässt sich Haus für Haus nachliefern, ohne dass die
+          // fehlenden Bilder eine Lücke reißen.
+          bKey = (f.typ && this.asset('fx_burn_'+f.typ+'_'+ph)) ? 'fx_burn_'+f.typ : 'fx_burn_'+f.kl;
+          gemalt=this.asset(bKey+'_'+ph);
         }
         if(gemalt && gemalt.naturalWidth){
-          const hh=this.scaleOf('fx_burn_'+f.kl+'_1', f.big?96:f.kl==='m'?80:64);
+          const hh=this.scaleOf(bKey+'_1', f.big?96:f.kl==='m'?80:64);
           const ww=hh*(gemalt.naturalWidth/gemalt.naturalHeight);
           const fl=0.92+0.08*Math.sin(this.time/110+f.node);
           g.globalAlpha=Math.min(1, 0.35+sm)*fl;
