@@ -269,6 +269,7 @@ export class Renderer {
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._firnMap=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
+    this._felsPool=null;                        // Formenvorrat haengt an den vorhandenen Bildern
     this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this._vogelFlucht=null; this._zugSchar=null;   // Kleintier-Deko neu anfangen
@@ -3338,6 +3339,15 @@ export class Renderer {
               // klein und dicht = Kieshaufen
               const haufen=(px,py,i,gross)=>{
                 const lz=lumOf(i);
+                // Lieferung C: gemalte Haufen bevorzugen. Fehlt das Bild,
+                // bleibt der prozedurale Aufbau aus Truemmerbloecken – er
+                // nutzt dieselbe Palette und faellt deshalb nicht auf.
+                if(this.asset(gross?'obj_steinhaufen':'obj_kieshaufen')){
+                  this.drawFelsObj(g, gross?'obj_steinhaufen':'obj_kieshaufen',
+                                   px, py, 0.9+hash01(i*37+3)*0.28,
+                                   hash01(i*29+5)>0.5, 0.26, lz, i*7+11);
+                  return;
+                }
                 const n9= gross? 7+((hash01(i*29+5)*5)|0) : 11+((hash01(i*31+7)*7)|0);
                 const R9= gross? 20+hash01(i*37+3)*10 : 15+hash01(i*41+9)*7;
                 // Kontaktschatten unter dem ganzen Haufen
@@ -3386,13 +3396,30 @@ export class Renderer {
                   } else if(best8>=0 && bd8>1.25 && sp<0.70){
                     const [qx8,qy8]=pos(best8);
                     const mx8=px*0.62+qx8*0.38, my8=py*0.62+qy8*0.38;
-                    this.drawFelsObj(g, sp<0.35?'obj_crag_1':'obj_crag_2',
+                    // Lieferung C: vier Sporne statt zwei, sobald die
+                    // Bilder da sind (drawFelsObj liefert null ohne Bild)
+                    const KANT9=['obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4']
+                      .filter(k9=>this.asset(k9));
+                    const kk9=KANT9.length? KANT9[(sp*211|0)%KANT9.length] : 'obj_crag_1';
+                    this.drawFelsObj(g, kk9,
                                      mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7);
                   } else if(sp<0.30){
                     haufen(px+ox2, py+oy2+2, i, sp<0.14);   // Stein-/Kieshaufen
                   } else {
-                    const vN=1+((sp*137|0)%5);
-                    const box=this.drawFelsObj(g,'obj_rockspire_'+vN,
+                    // Lieferung C: der Formenvorrat waechst um Findlinge,
+                    // Blockstapel und die umgestuerzte Platte. Der Topf wird
+                    // aus dem gebaut, was WIRKLICH da ist – so wirkt jede
+                    // einzelne gelieferte Datei sofort, ohne Codeaenderung.
+                    if(!this._felsPool){
+                      this._felsPool=['obj_rockspire_1','obj_rockspire_2',
+                        'obj_rockspire_3','obj_rockspire_4','obj_rockspire_5',
+                        'obj_findling_gross','obj_findling_mittel',
+                        'obj_steingruppe','obj_blockstapel','obj_steinplatte']
+                        .filter(k9=>this.asset(k9));
+                    }
+                    const P9=this._felsPool;
+                    const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_1';
+                    const box=this.drawFelsObj(g,key9,
                                                px+ox2, py+oy2+3, sc7,
                                                hash01(i*7+1)>0.5, 0.26, lz, i*3+1);
                     if(!box) haufen(px+ox2, py+oy2+2, i, true);
@@ -4098,6 +4125,43 @@ export class Renderer {
       if(hg>this.firnAt(i)-1.2) return;
       const msn2=this.massifSnow();
       if(m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn2[n])) return;
+      // ---- Lieferung C: gemaltes Felsdekor ----------------------------
+      // Alle drei Stuecke sind reine Zeichnung ohne Spielwirkung und
+      // erscheinen NUR, wenn das Bild da ist. Die Streuung haengt am
+      // Knotenindex, ist also nach dem Neuladen identisch.
+      {
+        // Moos- und Flechtenfleck: liegt als flaches Decal auf dem Fels,
+        // bevorzugt auf der NORDSEITE (im Bild oben) – dort steht die
+        // Sonne nie, dort haelt sich Feuchtigkeit.
+        const moos=this.asset('deco_moosfleck');
+        if(moos && h<0.34 && this.felsLicht(i)<0.1){
+          const mw=44+hash01(i*23+9)*30, mh=mw*0.46;
+          g.save();
+          g.globalAlpha=0.42+hash01(i*29+3)*0.22;
+          g.translate(px+o1*0.6, py+o2*0.6-4);
+          g.rotate((hash01(i*31+7)-0.5)*0.8);
+          g.drawImage(moos, -mw/2, -mh/2, mw, mh);
+          g.restore();
+        }
+        // Krueppelbaum: einzelnes Totholz auf dem Fels, sehr sparsam
+        const kb=this.asset('obj_krueppelbaum');
+        if(kb && h>0.955 && (m.obj[i]&127)===OBJ.NONE){
+          const kh=this.scaleOf('obj_krueppelbaum',34)*(0.85+hash01(i*41+5)*0.3);
+          const kw=kh*(kb.naturalWidth/kb.naturalHeight);
+          this.shadow(g, px+o1+2, py+o2+2, kw*0.30, kw*0.11, 0.24);
+          g.save();
+          if(hash01(i*17+2)>0.5){ g.translate(px+o1,0); g.scale(-1,1); g.translate(-(px+o1),0); }
+          g.drawImage(kb, px+o1-kw/2, py+o2-kh+3, kw, kh);
+          g.restore();
+        }
+        // Grasbuschel am Felsfuss: nur direkt an der Wiese
+        const gb9=this.asset('deco_grasbuschel_fels');
+        if(gb9 && h>0.60 && h<0.80 && m.nbs(i).some(n=>m.terr[n]===TER.GRASS)){
+          const gh=this.scaleOf('deco_grasbuschel_fels',18)*(0.8+hash01(i*53+7)*0.5);
+          const gw=gh*(gb9.naturalWidth/gb9.naturalHeight);
+          g.drawImage(gb9, px+o1-gw/2, py+o2-gh+2, gw, gh);
+        }
+      }
       if(h<0.15){
         // Felsnase: kleine Gruppe KANTIGER Trümmerblöcke im Facettenstil
         // (helle Deckfläche, dunkle Schattenseite – wie am Bergfuß).
@@ -4357,6 +4421,7 @@ export class Renderer {
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
             this._spireTint=null; this._lasurC=null; this._matC=null;
+            this._felsPool=null;
             this._felsBox=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this.chunks.clear();
