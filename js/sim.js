@@ -23,6 +23,11 @@ export class Game {
     this.over = false; this.winner = -1;
     this.msgs = [];
     this.changedNodes = [];
+    // Knoten, deren HÖHE sich im Spiel geändert hat (Planierer). Anders als
+    // changedNodes muss der Renderer die hier wirklich neu backen: an der
+    // Höhe hängen Massivdreiecke, Anhebung, Flanke, Grenzen und Firn.
+    // Der Renderer leert die Liste, wenn er sie abgearbeitet hat.
+    this.hoehenNeu = [];
     this.territoryVer = 1;
     this.routeVer = 1; this._routeCache = new Map(); this._compVer = 0; this._comp = new Map();
     this.buildings = new Map();       // id -> bld
@@ -186,7 +191,21 @@ export class Game {
     if(m.bld[node]>=0 || m.flag[node]) return {ok:false, r:'Platz belegt'};
     if(m.obj[node]!==OBJ.NONE) return {ok:false, r:'Platz blockiert'};
     if(this.roadAt(node)) return {ok:false, r:'Hier verläuft eine Straße'};
-    if(def.size==='MINE'){ if(!m.terrOkMine(node)) return {ok:false, r:'Bergwerke nur im Gebirge'}; }
+    if(def.size==='MINE'){
+      if(!m.terrOkMine(node)) return {ok:false, r:'Bergwerke nur im Gebirge'};
+      // KOLLISION MIT FELSFORMATIONEN (Nutzerwunsch v98: "kollisionskontrolle
+      // vom bergwerk mit objekten und prüfung ob platz"). Bisher wurde nur
+      // der BAUKNOTEN selbst geprüft; eine Felsnadel einen Knoten weiter
+      // steht aber mitten im Bild.
+      // NUR die sechs direkten Nachbarn, und das ist gemessen: über das
+      // ganze Bauschattenband (rund zwölf Knoten) fielen bei 17 % Felsdichte
+      // fast neun von zehn Plätzen weg - auf Seed 7 blieb im Startgebiet
+      // KEIN EINZIGER übrig. Geometrisch ist das Band auch zu weit: das
+      // Minenbild ist etwa 85 Bildpunkte breit, der Knotenabstand 52 - was
+      // zwei Knoten entfernt steht, überlappt nicht mehr.
+      for(const n of m.nbs(node))
+        if((m.obj[n]&127)===OBJ.ROCK) return {ok:false, r:'Felsen im Weg'};
+    }
     else {
       if(!m.terrOkBuild(node)) return {ok:false, r:'Untergrund ungeeignet'};
     }
@@ -794,13 +813,11 @@ export class Game {
     if(!def.mine) return null;
     const m=this.map;
     const targetT={coal:1, ironore:2, gold:3, stone:4}[def.mine];
+    // derselbe Ring wie beim Fördern - die Anzeige darf nichts versprechen,
+    // was das Bergwerk nicht erreicht
     let sum=0;
-    const seen=new Set();
-    for(const n of [b.node, ...m.nbs(b.node)])
-      for(const nn of [n, ...m.nbs(n)]){
-        if(seen.has(nn)) continue; seen.add(nn);
-        if(m.oreT[nn]===targetT) sum+=m.oreA[nn];
-      }
+    for(const nn of [b.node, ...m.nbs(b.node)])
+      if(m.oreT[nn]===targetT) sum+=m.oreA[nn];
     return sum;
   }
   prodGood(b){
@@ -1575,14 +1592,15 @@ export class Game {
           for(const f of FOODS) if((b.stock[f]||0)>0){ b.stock[f]--; fed=true; break; }
           if(!fed) continue;
           // Erz in Umgebung suchen
+          // EIN Ring statt zwei (v99). Über zwei Ringe erreichte das
+          // Bergwerk 19 Knoten; zusammen mit dem flächendeckenden Erz lag
+          // die Trefferwahrscheinlichkeit bei 97-99 %, und der Geologe war
+          // überflüssig. Erz liegt jetzt in Nestern (s. map.js), und das
+          // Bergwerk muss auf oder neben einem davon stehen.
           const targetT = {coal:1, ironore:2, gold:3, stone:4}[def.mine];
           let found=false;
-          const around=[b.node, ...m.nbs(b.node)];
-          for(const n of around){
-            for(const nn of [n, ...m.nbs(n)]){
-              if(m.oreT[nn]===targetT && m.oreA[nn]>0){ m.oreA[nn]--; found=true; break; }
-            }
-            if(found) break;
+          for(const nn of [b.node, ...m.nbs(b.node)]){
+            if(m.oreT[nn]===targetT && m.oreA[nn]>0){ m.oreA[nn]--; found=true; break; }
           }
           if(found) this.wareAustragen(b);   // Bergmann bringt das Erz sichtbar zur Fahne
           else {
@@ -2866,6 +2884,39 @@ export class Game {
       b.builderId=u.id;
     }
   }
+  // Der Planierer EBNET jetzt wirklich (Nutzerwunsch v98: "die planierer
+  // sollen das gelände anpassen so dass dort ein bergwerk gebaut werden
+  // kann"). Bis hierher war b.leveled nur ein Haken - das Gelände blieb, wie
+  // es war, und ein Haus am Hang stand danach genauso schief wie vorher.
+  // Geebnet wird der Bauknoten mit seinen sechs Nachbarn auf eine gemeinsame
+  // Höhe, aber GEDECKELT: höchstens PLAN_MAX je Knoten. Ein Planierer trägt
+  // eine Schaufel, keinen Bagger, und ein unbegrenztes Einebnen würde
+  // Strassen, Grenzen und Nachbargebäude mitreissen.
+  // Ausgenommen bleiben Wasser/Lava (kein Untergrund) und Knoten, auf denen
+  // ein ANDERES Gebäude steht - das würde sonst mitwandern.
+  planiere(b){
+    const m=this.map;
+    const PLAN_MAX=0.85;
+    const nb=m.nbs(b.node);
+    const fest=(q)=> m.terr[q]!==TER.WATER && m.terr[q]!==TER.LAVA
+                  && !(m.bld[q]>=0 && m.bld[q]!==b.id);
+    let s=m.hgt[b.node], n=1;
+    for(const q of nb) if(fest(q)){ s+=m.hgt[q]; n++; }
+    // Zielhöhe zwischen Bauknoten und Umgebung: der Platz sinkt/steigt
+    // etwas, die Umgebung kommt ihm entgegen
+    const ziel=m.hgt[b.node]*0.55+(s/n)*0.45;
+    let dirty=false;
+    const setz=(q)=>{
+      if(!fest(q)) return;
+      const d=Math.max(-PLAN_MAX, Math.min(PLAN_MAX, ziel-m.hgt[q]));
+      if(Math.abs(d)<0.03) return;
+      m.hgt[q]+=d; dirty=true;
+      this.hoehenNeu.push(q);
+    };
+    setz(b.node);
+    for(const q of nb) setz(q);
+    if(dirty) m.computePasses();     // steil/schachtOk/pass hängen an der Höhe
+  }
   // Grabstellen des Planierers. Sie liegen auf ECHTEN Nachbarknoten des
   // Bauplatzes, ein Stück zum Haus hin gerückt - nur so stimmt die HÖHE.
   // Vorher waren es feste Pixelversätze der Hausposition; am Hang stand der
@@ -2918,7 +2969,7 @@ export class Game {
       b.levelT=(b.levelT||0)+1;
       if(b.levelT%22===3) this.onLevel && this.onLevel(u);
       if(b.levelT%24===23){ u.pt++; u.atSpot=false; }    // weiter zur nächsten Stelle
-      if(b.levelT>=70){ b.leveled=true; u.atSpot=false; u.state='home'; }
+      if(b.levelT>=70){ b.leveled=true; this.planiere(b); u.atSpot=false; u.state='home'; }
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }

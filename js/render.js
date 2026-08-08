@@ -5193,11 +5193,18 @@ export class Renderer {
     // Bodenschatten zuerst – ohne ihn klebt der Block AUF dem Boden
     g.fillStyle='rgba(28,25,21,0.28)';
     g.beginPath(); g.ellipse(x+r*0.28,y+r*0.42,r*1.12,r*0.5,0,0,7); g.fill();
+    // v99 - Nutzerurteil: "die objekte wirken teilweise noch dreieckig
+    // speziell am rand". Der Block hatte FÜNF Ecken mit bis zu 0,5 rad
+    // Winkeljitter; fällt eine Ecke aus, bleibt eine Dreiecksfläche stehen,
+    // und die grosse flache Deckfläche darüber betont sie noch. Jetzt sieben
+    // Ecken mit kleinerem Jitter und weniger Radiusstreuung - der Block
+    // bleibt kantig, liest sich aber als Stein statt als Dreieck.
+    const NE=7;
     const a0=hash01(seed*17+1)*6.283;
     const pts=[];
-    for(let k=0;k<5;k++){
-      const a=a0+k*1.2566+(hash01(seed*23+k*7)-0.5)*0.5;
-      const rr=r*(0.78+hash01(seed*31+k*5)*0.45);
+    for(let k=0;k<NE;k++){
+      const a=a0+k*(6.283/NE)+(hash01(seed*23+k*7)-0.5)*0.34;
+      const rr=r*(0.84+hash01(seed*31+k*5)*0.30);
       pts.push([x+Math.cos(a)*rr, y+Math.sin(a)*rr*0.72, a]);
     }
     const poly=(arr)=>{ g.beginPath(); g.moveTo(arr[0][0],arr[0][1]);
@@ -5210,8 +5217,11 @@ export class Renderer {
       poly([[x-r*0.12,y-r*0.10], ...se]);
       g.fillStyle=C(1); g.fill();
     }
-    // helle Deckfläche: verkleinertes Polygon nach oben links geschoben
-    poly(pts.map(p=>[x+(p[0]-x)*0.52-r*0.22, y+(p[1]-y)*0.52-r*0.30]));
+    // helle Deckfläche: verkleinertes Polygon nach oben links geschoben.
+    // v99: 0,52 -> 0,62 und weniger Versatz. Die kleine, stark versetzte
+    // Fläche stand als eigenes helles Dreieck auf dem Block; grösser und
+    // mittiger liest sie sich als Lichtseite.
+    poly(pts.map(p=>[x+(p[0]-x)*0.62-r*0.16, y+(p[1]-y)*0.62-r*0.22]));
     g.fillStyle=C(3); g.fill();
     // feine dunkle Kontur hält den Block zusammen
     poly(pts); g.strokeStyle='rgba(40,35,29,0.25)'; g.lineWidth=1; g.stroke();
@@ -5390,8 +5400,13 @@ export class Renderer {
         const t9=hash01(seed*17+k*13);
         const bxp=x+(t9-0.5)*cw*1.06+cw*0.05;
         const byp=y+(hash01(seed*23+k*11)-0.62)*Math.max(3,cw*0.13);
+        // gedeckelt (v99): an einem grossen Findling (cw um 120) wurden aus
+        // dem Schuttsaum Broecken von 13 Bildpunkten - in dieser Groesse
+        // liest sich der prozedurale Block als flaches Vieleck neben einem
+        // gemalten Stein. Bis 7,5 px bleibt er ein Kiesel.
         this.rockChunklet(g, bxp, byp,
-                          Math.max(2.2, cw*(0.055+hash01(seed*29+k*7)*0.055)),
+                          Math.max(2.2, Math.min(7.5,
+                            cw*(0.055+hash01(seed*29+k*7)*0.055))),
                           seed*5+k*31, L9);
       }
     }
@@ -7163,6 +7178,19 @@ export class Renderer {
     // gezeichnet – sie invalidieren die Chunks NICHT mehr. Vorher kostete
     // jeder gefällte Baum den Neuaufbau von bis zu 4 Chunks (~50 ms Ruckler).
     game.changedNodes.length=0;
+    // HÖHENÄNDERUNG durch den Planierer: hier reicht das Nachzeichnen pro
+    // Bild NICHT, das Gelände selbst ist ein anderes geworden. Alles, was
+    // aus der Höhe gebacken oder abgeleitet wird, muss weg: Chunks um die
+    // Stelle, das Anhebungsfeld, die Firngrenze und die Grenzverläufe.
+    // Passiert genau einmal je fertig geebnetem Bauplatz.
+    if(game.hoehenNeu && game.hoehenNeu.length){
+      for(const q of game.hoehenNeu) this.markDirtyNode(q);
+      game.hoehenNeu.length=0;
+      this._liftC=null; this._liftFld=null;
+      this._firnMap=null; this._firnLine=null;
+      this._massifSnow=null;
+      this._bordLiftN=-1;              // erzwingt neue Grenzberechnung
+    }
     if(game.signs && game.signs.size!==this._signsSeen.size){
       for(const q of game.signs.keys())
         if(!this._signsSeen.has(q)){ this._signsSeen.add(q); this.markDirtyNode(q); }

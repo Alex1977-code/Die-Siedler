@@ -792,14 +792,6 @@ export function genWorld(opts){
   // anderen Erze: das Steinbergwerk ist die verlässliche Dauerquelle des
   // Mittelspiels, wenn die Oberflächen-Brocken abgetragen sind – eine Mine
   // soll eine lange Partie tragen (Kritikbericht Stein-Spirale).
-  const erzSetzen = (i)=>{
-    const r=rng();
-    if(r<0.30*res){ map.oreT[i]=1; map.oreA[i]=26+((rng()*30)|0); }      // Kohle
-    else if(r<0.52*res){ map.oreT[i]=2; map.oreA[i]=22+((rng()*26)|0); } // Eisen
-    else if(r<0.62*res){ map.oreT[i]=3; map.oreA[i]=16+((rng()*18)|0); } // Gold
-    else if(r<0.80*res){ map.oreT[i]=4; map.oreA[i]=60+((rng()*60)|0); } // Granit
-  };
-  for(let i=0;i<w*h;i++) if(map.terr[i]===TER.MOUNT) erzSetzen(i);
   // ---- Felsformationen im Gebirge (OBJ.ROCK) ----
   // Nutzerwunsch: "viele verschiedene steinobjekte kieshaufen steinhaufen
   // klippen ... mit kollisionskontrolle im spiel". Bis hierher waren die
@@ -925,7 +917,6 @@ export function genWorld(opts){
       const i=map.idx(X,Y);
       if(map.terr[i]!==TER.MOUNT && map.terr[i]!==TER.SNOW) continue;
       map.obj[i]=OBJ.NONE; map.amt[i]=0;
-      if(map.terr[i]===TER.MOUNT && !map.oreT[i]) erzSetzen(i);
     }
   }
   // Jetzt steht das Gelände endgültig: Kessel-Durchlässe prüfen und notfalls
@@ -1032,6 +1023,61 @@ export function genWorld(opts){
         }
         map.terr[q]=TER.GRASS;
         if(n2) map.hgt[q]=map.hgt[q]*0.25+(s/n2)*0.75;
+      }
+    }
+  }
+
+  // ---- Erz in LAGERSTÄTTEN statt flächendeckend ----
+  // Nutzerurteil v98: "bergwerke fördern aktuell immer ohne geologen
+  // erkundung ob dort etwas ist. kann man ja per zufall treffen auch ohne
+  // geologe aber nicht grundsätzlich eine förderung".
+  // Das traf zu, und zwar aus zwei Gründen zugleich:
+  //   jeder einzelne Gebirgsknoten bekam mit 80 % Wahrscheinlichkeit ein
+  //   Vorkommen - das Gebirge war praktisch flächendeckend vererzt
+  //   das Bergwerk suchte über ZWEI Nachbarringe, also 19 Knoten
+  // Zusammen lag die Trefferwahrscheinlichkeit für Kohle bei 99,9 %, für
+  // Eisen bei 99,1 %, für Granit bei 97,7 % und selbst für Gold noch bei
+  // 86,5 %. Der Geologe war damit reine Zierde.
+  // Jetzt liegt Erz in zusammenhängenden Lagerstätten: wenige Nester je
+  // Massiv, jedes aus einer Sorte. Wer blind baut, kann eines treffen -
+  // aber eben nur manchmal. Der Suchradius des Bergwerks schrumpft dazu auf
+  // EINEN Ring (s. sim.js), sonst verwischt er die Nester wieder.
+  const erzSorte = ()=>{
+    const r=rng();
+    return r<0.34? 1 : r<0.60? 2 : r<0.72? 3 : 4;   // Kohle/Eisen/Gold/Granit
+  };
+  const erzMenge = (t)=> t===1? 26+((rng()*30)|0)
+                       : t===2? 22+((rng()*26)|0)
+                       : t===3? 16+((rng()*18)|0)
+                       :        60+((rng()*60)|0);
+  {
+    const istBerg=(q)=>map.terr[q]===TER.MOUNT;
+    const gesehen=new Uint8Array(w*h);
+    for(let i=0;i<w*h;i++){
+      if(gesehen[i] || !istBerg(i)) continue;
+      const st=[i]; gesehen[i]=1; const koerper=[];
+      while(st.length){
+        const c=st.pop(); koerper.push(c);
+        for(const q of map.nbs(c)) if(!gesehen[q] && istBerg(q)){ gesehen[q]=1; st.push(q); }
+      }
+      // Ein Nest je rund 26 Knoten Massivfläche, mindestens eines.
+      const nester=Math.max(1, Math.round(koerper.length/26*res));
+      for(let k=0;k<nester;k++){
+        const start=koerper[(rng()*koerper.length)|0];
+        if(map.oreT[start]) continue;                 // schon vererzt
+        const t=erzSorte();
+        const soll=4+((rng()*10)|0);
+        const q2=[start]; const drin=new Set([start]);
+        map.oreT[start]=t; map.oreA[start]=erzMenge(t);
+        for(let qi=0; qi<q2.length && drin.size<soll; qi++){
+          for(const nb of map.nbs(q2[qi])){
+            if(drin.size>=soll) break;
+            if(drin.has(nb) || !istBerg(nb) || map.oreT[nb]) continue;
+            if(rng()<0.28) continue;                  // ausgefranster Rand
+            drin.add(nb); q2.push(nb);
+            map.oreT[nb]=t; map.oreA[nb]=erzMenge(t);
+          }
+        }
       }
     }
   }
