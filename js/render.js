@@ -1616,7 +1616,7 @@ export class Renderer {
           // übernimmt colAt() im Füllpass. Die Stufen t3.ci bleiben nur als
           // Metadaten für Fugen und Kantenlicht erhalten.
           const FB=[0.88,0.94,1.0,1.05,1.09];
-          const kalt=[213,220,232];
+          const kalt=[214,216,222];      // Gipfelhauch, deutlich weniger blau
           const warmOnly=(this.theme==='vulkan'||this.theme==='wueste');
           // HÖHENLAGEN-FARBTÖNE (Nutzerwunsch: "verschiedene Farbtöne für
           // die Höhenlagen mit fließendem Übergang"). Bisher unterschieden
@@ -1627,11 +1627,17 @@ export class Renderer {
           // Grünstich von der Wiese), in der Mitte beige, oben fahlgrau,
           // ganz oben kühl. Gemischt wird weich, die Zeichnung der Palette
           // bleibt erhalten.
+          // Umbau 4.0 (Nutzervorgabe "Saettigung anheben"): die oberste
+          // Stuetzstelle war mit #CCCECC bzw. #C6CED2 praktisch neutralgrau
+          // und zog ueber kf=0.38 die ganze Gipfelzone ins Farblose – der
+          // Berg wurde nach oben hin grau statt kuehl. Alle vier Stuetzen
+          // tragen jetzt Chroma; die RICHTUNG (unten warm-erdig, oben kuehl
+          // und fahl) bleibt unveraendert.
           const HBAND = warmOnly
-            ? [[104,74,52],[150,110,72],[176,146,110],[196,178,150]]
+            ? [[110,76,50],[156,112,70],[182,150,110],[204,184,152]]
             : this.theme==='winter'
-            ? [[96,98,98],[132,134,136],[166,170,174],[198,204,210]]
-            : [[104,100,74],[158,146,116],[186,180,164],[204,206,204]];
+            ? [[92,98,106],[128,136,146],[162,172,182],[196,206,216]]
+            : [[110,96,66],[168,148,108],[196,182,152],[212,206,188]];
           const hbAt=(u9)=>{
             const t9=Math.max(0,Math.min(2.999,u9*3));
             const k9=t9|0, f9=t9-k9;
@@ -1858,8 +1864,13 @@ export class Renderer {
                   const ta=Math.min(0.16,(0.42-s9)*0.6);
                   r9+=(92-r9)*ta; g9+=(85-g9)*ta; b9+=(64-b9)*ta;
                 }
+                // Kuehler Gipfelhauch: Anteil 0.10 -> 0.06 und der Zielton
+                // selbst weniger blaustichig. Bei 0.10 auf #D5DCE8 zog er
+                // genau die hellsten (und damit auffaelligsten) Facetten ins
+                // Blaugraue und nahm die eben erst angehobene Saettigung
+                // wieder heraus.
                 if(!warmOnly && u9>0.55){
-                  const t4=Math.min(0.10,(u9-0.55)*0.28);
+                  const t4=Math.min(0.06,(u9-0.55)*0.18);
                   r9+=(kalt[0]-r9)*t4; g9+=(kalt[1]-g9)*t4; b9+=(kalt[2]-b9)*t4;
                 }
                 // Höhenlagen-Farbe einmischen (stetig, keine Bänderung)
@@ -4650,15 +4661,34 @@ export class Renderer {
   // Mittel = Grundton der Facetten, hell = Deckflächen, dunkel = Schattenseiten.
   rockPal(){
     if(this._palRock) return this._palRock;
+    // Umbau 4.0, Nutzervorgabe 1 ("Saettigung anheben"): die Palette des
+    // Auftrags (Glanz #B5AC9C, Mittel #8A8175, Schatten #5E574E) ist fuer
+    // Neuland zu karg – gemessen liegt sie bei HSV-Saettigung 0,14-0,17,
+    // waehrend Figuren und Gebaeude bei 0,5-0,8 stehen. Ein so entsaettigter
+    // Fels beisst sich mit dem knuffig-cartoonhaften Rest.
+    // Die Toene behalten deshalb ihre HELLIGKEITEN (davon haengen die
+    // Facettenstufen und der Schattenanteil ab), bekommen aber mehr Chroma
+    // und einen waermeren, ockerfarbenen Stich. Die Wiese bleibt mit Abstand
+    // das buntere Feld – der Fels bleibt der ruhige Anker.
+    // Gemessen am Endbild (Median der HSV-Saettigung der Felspixel):
+    //   vorher 0,30 – nachher 0,40; Wiese daneben unveraendert 0,77.
     const PALS={
-      vulkan:[[52,45,41],[84,74,66],[113,101,90],[142,129,115],[166,153,138]],
-      wueste:[[112,94,70],[150,129,98],[182,160,126],[205,187,153],[221,206,177]],
-      winter:[[76,75,74],[110,109,107],[143,142,139],[174,174,171],[200,201,199]],
+      // Vulkan: dunkler Basalt nach Auftrag (#2B2224 / #47393A / #6B5A55),
+      // nach oben hin rotstichig statt grau
+      vulkan:[[43,34,36],[71,57,58],[107,90,85],[138,116,106],[166,140,124]],
+      // Wueste: die Rampe des Auftrags (#4A3722 -> #C8A575), leicht
+      // zurueckgenommen, damit der Sandstein kein Farbfleck wird
+      wueste:[[78,60,40],[112,88,58],[158,128,88],[196,166,122],[218,194,156]],
+      // Winter: der Auftrag nennt #6B7789 -> #EDEFF2. Die bisherige Fassung
+      // war mit Saettigung 0,013 praktisch neutralgrau; jetzt ein kuehles,
+      // aber farbiges Blaugrau (0,06-0,16) – Schnee braucht die kuehle
+      // Richtung, darf aber nicht tot sein.
+      winter:[[86,92,102],[112,120,132],[144,152,164],[176,183,194],[204,209,217]],
     };
-    // Standard (gruen/gebirge/...): exakt die fuenf Felstoene aus dem
-    // Umbau-Papier §3 – Tiefschatten #57503F, Schatten #6A5C4A, mittel
-    // #8A7E68, hell #A49B8A (= Strassen-Stein), Spitzlicht #BCAE93.
-    this._palRock=PALS[this.theme]||[[87,80,63],[106,92,74],[138,126,104],[164,155,138],[188,174,147]];
+    // Standard (gruen/gebirge/...): waermerer, satterer Granit.
+    // [tief, dunkel, mittel, hell, licht]; Helligkeiten wie zuvor
+    // (78/96/128/158/180), Saettigung von 0,16-0,30 auf 0,27-0,43 angehoben.
+    this._palRock=PALS[this.theme]||[[92,76,54],[116,94,66],[150,127,95],[178,159,128],[202,183,148]];
     return this._palRock;
   }
   // Kleiner kantiger Trümmerblock: unregelmäßiges Fünfeck mit dunkler
