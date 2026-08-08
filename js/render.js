@@ -2111,29 +2111,26 @@ export class Renderer {
               // Muster nie am Dreiecksgitter einrastet und die Wiederholung
               // verschwindet. tintedSpire toent die Kachel auf die Thema-
               // Felspalette (Winter grau, Vulkan dunkel).
-              const imT=this.felsLasur('ter_rock_top');
+              // Nachtrag: FLACHE Materialkachel (felsMaterial) statt der
+              // lichttragenden Lasur. Variante 1 der Klimazone traegt die
+              // Flaeche; fehlt ter_fels_1<zone>, faellt felsKachelKey auf den
+              // heutigen ter_rock_top zurueck.
+              const kT=this.felsKachelKey(1);
+              const imT=kT? this.felsMaterial(kT) : null;
               const w3=imT? (imT.naturalWidth||imT.width) : 1024;
-              const det1= imT? patOf('ter_rock_top',(TILE*FM_TOP)/w3,0,0,0,imT) : null;
+              const det1= imT? patOf('mat|'+kT,(TILE*FM_TOP)/w3,0,0,0,imT) : null;
               if(det1){
-                // Lasur-Alpha ist am Kennwert aus 11.1 eingestellt (gemessen
-                // am Endbild, nicht geschaetzt). Auf dunklem Vulkanfels
-                // wirkt die Aufhellung doppelt so stark -> dort drosseln.
-                // Umbau 3.2: leicht zurueckgenommen (0.86 -> 0.78). Weiter
-                // herunter (probiert: 0.50 und 0.62) verlieren die Platten
-                // ihre Fugen und die Flaeche wird teigig – die Lasur ist bei
-                // grossem Massstab NICHT der Gegner der Form: sie arbeitet
-                // auf 30 Weltpixeln (Plattenmass), die Form auf mehreren
-                // hundert. Die beiden Frequenzen stoeren sich nicht. Was die
-                // Form in v81 erschlug, war der Spitzlicht-Deckel bei 156,
-                // auf dem alle Sonnenhaenge einrasteten.
-                // Nutzerurteil v87: "die Kacheln sehen nicht gut aus,
-                // besser ungekachelt". Die Plattenkachel traegt die Flaeche
-                // nicht mehr – sie ist nur noch KORN. Die Zeichnung kommt
-                // jetzt aus den Tonfeldern (tonAt), der Hoehenfarbrampe
-                // (hbAt) und der Grossform (Pass 3c); alles drei sind
-                // weltverankerte Felder ohne Wiederholung.
-                const aBase= this.theme==='vulkan'? 0.26
-                           : this.theme==='winter'? 0.34 : 0.40;
+                // Nachtrag: die Kachel ist nur noch MATERIAL, kein Licht mehr.
+                // felsMaterial() hat ihr die eingebackene Beleuchtung per
+                // Hochpass genommen und sie auf eine multiplikative Graustufe
+                // um 236 gelegt. Sie wird deshalb VOLL aufgelegt (Alpha 1) und
+                // ausschliesslich mit 'multiply' – sie kann so nirgends
+                // aufhellen und keine zweite Lichtrichtung behaupten.
+                // Vulkan/Winter bekommen etwas weniger Korn, weil ihre
+                // Paletten dunkler bzw. flauer sind und die Struktur dort
+                // sonst als Schmutz liest.
+                const aBase= this.theme==='vulkan'? 0.62
+                           : this.theme==='winter'? 0.78 : 1.0;
                 // --- BRUCHFELD (Nutzerkritik v84: "Steinhaufen") ---------
                 // Bis v84 lag die Plattenlasur mit EINEM Alpha ueber der
                 // ganzen Massivflaeche. Damit war jeder Quadratmeter des
@@ -2164,28 +2161,10 @@ export class Renderer {
                                     fo>0.9? 0.85 : fo>0.4? 0.45 : 0);
                   return Math.max(0, Math.min(1, v9*0.80+(nz-0.5)*0.70+0.22));
                 };
-                // Sonnenlage je Dreieck. 'overlay' verhaelt sich auf hellen
-                // Untergruenden wie 'screen': gerade auf den besonnten
-                // Grossflaechen wusch die Plattenlasur die Zeichnung ins
-                // Weisse (gemessen p95=195, p99=224 im Endbild – heller als
-                // alles andere und ohne Fugen). Diese Flaechen bekommen
-                // deshalb einen zusaetzlichen MULTIPLY-Zug mit derselben
-                // Kachel: er holt die Fugen zurueck und nimmt die
-                // Ueberhelligkeit heraus, ohne die Schattenseite zu
-                // beruehren.
-                const lichtOf=(q)=>{
-                  const gb=gradBigAt(q);
-                  const d9=Math.max(-1,Math.min(1,(gb[0]*0.75+gb[1]*0.5)*0.62));
-                  const u9=Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
-                  return d9*0.78+(u9-0.46)*0.78;
-                };
                 const bruchZ=[];      // Dreiecke der Bruchzonen (>0.45)
-                const hellZ=[];       // besonnte Grossflaechen
                 for(const t3 of tris){
                   t3._bk=bruchT(t3);
                   if(t3._bk>0.45) bruchZ.push(t3);
-                  const li=(lichtOf(t3.qa)+lichtOf(t3.qb)+lichtOf(t3.qc))/3;
-                  if(li>0.20) hellZ.push(t3);
                 }
                 const bruchWeg=(list)=>{
                   g.beginPath();
@@ -2194,54 +2173,46 @@ export class Renderer {
                     g.lineTo(t3.C[0],t3.C[1]); g.closePath();
                   }
                 };
-                // Grundzug (ueberall) und Zusatz (nur Bruchzonen) ergeben
-                // zusammen wieder aBase – die Bruchzonen sehen also aus wie
-                // bisher, die ruhigen Flaechen tragen nur noch 44 %.
+                // Nachtrag: NUR NOCH MULTIPLY. Der frueher noetige
+                // Sonnenlagen-Sonderzug (hellZ) entfaellt ersatzlos – er war
+                // die Reparatur des Overlay-Aufhellens, und ohne Overlay gibt
+                // es nichts mehr zu reparieren. Damit spart der Pass zwei von
+                // fuenf Vollflaechen-Fuellungen.
+                // Grundzug (ueberall) und Zusatz (nur Bruchzonen): die ruhigen
+                // Grossflaechen tragen 44 % des Korns, die Bruchzonen 100 % –
+                // ein Koerper, der ueberall gleich fein zerlegt ist, liest
+                // sich als Haufen statt als Massiv (Nutzerkritik v84).
                 const aRuhe=0.44, aZus=1-aRuhe;
-                // Umbau 3.2b: EIN leiser MULTIPLY-Zug VOR dem Overlay.
-                // 'overlay' verhaelt sich auf Untergruenden ueber 128 wie
-                // 'screen' – genau auf den grossen SONNENHAENGEN, die 3.2
-                // erst hell gemacht hat, wusch es die Plattenzeichnung weiss.
-                // Die hellen Grossflaechen standen dann als glatte Keile
-                // ohne Fugen im Bild. 'multiply' traegt ueberall gleich und
-                // holt die Fugen im Licht zurueck; die Verdunklung faengt
-                // der angehobene Spitzlicht-Deckel (182) wieder auf.
                 g.globalCompositeOperation='multiply';
                 g.fillStyle=det1;
-                g.globalAlpha=aBase*0.30*aRuhe;
-                g.fillRect(c.ox,c.oy,w,h);
-                g.globalCompositeOperation='overlay';
                 g.globalAlpha=aBase*aRuhe;
                 g.fillRect(c.ox,c.oy,w,h);
                 if(bruchZ.length){
-                  g.globalCompositeOperation='multiply';
-                  g.globalAlpha=aBase*0.30*aZus;
-                  bruchWeg(bruchZ); g.fill();
-                  g.globalCompositeOperation='overlay';
                   g.globalAlpha=aBase*aZus;
                   bruchWeg(bruchZ); g.fill();
-                }
-                if(hellZ.length){
-                  g.globalCompositeOperation='multiply';
-                  g.globalAlpha=aBase*0.46;
-                  bruchWeg(hellZ); g.fill();
                 }
                 // --- zweite und dritte Lage per Rauschmaske ---
                 // Der grosse Massstab aus 3.1 laesst eine Kachel 385 Welt-
                 // pixel (7,4 Knoten) ueberdecken. Innerhalb eines Bildes
                 // wiederholt sie sich damit kaum noch – dafuer faellt jede
                 // Wiederholung staerker auf. Dagegen stehen zwei weitere
-                // Lagen in Nestern: ter_rock_top2 in eigenem Massstab und
-                // eigener Phase, dazu ter_rock_top selbst noch einmal,
-                // GEDREHT (29 Grad) und anders phasenversetzt. Beide Masken
-                // kommen aus DEMSELBEN Rauschfeld (ein Durchlauf ueber die
-                // Dreiecke), damit das Budget nicht zweimal bezahlt wird.
-                const imT2=this.felsLasur('ter_rock_top2');
+                // Lagen in Nestern: Variante 2 der Klimazone in eigenem
+                // Massstab und eigener Phase, dazu Variante 3 GEDREHT
+                // (29 Grad) und anders phasenversetzt. Beide Masken kommen aus
+                // DEMSELBEN Rauschfeld (ein Durchlauf ueber die Dreiecke),
+                // damit das Budget nicht zweimal bezahlt wird. Liefert der
+                // Auftraggeber ter_fels_1..4, sind das vier verschiedene
+                // Kacheln; bis dahin greift die Rueckfallkette und es bleiben
+                // die heutigen zwei Bilder in vier Massstaeben/Phasen.
+                const kT2=this.felsKachelKey(2), kT3=this.felsKachelKey(3);
+                const imT2=kT2? this.felsMaterial(kT2) : null;
+                const imT3=kT3? this.felsMaterial(kT3) : null;
                 const w4=imT2? (imT2.naturalWidth||imT2.width) : 1024;
-                const det2= imT2? patOf('ter_rock_top2',(TILE*FM_TOP2)/w4,0,
+                const w6=imT3? (imT3.naturalWidth||imT3.width) : 1024;
+                const det2= imT2? patOf('mat|'+kT2,(TILE*FM_TOP2)/w4,0,
                                         TILE*0.37, TILE*0.71, imT2) : null;
-                const det3= patOf('ter_rock_top',(TILE*FM_DRITT)/w3,29,
-                                  TILE*2.9, TILE*1.7, imT);
+                const det3= imT3? patOf('mat3|'+kT3,(TILE*FM_DRITT)/w6,29,
+                                  TILE*2.9, TILE*1.7, imT3) : null;
                 if(det2||det3){
                   const n2=[], n3=[];
                   for(const t3 of tris){
@@ -2268,13 +2239,14 @@ export class Renderer {
                   zug(n2,det2,aBase*0.72);
                   zug(n3,det3,aBase*0.66);
                 }
-                // --- Geroellzone am Bergfuss: ter_rock_rubble ---
-                const imR=this.felsLasur('ter_rock_rubble');
+                // --- Geroellzone am Bergfuss (Auftrag 1.2/2.6) ---
+                const kR=this.geroellKey();
+                const imR=kR? this.felsMaterial(kR) : null;
                 if(imR){
                   const w5=imR.naturalWidth||imR.width;
                   // Schutt darf FEINER bleiben als die Hauptflaeche (halbes
                   // Plattenmass), aber 5 Weltpixel wie in v81 waren Sand.
-                  const detR=patOf('ter_rock_rubble',(TILE*FM_RUBBLE)/w5,0,
+                  const detR=patOf('mat|'+kR,(TILE*FM_RUBBLE)/w5,0,
                                    TILE*0.53, TILE*0.19, imR);
                   if(detR){
                     let anyR=false;
@@ -2293,8 +2265,13 @@ export class Renderer {
                       g.lineTo(t3.C[0],t3.C[1]); g.closePath();
                     }
                     if(anyR){
+                      // gedaempft (frueher 0.86): die Schuttkachel liegt jetzt
+                      // MULTIPLIZIEREND UEBER dem schon multiplizierten
+                      // Grundkorn. Bei vollem Alpha multiplizierten sich beide
+                      // Verdunklungen auf und der Fuss sackte gemessen 21 %
+                      // unter die Flanke – ein dunkler Ring um jeden Berg.
                       g.fillStyle=detR;
-                      g.globalAlpha=Math.min(0.86,aBase*1.5);
+                      g.globalAlpha=Math.min(0.55,aBase*0.55);
                       g.fill();
                     }
                   }
@@ -2329,7 +2306,11 @@ export class Renderer {
                       const k9= u9<STUF[0][0]? 0 : u9<STUF[1][0]? 1 : u9<STUF[2][0]? 2 : -1;
                       if(k9>=0) kb[k9].push(t3);
                     }
-                    g.globalCompositeOperation='overlay';
+                    // Nachtrag: 'multiply' statt 'overlay'. Moos ist DUNKLER
+                    // als blanker Fels; 'overlay' hellte die Moosflecken auf
+                    // besonnten Fussflaechen auf und setzte damit ein zweites,
+                    // der Facettenschattierung widersprechendes Licht.
+                    g.globalCompositeOperation='multiply';
                     g.fillStyle=detM;
                     for(let k9=0;k9<3;k9++){
                       if(!kb[k9].length) continue;
@@ -2338,7 +2319,7 @@ export class Renderer {
                         g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
                         g.lineTo(t3.C[0],t3.C[1]); g.closePath();
                       }
-                      g.globalAlpha=0.46*STUF[k9][1];
+                      g.globalAlpha=0.34*STUF[k9][1];
                       g.fill();
                     }
                     g.globalAlpha=1;
@@ -2588,7 +2569,13 @@ export class Renderer {
             //     einem Weichzeichner über den Chunk), deshalb gibt es an
             //     den Chunkgrenzen keine Nähte.
             if(mbw>0 && mbh>0){
-              const A9=58;                     // Ausschlag der Formkarte
+              // Umbau 4.0: Ausschlag 58 -> 30. Die Grossform steckt seit der
+              // Facettenquantisierung schon im Fuellpass (dB-Anteil 0.62). Ein
+              // kraeftiger WEICHER Verlauf darueber verschmierte die frisch
+              // gewonnenen Stufen wieder zu Gouraud – genau das, was der
+              // Auftrag ausschliesst. Es bleibt ein leiser Zug, der die
+              // Sonnen-/Schattenhaenge ueber Dutzende Facetten hinweg bindet.
+              const A9=30;                     // Ausschlag der Formkarte
               const fmc=this._maskTmp.getContext('2d');
               fmc.globalCompositeOperation='source-over';
               fmc.setTransform(1,0,0,1,0,0);
@@ -4346,7 +4333,8 @@ export class Renderer {
              ||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
-            this._spireTint=null; this._lasurC=null; this._felsBox=null;
+            this._spireTint=null; this._lasurC=null; this._matC=null;
+            this._felsBox=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this.chunks.clear();
           };
@@ -4889,6 +4877,96 @@ export class Renderer {
     t.globalAlpha=1;
     t.globalCompositeOperation='source-over';
     this._lasurC.set(key,cv);
+    return cv;
+  }
+  // ---------- Klimazone und Kachelvarianten (Auftrag 1.3 / 2.6) ----------
+  // Der Auftrag fordert 3-4 Felskacheln JE KLIMAZONE gegen die Wiederholung,
+  // dazu je eine Geroellkachel. Die Dateien heissen ter_fels_1..4 mit
+  // Zonen-Suffix bzw. ter_geroell. Solange sie nicht geliefert sind, faellt
+  // alles sauber auf den heutigen Bestand zurueck (ter_rock_top/-top2/
+  // -rubble) – es darf durch eine fehlende Datei kein leerer Fels entstehen.
+  felsZone(){
+    return this.theme==='wueste'? '_wueste'
+         : this.theme==='winter'? '_winter'
+         : this.theme==='vulkan'? '_vulkan' : '';
+  }
+  // Kachelschluessel der n-ten Felsvariante (n = 1..4), mit Rueckfallkette:
+  //   ter_fels_N<zone>  ->  ter_fels_N  ->  heutiger Bestand
+  felsKachelKey(n){
+    const z=this.felsZone();
+    const kette=[ 'ter_fels_'+n+z, 'ter_fels_'+n,
+                  // Rueckfall auf den heutigen Bestand: Variante 1+3 auf die
+                  // Hauptkachel, 2+4 auf die Zweitlage – so bleiben auch ohne
+                  // neue Dateien zwei unterscheidbare Lagen uebrig.
+                  (n%2)? 'ter_rock_top' : 'ter_rock_top2', 'ter_rock_top' ];
+    for(const k of kette) if(this.asset(k)) return k;
+    return null;
+  }
+  geroellKey(){
+    const z=this.felsZone();
+    for(const k of ['ter_geroell'+z, 'ter_geroell', 'ter_rock_rubble'])
+      if(this.asset(k)) return k;
+    return null;
+  }
+  // ---------- FLACHE MATERIALKACHEL (Nachtrag zum Auftrag) ----------
+  // Die Flaechenkachel darf KEIN Licht mitbringen: das Licht macht seit
+  // Umbau 4.0 allein die quantisierte Facettenschattierung. Eine gemalte
+  // Kachel hat aber fast immer eine eingebackene Beleuchtung (helle
+  // Plattenruecken oben links, dunkle Kanten unten rechts). Genau die stand
+  // frueher als zweite, WIDERSPRUECHLICHE Lichtquelle im Bild und wusch die
+  // Facetten aus – verstaerkt dadurch, dass die Kachel mit 'overlay'
+  // aufgelegt wurde und 'overlay' auf Untergruenden ueber 128 wie 'screen'
+  // aufhellt (gemessen am alten Endbild: p95=195, p99=224 auf den
+  // Sonnenhaengen, dort ohne jede Fugenzeichnung).
+  //
+  // felsMaterial() macht daraus eine reine MULTIPLIKATIVE Materialstruktur:
+  //   1) HOCHPASS: die Kachel wird stark tiefpassgefiltert (Downscale/
+  //      Upscale, kein ctx.filter – der ist auf iOS gesperrt) und die
+  //      Tiefpasslage vom Original abgezogen. Was uebrig bleibt, ist die
+  //      Kornstruktur OHNE die grossflaechige eingebackene Beleuchtung.
+  //   2) Ergebnis als GRAUwert um einen Mittelwert nahe Weiss (MID=236).
+  //      Multipliziert traegt die Kachel damit nur noch Struktur und
+  //      verdunkelt im Mittel um 7 % – sie kann nirgends aufhellen.
+  //   3) Kontrast gedeckelt (SPAN): der Auftrag verlangt Texturkontrast
+  //      hoechstens 25 % des Schattierungskontrasts (1.3).
+  // Farbe traegt die Kachel keine mehr: die kommt aus colAt/rockPal.
+  felsMaterial(key){
+    if(!this._matC) this._matC=new Map();
+    if(this._matC.has(key)) return this._matC.get(key);
+    const img=this.asset(key);
+    if(!img||!img.naturalWidth){ this._matC.set(key,null); return null; }
+    const W=img.naturalWidth, H=img.naturalHeight;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    // Tiefpass ueber Downscale/Upscale. 1/24 der Kachelbreite entspricht bei
+    // 1024 px rund 43 px – deutlich groeber als das Korn, aber fein genug,
+    // dass die eingebackene Plattenbeleuchtung erfasst wird.
+    const lw=Math.max(2,Math.round(W/24)), lh=Math.max(2,Math.round(H/24));
+    const lo=document.createElement('canvas'); lo.width=lw; lo.height=lh;
+    const lg=lo.getContext('2d');
+    lg.imageSmoothingEnabled=true; lg.imageSmoothingQuality='high';
+    lg.drawImage(img,0,0,lw,lh);
+    const up=document.createElement('canvas'); up.width=W; up.height=H;
+    const ug=up.getContext('2d');
+    ug.imageSmoothingEnabled=true; ug.imageSmoothingQuality='high';
+    ug.drawImage(lo,0,0,W,H);
+    let src, low;
+    try {
+      src=t.getImageData(0,0,W,H);
+      low=ug.getImageData(0,0,W,H);
+    } catch(e){ this._matC.set(key,null); return null; }
+    const a=src.data, b=low.data;
+    const MID=236, K=0.85, SPAN=30;      // 206..255 -> Kontrastverhaeltnis 1.24
+    for(let i=0;i<a.length;i+=4){
+      const L =0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
+      const Lb=0.299*b[i]+0.587*b[i+1]+0.114*b[i+2];
+      let v=MID+(L-Lb)*K;
+      if(v>255) v=255; else if(v<MID-SPAN) v=MID-SPAN;
+      a[i]=a[i+1]=a[i+2]=v; a[i+3]=255;
+    }
+    t.putImageData(src,0,0);
+    this._matC.set(key,cv);
     return cv;
   }
   // Prozedurale Felsnadel als Rückfall, solange obj_rockspire_*
