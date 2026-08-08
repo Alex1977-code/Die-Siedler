@@ -1703,7 +1703,27 @@ export class Renderer {
               const thr9=Math.min(1.15, 0.55+relEffOf(rq)*0.28-(liftOf(rq)>0.25?0.3:0));
               if(hmax-hmin<Math.max(0.5,thr9)) return;
             }
-            const A=pos(a2), B=pos(b2), C=pos(c2);
+            let A=pos(a2), B=pos(b2), C=pos(c2);
+            // EINHEITLICHER UMLAUFSINN (v101). Der Massiv-Beschnitt ist EIN
+            // Pfad aus allen Dreiecken, und Canvas beschneidet mit der
+            // NONZERO-Regel: ueberlappen sich zwei Dreiecke mit
+            // ENTGEGENGESETZTEM Umlauf, summiert sich ihre Windungszahl zu
+            // null und die Ueberlappung faellt aus dem Beschnitt heraus -
+            // dort scheint die blasse Grundkachel durch. Genau das waren die
+            // grossen fahlen Keile mitten im Fels.
+            // Zwei Bedingungen mussten zusammenkommen: GEMESSEN laufen 8,2 %
+            // der Dreiecke andersherum (ihre Ecken kippen in der Projektion,
+            // weil die gezeichnete Anhebung je Knoten verschieden ist), und
+            // ueberlappen tun sie sich erst, seit die Randstufe von Knoten
+            // zu Knoten wechselt (v96). Vorher hob eine konstante Stufe alles
+            // gleich an, die Dreiecke blieben disjunkt und der Fehler blieb
+            // unsichtbar.
+            // Umlauf wird deshalb hier vereinheitlicht; alles Weitere
+            // (Fuellung, Fugen, Bruchzonen, Wand) erbt ihn.
+            if((B[0]-A[0])*(C[1]-A[1])-(B[1]-A[1])*(C[0]-A[0]) < 0){
+              const t9=b2; b2=c2; c2=t9;
+              const P9=B;  B=C;   C=P9;
+            }
             // Block aus dem SCHWERPUNKT des Dreiecks: rastert die Voronoi-
             // Blockzellen sauber (Eckmehrheit ergab gezackte Sternkanten)
             const blk=blockOfXY(
