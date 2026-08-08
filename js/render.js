@@ -1976,9 +1976,31 @@ export class Renderer {
                 const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=sC-sA;
                 const det9=d1x*d2y-d1y*d2x;
                 const span9=Math.max(sA,sB,sC)-Math.min(sA,sB,sC);
+                // Dreieck MINIMAL AUFGEWEITET fuellen statt zusaetzlich zu
+                // stroken (v100 - Nutzerurteil "ich sehe dreiecke").
+                // Der alte Zug strich die Kante mit dem Verlauf DIESES
+                // Dreiecks nach. Ein 1 px breiter Strich liegt aber zur
+                // Haelfte auf dem NACHBARDREIECK, und das hat einen anderen
+                // Verlauf - an jeder der drei Kanten wurde also eine
+                // falschfarbige Linie ins Nachbardreieck gemalt. Ueber das
+                // ganze Massiv ergab das ein sichtbares Drahtgitter aus
+                // Dreiecken. Sichtbar gemacht mit einem Test, der die
+                // Massivfuellung durch Magenta ersetzt: das Gitter stand
+                // olivfarben in der Flaeche.
+                // Eine Aufweitung um 0,7 px um den Schwerpunkt deckt
+                // dieselben Haarrisse, malt aber nur mit der EIGENEN Farbe
+                // des Dreiecks - die Ueberlappung mit dem Nachbarn ist so
+                // schmal, dass der Verlaufsunterschied dort unter einer
+                // Farbstufe bleibt.
+                const cx9=(A[0]+B[0]+C[0])/3, cy9=(A[1]+B[1]+C[1])/3;
+                const auf=(Px,Py)=>{
+                  const dx9=Px-cx9, dy9=Py-cy9, L9=Math.hypot(dx9,dy9)||1;
+                  return [Px+dx9/L9*0.7, Py+dy9/L9*0.7];
+                };
+                const A9=auf(A[0],A[1]), B9=auf(B[0],B[1]), C9=auf(C[0],C[1]);
                 sg2.beginPath();
-                sg2.moveTo(A[0],A[1]); sg2.lineTo(B[0],B[1]);
-                sg2.lineTo(C[0],C[1]); sg2.closePath();
+                sg2.moveTo(A9[0],A9[1]); sg2.lineTo(B9[0],B9[1]);
+                sg2.lineTo(C9[0],C9[1]); sg2.closePath();
                 let fill9;
                 if(span9<0.012 || Math.abs(det9)<1e-6){
                   const cm=colAt((sA+sB+sC)/3,(uA2+uB2+uC2)/3);
@@ -1995,18 +2017,30 @@ export class Renderer {
                   const ux9=(g1*d2y-g2*d1y)/det9, uy9=(g2*d1x-g1*d2x)/det9;
                   const u0=uA2+ux9*(p0x-A[0])+uy9*(p0y-A[1]);
                   const u1=uA2+ux9*(p1x-A[0])+uy9*(p1y-A[1]);
-                  const c0=colAt(sA+(tmin-tA), Math.max(0,Math.min(1,u0)));
-                  const c1=colAt(sA+(tmax-tA), Math.max(0,Math.min(1,u1)));
+                  // MEHRERE Farbstopps statt zwei (v100 - Nutzerurteil "ich
+                  // sehe dreiecke"). Der Verlauf interpoliert die FARBE
+                  // linear, colAt ist aber deutlich nichtlinear: die
+                  // Palettenbaender und vor allem der Spitzlicht-Deckel bei
+                  // Luminanz 170 knicken die Kurve. Mit nur zwei Stuetzstellen
+                  // naehert jedes Dreieck diese Kurve auf SEINER eigenen
+                  // Achse an - und weil die Achse je Dreieck anders liegt,
+                  // stimmen zwei Nachbarn entlang ihrer gemeinsamen Kante
+                  // nicht ueberein. Ergebnis: an jeder Dreieckskante ein
+                  // kleiner Farbsprung, ueber die Flaeche gelesen als
+                  // Dreiecksfacetten. Fuenf Stuetzstellen druecken den
+                  // Fehler unter eine Farbstufe.
                   const lg9=sg2.createLinearGradient(p0x,p0y,p1x,p1y);
-                  lg9.addColorStop(0,'rgb('+c0[0]+','+c0[1]+','+c0[2]+')');
-                  lg9.addColorStop(1,'rgb('+c1[0]+','+c1[1]+','+c1[2]+')');
+                  for(let k9=0;k9<=4;k9++){
+                    const f9=k9/4;
+                    const ck=colAt(sA+(tmin-tA)+(tmax-tmin)*f9,
+                                   Math.max(0,Math.min(1,u0+(u1-u0)*f9)));
+                    lg9.addColorStop(f9,'rgb('+ck[0]+','+ck[1]+','+ck[2]+')');
+                  }
                   fill9=lg9;
                 }
                 sg2.fillStyle=fill9;
                 sg2.fill();
-                // Haarriss-Fugen zwischen einzeln gefuellten Dreiecken zudecken
-                sg2.strokeStyle=fill9; sg2.lineWidth=1; sg2.lineJoin='round';
-                sg2.stroke();
+                // (kein Nachstrich mehr - s. Aufweitung oben)
               }
               // (2b Plattenvolumen entfällt: die interpolierte Vertex-
               //  Schattierung liefert das Volumen jetzt direkt)
@@ -2729,9 +2763,18 @@ export class Renderer {
               for(const t3 of tris){
                 const A=t3.A, B=t3.B, C=t3.C;
                 const fA=formAt(t3.qa), fB=formAt(t3.qb), fC=formAt(t3.qc);
+                // dieselbe Aufweitung statt Nachstrich wie im Fuellpass
+                // (v100): der Nachstrich mit dem eigenen Verlauf malte an
+                // jeder Kante eine falschfarbige Linie ins Nachbardreieck.
+                const kx=(A[0]+B[0]+C[0])/3, ky=(A[1]+B[1]+C[1])/3;
+                const auf9=(Px,Py)=>{
+                  const dx9=Px-kx, dy9=Py-ky, L9=Math.hypot(dx9,dy9)||1;
+                  return [Px+dx9/L9*0.7, Py+dy9/L9*0.7];
+                };
+                const Aa=auf9(A[0],A[1]), Bb=auf9(B[0],B[1]), Cc=auf9(C[0],C[1]);
                 fmc.beginPath();
-                fmc.moveTo(A[0],A[1]); fmc.lineTo(B[0],B[1]);
-                fmc.lineTo(C[0],C[1]); fmc.closePath();
+                fmc.moveTo(Aa[0],Aa[1]); fmc.lineTo(Bb[0],Bb[1]);
+                fmc.lineTo(Cc[0],Cc[1]); fmc.closePath();
                 const d1x=B[0]-A[0], d1y=B[1]-A[1], f1=fB-fA;
                 const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=fC-fA;
                 const det9=d1x*d2y-d1y*d2x;
@@ -2754,7 +2797,6 @@ export class Renderer {
                 }
                 fmc.fillStyle=fill9;
                 fmc.fill();
-                fmc.strokeStyle=fill9; fmc.lineWidth=1; fmc.stroke();
               }
               fmc.restore();
               // milder Weichzeichner (14 px, weit innerhalb des Chunk-
