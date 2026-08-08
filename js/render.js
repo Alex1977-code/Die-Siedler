@@ -1613,8 +1613,8 @@ export class Renderer {
           };
           // Höhenband-Faktoren (Fuß dunkler/wärmer, Gipfel fahler/kühler) -
           // seit Umbau 2.1 STETIG verlaufen statt in Stufen; die Mischung
-          // übernimmt colAt() im Füllpass. Die Stufen t3.ci bleiben nur als
-          // Metadaten für Fugen und Kantenlicht erhalten.
+          // übernimmt colAt() im Füllpass. Die Facettenstufe fuer Fugen und
+          // Kantenlicht liefert seit Umbau 4.0 facetShade() als t3.qs.
           const FB=[0.88,0.94,1.0,1.05,1.09];
           const kalt=[214,216,222];      // Gipfelhauch, deutlich weniger blau
           const warmOnly=(this.theme==='vulkan'||this.theme==='wueste');
@@ -1705,23 +1705,12 @@ export class Renderer {
             const blk=blockOfXY(
               (m.X(a2)+((m.Y(a2)&1)*0.5)+m.X(b2)+((m.Y(b2)&1)*0.5)+m.X(c2)+((m.Y(c2)&1)*0.5))/3,
               (m.Y(a2)+m.Y(b2)+m.Y(c2))/3);
-            // Grundstufe aus dem BLOCKton: der ganze Block liegt auf einer
-            // Tonstufe – das macht die großen ruhigen Platten
-            const li=Math.max(0.20, Math.min(0.86, toneOf(blk)));
-            let qi= li<0.30?0 : li<0.44?1 : li<0.62?2 : li<0.77?3 : 4;
-            // lokales Wandlicht aus den GEMITTELTEN Eckgradienten (auf dem
-            // versetzten Gitter kippen Auf-/Ab-Dreiecke sonst abwechselnd
-            // nach Ost/West – Reißverschluss). Es verschiebt die Stufe nur
-            // an ECHTEN Wänden um ±1 – direktes Einmischen vor der
-            // Quantisierung ließ auf zerklüfteten Massiven jedes Dreieck
-            // einzeln kippen (Harlekinmuster statt Platten).
+            // Die frühere Blockton-Hilfsstufe (ci = qi*5+band) ist mit Umbau
+            // 4.0 entfallen: die Facettenstufe kommt jetzt aus facetShade()
+            // im Füllpass und steht als t3.qs bereit; Fugen und Kantenlicht
+            // lesen diese. Von der alten Rechnung bleibt nur, was die
+            // WANDERKENNUNG braucht.
             const ga=gradAt(a2), gb=gradAt(b2), gc=gradAt(c2);
-            const gx=(ga[0]+gb[0]+gc[0])/3, gy=(ga[1]+gb[1]+gc[1])/3;
-            let lf=0.5+(gx*0.75+gy*0.5)*0.26;
-            const cu=(curvOf(a2)+curvOf(b2)+curvOf(c2))/3;
-            lf += cu>0? cu*0.5 : cu*0.95;
-            if(lf>0.68 && qi<4) qi++;
-            else if(lf<0.32 && qi>0) qi--;
             // Hohe Absturzwände (stark gestreckte Dreiecke) bleiben im
             // HalbSCHATTEN – die WAND soll lesbar sein, kein schwarzer Zahn
             // und keine gleißende Folie. Obergrenze 2 statt 3: helle Wand-
@@ -1736,15 +1725,11 @@ export class Renderer {
             const relF=Math.max(relEffOf(a2),relEffOf(b2),relEffOf(c2));
             const gyM=(ga[1]+gb[1]+gc[1])/3;
             const wall9=spanY>ROWH*Math.min(1.7, 0.95+relF*0.35) && gyM<0;
-            if(wall9) qi=Math.max(1,Math.min(2,qi));
-            const hh=(hgtT(a2)+hgtT(b2)+hgtT(c2))/3;
-            const u4=Math.max(0,Math.min(1,(hh-hlo)/spanH));
-            const band=Math.min(4,(u4*5)|0);
             // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
             // kante liegt auf der SONNENSEITE der helleren Platte.
             // wl markiert Wanddreiecke – zwischen ihnen keine Fugen, eine
             // Absturzwand ist EINE Fläche (Fugen zerhackten sie in Zähne).
-            const t3={A,B,C,ci:qi*5+band,blk, wl:wall9, gy:gyM,
+            const t3={A,B,C,blk, wl:wall9, gy:gyM,
                       qa:a2, qb:b2, qc:c2,
                       cx:(A[0]+B[0]+C[0])/3, cy:(A[1]+B[1]+C[1])/3};
             tris.push(t3);
