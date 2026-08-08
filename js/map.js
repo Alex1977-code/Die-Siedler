@@ -85,7 +85,20 @@ export class WorldMap {
     if(t!==TER.GRASS && t!==TER.DESERT && t!==TER.SNOW) return false;
     return !(this.steil && this.steil[i]);
   }
-  terrOkMine(i){ return this.terr[i]===TER.MOUNT; }
+  // Bergwerke brauchen eine SCHULTER, keine Wand (Nutzerurteil v95: "die
+  // minen kann man anscheinend auch auf steilwände stellen"). Die
+  // Gesamtneigung taugt als Kriterium nicht: sie ist an der Schulter am
+  // Wandfuß genauso hoch wie in der Wand selbst - GEMESSEN liegen auf
+  // Seed 3 alle 18 Minenplätze bei einem Frontabfall unter 1,0, aber 11
+  // über der Steilheitsgrenze 1,80. Ein Schacht am Fuß einer aufsteigenden
+  // Wand sieht gut aus, einer mitten in der Wand nicht.
+  // Unterschieden wird deshalb über die ZAHL der weit entfernten Nachbarn
+  // (s. schachtOk in computePasses): an der Schulter liegen nur die
+  // bergseitigen weit weg, in der Wandfläche auch die talseitigen.
+  terrOkMine(i){
+    if(this.terr[i]!==TER.MOUNT) return false;
+    return !(this.schachtOk && !this.schachtOk[i]);
+  }
   terrOkRoad(i){ const t=this.terr[i]; return t===TER.GRASS||t===TER.DESERT||t===TER.SNOW||t===TER.MOUNT||t===TER.SWAMP; }
   // Pässe: Sattelstellen, an denen ein Gebirgszug durchquerbar ist. Sie
   // ergeben sich eindeutig aus Gelände und Höhe und werden deshalb nach dem
@@ -101,6 +114,30 @@ export class WorldMap {
     const STEIL_MAX=1.80;
     this.steil=new Uint8Array(n);
     for(let i=0;i<n;i++) if(this.slopeMax(i)>STEIL_MAX) this.steil[i]=1;
+    // SCHACHTMASKE für Bergwerke (s. terrOkMine). Zwei Bedingungen, beide
+    // an der Höhe abgeleitet, also kein zusätzliches Speicherfeld:
+    //   höchstens 2 Landnachbarn weiter als STEIL_MAX weg - mehr heißt
+    //     Wandfläche statt Schulter
+    //   vor dem Eingang (untere Knotenreihe, dort liegt die Türfahne und
+    //     läuft der Träger) darf der Boden höchstens SCHACHT_VORN abfallen,
+    //     sonst hängt das Bild über der Kante
+    // GEMESSEN über 5 Karten: die Regel nimmt 11-12 % der kartenweiten
+    // Minenplätze weg (1284->1139 auf Seed 3) und trifft dabei genau die
+    // 6 Plätze, die dort mit 3-4 weiten Nachbarn in einer Wand steckten.
+    const SCHACHT_VORN=1.80;
+    this.schachtOk=new Uint8Array(n);
+    for(let i=0;i<n;i++){
+      if(this.terr[i]!==TER.MOUNT) continue;
+      let weit=0, vorn=0;
+      for(const q of this.nbs(i)){
+        const t=this.terr[q];
+        if(t===TER.WATER || t===TER.LAVA) continue;
+        const d=this.hgt[i]-this.hgt[q];
+        if(Math.abs(d)>STEIL_MAX) weit++;
+        if(this.Y(q)>this.Y(i) && d>vorn) vorn=d;
+      }
+      if(weit<=2 && vorn<=SCHACHT_VORN) this.schachtOk[i]=1;
+    }
     const rocky=(q)=> this.terr[q]===TER.MOUNT||this.terr[q]===TER.SNOW;
     const score=new Float32Array(n);
     for(let i=0;i<n;i++){
@@ -435,7 +472,14 @@ export function genWorld(opts){
   // mehr als 2,0) und knapp über dem Bergfuß. GEMESSEN über 20 Karten liegen
   // 39,3 % der Felsknoten oberhalb PLAT_H+PLAT_BAND, tragen also die volle
   // Plateaustufe (vorher, ohne diesen Umbau: 31,3 %).
-  const PLAT_H=2.6, PLAT_BAND=1.6;
+  // v96 - Nutzerurteil "wenig plateau". GEMESSEN am GEZEICHNETEN Relief
+  // (Massivmaske MOUNT+SNOW, Innenflaeche ab Randreihe 3): flach waren dort
+  // nur 0,21-0,33 der Knoten, die groesste zusammenhaengende Hochflaeche
+  // umfasste 41-92 Knoten. Das ist keine Frage der Darstellung, das steht so
+  // im Hoehenmodell. Schwelle runter und Stufe hoeher: mehr vom Berg faellt
+  // in den Plateaubereich, und die Stufen dort werden groeber, also die
+  // Flaechen dazwischen breiter.
+  const PLAT_H=2.0, PLAT_BAND=1.6;
   // Gelände und Darstellungshöhe aus Grundrelief + Massivfeld schreiben.
   // Als Funktion, weil der Hausberg (s.u.) einen Ausschnitt nachträglich
   // neu schreiben muss.
@@ -504,7 +548,7 @@ export function genWorld(opts){
       // Schwelle: der Übergang von feiner zu grober Stufe ist stetig.
       if(rocky && hv>PLAT_H){
         const pf=Math.min(1,(hv-PLAT_H)/PLAT_BAND);
-        step *= 1+2*pf;
+        step *= 1+3.2*pf;                 // v96: 2 -> 3,2 (s. PLAT_H oben)
       }
       map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
     }
@@ -935,6 +979,47 @@ export function genWorld(opts){
       for(let i=0;i<n;i++) if(delta[i]) map.hgt[i]+=delta[i];
     }
   }
+  // SPLITTERMASSIVE AUFRÄUMEN. Ein Gebirgsfetzen, dessen Knoten ALLE an
+  // Nicht-Gebirge grenzen, hat keine Innenfläche - er besteht nur aus Fuss.
+  // Gezeichnet bekommt er trotzdem alles, was ein Massiv bekommt: Randstufe,
+  // Flanke, Schuttband, Klippentextur. Im Bild sind das die Felszungen, die
+  // in die Wiese greifen, ohne je ein Berg zu werden.
+  // Sie werden zu WIESE zurückgenommen; ihre Höhe wird auf das Umland
+  // gezogen, damit keine Stufe stehen bleibt. Die Steine, die dort lagen,
+  // bleiben als Felsbrocken (OBJ.ROCK setzt der Streupass später) - der
+  // Ort bleibt also steinig, er ist nur kein Gebirge mehr.
+  // MASS: das räumt wenig auf (auf drei Karten 0, 0 und 23 Knoten). Die
+  // Fetzen, die ich zuerst dafür gehalten hatte, waren SUMPF - meine
+  // Messmaske hatte TER.SNOW mit 5 statt 4 angesetzt und damit Sumpf als
+  // Gebirge gezählt. Der Pass bleibt trotzdem: er kostet nichts und die
+  // Fälle, die er trifft, sind echte.
+  {
+    const nAll=map.w*map.h;
+    const istBerg=(i)=>map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW;
+    const gesehen=new Uint8Array(nAll);
+    for(let i=0;i<nAll;i++){
+      if(gesehen[i] || !istBerg(i)) continue;
+      const st=[i]; gesehen[i]=1; const koerper=[];
+      while(st.length){
+        const c=st.pop(); koerper.push(c);
+        for(const q of map.nbs(c)) if(!gesehen[q] && istBerg(q)){ gesehen[q]=1; st.push(q); }
+      }
+      if(koerper.length>44) continue;                 // richtiger Körper
+      const kern=koerper.filter(q=>!map.nbs(q).some(r=>!istBerg(r)));
+      if(kern.length*4>=koerper.length) continue;     // hat genug Innenfläche
+      for(const q of koerper){
+        let s=0, n2=0;
+        for(const r of map.nbs(q)){
+          if(istBerg(r)) continue;
+          if(map.terr[r]===TER.WATER || map.terr[r]===TER.LAVA) continue;
+          s+=map.hgt[r]; n2++;
+        }
+        map.terr[q]=TER.GRASS;
+        if(n2) map.hgt[q]=map.hgt[q]*0.25+(s/n2)*0.75;
+      }
+    }
+  }
+
   // Garantierte Ressourcen nahe Start: Bäume + Steine
   for(const s of starts) ensureStartResources(map, s, rng);
 

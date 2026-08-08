@@ -1940,6 +1940,19 @@ export class Game {
     // hängen und "tanzte" dort endlos.
     if(u._mtx===undefined || Math.hypot(u._mtx-tx, u._mty-ty)>12){
       u._mtx=tx; u._mty=ty; u._btD=d; u._stl=0;
+      // SOFORT prüfen, ob die Luftlinie durch Fels, Wasser oder ein
+      // Hausbild führt, und dann gleich einen Knotenweg nehmen. Vorher
+      // rannte die Figur zwei Sekunden gegen das Hindernis, bevor der
+      // Fortschritts-Wächter griff - genau das sah aus, als liefe sie
+      // "durch alles durch". Gedrosselt, damit ein bewegliches Ziel
+      // (verfolgter Gegner) die Prüfung nicht jeden Takt auslöst.
+      if(this.t-(u._blkT??-99)>=10){
+        u._blkT=this.t;
+        if(this.wegVersperrt(u, tx, ty)){
+          const det=this.landDetour(u, tx, ty);
+          if(det && det.length){ u._det=det; u._detTx=tx; u._detTy=ty; return false; }
+        }
+      }
     } else if(d<u._btD-1.5){ u._btD=d; u._stl=0; }
     else if((u._stl=(u._stl||0)+1)>18){
       u._stl=0;
@@ -1987,14 +2000,21 @@ export class Game {
     // und "scharf zurückdrehen" hin und her und kam nie ums Wasser herum
     // (zweite Ursache des Planierer-Tanzes). Mit fester Seite folgt sie dem
     // Ufer stetig in eine Richtung, bis der direkte Weg wieder frei ist.
-    const wet=(px,py)=>{ const n=m.nearestNode(px,py); return n>=0 && (m.terr[n]===TER.WATER||m.terr[n]===TER.LAVA); };
-    if(wet(u.x+nx*sp*1.6, u.y+ny*sp*1.6)){
+    // Es ist NICHT mehr nur Wasser: Felsformationen und die Standflaeche
+    // eines Hausbildes sperren genauso (Nutzerurteil v95: "der planierer
+    // rennt ... durch alles durch"). Steht die Figur selbst auf einem
+    // gesperrten Knoten, wird nicht ausgewichen - sie muss erst heraus,
+    // sonst friert sie in einem Felsfeld ein.
+    const sperr=(px,py)=>{ const n=m.nearestNode(px,py); return n>=0 && !this.gehbar(n,u.bld); };
+    const hier=m.nearestNode(u.x,u.y);
+    const frei= hier<0 || this.gehbar(hier,u.bld);
+    if(frei && sperr(u.x+nx*sp*1.6, u.y+ny*sp*1.6)){
       let found=false;
       const s=u._wS||1;
       for(const a2 of [0.7*s,1.4*s,2.1*s,-0.7*s,-1.4*s,-2.1*s]){
         const ca=Math.cos(a2), sa=Math.sin(a2);
         const rx=nx*ca-ny*sa, ry=nx*sa+ny*ca;
-        if(!wet(u.x+rx*sp*1.6, u.y+ry*sp*1.6)){
+        if(!sperr(u.x+rx*sp*1.6, u.y+ry*sp*1.6)){
           nx=rx; ny=ry; found=true;
           u._wS = a2>0? s : -s;                   // erfolgreiche Seite beibehalten
           break;
@@ -2005,6 +2025,47 @@ export class Game {
     u.x+=nx*sp; u.y+=ny*sp;
     return false;
   }
+  // Darf eine FREI laufende Figur diesen Knoten betreten? Drei Gründe
+  // sprechen dagegen, und alle drei müssen überall gleich gelten - sonst
+  // weicht die Figur lokal aus, während die Wegsuche mitten durchgeht:
+  //   Wasser/Lava  ist kein Untergrund
+  //   Felsformation ist ein Hindernis (Nutzerwunsch "Kollisionskontrolle")
+  //   Standfläche eines Hausbildes: dort verschwände die Figur hinter der
+  //   Wand. Das EIGENE Gebäude (u.bld) ist ausgenommen - Planierer und
+  //   Bauarbeiter arbeiten genau dort, und jede Fachkraft tritt dort heraus.
+  gehbar(n, bld){
+    const m=this.map, t=m.terr[n];
+    if(t===TER.WATER || t===TER.LAVA) return false;
+    if((m.obj[n]&127)===OBJ.ROCK) return false;
+    if(this.unterHaus(n)){
+      const b=(bld!=null)? this.buildings.get(bld) : null;
+      if(!b || !this.imBild(b,n)) return false;
+    }
+    return true;
+  }
+  // Liegt n unter dem Bild GENAU dieses Gebäudes? Dieselbe Formel wie in
+  // bauSchatten(), nur ohne Mengenaufbau - die Prüfung läuft pro Takt.
+  imBild(b, n){
+    const m=this.map, def=BLD[b.type]||{};
+    const f=(this.bldFoot && this.bldFoot[b.type])
+         || Game.FOOT[b.type==='hq'?'hq':(def.size||'M')] || Game.FOOT.M;
+    const [bx,by]=m.worldPos(b.node), [nx,ny]=m.worldPos(n);
+    return Math.abs(nx-bx) < f[0]*0.40 && ny < by+14 && ny > by-f[1]*0.78;
+  }
+  // Führt die Luftlinie zum Ziel durch einen gesperrten Knoten? Wird nur
+  // beim Zielwechsel gefragt (und gedrosselt), nicht in jedem Takt.
+  wegVersperrt(u, tx, ty){
+    const m=this.map;
+    const d=Math.hypot(tx-u.x, ty-u.y);
+    if(d<14) return false;
+    const k=Math.min(24, Math.max(1, Math.round(d/22)));
+    for(let s=1;s<=k;s++){
+      const f=s/(k+1);
+      const q=m.nearestNode(u.x+(tx-u.x)*f, u.y+(ty-u.y)*f);
+      if(q>=0 && !this.gehbar(q,u.bld)) return true;
+    }
+    return false;
+  }
   // Kürzester Fußweg über LAND-Knoten (BFS, begrenzt) - der Notausstieg,
   // wenn die gierige Luftlinie in moveToward nicht weiterkommt. Liefert
   // Weltpunkte oder null (Ziel unerreichbar/zu weit).
@@ -2012,12 +2073,10 @@ export class Game {
     const m=this.map;
     const from=m.nearestNode(u.x,u.y), to=m.nearestNode(tx,ty);
     if(from<0 || to<0 || from===to) return null;
-    // Felsformationen sind Hindernisse: Figuren laufen aussen herum
-    // (Nutzerwunsch "Kollisionskontrolle"). Der Startknoten zaehlt
-    // immer als begehbar - sonst haengt eine Figur fest, die aus
-    // irgendeinem Grund auf einem Fels steht.
-    const fest=(n)=> m.terr[n]!==TER.WATER && m.terr[n]!==TER.LAVA
-                     && (n===from || (m.obj[n]&127)!==OBJ.ROCK);
+    // Dieselbe Regel wie beim lokalen Ausweichen (gehbar). Der Startknoten
+    // zaehlt immer als begehbar - sonst haengt eine Figur fest, die aus
+    // irgendeinem Grund auf einem Fels oder unter einem Haus steht.
+    const fest=(n)=> n===from || this.gehbar(n, u.bld);
     if(!fest(to)) return null;
     const prev=new Map([[from,-1]]);
     const q=[from];
@@ -2807,29 +2866,48 @@ export class Game {
       b.builderId=u.id;
     }
   }
+  // Grabstellen des Planierers. Sie liegen auf ECHTEN Nachbarknoten des
+  // Bauplatzes, ein Stück zum Haus hin gerückt - nur so stimmt die HÖHE.
+  // Vorher waren es feste Pixelversätze der Hausposition; am Hang stand der
+  // Planierer damit in der Luft oder im Fels (Nutzerurteil v95: "der
+  // planierer rennt ohne höhenbezug zur baustelle"). Bevorzugt werden die
+  // Knoten der unteren Reihen: dort ist vor dem Haus, nicht dahinter.
+  levelSpots(b){
+    const m=this.map;
+    const [bx,by]=m.worldPos(b.node);
+    const nb=m.nbs(b.node).filter(n=>this.gehbar(n, b.id));
+    const vorn=nb.filter(n=>m.Y(n)>m.Y(b.node));
+    const wahl=(vorn.length>=2? vorn : (nb.length? nb : [])).slice(0,4);
+    if(!wahl.length) return [[bx-5,by+13]];
+    return wahl.map(n=>{
+      const [nx,ny]=m.worldPos(n);
+      return [nx+(bx-nx)*0.35, ny+(by-ny)*0.35];
+    });
+  }
   tickLeveler(u){
     const m=this.map;
     const b=this.buildings.get(u.bld);
     if(u.state!=='home' && (!b || b.state!=='build' || b.leveled)) u.state='home';
     if(u.state==='toSite'){
       if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
-      const [tx,ty]=m.worldPos(b.node);
+      // Ziel ist die ERSTE Grabstelle, nicht der Hausknoten: der liegt am
+      // Hang bis zu 40 px über dem begehbaren Grund davor.
+      const [tx,ty]=this.levelSpots(b)[0];
       // Geduldsfaden: erreicht er den Punkt vor dem Haus trotz Nähe lange
       // nicht (Hindernis-Ausweichen lenkt ab), fängt er dort an, wo er steht.
       // Das Ebnen hängt nicht am exakten Punkt - ewiges Herumtippeln fiele
       // dagegen sofort auf.
-      const nah=Math.hypot(tx-8-u.x, ty+13-u.y)<80;
+      const nah=Math.hypot(tx-u.x, ty-u.y)<80;
       if(nah) u.stallT=(u.stallT||0)+1;
-      if(this.moveToward(u,tx-8,ty+13,WALK_SPEED) || (nah && u.stallT>60)){
+      if(this.moveToward(u,tx,ty,WALK_SPEED) || (nah && u.stallT>60)){
         u.state='work'; b.levelT=0; u.stallT=0;
       }
     } else if(u.state==='work'){
-      // Vier Stellen VOR dem Bauplatz (nie durch das Gebäude). An jeder wird
+      // Stellen VOR dem Bauplatz (nie durch das Gebäude). An jeder wird
       // eine Weile GEGRABEN, erst dann geht es zur nächsten. Vorher lief der
       // Planierer den Bogen pausenlos ab - das sah aus, als tanzte er um
       // seine Schaufel, und die Grab-Animation kam nie zum Zug.
-      const [bx,by]=m.worldPos(b.node);
-      const spots=[[bx-15,by+11],[bx-5,by+15],[bx+6,by+15],[bx+15,by+11]];
+      const spots=this.levelSpots(b);
       const [tx,ty]=spots[u.pt%spots.length];
       if(!u.atSpot){
         // auch hier: lieber an Ort und Stelle graben als endlos tänzeln

@@ -1891,6 +1891,18 @@ export class Renderer {
                 //  bei 171, also unter dem Ziel 180.)
                 const lum=0.299*r9+0.587*g9+0.114*b9;
                 if(lum>170){ const f0=170/lum; r9*=f0; g9*=f0; b9*=f0; }
+                // AUSGLEICH fuer die kraeftigere Materiallasur (v96):
+                // felsMaterial liegt jetzt um 208 statt um 240, multipliziert
+                // die Flaeche also um 13 % dunkler. GEMESSEN sank die
+                // Grundhelligkeit im Gebirgsinneren dadurch von 125 auf 103
+                // und der Fels lag damit sogar unter seinen eigenen Objekten
+                // (106) - schlammig statt strukturiert. Der Faktor nimmt die
+                // Verdunkelung genau wieder heraus; die STRUKTUR, um die es
+                // ging, bleibt. Der Spitzlicht-Deckel wandert mit (170 ->
+                // 196 vor der Lasur, also wieder rund 160 danach).
+                const MATK=240/208;
+                r9*=MATK; g9*=MATK; b9*=MATK;
+                if(r9>255) r9=255; if(g9>255) g9=255; if(b9>255) b9=255;
                 return [r9|0,g9|0,b9|0];
               };
               const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
@@ -2247,14 +2259,36 @@ export class Renderer {
                 // Grossflaechen tragen 44 % des Korns, die Bruchzonen 100 % –
                 // ein Koerper, der ueberall gleich fein zerlegt ist, liest
                 // sich als Haufen statt als Massiv (Nutzerkritik v84).
-                const aRuhe=0.44, aZus=1-aRuhe;
+                // v96 - ZWEI Befunde am gerenderten Bild:
+                //   1. 0,44 war zu wenig. Der Grundzug ist der EINZIGE
+                //      Materialzug auf den ruhigen Grossflaechen, und dort
+                //      blieb eine Blockstreuung von 5,6 - eine Flaeche ohne
+                //      Material.
+                //   2. Der Sprung von 0,44 auf 1,00 an einer Dreiecksgrenze
+                //      ist SICHTBAR: auf dem Bild lagen im Gebirgsinneren
+                //      grosse BLASSE DREIECKE - die ruhigen Dreiecke, denen
+                //      zwei Multiply-Lagen fehlen, die ihre Nachbarn haben.
+                //      Genau das liest sich als Kacheloptik.
+                // Statt zwei Stufen gibt es deshalb VIER: ein Grundzug ueber
+                // alles und drei nachgelegte Zuege auf immer staerker
+                // gebrochene Dreiecke. Jeder einzelne Sprung an einer
+                // Dreiecksgrenze ist damit rund ein Viertel so gross, und
+                // dieselbe Gesamtdeckung kommt heraus.
+                const aRuhe=0.62;
+                const STUF=[0.13,0.13,0.12];        // Summe mit aRuhe = 1.00
                 g.globalCompositeOperation='multiply';
                 g.fillStyle=det1;
                 g.globalAlpha=aBase*aRuhe;
                 g.fillRect(c.ox,c.oy,w,h);
-                if(bruchZ.length){
-                  g.globalAlpha=aBase*aZus;
-                  bruchWeg(bruchZ); g.fill();
+                // Eimer 1..3: je Zug ALLE Dreiecke ab dieser Bruchstufe -
+                // dadurch summieren sich die Zuege zur Rampe.
+                for(let k9=0;k9<3;k9++){
+                  const gr=0.30+k9*0.24;            // 0,30 / 0,54 / 0,78
+                  const list=[];
+                  for(const t3 of tris) if(t3._bk>=gr) list.push(t3);
+                  if(!list.length) continue;
+                  g.globalAlpha=aBase*STUF[k9];
+                  bruchWeg(list); g.fill();
                 }
                 // --- zweite und dritte Lage per Rauschmaske ---
                 // Der grosse Massstab aus 3.1 laesst eine Kachel 385 Welt-
@@ -2289,6 +2323,15 @@ export class Renderer {
                     // Grossflaechen wuerde die dritte, gedrehte Lage die
                     // Platten kreuzweise ueberzeichnen – genau der Grus,
                     // den der Nutzer als "Steinhaufen" liest.
+                    // v96 hat hier VERSUCHSWEISE eine vierte, schwache Lage
+                    // auf den ruhigen Flaechen gelegen (Bankung). Im Bild
+                    // wurde daraus genau das Gegenteil: weil jede Lage die
+                    // Vereinigung ihrer Dreiecke mit EINEM Alpha fuellt,
+                    // entstand zwischen 0,30 (ruhig) und 0,66/0,72 (Bruch)
+                    // eine dreieckfoermige Alphastufe - grosse blasse
+                    // Dreiecke mitten in der Flaeche, also wieder Kacheloptik.
+                    // Die Struktur kommt jetzt aus felsMaterial selbst, das
+                    // pixelweise und ohne Dreiecksgrenzen wirkt.
                     if(t3._bk<0.42) continue;
                     const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
                     const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
@@ -2305,8 +2348,13 @@ export class Renderer {
                     }
                     g.fillStyle=pat; g.globalAlpha=al; g.fill();
                   };
-                  zug(n2,det2,aBase*0.72);
-                  zug(n3,det3,aBase*0.66);
+                  // v96: Alpha halbiert. Diese beiden Lagen liegen NUR auf
+                  // den Bruchzonen; bei 0,72/0,66 war ihre Abwesenheit auf
+                  // der ruhigen Flaeche als helles Dreieck zu sehen. Sie
+                  // sollen die Wiederholung der Hauptkachel brechen, nicht
+                  // eine zweite Zeichnung behaupten.
+                  zug(n2,det2,aBase*0.36);
+                  zug(n3,det3,aBase*0.33);
                 }
                 // --- Geroellzone am Bergfuss (Auftrag 1.2/2.6) ---
                 const kR=this.geroellKey();
@@ -2661,22 +2709,52 @@ export class Renderer {
                 fvv.set(q,v);
                 return v;
               };
+              // ASYMMETRISCH: der dunkle Ast trägt voll, der helle nur zur
+              // Hälfte. Gemessen am Endbild lag der Fels nach dem ersten
+              // Anlauf bei p95=195/p99=224 – deutlich heller als alles
+              // andere im Bild und auf den Sonnenflächen ausgewaschen.
+              // Ein Berg wird durch seine SCHATTEN plastisch, nicht durch
+              // Spitzlichter.
+              const gvOf=(fv)=>Math.max(0,Math.min(255,
+                (128+A9*(fv>0? fv*0.50 : fv))|0));
+              // Je Dreieck ein EBENEN-GRADIENT durch die drei Eckwerte statt
+              // einer flachen Füllung (v96). Vorher bekam jedes Dreieck EINEN
+              // Grauwert; ein Dreieck ist 52x44 Weltpixel gross, auf dem
+              // Handy also gut 100 Bildpunkte, und der milde 14-px-Weich-
+              // zeichner darunter kann eine so grosse flache Fläche nicht
+              // verstecken. Im Bild wurden daraus grosse weiche dunkle
+              // Dreiecksflecken quer über die Hochfläche - sie lasen sich als
+              // Schmutz, nicht als Form. Dieselbe Umstellung hat der
+              // Füllpass bereits hinter sich (Nutzerurteil zu v92).
               for(const t3 of tris){
-                const fv=(formAt(t3.qa)+formAt(t3.qb)+formAt(t3.qc))/3;
-                // ASYMMETRISCH: der dunkle Ast trägt voll, der helle nur zur
-                // Hälfte. Gemessen am Endbild lag der Fels nach dem ersten
-                // Anlauf bei p95=195/p99=224 – deutlich heller als alles
-                // andere im Bild und auf den Sonnenflächen ausgewaschen.
-                // Ein Berg wird durch seine SCHATTEN plastisch, nicht durch
-                // Spitzlichter.
-                const gv=Math.max(0,Math.min(255,
-                  (128+A9*(fv>0? fv*0.50 : fv))|0));
-                fmc.fillStyle='rgb('+gv+','+gv+','+gv+')';
+                const A=t3.A, B=t3.B, C=t3.C;
+                const fA=formAt(t3.qa), fB=formAt(t3.qb), fC=formAt(t3.qc);
                 fmc.beginPath();
-                fmc.moveTo(t3.A[0],t3.A[1]); fmc.lineTo(t3.B[0],t3.B[1]);
-                fmc.lineTo(t3.C[0],t3.C[1]); fmc.closePath();
+                fmc.moveTo(A[0],A[1]); fmc.lineTo(B[0],B[1]);
+                fmc.lineTo(C[0],C[1]); fmc.closePath();
+                const d1x=B[0]-A[0], d1y=B[1]-A[1], f1=fB-fA;
+                const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=fC-fA;
+                const det9=d1x*d2y-d1y*d2x;
+                let fill9;
+                if(Math.abs(fB-fA)+Math.abs(fC-fA)<0.006 || Math.abs(det9)<1e-6){
+                  const gv=gvOf((fA+fB+fC)/3);
+                  fill9='rgb('+gv+','+gv+','+gv+')';
+                } else {
+                  const bx9=(f1*d2y-f2*d1y)/det9, by9=(f2*d1x-f1*d2x)/det9;
+                  const n9=bx9*bx9+by9*by9;
+                  const tA=bx9*A[0]+by9*A[1], tB=bx9*B[0]+by9*B[1], tC=bx9*C[0]+by9*C[1];
+                  const tmin=Math.min(tA,tB,tC), tmax=Math.max(tA,tB,tC);
+                  const p0x=A[0]+bx9*(tmin-tA)/n9, p0y=A[1]+by9*(tmin-tA)/n9;
+                  const p1x=A[0]+bx9*(tmax-tA)/n9, p1y=A[1]+by9*(tmax-tA)/n9;
+                  const g0=gvOf(fA+(tmin-tA)), g1=gvOf(fA+(tmax-tA));
+                  const lg=fmc.createLinearGradient(p0x,p0y,p1x,p1y);
+                  lg.addColorStop(0,'rgb('+g0+','+g0+','+g0+')');
+                  lg.addColorStop(1,'rgb('+g1+','+g1+','+g1+')');
+                  fill9=lg;
+                }
+                fmc.fillStyle=fill9;
                 fmc.fill();
-                fmc.strokeStyle=fmc.fillStyle; fmc.lineWidth=1; fmc.stroke();
+                fmc.strokeStyle=fill9; fmc.lineWidth=1; fmc.stroke();
               }
               fmc.restore();
               // milder Weichzeichner (14 px, weit innerhalb des Chunk-
@@ -3679,8 +3757,25 @@ export class Renderer {
               // gegen null; grosse Fallhoehe (dp, mit Anhebung) gibt auch
               // Seitenkanten einen Fuss.
               const dp=(m.hgt[i]+liftOf(i))-m.hgt[n];
-              let sf=Math.max(Math.min(1, 0.55+uy*0.55),
+              // v96 - Nutzerurteil "randbereiche nicht realistisch": der
+              // Sockel lag bei 0. Auf der BERGSEITE (uy<0) fiel das Band
+              // damit ganz aus, und dort stand die rohe Saegezahnkante des
+              // Dreiecksbeschnitts blank im Bild - eine Treppe entlang des
+              // Sechseckgitters, das auffaelligste kuenstliche Element am
+              // ganzen Uebergang. Jetzt bekommt JEDE Grenzkante einen Saum,
+              // bergseitig einen schmalen.
+              let sf=Math.max(0.30,
+                              Math.min(1, 0.55+uy*0.55),
                               Math.min(0.5, Math.max(0,(dp-0.8)*0.3)));
+              // Breite nach dem FUSSCHARAKTER (liftField.wf): bricht der
+              // Fels hier als Wand ab, bleibt der Saum schmal - unter einer
+              // Wand sammelt sich wenig. Laeuft er flach aus, schuettet die
+              // Halde weit in die Wiese. Damit wechselt der Fuss entlang
+              // desselben Berges, statt rundum gleich breit zu liegen.
+              {
+                const wfi=(LF.wf && LF.wf[i])||1;
+                sf*=Math.min(1.30, 0.75+0.60*(1-wfi));
+              }
               // Auftrag 2.4/1.2: das Geroell sammelt sich dort, wo der Hang
               // flach genug ist, dass loses Material liegen bleibt. An einer
               // STEILWAND (Neigung ueber dem 35-Grad-Talus) liegt oben kein
@@ -5207,11 +5302,28 @@ export class Renderer {
     // 180..255 ergibt ein Materialverhaeltnis von 1.42 gegen ein
     // Schattierungsverhaeltnis von rund 2.2. Das Material bleibt damit
     // klar leiser als das Licht (Auftrag 1.3), ist aber wieder da.
-    const MID=240, K=1.60, SPAN=60;      // 180..255 -> Kontrastverhaeltnis 1.42
+    // v96 - GEMESSEN am gerenderten Bild (Gebirgsinneres, Zoom 1.15):
+    // die Standardabweichung der Helligkeit in 8x8-Bloecken lag bei 5,6,
+    // waehrend die Felsobjekte im selben Bild ihre volle Zeichnung tragen.
+    // Ein hoch aufgeloestes Objekt auf einer strukturlosen Flaeche liest
+    // sich immer als aufgeklebt - das ist der eigentliche Grund fuer
+    // "die objekte wirken immernoch wie fremdkoerper auf dem berg", nicht
+    // die Helligkeit (der Abstand der Mediane betraegt nur 21 Stufen).
+    // MID sinkt deshalb von 240 auf 208 und die Spanne waechst auf 82:
+    // das Material darf die Flaeche jetzt wirklich modulieren statt sie
+    // nur zu tuepfeln. Das hebt das Materialverhaeltnis auf etwa 2,0 und
+    // damit fast auf das des Lichts - eine bewusste Abkehr von der
+    // fruehreren Regel "Material klar leiser als Licht", weil genau die
+    // zur gebuegelten Flaeche gefuehrt hat.
+    // Statt des harten Deckels begrenzt ein tanh weich: der alte Schnitt
+    // bei MID-SPAN liess die dunkelsten Stellen zu einer Flaeche
+    // zusammenlaufen, und eine solche Flaeche ist wieder Struktur weniger.
+    const MID=208, K=2.30, SPAN=82;      // 126..255 -> Kontrastverhaeltnis 2.0
     for(let i=0;i<a.length;i+=4){
       const L =0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
       const Lb=0.299*b[i]+0.587*b[i+1]+0.114*b[i+2];
-      let v=MID+(L-Lb)*K;
+      const d=(L-Lb)*K;
+      let v=MID+SPAN*Math.tanh(d/SPAN);
       if(v>255) v=255; else if(v<MID-SPAN) v=MID-SPAN;
       a[i]=a[i+1]=a[i+2]=v; a[i+3]=255;
     }
@@ -5355,19 +5467,23 @@ export class Renderer {
     const isMas=(q)=>{ const t=m.terr[q]; return t===TER.MOUNT||(t===TER.SNOW&&msn[q]); };
     const dist=new Int32Array(N).fill(1<<29);
     const plainH=new Float32Array(N);
+    // Von WELCHEM Randknoten stammt ein Innenknoten? Der Fußcharakter wird
+    // am Rand bestimmt und von dort nach innen weitergegeben - sonst
+    // springt die Stufe zwischen benachbarten Reihen.
+    const src=new Int32Array(N).fill(-1);
     let ring=[];
     for(let i=0;i<N;i++){
       if(!isMas(i)) continue;
       let pS=0, pN=0;
       for(const q of m.nbs(i))
         if(!isMas(q) && m.terr[q]!==TER.LAVA){ pS+=m.hgt[q]; pN++; }
-      if(pN){ dist[i]=1; plainH[i]=pS/pN; ring.push(i); }
+      if(pN){ dist[i]=1; plainH[i]=pS/pN; src[i]=i; ring.push(i); }
     }
     for(let d=2; ring.length; d++){
       const nx=[];
       for(const i of ring) for(const q of m.nbs(i)){
         if(!isMas(q) || dist[q]<=d) continue;
-        if(dist[q]===(1<<29)){ dist[q]=d; plainH[q]=plainH[i]; nx.push(q); }
+        if(dist[q]===(1<<29)){ dist[q]=d; plainH[q]=plainH[i]; src[q]=src[i]; nx.push(q); }
       }
       ring=nx;
     }
@@ -5386,8 +5502,45 @@ export class Renderer {
     // Sie geht NICHT in rel ein: das effektive Relief steuert die
     // Wand- und Klippenschwellen, eine Scheinerhoehung wuerde sie
     // verschieben.
+    //
+    // v96 - Nutzerurteil zu v95: "randbereiche nicht realistisch".
+    // Der Befund war messbar und eindeutig: die Randstufe war ueber die
+    // GANZE Aussenkante gleich hoch. GEMESSEN (drei Karten, Massivmaske
+    // MOUNT+SNOW) lag die Stufe an der Aussenkante bei p10 = 50,6 px und
+    // p50 = 51,0 px - zwei identische Perzentile, also mindestens die halbe
+    // Grenze auf denselben Zentimeter. Der Berg trug rundum eine gleich hohe
+    // Lippe; kein Berg sieht so aus.
+    // Zwei Aenderungen:
+    //   1. Die Rampe ist nur noch EINE Reihe lang. Ab Reihe 2 liegt die
+    //      volle Stufe - dort ist Innenflaeche, und die bleibt flach, weil
+    //      alle Innenknoten denselben Betrag bekommen. GEMESSEN und deshalb
+    //      so kurz: die Flachheit der INNENFLAECHE (ab Randreihe 3) ist
+    //      dadurch unveraendert geblieben (0,305 / 0,212 / 0,333 vorher wie
+    //      nachher, groesste Hochflaeche 92 / 46 / 41 Knoten in beiden
+    //      Faellen), waehrend der FUSS (Reihe 1-2) von 0,54-0,68 auf
+    //      0,04-0,13 Flachanteil gefallen ist. Genau das war das Ziel: die
+    //      Lippe war flach, die Hochflaeche ist es geblieben.
+    //   2. Die Stufe an der Aussenkante ist nicht mehr konstant, sondern
+    //      ein Anteil wf der vollen Stufe. wf=1 heisst: die ganze Hoehe
+    //      passiert an der Grenze - eine Wand. wf=0,16 heisst: der Boden
+    //      steigt ueber zwei Reihen an - eine flach auslaufende Halde.
+    //      wf kommt aus dem Relief (ein hoher Berg darf eine Wand haben,
+    //      ein flacher Buckel nicht) und aus einem weichen Rauschfeld mit
+    //      etwa 6 Knoten Wellenlaenge, damit derselbe Berg an einer Stelle
+    //      abbricht und an der naechsten ausläuft.
     const RAND=1.45;
     const rand=new Float32Array(N);
+    const wf=new Float32Array(N);
+    // kleines weiches Wertrauschen; eigenes, weil tnoise im Chunk-Bake sitzt
+    const hsh=(a,b)=>{ let s=((a|0)*374761393 + (b|0)*668265263)>>>0;
+      s=Math.imul(s^(s>>>13),1274126177)>>>0; return ((s^(s>>>16))>>>0)/4294967296; };
+    const sm3=(t)=>t*t*(3-2*t);
+    const wn=(x,y)=>{
+      const x2=Math.floor(x), y2=Math.floor(y);
+      const fx=sm3(x-x2), fy=sm3(y-y2);
+      return (hsh(x2,y2)*(1-fx)+hsh(x2+1,y2)*fx)*(1-fy)
+           + (hsh(x2,y2+1)*(1-fx)+hsh(x2+1,y2+1)*fx)*fy;
+    };
     for(let i=0;i<N;i++){
       if(!isMas(i) || dist[i]===(1<<29)) continue;
       // Kamm in Reichweite 3 (kleiner Ring-BFS je Knoten)
@@ -5406,12 +5559,25 @@ export class Renderer {
       const prof= dist[i]<=1? 0.55 : dist[i]===2? 0.9 : 1.0;
       lift[i]=deficit*prof;
       rel[i]=rl;
-      // Die Stufe faehrt ueber die ersten drei Reihen hoch, damit die
-      // Deckflaeche nicht als Tischplatte auf einem Sockel sitzt: aussen
-      // voll (dort steht die Wand), nach innen leicht abnehmend.
-      rand[i]=RAND*(dist[i]<=1? 1.0 : dist[i]===2? 0.94 : 0.88);
     }
-    this._liftFld={lift, rel, rand};
+    // Fusscharakter je RANDknoten festlegen (s. Erlaeuterung oben)
+    for(let i=0;i<N;i++){
+      if(dist[i]!==1) continue;
+      const relT=Math.max(0, Math.min(1, (rel[i]-1.2)/3.0));
+      const X9=m.X(i)+((m.Y(i)&1)*0.5), Y9=m.Y(i);
+      const nz=wn(X9*0.165+11.3, Y9*0.195+7.7);
+      wf[i]=Math.max(0.16, Math.min(1, 0.16+0.84*(0.50*relT+0.50*nz)));
+    }
+    // ... und nur auf die Aussenreihe anwenden: alles ab Reihe 2 bekommt die
+    // volle Stufe und bleibt damit untereinander flach.
+    for(let i=0;i<N;i++){
+      if(!isMas(i) || dist[i]===(1<<29)) continue;
+      const s9=src[i];
+      const w=(s9>=0 && wf[s9]>0)? wf[s9] : 1;
+      rand[i]=RAND*(dist[i]<=1? w : 1.0);
+      if(dist[i]>1) wf[i]=w;      // Fusscharakter auch nach innen lesbar
+    }
+    this._liftFld={lift, rel, rand, wf};
     return this._liftFld;
   }
   // Gezeichnete Anhebung eines Knotens (G1, aus dem Chunk-Bake gecacht):
@@ -8586,6 +8752,43 @@ export class Renderer {
       g.fillStyle='#c9a05a';
       g.beginPath(); g.arc(0,0,1.3,0,7); g.fill();
       g.restore();
+    }
+    // Haspelrad der SCHACHTMINE: dreht sich, solange gefoerdert wird.
+    // Dasselbe Prinzip wie das Fluegelkreuz der Muehle, nur als Blatt mit
+    // vier Drehstellungen statt als gedrehtes Bild - eine Haspel ist keine
+    // rotationssymmetrische Scheibe, ihre Kurbel muss von Stellung zu
+    // Stellung wandern.
+    // Das Blatt darf 4 Zellen NEBENEINANDER (breit) oder UNTEREINANDER
+    // (hoch) liefern; entschieden wird am Seitenverhaeltnis. Solange
+    // fx_mine_haspel fehlt, passiert hier nichts - die gemalte Haspel im
+    // Minenbild bleibt dann einfach stehen.
+    if(BLD[b.type] && BLD[b.type].size==='MINE' && b.state==='done'){
+      const hsp=this.asset('fx_mine_haspel');
+      // dasselbe Bild wie im Zeichenpass waehlen (erschoepft = _leer)
+      let mk='bld_'+b.type;
+      if(b.exhausted && this.asset(mk+'_leer')) mk=mk+'_leer';
+      const mi=this.asset(mk);
+      // nur bei der Schachtmine (quadratisches Bild): die alte Stollenmine
+      // hat gar keine Haspel im Bild, dort saesse das Rad in der Luft
+      if(hsp && hsp.naturalWidth && mi && mi.naturalWidth===mi.naturalHeight){
+        const NZ=4;
+        const quer=hsp.naturalWidth>=hsp.naturalHeight;
+        const cw= quer? hsp.naturalWidth/NZ : hsp.naturalWidth;
+        const ch= quer? hsp.naturalHeight  : hsp.naturalHeight/NZ;
+        // Phase: im Betrieb umlaufend, sonst eine feste Stellung je Mine,
+        // damit nicht alle stillstehenden Haspeln gleich aussehen
+        const ph= working? ((this.time/210)|0)%NZ : (b.id%NZ);
+        const sx0= quer? ph*cw : 0;
+        const sy0= quer? 0 : ph*ch;
+        // Anker: Schachtmitte, auf Hoehe des Haspelbocks. Das Minenbild ist
+        // zentriert verankert (MINE_F, Bodenlinie 300 von 320), die Haspel
+        // sitzt darin ueber dem Loch.
+        const mh=320*MINE_F, mw=320*MINE_F;
+        const hh=mh*0.30, ww=hh*(cw/ch);
+        g.drawImage(hsp, sx0, sy0, cw, ch,
+                    x-ww/2, y+4-300*MINE_F+mh*0.30-hh/2, ww, hh);
+        void mw;
+      }
     }
     // Arbeits-Effekte (Rauch, Funken, Staub …) – je Gebäude passend verankert
     this.bldEffect(g, b, x, y, working);
