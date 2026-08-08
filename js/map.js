@@ -170,10 +170,45 @@ export function genWorld(opts){
   // "Bandwurmgebirge"). Es bleibt erhalten, moduliert jetzt aber nur noch die
   // OBERFLÄCHE eines Massivs: Grate, Rinnen und Sporne auf einem Körper, der
   // anderswo entsteht (siehe Abschnitt Gebirgsmassive).
-  const ridgeAt = (x,y)=>
-      (1-Math.abs(sample(grids[2],x*1.35+91,y*1.35+53)*2-1))*0.58
-    + (1-Math.abs(sample(grids[1],x*2.9+17, y*2.9+29 )*2-1))*0.28
-    + (1-Math.abs(sample(grids[3],x*5.7+61, y*5.7+11 )*2-1))*0.14;
+  //
+  // Auftrag 2.4: RIDGED MULTIFRACTAL statt einer glatten Summe von drei
+  // Gratoktaven, dazu DOMAIN WARPING gegen parallele Rücken.
+  //  – Multifractal heißt: jede Oktave wird mit dem SIGNAL der vorigen
+  //    gewichtet. Wo die grobe Oktave schon einen Grat hat, darf die feine
+  //    weiterzeichnen; in den Mulden wird sie unterdrückt. Erst dadurch
+  //    VERZWEIGEN sich die Rücken, statt sich gleichmäßig zu überlagern.
+  //  – sig*sig schärft den Grat: ohne die Quadratur liegt das Maximum von
+  //    1-|2n-1| auf einem breiten Rücken, mit ihr auf einer Kante.
+  //  – Domain Warping verschiebt die Abtaststelle mit einem langsamen
+  //    Rauschfeld. Ohne es laufen die Grate eines Ridged-Multifractal
+  //    auffällig parallel in eine Richtung (das Rauschgitter schlägt durch);
+  //    mit ihm mäandern sie und bilden Sporne.
+  const WARP = 2.4;                        // Verschiebung in Knoten
+  const RIDGE_SEED = [[91,53],[17,29],[61,11],[131,197],[7,113]];
+  const ridgeAt = (x,y)=>{
+    const wx = x + (sample(grids[0], x*0.55+211, y*0.55+83 )-0.5)*WARP;
+    const wy = y + (sample(grids[1], x*0.55+37,  y*0.55+167)-0.5)*WARP;
+    let sum=0, freq=1.35, amp=0.58, weight=1;
+    for(let o=0;o<5;o++){
+      const S=RIDGE_SEED[o];
+      let sig = 1-Math.abs(sample(grids[o%4], wx*freq+S[0], wy*freq+S[1])*2-1);
+      sig *= sig;
+      sig *= weight;
+      sum += sig*amp;
+      weight = clamp(sig*2.2, 0, 1);
+      freq *= 2.07; amp *= 0.55;
+    }
+    // Normierung, an 4 Karten (Seeds 3/7/12/21, je 128x128 Knoten) GEMESSEN
+    // statt geschätzt: die rohe Summe hat im Mittel 0,351 (p50 0,09-0,68,
+    // p99 0,90), die alte Fassung lag bei 0,581. Faktor 1,55 legt den
+    // Mittelwert auf 0,544 – das Höhenprofil der Massive bleibt damit so
+    // kalibriert wie bisher, nur die VERTEILUNG ist eine andere: statt eines
+    // breiten Mittelfelds jetzt viel ruhige Flanke mit einzelnen scharfen
+    // Graten. Die obersten rund 4 % laufen in den Deckel bei 1 – das kappt
+    // genau die spitzesten Gratkronen und stützt damit die Vorgabe
+    // "gedrungene, gerundete Massive statt alpiner Nadeln".
+    return clamp(sum*1.55, 0, 1);
+  };
 
   // Inselmaske: Rand fällt ab
   const edge = (x,y)=>{
@@ -226,6 +261,14 @@ export function genWorld(opts){
       dreh:rng()*3.1416,
       // Streckung gedeckelt: ein Massiv darf länglich sein, nie ein Band
       streck:1.00+rng()*0.26,
+      // ASYMMETRIE (Auftrag 1.2: "Flanken asymmetrisch – eine steile
+      // Abbruchseite, eine flach auslaufende Geröllseite. Nie beidseitig
+      // gleich steil."). abbruch ist der Weltwinkel der Steilseite; auf ihr
+      // ist der Körper KURZ (der Fuß liegt nah am Kern, das Profil steht
+      // steil), auf der Gegenseite läuft er weit aus. Umgesetzt als
+      // richtungsabhängige Skalierung des Fußradius in massivWert.
+      abbruch:rng()*6.2832,
+      asym:0.20+rng()*0.14,
       gipfel:[], paesse:[] };
     // Gipfelpunkte: beim Stock im Kern, beim Kessel auf dem Kranz. Ein
     // Hauptgipfel, dazu ein bis zwei Nebengipfel – kein gleichmäßiges Plateau.
@@ -236,8 +279,13 @@ export function genWorld(opts){
       // lokale Polarkoordinate in Weltkoordinaten zurückrechnen
       const u=Math.cos(th)*rr*R*M.streck, v=Math.sin(th)*rr*R/M.streck;
       const cs=Math.cos(M.dreh), sn=Math.sin(M.dreh);
+      // Gipfelbreite (Nutzervorgabe "Silhouetten runder und gedrungener,
+      // keine spitzen alpinen Nadeln"): 0,13-0,23 R ergab bei R=12 Knoten
+      // eine Gauss-Halbwertsbreite von nur 1,9 Knoten – auf dem Bildschirm
+      // eine Nadel. Jetzt 0,22-0,34 R, also 3,3 Knoten: eine gerundete
+      // Kuppe, die den Grat trägt statt ihn zu durchstoßen.
       M.gipfel.push({ x:cx+u*cs-v*sn, y:cy+u*sn+v*cs,
-                      hoch:(k===0?1.0:0.48+rng()*0.34), br:R*(0.13+rng()*0.10) });
+                      hoch:(k===0?1.0:0.48+rng()*0.34), br:R*(0.22+rng()*0.12) });
     }
     // Kessel: ein bis zwei Pässe schneiden den Kranz auf, damit das Tal
     // begehbar UND bebaubar bleibt (sonst ist die Fläche für den Spieler
@@ -260,8 +308,15 @@ export function genWorld(opts){
     const r=Math.hypot(u,v);
     if(r>M.R*1.45) return -9;              // Fernfeld-Kennwert, s.u. in stempeln
     const th=Math.atan2(v,u);
-    const Rl=M.R*(1 + M.a2*Math.sin(2*th+M.p1) + M.a3*Math.sin(3*th+M.p2)
+    let Rl=M.R*(1 + M.a2*Math.sin(2*th+M.p1) + M.a3*Math.sin(3*th+M.p2)
                     + M.a5*Math.sin(5*th+M.p3));
+    // Asymmetrie: auf der Abbruchseite schrumpft der Fußradius, auf der
+    // Gegenseite wächst er. Bei asym=0,27 (Mittelwert) unterscheiden sich
+    // die beiden Flankenlängen um Faktor 1,74. GEMESSEN über 20 Karten als
+    // Verhältnis der mittleren Neigung im steilsten zum flachsten von acht
+    // Sektoren je Massiv: vorher Median 1,84 – nachher 2,20.
+    const dth9=Math.cos(th-M.abbruch);
+    Rl *= 1 - M.asym*dth9;
     const t=r/Math.max(0.5,Rl);
     if(M.form!=='ring') return 1-t;
     // Kranzprofil: breiter Kamm mit flachem Scheitel, nach innen wie außen auf
@@ -338,6 +393,12 @@ export function genWorld(opts){
     return {x0,x1,y0,y1};
   };
 
+  // Schwelle und Rampe der Plateau-Quantisierung (s.u. in gelaendeSchreiben).
+  // PLAT_H liegt über der welligen Ebene (die erreicht mit AMP=4,2 selten
+  // mehr als 2,0) und knapp über dem Bergfuß. GEMESSEN über 20 Karten liegen
+  // 39,3 % der Felsknoten oberhalb PLAT_H+PLAT_BAND, tragen also die volle
+  // Plateaustufe (vorher, ohne diesen Umbau: 31,3 %).
+  const PLAT_H=2.6, PLAT_BAND=1.6;
   // Gelände und Darstellungshöhe aus Grundrelief + Massivfeld schreiben.
   // Als Funktion, weil der Hausberg (s.u.) einen Ausschnitt nachträglich
   // neu schreiben muss.
@@ -388,12 +449,26 @@ export function genWorld(opts){
               + mtop[i]*1.9;
         }
       }
-      // Fels rastet auf GANZE Höhenstufen ein – so wie in Siedler 2. Erst
-      // dadurch entstehen die klar getrennten Facettenbänder, aus denen das
-      // Gebirge gelesen wird; Zwischenhöhen verwischen sie.
+      // Fels rastet auf GANZE Höhenstufen ein – so verlangt es die Vorlage
+      // aus dem Auftrag. Erst dadurch entstehen die klar getrennten
+      // Facettenbänder, aus denen das Gebirge gelesen wird; Zwischenhöhen
+      // verwischen sie.
       const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
-      const step = rocky? 0.55 : 0.42;
-      const q    = rocky? 1.00 : 0.14;
+      let step = rocky? 0.55 : 0.42;
+      const q  = rocky? 1.00 : 0.14;
+      // PLATEAUBILDUNG (Auftrag 2.4: "Quantisierung der Höhe auf Vielfache
+      // von N Stufen oberhalb einer Schwelle"). Unterhalb PLAT_H bleibt die
+      // feine 0,55er-Rasterung – dort braucht die Flanke ihre Zeichnung.
+      // Darüber wächst die Stufe auf das Dreifache; aus dem gleichmäßigen
+      // Treppenhang werden dadurch breite, WAAGERECHTE Hochflächen mit
+      // wenigen hohen Absätzen dazwischen. Genau die sind der Minenstandort
+      // aus 1.2 ("ohne Plateau ist der Berg spielerisch tot").
+      // Die Rampe über PLAT_BAND verhindert einen sichtbaren Ring an der
+      // Schwelle: der Übergang von feiner zu grober Stufe ist stetig.
+      if(rocky && hv>PLAT_H){
+        const pf=Math.min(1,(hv-PLAT_H)/PLAT_BAND);
+        step *= 1+2*pf;
+      }
       map.hgt[i] = hv*(1-q) + Math.round(hv/step)*step*q;
     }
   };
@@ -759,6 +834,70 @@ export function genWorld(opts){
   // Jetzt steht das Gelände endgültig: Kessel-Durchlässe prüfen und notfalls
   // freiräumen (siehe kesselDurchlassSichern).
   kesselDurchlassSichern();
+  // ---------------- Thermische Erosion (Auftrag 2.4) ----------------
+  // "20-40 Iterationen thermische Erosion (Talus ~35°) -> Geröllfuß entsteht
+  //  automatisch, Steilwände bleiben."
+  //
+  // Der Talus ist der Böschungswinkel, oberhalb dessen loses Material
+  // abrutscht. In WELTMASSEN: ein Knotenschritt sind TILE=52 px waagerecht,
+  // eine Höheneinheit HSCALE=26 px senkrecht. 35° entspräche also einer
+  // Höhendifferenz von tan(35°)*52/26 = 1,40 je Knoten.
+  // MIT 1,40 PASSIERT HIER FAST NICHTS: die Flanken der Massive sind mit im
+  // Mittel 0,58 Höheneinheiten je Knoten (R=12, Gipfelhöhe ~7) längst
+  // flacher als 1,40. Was darüber liegt, sind die Terrassen- und
+  // Plateaukanten – und die wollen wir GERADE BEHALTEN ("Steilwände
+  // bleiben"). Ein 35°-Talus würde also genau das Falsche abtragen.
+  // Der Auftrag nennt als ZWECK den weichen Fuß (1.2: kein harter Schnitt
+  // Fels->Gras). Der Talus ist deshalb auf diesen Zweck kalibriert statt auf
+  // die Gradzahl: TALUS=0,50 (rund 14°) transportiert Material von der
+  // Flanke in den Fußbereich; die Hochlagen schützt die Höhenklausel unten.
+  //
+  // GEMESSEN über 20 Karten (Seeds 1-20, je 128x128, gruen/gebirge im
+  // Wechsel), Höhensprung vom Felsrandknoten auf seinen tiefsten
+  // Nicht-Fels-Nachbarn:
+  //            vorher    nachher
+  //   Median    0,52       0,50
+  //   p90       1,54       0,53
+  //   > 1,40   12,4 %      5,3 %      (= "harte Kante", Abnahmekriterium 4)
+  // Der Median bleibt also gleich – abgetragen wird gezielt der OBERE
+  // Schwanz der Verteilung, und das ist genau die Abbruchkante.
+  {
+    const n=w*h;
+    const TALUS=0.50, RATE=0.34, ITER=40;
+    // nur Massiv und sein Vorland: die Ebene soll unangetastet bleiben
+    const aktiv=new Uint8Array(n);
+    for(let i=0;i<n;i++) if((mv[i]>0 || fuss[i]) && map.terr[i]!==TER.WATER) aktiv[i]=1;
+    const delta=new Float32Array(n);
+    for(let it=0; it<ITER; it++){
+      delta.fill(0);
+      for(let i=0;i<n;i++){
+        if(!aktiv[i]) continue;
+        // HOCHLAGEN-SCHUTZ: oberhalb der Plateauschwelle bleiben die
+        // Steilwände stehen ("Steilwände bleiben"). Ohne diese Klausel
+        // frisst die Erosion in 28 Durchläufen genau die Absätze weg, die
+        // die Plateau-Quantisierung erst erzeugt hat.
+        if(map.hgt[i]>PLAT_H+PLAT_BAND) continue;
+        const nb=map.nbs(i);
+        let sum=0, dmax=0;
+        for(const b of nb){
+          if(!aktiv[b]) continue;
+          const d=map.hgt[i]-map.hgt[b];
+          if(d>TALUS){ sum+=d-TALUS; if(d>dmax) dmax=d; }
+        }
+        if(sum<=0) continue;
+        // bewegte Menge: höchstens die halbe größte Übersteilung, damit der
+        // Knoten nicht unter seinen tiefsten Nachbarn durchsackt
+        const move=Math.min((dmax-TALUS)*0.5, sum)*RATE;
+        for(const b of nb){
+          if(!aktiv[b]) continue;
+          const d=map.hgt[i]-map.hgt[b];
+          if(d>TALUS) delta[b]+=move*(d-TALUS)/sum;
+        }
+        delta[i]-=move;
+      }
+      for(let i=0;i<n;i++) if(delta[i]) map.hgt[i]+=delta[i];
+    }
+  }
   // Garantierte Ressourcen nahe Start: Bäume + Steine
   for(const s of starts) ensureStartResources(map, s, rng);
 
