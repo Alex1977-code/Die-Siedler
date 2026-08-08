@@ -3134,7 +3134,13 @@ export class Renderer {
                   // Wiederholung, ohne die relativen Groessen der Lieferung
                   // zu verschieben
                   const sc7=0.88+hash01(i*43+7)*0.24;
-                  const vN=1+((h7*137|0)%6);
+                  // v86: obj_rockspire_6 ist ein TAFELFELS (Deckplatte auf
+                  // schmalem Sockel). Von oben gesehen verdeckt die Platte
+                  // ihren eigenen Sockel – der Block schwebt. Der Nutzer
+                  // hat genau diese Bilder mehrfach als "aufgesetzt"
+                  // benannt. Bis es eine verwurzelte Fassung gibt, bleibt
+                  // die Streuung bei den fuenf standfesten Formen.
+                  const vN=1+((h7*137|0)%5);
                   const box=this.drawFelsObj(g,'obj_rockspire_'+vN,
                                              px+ox2, py+oy2+3, sc7,
                                              hash01(i*7+1)>0.5, 0.26,
@@ -3155,7 +3161,11 @@ export class Renderer {
               //     ragen hangab – gegen den gleichmaessigen Stufentakt
               //     (Leitlinie B). Alle drei mit demselben Zeichenfaktor.
               {
-                const KANT=['obj_cliff_ledge','obj_crag_1','obj_crag_2'];
+                // v86: obj_cliff_ledge (Balkon mit Unterschnitt) faellt
+                 // raus – aus der Vogelperspektive ist von seiner Stuetze
+                 // nichts zu sehen, er las sich als schwebende Steinplatte
+                 // ueber der Wand. Die beiden Felssporne sind verwurzelt.
+                const KANT=['obj_crag_1','obj_crag_2'];
                 for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
                   for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
                     const i=m.idx(x,y);
@@ -3666,6 +3676,8 @@ export class Renderer {
                 g.translate(e.mx+e.ux*9, e.my+e.uy*7);
                 g.rotate(Math.atan2(e.uy,e.ux)-Math.PI/2+(h8-0.5)*0.24);
                 if(h8>0.5) g.scale(-1,1);
+                // (Tafelfels hier weiter erlaubt: am Schuttfuss liegt er
+                //  im Geroell und hat sichtbaren Anschluss an den Hang)
                 const im8= (clus && h8>0.34 && h8<0.48)? clus : cone;
                 const f8=FELS_F*(0.88+h8*0.24);
                 const W8=(im8.naturalWidth||im8.width), H8=(im8.naturalHeight||im8.height);
@@ -6450,7 +6462,10 @@ export class Renderer {
       }
     }
     // Territorium-Grenzen
-    if(this.lastTerritoryVer!==game.territoryVer){ this.computeBorders(); this.lastTerritoryVer=game.territoryVer; }
+    if(this.lastTerritoryVer!==game.territoryVer
+       || (this._liftC && this._liftC.size!==this._bordLiftN)){
+      this.computeBorders(); this.lastTerritoryVer=game.territoryVer;
+    }
     // dezente Linie als Orientierung ...
     for(const e of this.borderEdges){
       if(e.x2<wx0||e.x1>wx1||e.y2<wy0-60||e.y1>wy1+60) continue;
@@ -9256,8 +9271,14 @@ export class Renderer {
   }
   computeBorders(){
     const m=this.game.map;
+    this.liftField();
     this.borderEdges=[];
     this.borderPosts=[];
+    // Merker, wie viele Knoten die Anhebung schon kennt: die Werte kommen
+    // erst beim Backen der Chunks dazu. Waechst der Cache, muss die
+    // Grenzreihe neu gesetzt werden, sonst bleibt sie auf dem Stand vor
+    // dem ersten Bake stehen.
+    this._bordLiftN=this._liftC? this._liftC.size : 0;
     const seen=new Set();
     for(let i=0;i<m.owner.length;i++){
       const o=m.owner[i];
@@ -9270,7 +9291,15 @@ export class Renderer {
         const dx=nx-x, dy=ny-y;
         const L=Math.hypot(dx,dy)||1;
         const px=-dy/L, py=dx/L;
-        this.borderEdges.push({pl:o, x1:mx-px*12, y1:my-py*12, x2:mx+px*12, y2:my+py*12});
+        // Anhebung des gezeichneten Felsens (G1) mitnehmen: das Massiv
+        // wird beim Backen um liftAt*HSCALE nach oben gerueckt. Pfosten
+        // und Grenzlinie standen bisher auf der UNANGEHOBENEN Grundlinie
+        // und klebten dadurch irgendwo an der Felswand statt auf ihr
+        // (Handybild v84/v85: Pfostenreihe schwebt quer ueber dem Fels).
+        // Fahnen (drawFlag) und Erzschilder (drawSign) rechnen genauso.
+        const lfm=(this.liftAt(i)+this.liftAt(n))*0.5*HSCALE;
+        const myL=my-lfm;
+        this.borderEdges.push({pl:o, x1:mx-px*12, y1:myL-py*12, x2:mx+px*12, y2:myL+py*12});
         // Grenzpfosten: ausgedünnt auf ein grobes Raster, damit sie als Reihe
         // von Wegmarken lesbar bleiben statt als Zaun. Im Wasser (und in
         // Lava) steht kein Pfahl – vorher marschierte die Reihe mitten
@@ -9281,7 +9310,7 @@ export class Renderer {
         const key=gx+','+gy;
         if(!seen.has(key)){
           seen.add(key);
-          this.borderPosts.push({pl:o, x:mx, y:my});
+          this.borderPosts.push({pl:o, x:mx, y:myL});
         }
       }
     }
