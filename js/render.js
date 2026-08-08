@@ -1781,7 +1781,7 @@ export class Renderer {
           // Beschnitts gezeichnet werden: sie liegt unterhalb der
           // Felsdreiecke, der Clip auf die Dreiecke wuerde sie restlos
           // wegschneiden. Deshalb wird sie in 4b nur gesammelt.
-          let flankeP=null, flankeY=-1e9, flankeN=0;
+          let flankeP=null, flankeY=-1e9, flankeN=0, flankeFuss=null;
           if(tris.length){
             g.save(); g.translate(-c.ox,-c.oy);
             // Massiv-Umriss als EIN Beschnittpfad – alles Weitere (Decke,
@@ -2896,6 +2896,35 @@ export class Renderer {
               // Berg und waere von hier aus nicht sichtbar.
               const wandQ=new Path2D(); let nW=0; let wandMaxY=-1e9;
               flankeP=wandQ;
+              // WANDKRONE (v97). Die Oberkante der Flanke war die gerade
+              // Strecke zwischen zwei Knotenpunkten. Aneinandergereiht ist
+              // das exakt der Polygonzug des Sechseckgitters - eine Treppe
+              // aus geraden Segmenten quer durchs Bild, und im gerenderten
+              // Uebergang zur Wiese das auffaelligste kuenstliche Element.
+              // Die Krone wird deshalb gebrochen:
+              //   je KNOTEN ein fester Versatz - beide anliegenden Kanten
+              //   nehmen denselben, sonst klafft die Wand an der Naht auf
+              //   je KANTE zwei Zwischenpunkte mit eigenem Ausschlag
+              // Der Versatz geht IMMER NACH OBEN, in den Fels hinein: die
+              // Wand wird nach dem Massiv gezeichnet und deckt dort sauber,
+              // waehrend ein Versatz nach unten eine Wiesenluecke zwischen
+              // Felskante und Wandoberkante aufreissen wuerde.
+              const kroneOff=(q)=> -(1.4 + hash01(q*29+7)*7.0);
+              const kroneWeg=(P,Q,qu,qv)=>{
+                const ay=P[1]+kroneOff(qu), by=Q[1]+kroneOff(qv);
+                const kk= qu<qv? qu*65536+qv : qv*65536+qu;   // kanonisch
+                const pts=[[P[0],ay]];
+                for(let k=1;k<=2;k++){
+                  const t=k/3+(hash01(kk*17+k*5)-0.5)*0.15;
+                  const dy9=-(0.9+hash01(kk*23+k*11)*4.6);
+                  pts.push([P[0]+(Q[0]-P[0])*t, ay+(by-ay)*t+dy9]);
+                }
+                pts.push([Q[0],by]);
+                return pts;
+              };
+              // Fusspunkte der Wand fuer die Schutthalde in Pass 7a
+              const wandFuss=[];
+              flankeFuss=wandFuss;
               for(const e of edges.values()){
                 if(e.b) continue;
                 if(!isBnd(e.u)||!isBnd(e.v)) continue;
@@ -2939,11 +2968,21 @@ export class Renderer {
                   const y2w=Math.max(F2[1], fussY(e.v));
                   const hh9=Math.min(y1w-P1[1], y2w-P2[1]);
                   if(hh9>9){
-                    wandQ.moveTo(P1[0],P1[1]); wandQ.lineTo(P2[0],P2[1]);
+                    const kr=kroneWeg(P1,P2,e.u,e.v);
+                    wandQ.moveTo(kr[0][0],kr[0][1]);
+                    for(let k=1;k<kr.length;k++) wandQ.lineTo(kr[k][0],kr[k][1]);
                     wandQ.lineTo(P2[0],y2w); wandQ.lineTo(P1[0],y1w);
                     wandQ.closePath(); nW++;
                     if(y1w>wandMaxY) wandMaxY=y1w;
                     if(y2w>wandMaxY) wandMaxY=y2w;
+                    // Schutthalde nur gegen LAND. Am Ufer laege der Kegel
+                    // sonst auf dem Wasser - die Wand darf dort ins Wasser
+                    // fallen, ihr Geroell nicht darauf liegen bleiben.
+                    const nass=(q)=>m.nbs(q).some(q2=>!isMassif(q2)
+                      && (m.terr[q2]===TER.WATER || m.terr[q2]===TER.LAVA));
+                    if(!nass(e.u) && !nass(e.v))
+                      wandFuss.push({x1:P1[0], y1:y1w, x2:P2[0], y2:y2w,
+                                     hh:hh9, u:e.u, v:e.v});
                   }
                 }
                 // Nutzer-Leitlinien A+C: helle OBERKANTE – die sonnen-
@@ -3469,6 +3508,92 @@ export class Renderer {
               vg.addColorStop(1,'rgba(30,25,20,0.42)');
               g.fillStyle=vg; g.fillRect(c.ox,flankeY-46,w,52);
               g.restore();
+              // 7a2) SCHUTTHALDE AM WANDFUSS (v97).
+              //      Bis hierher stiess die Wand als saubere Kante auf die
+              //      Wiese - eine Stuetzmauer, kein Berg. Unter einer Wand
+              //      liegt aber immer, was von ihr herunterkommt. Das
+              //      vorhandene Geroellband des Bergfuss-Passes hilft hier
+              //      nicht: es sitzt an der Mitte zwischen den Knoten, also
+              //      OBEN an der Wand, waehrend ihr Fuss bis zu hundert
+              //      Bildpunkte tiefer liegt (worldPos des tiefsten
+              //      Nachbarn). Die Halde wird deshalb an der Fusslinie
+              //      selbst aufgeschuettet.
+              //      Hoehe proportional zur Wandhoehe: unter einer hohen
+              //      Wand sammelt sich mehr. Damit wechselt sie von selbst
+              //      mit dem Fusscharakter aus liftField mit - wo der Fels
+              //      flach auslaeuft, ist die Wand niedrig und die Halde
+              //      schmal.
+              if(flankeFuss && flankeFuss.length){
+                const PH=this.rockPal();
+                const imH=this.felsMaterial(this.geroellKey()||'ter_rock_rubble');
+                const halde=new Path2D();
+                let nH=0, hMin=1e9, hMax=-1e9;
+                // Huellrechteck: die Materiallage und der Auslaufverlauf
+                // fuellen sonst die GANZE Chunkflaeche, nur um sie gleich
+                // wieder auf die Halde zu beschneiden. Gemessen kostete das
+                // im Bake-Spitzenwert rund 6 ms je Chunk.
+                let hbx0=1e9, hbx1=-1e9;
+                const brocken=[];
+                for(const f of flankeFuss){
+                  if(f.hh<14) continue;                  // niedrige Stufe: kein Kegel
+                  const hoch=Math.max(7, Math.min(30, f.hh*0.30));
+                  const L=Math.hypot(f.x2-f.x1, f.y2-f.y1)||1;
+                  const nk=Math.max(2, Math.min(5, Math.round(L/17)));
+                  for(let k=0;k<=nk;k++){
+                    const t=k/nk;
+                    const hs=hash01(f.u*37+f.v*11+k*7);
+                    const hs2=hash01(f.u*13+f.v*53+k*3);
+                    const cx4=f.x1+(f.x2-f.x1)*t+(hs-0.5)*10;
+                    const cy4=f.y1+(f.y2-f.y1)*t-hoch*0.30+(hs2-0.5)*4;
+                    const rx=hoch*(0.75+hs*0.85), ry=hoch*(0.44+hs2*0.40);
+                    halde.moveTo(cx4+rx,cy4);
+                    halde.ellipse(cx4,cy4,rx,ry,0,0,7);
+                    nH++;
+                    if(cy4-ry<hMin) hMin=cy4-ry;
+                    if(cy4+ry>hMax) hMax=cy4+ry;
+                    if(cx4-rx<hbx0) hbx0=cx4-rx;
+                    if(cx4+rx>hbx1) hbx1=cx4+rx;
+                    // ein paar echte Brocken davor, damit die Halde eine
+                    // Korngroesse bekommt statt nur eine Silhouette
+                    if(hs2>0.62) brocken.push([cx4+(hs-0.5)*rx*1.5,
+                                               cy4+ry*0.72, hoch*(0.16+hs*0.14),
+                                               (f.u*7+k)|0]);
+                  }
+                }
+                if(nH){
+                  const bw9=hbx1-hbx0+6, bh9=hMax-hMin+8;
+                  g.save();
+                  g.fillStyle='rgb('+(PH[2][0]|0)+','+(PH[2][1]|0)+','+(PH[2][2]|0)+')';
+                  g.fill(halde);
+                  if(imH){
+                    const ph=this._haldePat || (this._haldePat=(()=>{
+                      const pt=g.createPattern(imH,'repeat');
+                      if(pt && pt.setTransform)
+                        pt.setTransform(new DOMMatrix().scale(0.055,0.055));
+                      return pt;
+                    })());
+                    if(ph){
+                      g.save(); g.clip(halde);
+                      g.globalCompositeOperation='multiply';
+                      g.globalAlpha=0.9;
+                      g.fillStyle=ph; g.fillRect(hbx0-3,hMin-4,bw9,bh9);
+                      g.restore();
+                    }
+                  }
+                  // nach unten ausblenden: die Halde soll in die Wiese
+                  // auslaufen, nicht mit einer Kante darauf enden
+                  g.save(); g.clip(halde);
+                  const hg=g.createLinearGradient(0,hMax-24,0,hMax+3);
+                  hg.addColorStop(0,'rgba(58,50,38,0)');
+                  hg.addColorStop(1,'rgba(58,50,38,0.30)');
+                  g.fillStyle=hg; g.fillRect(hbx0-3,hMax-24,bw9,30);
+                  g.restore();
+                  for(const b9 of brocken)
+                    this.rockChunklet(g,b9[0],b9[1],b9[2],b9[3],-0.10);
+                  g.restore();
+                  void hMin;
+                }
+              }
               g.restore();
             }
             // 7b) Umbau 2.7b (Gebirge-Papier): SCHLAGSCHATTEN – die Massiv-
@@ -5066,9 +5191,38 @@ export class Renderer {
       t.fillStyle='rgb(214,203,178)';
       t.fillRect(0,0,W,H);
     }
+    // SAETTIGUNG ANGLEICHEN (v97). GEMESSEN am gerenderten Gebirge:
+    // Felsobjekte 0,39 Saettigung, der Felsgrund darunter 0,28 - die
+    // Objekte tragen 40 % mehr Farbe als der Berg, auf dem sie liegen.
+    // Das faellt selbst dann auf, wenn Helligkeit und Struktur stimmen:
+    // ein bunterer Stein liest sich als Fremdkoerper. Der Zug nimmt nur
+    // Saettigung, Helligkeit und Farbton bleiben unangetastet.
+    t.globalCompositeOperation='saturation';
+    t.globalAlpha=0.55;
+    t.fillStyle='rgb(150,144,132)';
+    t.fillRect(0,0,W,H);
     t.globalAlpha=1;
     t.globalCompositeOperation='destination-in';
     t.drawImage(img,0,0);
+    // EINGESENKTER FUSS (v97). Das Blatt endet mit einer vollen, scharfen
+    // Unterkante; im Spiel steht das Objekt damit AUF dem Boden - eine
+    // gerade Linie quer unter dem Stein, und darunter deckt das Bild den
+    // Untergrund zu. Die untersten Zeilen werden deshalb weich
+    // ausgeblendet: der Untergrund scheint durch, der Fels waechst aus ihm
+    // heraus statt auf ihm zu stehen. Der Verlauf sitzt an der Bodenlinie
+    // des Blattes (FELS_BODEN vom unteren Rand) - alles darunter gehoert
+    // ohnehin schon unter die Gelaendeoberflaeche.
+    {
+      const fadeH=Math.max(6, Math.round(H*0.055));
+      const fy0=Math.max(0, H-FELS_BODEN-fadeH);
+      t.globalCompositeOperation='destination-out';
+      const fg=t.createLinearGradient(0,fy0,0,H);
+      fg.addColorStop(0,   'rgba(0,0,0,0)');
+      fg.addColorStop(0.50,'rgba(0,0,0,0.28)');
+      fg.addColorStop(0.80,'rgba(0,0,0,0.70)');
+      fg.addColorStop(1,   'rgba(0,0,0,0.96)');
+      t.fillStyle=fg; t.fillRect(0,fy0,W,H-fy0);
+    }
     t.globalCompositeOperation='source-over';
     this._spireTint.set(ck,cv);
     return cv;
