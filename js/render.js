@@ -7952,9 +7952,16 @@ export class Renderer {
       case OBJ.RUIN: {
         // verkohlte Brandruine: Aschehügel, geborstene Balken, Reststein
         this.shadow(g,x,y+2,15,4.6,0.2);
-        const ovR=this.asset('obj_ruin');
+        // Lieferung E: Ruinenbild je Groessenklasse. Die Klasse merkt sich
+        // die Simulation beim Niederbrennen (game.ruins); ohne Eintrag oder
+        // ohne Bild bleibt das eine allgemeine obj_ruin.
+        let klR=null;
+        if(this.game.ruins) for(const r of this.game.ruins)
+          if(r.node===i){ klR=r.kl; break; }
+        const ovR=(klR && this.asset('bld_ruin_'+klR)) || this.asset('obj_ruin');
         if(ovR){
-          const hh=this.scaleOf('obj_ruin',30), ww=hh*(ovR.naturalWidth/ovR.naturalHeight);
+          const hh=this.scaleOf(klR&&this.asset('bld_ruin_'+klR)?'bld_ruin_'+klR:'obj_ruin',30),
+                ww=hh*(ovR.naturalWidth/ovR.naturalHeight);
           g.drawImage(ovR, x-ww/2, y+6-hh, ww, hh);
           break;
         }
@@ -8949,13 +8956,31 @@ export class Renderer {
           g.beginPath(); g.ellipse(f.x,f.y,3+t*9,1.4+t*3.4,0,0,7); g.stroke();
         }
       } else if(f.type==='burn'){
-        if(age>300) continue;
+        const dauer=f.kurz? 150 : 300;              // Abriss brennt kuerzer
+        if(age>dauer) continue;
         const [x,y]=m.worldPos(f.node);
         const w=f.big?30:20;
-        const heat=Math.max(0, 1-age/160);          // Flammen klingen ab
-        const sm=Math.max(0, 1-age/300);            // Rauch hält länger
-        // Glutschein
-        if(heat>0){
+        const heat=Math.max(0, 1-age/(dauer*0.53)); // Flammen klingen ab
+        const sm=Math.max(0, 1-age/dauer);          // Rauch hält länger
+        // Lieferung E: gemaltes Brandblatt in drei Phasen (Feuer im
+        // Dachstuhl -> Vollbrand -> rauchende Truemmer). Es liegt UEBER
+        // dem Platz, an dem das Haus stand; die prozeduralen Flammen
+        // entfallen dann, der Rauch laeuft weiter mit.
+        let gemalt=null;
+        if(f.kl){
+          const ph=age<dauer*0.30? 1 : age<dauer*0.62? 2 : 3;
+          gemalt=this.asset('fx_burn_'+f.kl+'_'+ph);
+        }
+        if(gemalt && gemalt.naturalWidth){
+          const hh=this.scaleOf('fx_burn_'+f.kl+'_1', f.big?96:f.kl==='m'?80:64);
+          const ww=hh*(gemalt.naturalWidth/gemalt.naturalHeight);
+          const fl=0.92+0.08*Math.sin(this.time/110+f.node);
+          g.globalAlpha=Math.min(1, 0.35+sm)*fl;
+          g.drawImage(gemalt, x-ww/2, y-hh+8, ww, hh);
+          g.globalAlpha=1;
+        }
+        // Glutschein – nur ohne gemaltes Brandblatt, sonst doppeltes Feuer
+        if(heat>0 && !gemalt){
           const rad=g.createRadialGradient(x,y-6,2,x,y-6,w+16);
           rad.addColorStop(0,`rgba(255,150,40,${0.26*heat})`);
           rad.addColorStop(1,'rgba(255,120,30,0)');

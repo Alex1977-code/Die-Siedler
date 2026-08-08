@@ -378,12 +378,25 @@ export class Game {
       for(const [rid,r] of [...this.roads])
         if(r.isSea && (r.path[0]===b.door || r.path[r.path.length-1]===b.door)) this.removeRoad(rid);
     }
-    // Kriegsschaden brennt sichtbar nieder und hinterlässt eine Ruine
+    // Groessenklasse fuer die Brand- und Ruinenbilder (Lieferung E):
+    // S/M/L nach Bauklasse, Militaerbauten als 'turm', Bergwerke als 'mine'
+    // (dort stuerzt der Stollen ein statt ein Dachstuhl zu brennen).
+    const dfB=BLD[b.type];
+    const kl = dfB.size==='MINE' ? 'mine'
+             : dfB.mil          ? 'turm'
+             : dfB.size==='L' || b.type==='hq' ? 'l'
+             : dfB.size==='M'   ? 'm' : 's';
+    // ABRISS brennt jetzt auch sichtbar nieder (Nutzerwunsch: "wenn das
+    // Gebaeude abgerissen ODER angegriffen wird, dass es niederbrennt").
+    // Aber nur der Kriegsschaden hinterlaesst eine Ruine, die den Platz
+    // blockiert - beim Abriss will der Spieler sofort neu bauen koennen,
+    // eine Sperre waere hier eine Spielaenderung und keine Grafik.
+    this.fx.push({type:'burn', node:b.node, t0:this.t,
+                  big:dfB.size==='L', kl, kurz:!byWar});
     if(byWar){
-      this.fx.push({type:'burn', node:b.node, t0:this.t, big:BLD[b.type].size==='L'});
       if(this.map.obj[b.node]===OBJ.NONE){
         this.map.obj[b.node]=OBJ.RUIN;
-        this.ruins.push({node:b.node, t0:this.t});
+        this.ruins.push({node:b.node, t0:this.t, kl});
       }
       // Nachbau-Bremse der KI: Wer einen Militärposten (auch eine Baustelle)
       // im Kampf verliert, baut nicht sofort und endlos nach. Ohne die Pause
