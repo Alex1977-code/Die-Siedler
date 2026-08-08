@@ -3731,105 +3731,13 @@ export class Renderer {
             //    Nadeln, Blockstapel, Felssporne, Gipfelkuppe, dazu
             //    prozedurale Geroell- und Kieshaufen aus den Truemmer-
             //    bloecken (dieselbe Palette, deshalb stilgleich).
-            {
-              const lumOf=(q)=>{
-                const gb=gradBigAt(q);
-                const d9=Math.max(-1,Math.min(1,(gb[0]*0.75+gb[1]*0.5)*0.62));
-                const u9=Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
-                return Math.max(-1,Math.min(1, d9*0.78+(u9-0.46)*0.78));
-              };
-              // Haufen aus kantigen Broecken: gross = Steinhaufen,
-              // klein und dicht = Kieshaufen
-              const haufen=(px,py,i,gross)=>{
-                const lz=lumOf(i);
-                // Lieferung C: gemalte Haufen bevorzugen. Fehlt das Bild,
-                // bleibt der prozedurale Aufbau aus Truemmerbloecken – er
-                // nutzt dieselbe Palette und faellt deshalb nicht auf.
-                if(this.asset(gross?'obj_steinhaufen':'obj_kieshaufen')){
-                  this.drawFelsObj(g, gross?'obj_steinhaufen':'obj_kieshaufen',
-                                   px, py, 0.9+hash01(i*37+3)*0.28,
-                                   hash01(i*29+5)>0.5, 0.26, lz, i*7+11);
-                  return;
-                }
-                const n9= gross? 7+((hash01(i*29+5)*5)|0) : 11+((hash01(i*31+7)*7)|0);
-                const R9= gross? 20+hash01(i*37+3)*10 : 15+hash01(i*41+9)*7;
-                // Kontaktschatten unter dem ganzen Haufen
-                const rg=g.createRadialGradient(px+2,py+2,2, px+2,py+2,R9*1.15);
-                rg.addColorStop(0,'rgba(26,23,19,0.30)');
-                rg.addColorStop(0.6,'rgba(26,23,19,0.16)');
-                rg.addColorStop(1,'rgba(26,23,19,0)');
-                g.fillStyle=rg;
-                g.beginPath(); g.ellipse(px+2,py+2,R9*1.15,R9*0.46,0,0,7); g.fill();
-                for(let k=0;k<n9;k++){
-                  const a9=hash01(i*13+k*7)*6.283;
-                  const r9=R9*(0.18+hash01(i*17+k*11)*0.82);
-                  const bx9=px+Math.cos(a9)*r9;
-                  const by9=py+Math.sin(a9)*r9*0.52-hash01(i*19+k*5)*(gross?9:4);
-                  const gr9= gross? 3.4+hash01(i*23+k*13)*4.6 : 2.0+hash01(i*23+k*13)*2.2;
-                  this.rockChunklet(g, bx9, by9, gr9, i*7+k*23, lz);
-                }
-              };
-              g.save(); g.translate(-c.ox,-c.oy);
-              for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
-                for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
-                  const i=m.idx(x,y);
-                  if((m.obj[i]&127)!==OBJ.ROCK) continue;
-                  if(m.terr[i]!==TER.MOUNT) continue;
-                  const [px,py]=pos(i);
-                  const ox2=(hash01(i*13+3)-0.5)*14, oy2=(hash01(i*19+11)-0.5)*8;
-                  const sc7=0.88+hash01(i*43+7)*0.24;
-                  const lz=lumOf(i);
-                  const sp=hash01(i*53+11);
-                  // Gipfel? Der hoechste Knoten der Umgebung bekommt die
-                  // Kuppe, sonst waere sie irgendwo im Hang.
-                  const hi=hgtT(i);
-                  let top=true;
-                  for(const q of m.nbs(i)) if(hgtT(q)>hi-0.02){ top=false; break; }
-                  // steht eine Abbruchkante daneben? dann ein Felssporn
-                  let bd8=0, best8=-1;
-                  for(const q of m.nbs(i)){
-                    if(!isMassif(q)) continue;
-                    const d=hgtT(i)-hgtT(q);
-                    if(d>bd8){ bd8=d; best8=q; }
-                  }
-                  if(top && sp<0.55 && m.hgt[i]<=this.firnAt(i)-0.6){
-                    this.drawFelsObj(g,'obj_summit_1', px+ox2, py+oy2+3,
-                                     0.92+hash01(i*67+5)*0.22,
-                                     hash01(i*11+9)>0.5, 0.28, lz, i*11+3);
-                  } else if(best8>=0 && bd8>1.25 && sp<0.70){
-                    const [qx8,qy8]=pos(best8);
-                    const mx8=px*0.62+qx8*0.38, my8=py*0.62+qy8*0.38;
-                    // Lieferung C: vier Sporne statt zwei, sobald die
-                    // Bilder da sind (drawFelsObj liefert null ohne Bild)
-                    const KANT9=['obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4']
-                      .filter(k9=>this.asset(k9));
-                    const kk9=KANT9.length? KANT9[(sp*211|0)%KANT9.length] : 'obj_crag_1';
-                    this.drawFelsObj(g, kk9,
-                                     mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7);
-                  } else if(sp<0.30){
-                    haufen(px+ox2, py+oy2+2, i, sp<0.14);   // Stein-/Kieshaufen
-                  } else {
-                    // Lieferung C: der Formenvorrat waechst um Findlinge,
-                    // Blockstapel und die umgestuerzte Platte. Der Topf wird
-                    // aus dem gebaut, was WIRKLICH da ist – so wirkt jede
-                    // einzelne gelieferte Datei sofort, ohne Codeaenderung.
-                    if(!this._felsPool){
-                      this._felsPool=['obj_rockspire_1','obj_rockspire_2',
-                        'obj_rockspire_3','obj_rockspire_4','obj_rockspire_5',
-                        'obj_findling_gross','obj_findling_mittel',
-                        'obj_steingruppe','obj_blockstapel','obj_steinplatte']
-                        .filter(k9=>this.asset(k9));
-                    }
-                    const P9=this._felsPool;
-                    const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_1';
-                    const box=this.drawFelsObj(g,key9,
-                                               px+ox2, py+oy2+3, sc7,
-                                               hash01(i*7+1)>0.5, 0.26, lz, i*3+1);
-                    if(!box) haufen(px+ox2, py+oy2+2, i, true);
-                  }
-                }
-              g.restore();
-            }
+            // v103: HIER wird nichts mehr gezeichnet. Die Felsformationen
+            //    sind aus dem Chunk-Bake heraus in die TIEFENSORTIERUNG
+            //    gewandert (drawFelsFormation, aufgerufen aus der nach y
+            //    sortierten Zeichenliste). Gebacken lagen sie IMMER unter
+            //    jedem Gebaeude und jeder Figur - ein Block suedlich eines
+            //    Hauses gehoert aber davor. Genau das war das "unlogische
+            //    Ueberlappen" aus dem Nutzerurteil.
           }
         }
       }
@@ -5193,6 +5101,98 @@ export class Renderer {
   // liegen die Trümmer dann als weiße Popcornkörner im Dunkeln (Handybild
   // v84). Mit ihr rutscht die ganze Blockfärbung eine Palettenstufe nach
   // unten bzw. oben.
+  // ---------- Felsformation eines OBJ.ROCK-Knotens ----------
+  // v103 - Nutzerurteil "es überlappen einige dinge unlogisch". Bis hierher
+  // wurden die Formationen in den Gelände-Chunk GEBACKEN. Gebacken heisst:
+  // sie liegen unter allem, was pro Bild darüber gezeichnet wird - unter
+  // jedem Gebäude, jeder Figur, jeder Fahne. Ein Felsblock SÜDLICH eines
+  // Hauses gehört aber davor; er lag trotzdem dahinter.
+  // Jetzt reiht sich jeder Felsknoten in dieselbe nach y sortierte Liste ein
+  // wie Bäume, Häuser und Figuren. Der Preis ist Zeichenzeit: was einmal je
+  // Chunk lief, läuft nun je Bild.
+  // Die Formregeln sind unverändert; nur die Hilfsgrössen kommen jetzt aus
+  // renderer-weiten Fassungen statt aus dem Chunk-Bake:
+  //   Position    worldPos minus liftAt (wie Fahnen und Erzschilder)
+  //   Licht       felsLicht (die eigenständige Fassung von lumOf)
+  //   Höhe        m.hgt statt der terrassierten hgtT - beide werden hier nur
+  //               für VERGLEICHE zwischen Nachbarn gebraucht
+  felsFormPos(i){
+    const m=this.game.map;
+    const [px,py]=m.worldPos(i);
+    return [px, py-this.liftAt(i)*HSCALE];
+  }
+  drawFelsFormation(g, m, i){
+    const [px,py]=this.felsFormPos(i);
+    const ox2=(hash01(i*13+3)-0.5)*14, oy2=(hash01(i*19+11)-0.5)*8;
+    const sc7=0.88+hash01(i*43+7)*0.24;
+    const lz=this.felsLicht(i);
+    const sp=hash01(i*53+11);
+    const msn=this.massifSnow();
+    const isMas=(q)=>{ const t=m.terr[q];
+      return t===TER.MOUNT||t===TER.LAVA||(t===TER.SNOW&&msn[q]); };
+    // Gipfel? Der höchste Knoten der Umgebung bekommt die Kuppe.
+    const hi=m.hgt[i];
+    let top=true;
+    for(const q of m.nbs(i)) if(m.hgt[q]>hi-0.02){ top=false; break; }
+    // steht eine Abbruchkante daneben? dann ein Felssporn
+    let bd8=0, best8=-1;
+    for(const q of m.nbs(i)){
+      if(!isMas(q)) continue;
+      const d=m.hgt[i]-m.hgt[q];
+      if(d>bd8){ bd8=d; best8=q; }
+    }
+    if(top && sp<0.55 && m.hgt[i]<=this.firnAt(i)-0.6){
+      this.drawFelsObj(g,'obj_summit_1', px+ox2, py+oy2+3,
+                       0.92+hash01(i*67+5)*0.22,
+                       hash01(i*11+9)>0.5, 0.28, lz, i*11+3);
+    } else if(best8>=0 && bd8>1.25 && sp<0.70){
+      const [qx8,qy8]=this.felsFormPos(best8);
+      const mx8=px*0.62+qx8*0.38, my8=py*0.62+qy8*0.38;
+      const KANT9=['obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4']
+        .filter(k9=>this.asset(k9));
+      const kk9=KANT9.length? KANT9[(sp*211|0)%KANT9.length] : 'obj_crag_1';
+      this.drawFelsObj(g, kk9, mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7);
+    } else if(sp<0.30){
+      // Stein-/Kieshaufen: gemalte Gruppe, sonst prozedurale Brocken
+      const art= sp<0.14? 'obj_steinhaufen' : 'obj_kieshaufen';
+      const gr= sp<0.14? 0.30 : 0.24;
+      if(!this.drawFelsObj(g, art, px+ox2, py+oy2+2, gr*sc7,
+                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2))
+        this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.14, lz);
+    } else {
+      if(!this._felsPool){
+        this._felsPool=['obj_rockspire_1','obj_rockspire_2',
+          'obj_rockspire_3','obj_rockspire_4','obj_rockspire_5',
+          'obj_findling_gross','obj_findling_mittel',
+          'obj_steingruppe','obj_blockstapel','obj_steinplatte']
+          .filter(k9=>this.asset(k9));
+      }
+      const P9=this._felsPool;
+      const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_1';
+      const box=this.drawFelsObj(g,key9, px+ox2, py+oy2+3, sc7,
+                                 hash01(i*7+1)>0.5, 0.26, lz, i*3+1);
+      if(!box) this.felsHaufen(g, px+ox2, py+oy2+2, i, true, lz);
+    }
+  }
+  // Rückfall ohne gemalte Haufen: kantige Brocken aus derselben Palette
+  felsHaufen(g, px, py, i, gross, lz){
+    const n9= gross? 7+((hash01(i*29+1)*5)|0) : 9+((hash01(i*31+7)*6)|0);
+    const R9= gross? 20+hash01(i*37+3)*10 : 15+hash01(i*41+9)*7;
+    const rg=g.createRadialGradient(px+2,py+2,2, px+2,py+2,R9*1.15);
+    rg.addColorStop(0,'rgba(26,23,19,0.30)');
+    rg.addColorStop(0.6,'rgba(26,23,19,0.16)');
+    rg.addColorStop(1,'rgba(26,23,19,0)');
+    g.fillStyle=rg;
+    g.beginPath(); g.ellipse(px+2,py+2,R9*1.15,R9*0.46,0,0,7); g.fill();
+    for(let k=0;k<n9;k++){
+      const a9=hash01(i*13+k*7)*6.283;
+      const r9=R9*(0.18+hash01(i*17+k*11)*0.82);
+      const bx9=px+Math.cos(a9)*r9;
+      const by9=py+Math.sin(a9)*r9*0.52-hash01(i*19+k*5)*(gross?9:4);
+      const gr9= gross? 3.4+hash01(i*23+k*13)*4.6 : 2.0+hash01(i*23+k*13)*2.2;
+      this.rockChunklet(g, bx9, by9, gr9, i*7+k*23, lz);
+    }
+  }
   // ---------- Formationen ZUSAMMENSTELLEN statt einzelner Bilder ----------
   // Nutzerwunsch v97: "du brauchst ggf mehr objekte oder du brauchst
   // objekte die du selbst verschieden zusammenstellen kannst". Das zweite
@@ -8130,9 +8130,15 @@ export class Renderer {
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
       const o=m.obj[i]&127;
-      // OBJ.ROCK zeichnet der Chunk-Pass (es gehoert zum Berg und aendert
-      // sich nie) – hier wuerde es nur die Tiefensortierung belasten.
-      if(o!==OBJ.NONE && o!==OBJ.ROCK) items.push({kind:'obj', i, o, y:m.worldPos(i)[1]});
+      // OBJ.ROCK reiht sich seit v103 MIT ein (vorher im Chunk gebacken und
+      // damit immer unter allem). Sortiert wird nach der GEZEICHNETEN
+      // Bodenlinie, also mit Anhebung - sonst laege eine Formation auf
+      // angehobenem Fels in der Reihenfolge zu tief.
+      if(o===OBJ.ROCK){
+        if(m.terr[i]===TER.MOUNT)
+          items.push({kind:'fels', i, y:m.worldPos(i)[1]-this.liftAt(i)*HSCALE+3});
+      }
+      else if(o!==OBJ.NONE) items.push({kind:'obj', i, o, y:m.worldPos(i)[1]});
       // Pässe: zwei Felsschultern rahmen die Sattelstelle
       else if(m.pass && m.pass[i] && m.bld[i]<0)
         items.push({kind:'pass', i, y:m.worldPos(i)[1]});
@@ -8207,6 +8213,7 @@ export class Renderer {
     items.sort((a,b)=>a.y-b.y);
     for(const it of items){
       if(it.kind==='obj') this.drawObj(g, m, it.i, it.o);
+      else if(it.kind==='fels') this.drawFelsFormation(g, m, it.i);
       else if(it.kind==='pass') this.drawPass(g, m, it.i);
       else if(it.kind==='bld') this.drawBld(g, m, it.b);
       else if(it.kind==='sign') this.drawSign(g, m, it.i, it.ore);
