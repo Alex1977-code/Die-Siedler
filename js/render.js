@@ -8321,10 +8321,29 @@ export class Renderer {
       // auf die DOMACHSE statt auf die Bildmitte: der Felsdom bleibt sonst
       // zwischen den Stufen nicht stehen, weil Stufe 1 kein Gleis hat und
       // ihre Bounding Box seitlich wegläuft (11.6).
+      // Drei Minen-Bildformate, am Bildmass unterschieden - so kann eine
+      // neue Lieferung die alte einfach ersetzen, ohne Schalter im Code:
+      //   320x320  SCHACHTMINE (v95): der Schacht geht nach UNTEN, das Bild
+      //            ist quadratisch und ZENTRIERT auf den Knoten. Nutzerurteil
+      //            zu v94: "das minenbild schmiegt sich nicht in die
+      //            berglandschaft ein ... vllt eine einzeln stehende mine die
+      //            eher nach unten graebt?" Genau richtig fuer unsere fast
+      //            senkrechte Aufsicht: ein Stollen IN eine Wand braucht eine
+      //            Wand, die von hier oben gar nicht zu sehen ist.
+      //   320x300  Stollenmine (Stilguide 11.11): Bodenlinie 288, verankert
+      //            auf der Domachse bei 47,4 % - der gemalte Felsdom bleibt
+      //            damit ueber alle Baustufen an derselben Stelle.
+      //   alles andere: Sheet-Massstab wie bei den uebrigen Gebaeuden.
+      const mineSchacht = def.size==='MINE'
+                    && ov.naturalWidth===320 && ov.naturalHeight===320;
       const mineNeu = def.size==='MINE'
                     && ov.naturalWidth===320 && ov.naturalHeight===300;
       let hh, ww, dx0, dy0;
-      if(mineNeu){
+      if(mineSchacht){
+        ww=320*MINE_F; hh=320*MINE_F;
+        dx0=x-ww/2;                       // zentriert, keine Domachse
+        dy0=y+4-300*MINE_F;               // Bodenlinie y=300
+      } else if(mineNeu){
         ww=320*MINE_F; hh=300*MINE_F;
         dx0=x-MINE_DOM*ww;
         dy0=y+4-MINE_BODEN*MINE_F;
@@ -8349,7 +8368,7 @@ export class Renderer {
       }
 
       // Bergwerke: neue Bilder bringen ihren Felshügel mit, alte brauchen den Felskragen
-      if(def.size==='MINE' && !mineNeu && !this.scaleOf(typeKey, null)){
+      if(def.size==='MINE' && !mineNeu && !mineSchacht && !this.scaleOf(typeKey, null)){
         const rk=g.createRadialGradient(x,y-hh*0.45,4, x,y-hh*0.45, ww*0.75);
         rk.addColorStop(0,'rgba(112,106,96,0.85)');
         rk.addColorStop(0.65,'rgba(96,90,80,0.55)');
@@ -8368,7 +8387,10 @@ export class Renderer {
         // schatten – der gemalte Dom sitzt im Terrain statt zu schweben.
         // Die Schürze liegt unter der DOMACHSE, nicht unter der Bildmitte.
         if(def.size==='MINE'){
-          this.mineApron(g, x, y, ww*0.86);
+          // Die Felsschuerze bleibt: sie bettet den Schacht in den
+          // Untergrund. Bei der Schachtmine etwas weiter, weil das Bild
+          // rundum Grund zeigt statt seitlich an eine Wand zu stossen.
+          this.mineApron(g, x, y, ww*(mineSchacht? 0.96 : 0.86));
           // Lieferung D: Karrenspur und Aushubhaufen VOR dem Eingang.
           // Sie liegen Richtung Tuerfahne, also dorthin, wo der Traeger
           // wirklich laeuft - ein Aushub auf der falschen Seite laese sich
