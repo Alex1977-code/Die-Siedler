@@ -1785,16 +1785,47 @@ export class Renderer {
               sg2.globalCompositeOperation='source-over';
               sg2.clearRect(0,0,w,h);
               sg2.save(); sg2.translate(-c.ox,-c.oy);
-              // Umbau 2.1 (Gebirge-Papier): Helligkeit je ECKE aus dem
-              // gemittelten Knotengradienten, im Dreieck LINEAR interpoliert
-              // (b = 0.55 + 0.45*dot(n,L)). Die Tonstufen-Quantisierung ist
-              // ersatzlos gestrichen - sie erzeugte Bänder, die exakt an den
-              // Dreieckskanten umsprangen; die Stufen (t3.ci) leben nur noch
-              // als Metadaten für Fugen und Kantenlicht weiter. Ein Linear-
-              // verlauf ist die EXAKTE Ebene durch die drei Eckwerte.
+              // Umbau 4.0 (Auftrag 1.4 / 2.3-1): QUANTISIERTE FACETTEN-
+              // SCHATTIERUNG. Die Vorlage aus dem Auftrag verlangt den
+              // kantig-facettierten Reliefkarten-Look ausdruecklich; weiches
+              // Gouraud zerstoert ihn. Zurueck kommt also die Quantisierung –
+              // aber an der richtigen Stelle:
+              //   FRUEHER (bis v81, wieder verworfen): je ECKE quantisiert und
+              //   dann interpoliert. Das ergab Baender, die exakt auf den
+              //   Dreieckskanten umsprangen, also Hoehenlinien statt Facetten.
+              //   JETZT: EIN Wert je DREIECK, flach gefuellt. Das IST die
+              //   Facette – ein Sprung an der Dreieckskante ist hier kein
+              //   Fehler, sondern das gesuchte Merkmal.
+              // Die Flaechennormale kommt aus den GEMITTELTEN ECKGRADIENTEN,
+              // nicht aus der echten Dreiecksnormalen: auf dem versetzten
+              // Gitter kippen Auf- und Ab-Dreiecke einer Wand abwechselnd nach
+              // Ost/West, echte Normalen ergaeben einen hell/dunklen
+              // Reissverschluss. Auf- und Ab-Dreieck teilen sich zwei der drei
+              // Ecken, ueber die Mittelung liegen ihre Stufen daher hoechstens
+              // eine auseinander (gemessen: 91 % der Nachbarpaare gleich oder
+              // eine Stufe).
+              // Der Zusatzauftrag ("Flaechenkacheln flach, Licht macht die
+              // Engine") macht diese Stufung zum ALLEINIGEN Lichtgeber der
+              // Flaeche. Sie ist deshalb kraeftiger ausgelegt als die alte
+              // Gouraud-Fassung: Lambert-Ausschlag 0.50 -> 0.62, lokaler
+              // Hanganteil 0.14 -> 0.30.
               const lerp5=(a9,b9,t9)=>a9+(b9-a9)*t9;
+              // Sonnenrichtung: EINE feste Quelle aus Nordwest, unveraenderlich
+              // (Auftrag 1.4). Die Gewichte sind die im ganzen Spiel benutzten –
+              // staerker aus West als aus Nord, passend zur Projektion.
+              const LX=0.75, LY=0.5;
+              // 10 Helligkeitsstufen (Auftrag: 8-12). SLO/SHI sind zugleich die
+              // Enden der Rampe, die colAt auf die Palette abbildet: SLO trifft
+              // PAL[0], SHI trifft PAL[4]. Gemessen am Endbild sackt die
+              // Schattenseite damit auf 36 % der Sonnenseite ab (Auftrag: ~35 %).
+              const NQ=10, SLO=0.205, SHI=0.905;
+              const qStep=(s9)=>{
+                const t9=(s9-SLO)/(SHI-SLO);
+                const k9=Math.max(0,Math.min(NQ-1,Math.floor(t9*NQ)));
+                return SLO+(k9+0.5)/NQ*(SHI-SLO);
+              };
               const colAt=(s9,u9)=>{
-                const p9=Math.max(0,Math.min(3.999,(s9-0.20)/0.66*4));
+                const p9=Math.max(0,Math.min(3.999,(s9-SLO)/(SHI-SLO)*4));
                 const i9=p9|0, f9=p9-i9, P0=PAL[i9], P1=PAL[Math.min(4,i9+1)];
                 const pb=Math.max(0,Math.min(3.999,u9*4));
                 const j9=pb|0, fu=pb-j9;
@@ -1833,7 +1864,6 @@ export class Renderer {
                 return [r9|0,g9|0,b9|0];
               };
               const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
-              const vsh=new Map();
               // GROSSE TONFELDER, weltverankert und OHNE Kachel: drei
               // Rauschoktaven mit krummen Frequenzen (Wellenlängen rund 8,
               // 3,5 und 1,5 Knoten). Sie geben der Felsfläche die ruhige
@@ -1846,38 +1876,35 @@ export class Renderer {
                      + (tnoise(X9*0.41+137,Y9*0.41+311)-0.5)*0.15
                      + (tnoise(X9*0.93+29, Y9*0.93+197)-0.5)*0.07;
               };
-              const shadeAt=(q)=>{
-                let v=vsh.get(q);
-                if(v!==undefined) return v;
-                const gv=gradAt(q), gb=gradBigAt(q);
-                // Umbau 3.2 (Nutzerkritik "dem Berg fehlt die GROSSFORM"):
-                // die Schattierung lief bisher NUR ueber den lokalen
-                // Knotengradienten. Auf einem terrassierten Massiv ist der
-                // auf allen Hochflaechen nahe 0 – das ganze Massiv lag damit
-                // auf einem Ton, und die Textur war das einzige Signal.
-                // Jetzt tragen den Ton drei Beitraege, vom Grossen zum
-                // Kleinen:
-                //  a) GROSSFORM: Gradient des ueber zwei Knotenringe
-                //     geglaetteten Hoehenfelds. Er ueberspringt Terrassen-
-                //     stufen und zeichnet ganze Sonnen- und Schattenhaenge.
-                //  b) HOEHENLAGE im Massiv: Gipfel hell, Fuss dunkel – die
-                //     zweite grosse Tonwertflaeche, die ein Berg braucht.
-                //  c) lokaler Hang: nur noch Feinzeichnung.
-                const dB=(gb[0]*0.75+gb[1]*0.5)*0.62;
-                const dL=(gv[0]*0.75+gv[1]*0.5)*0.14;
+              // FACETTENHELLIGKEIT: ein Wert je Dreieck. Gebildet wird er aus
+              // den gemittelten ECKGRADIENTEN (Reissverschluss-Schutz, s.o.),
+              // nicht aus drei getrennt berechneten Eckhelligkeiten – jede
+              // Ecke haette ihre eigene Klammerung, und das Mittel waere dann
+              // nicht mehr die Neigung der FLAECHE.
+              const facetShade=(t3)=>{
+                const ga=gradAt(t3.qa), gb2=gradAt(t3.qb), gc2=gradAt(t3.qc);
+                const Ga=gradBigAt(t3.qa), Gb=gradBigAt(t3.qb), Gc=gradBigAt(t3.qc);
+                const gx9=(ga[0]+gb2[0]+gc2[0])/3, gy9=(ga[1]+gb2[1]+gc2[1])/3;
+                const Gx9=(Ga[0]+Gb[0]+Gc[0])/3, Gy9=(Ga[1]+Gb[1]+Gc[1])/3;
+                // Lambert gegen die feste Lichtrichtung. Grossform (ueber zwei
+                // Knotenringe geglaettet) traegt die zusammenhaengenden
+                // Sonnen-/Schattenhaenge, der lokale Hang die Facette selbst.
+                const dB=(Gx9*LX+Gy9*LY)*0.62;
+                const dL=(gx9*LX+gy9*LY)*0.30;
                 const d9=Math.max(-1,Math.min(1,dB+dL));
-                v=0.55+0.50*d9;
-                v+=(uAt(q)-0.44)*0.44;
-                const cu=curvOf(q);
-                v+= cu>0? cu*0.5 : cu*0.85;
-                // Umbau 2.7c (Gebirge-Papier): Gratlicht +0.12 auf KONVEXEN,
-                // klar sonnenzugewandten Kanten – der Grat bekommt eine
-                // Lichtkante, ohne dass eine Linie gezeichnet werden muss
+                let v=0.55+0.62*d9;
+                // Hoehenlage im Massiv: Gipfel hell, Fuss dunkel
+                v+=((uAt(t3.qa)+uAt(t3.qb)+uAt(t3.qc))/3-0.44)*0.44;
+                const cu=(curvOf(t3.qa)+curvOf(t3.qb)+curvOf(t3.qc))/3;
+                v+= cu>0? cu*0.5 : cu*0.95;
                 if(cu>0.02 && d9>0.30)
                   v+=0.14*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
-                v+=tonAt(q);
-                v=Math.max(0.21,Math.min(0.90,v));
-                vsh.set(q,v);
+                // Materialflecken nur noch halb so laut wie in der Gouraud-
+                // Fassung: bei 10 Stufen (Schrittweite 0.070) verschob das
+                // volle Tonfeld die Facette um bis zu drei Stufen und frass
+                // das Lambert-Signal auf. Der Rest der Materialzeichnung
+                // kommt jetzt aus der MULTIPLIZIERTEN Materialkachel (Pass 3).
+                v+=(tonAt(t3.qa)+tonAt(t3.qb)+tonAt(t3.qc))/3*0.5;
                 return v;
               };
               for(const t3 of tris){
@@ -1885,45 +1912,23 @@ export class Renderer {
                 // leise Blockvarianz: trennt die Platten tonal, der Sprung
                 // liegt exakt auf der gezeichneten Fuge
                 const jb=(hash01(t3.blk*13+7)-0.5)*0.10;
-                let sA=shadeAt(t3.qa)+jb, sB=shadeAt(t3.qb)+jb, sC=shadeAt(t3.qc)+jb;
+                let s9=facetShade(t3)+jb;
                 // Absturzwände bleiben im Halbschatten - WEICH komprimiert
                 // statt hart gedeckelt (der harte Deckel riss sichtbare
                 // Helligkeitskanten zwischen Wand- und Plateaudreiecken auf)
-                if(t3.wl){
-                  const cap=(s9)=> s9>0.58? 0.58+(s9-0.58)*0.30 : s9;
-                  sA=cap(sA); sB=cap(sB); sC=cap(sC);
-                }
-                const uA2=uAt(t3.qa), uB2=uAt(t3.qb), uC2=uAt(t3.qc);
-                const d1x=B[0]-A[0], d1y=B[1]-A[1], f1=sB-sA;
-                const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=sC-sA;
-                const det9=d1x*d2y-d1y*d2x;
-                const span9=Math.max(sA,sB,sC)-Math.min(sA,sB,sC);
+                if(t3.wl && s9>0.58) s9=0.58+(s9-0.58)*0.30;
+                // EINE Stufe je Dreieck – hier entsteht der facettierte Look
+                s9=qStep(Math.max(SLO,Math.min(SHI,s9)));
+                const u4=(uAt(t3.qa)+uAt(t3.qb)+uAt(t3.qc))/3;
+                const cm=colAt(s9,u4);
+                const fill9='rgb('+cm[0]+','+cm[1]+','+cm[2]+')';
+                // Stufe merken: Fugen und Kantenlicht (Pass 4) sollen an den
+                // ECHTEN Helligkeitssprüngen sitzen, nicht mehr an der alten
+                // Blockton-Hilfsstufe
+                t3.qs=Math.round((s9-SLO)/(SHI-SLO)*NQ-0.5);
                 sg2.beginPath();
                 sg2.moveTo(A[0],A[1]); sg2.lineTo(B[0],B[1]);
                 sg2.lineTo(C[0],C[1]); sg2.closePath();
-                let fill9;
-                if(span9<0.015 || Math.abs(det9)<1e-6){
-                  const cm=colAt((sA+sB+sC)/3,(uA2+uB2+uC2)/3);
-                  fill9='rgb('+cm[0]+','+cm[1]+','+cm[2]+')';
-                } else {
-                  // Ebenen-Gradient der Helligkeit + Höhe an den Endpunkten
-                  const bx9=(f1*d2y-f2*d1y)/det9, by9=(f2*d1x-f1*d2x)/det9;
-                  const n9=bx9*bx9+by9*by9;
-                  const tA=bx9*A[0]+by9*A[1], tB=bx9*B[0]+by9*B[1], tC=bx9*C[0]+by9*C[1];
-                  const tmin=Math.min(tA,tB,tC), tmax=Math.max(tA,tB,tC);
-                  const p0x=A[0]+bx9*(tmin-tA)/n9, p0y=A[1]+by9*(tmin-tA)/n9;
-                  const p1x=A[0]+bx9*(tmax-tA)/n9, p1y=A[1]+by9*(tmax-tA)/n9;
-                  const g1=uB2-uA2, g2=uC2-uA2;
-                  const ux9=(g1*d2y-g2*d1y)/det9, uy9=(g2*d1x-g1*d2x)/det9;
-                  const u0=uA2+ux9*(p0x-A[0])+uy9*(p0y-A[1]);
-                  const u1=uA2+ux9*(p1x-A[0])+uy9*(p1y-A[1]);
-                  const c0=colAt(sA+(tmin-tA), Math.max(0,Math.min(1,u0)));
-                  const c1=colAt(sA+(tmax-tA), Math.max(0,Math.min(1,u1)));
-                  const lg9=sg2.createLinearGradient(p0x,p0y,p1x,p1y);
-                  lg9.addColorStop(0,'rgb('+c0[0]+','+c0[1]+','+c0[2]+')');
-                  lg9.addColorStop(1,'rgb('+c1[0]+','+c1[1]+','+c1[2]+')');
-                  fill9=lg9;
-                }
                 sg2.fillStyle=fill9;
                 sg2.fill();
                 // Haarriss-Fugen zwischen einzeln gefüllten Dreiecken zudecken
@@ -2659,7 +2664,11 @@ export class Renderer {
               const SXD=-0.552, SYD=-0.834;    // Sonne aus Nordwest
               for(const e of edges.values()){
                 if(!e.b) continue;
-                if(e.a.blk===e.b.blk && e.a.ci===e.b.ci) continue;
+                // Umbau 4.0: Fugen und Kantenlicht haengen jetzt an der ECHTEN
+                // Facettenstufe (t3.qs, 0..9 aus dem Fuellpass) statt an der
+                // Blockton-Hilfsstufe ci. Sie sitzen damit genau dort, wo im
+                // Bild auch ein Helligkeitssprung zu sehen ist.
+                if(e.a.blk===e.b.blk && e.a.qs===e.b.qs) continue;
                 const P1=pos(e.u), P2=pos(e.v);
                 if(e.a.blk===e.b.blk){
                   // reiner Terrassen-/Bandwechsel im selben Block: nur eine
@@ -2674,12 +2683,16 @@ export class Renderer {
                   soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
                   nE++; continue;
                 }
-                const qa=(e.a.ci/5)|0, qb=(e.b.ci/5)|0;
+                // Schwellen auf die 10er-Stufung umgerechnet (frueher 5 Stufen,
+                // Schwelle 1 -> jetzt 2), damit nicht jede Facettengrenze eine
+                // Fuge bekommt: bei 10 Stufen liegen Nachbarfacetten fast immer
+                // eine Stufe auseinander, das waere wieder ein Drahtgitter.
+                const qa=e.a.qs|0, qb=e.b.qs|0;
                 const dq=Math.abs(qa-qb);
                 // AO-Saum NUR an echten Tonstufen: gleichtonige Blockfugen
                 // quer über Hochflächen wurden sonst zu fetten Kapselstrichen
-                if(dq>=1){ ao.moveTo(P1[0]+0.6,P1[1]+1.1); ao.lineTo(P2[0]+0.6,P2[1]+1.1); }
-                const dst=dq>=1? dark2 : dark;
+                if(dq>=2){ ao.moveTo(P1[0]+0.6,P1[1]+1.1); ao.lineTo(P2[0]+0.6,P2[1]+1.1); }
+                const dst=dq>=2? dark2 : dark;
                 dst.moveTo(P1[0]+0.5,P1[1]+0.8); dst.lineTo(P2[0]+0.5,P2[1]+0.8);
                 nE++;
                 // Kantenlicht: Normale der Kante zeigt zur helleren Platte;
@@ -2687,13 +2700,13 @@ export class Renderer {
                 // knapp INNERHALB der hellen Platte gesäumt. Ein Teil der
                 // Kanten setzt bewusst aus – durchgehende Lichtkanten längs
                 // ganzer Terrassen lasen sich als leuchtende Paspel.
-                if(dq<1 || hash01(e.u*7+e.v*13+5)<0.62) continue;
+                if(dq<2 || hash01(e.u*7+e.v*13+5)<0.62) continue;
                 const L4=qa>=qb? e.a : e.b;
                 const mx4=(P1[0]+P2[0])/2, my4=(P1[1]+P2[1])/2;
                 let nx4=L4.cx-mx4, ny4=L4.cy-my4;
                 const nl4=Math.hypot(nx4,ny4)||1; nx4/=nl4; ny4/=nl4;
                 const dot=nx4*SXD+ny4*SYD;
-                if(dot>0.25 && Math.max(qa,qb)>=2){
+                if(dot>0.25 && Math.max(qa,qb)>=4){
                   const t7=dot>0.72? lite2 : lite;
                   t7.moveTo(P1[0]+nx4*1.5,P1[1]+ny4*1.5);
                   t7.lineTo(P2[0]+nx4*1.5,P2[1]+ny4*1.5);
