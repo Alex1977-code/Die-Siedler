@@ -2218,7 +2218,11 @@ export class Renderer {
                 // Auftraggeber ter_fels_1..4, sind das vier verschiedene
                 // Kacheln; bis dahin greift die Rueckfallkette und es bleiben
                 // die heutigen zwei Bilder in vier Massstaeben/Phasen.
-                const kT2=this.felsKachelKey(2), kT3=this.felsKachelKey(3);
+                // Variante 4 kommt hier mit hinein: der Auftraggeber hat
+                // vier Kacheln geliefert, die dritte Lage wechselt deshalb
+                // zwischen 3 und 4 (Chunk-stabil aus der Chunk-Nummer).
+                const kT2=this.felsKachelKey(2);
+                const kT3=this.felsKachelKey(((cx+cy)&1)? 3 : 4);
                 const imT2=kT2? this.felsMaterial(kT2) : null;
                 const imT3=kT3? this.felsMaterial(kT3) : null;
                 const w4=imT2? (imT2.naturalWidth||imT2.width) : 1024;
@@ -5064,7 +5068,15 @@ export class Renderer {
       low=ug.getImageData(0,0,W,H);
     } catch(e){ this._matC.set(key,null); return null; }
     const a=src.data, b=low.data;
-    const MID=236, K=0.85, SPAN=30;      // 206..255 -> Kontrastverhaeltnis 1.24
+    // Lieferung: die gemalten Kacheln sind ruhig gebettetes Gestein mit
+    // weichen Uebergaengen. Ihr Hochpass liefert nur eine Spanne von 35-58
+    // (gemessen an ter_fels_1..4 und ter_geroell); mit K=0.85 und einem
+    // Deckel bei 206 blieb davon eine Modulation von +-7 % uebrig - die
+    // Flaeche sah gebuegelt aus. K und Spanne sind deshalb angehoben:
+    // 180..255 ergibt ein Materialverhaeltnis von 1.42 gegen ein
+    // Schattierungsverhaeltnis von rund 2.2. Das Material bleibt damit
+    // klar leiser als das Licht (Auftrag 1.3), ist aber wieder da.
+    const MID=240, K=1.60, SPAN=60;      // 180..255 -> Kontrastverhaeltnis 1.42
     for(let i=0;i<a.length;i+=4){
       const L =0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
       const Lb=0.299*b[i]+0.587*b[i+1]+0.114*b[i+2];
