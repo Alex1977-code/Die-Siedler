@@ -266,7 +266,7 @@ export class Renderer {
     this._mineSeen=new Set();
     this._fogCount=-1; this._fogT=-1e9;
     this.fogDark=null; this.fogMist=null;
-    this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._hiLo=null; this._tips=null; this._bTint=null;
+    this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._firnMap=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
@@ -1283,7 +1283,7 @@ export class Renderer {
             // als Schmutzstriche im Schnee (großzügiger Abstand: die
             // Franszone reicht über Nachbarzellen unter die Grenzhöhe,
             // und neben Gipfel-Eis liegt praktisch immer Schnee)
-            if(this.slopeOf(m,i)>0.62 && m.hgt[i]<=this.firnLine()-1.2
+            if(this.slopeOf(m,i)>0.62 && m.hgt[i]<=this.firnAt(i)-1.2
                && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn[n])) gorge.push(i);
           }
           // Schnee AUF dem Hang der Ebene ist Firn, nicht die weiche Winter-
@@ -1412,7 +1412,8 @@ export class Renderer {
           return pt;
         };
         {
-          const firnY=this.firnLine();
+          const firnY=this.firnLine();      // nur noch: gibt es ueberhaupt Firn?
+          const fY=(q)=>this.firnAt(q);    // Firngrenze JE MASSIV
           const signs=this.game.signs;
           const PAL=this.rockPal();
           const [hlo,hhi]=this.massifHiLo();
@@ -1932,6 +1933,52 @@ export class Renderer {
                 // auf dem alle Sonnenhaenge einrasteten.
                 const aBase= this.theme==='vulkan'? 0.53
                            : this.theme==='winter'? 0.68 : 0.78;
+                // --- BRUCHFELD (Nutzerkritik v84: "Steinhaufen") ---------
+                // Bis v84 lag die Plattenlasur mit EINEM Alpha ueber der
+                // ganzen Massivflaeche. Damit war jeder Quadratmeter des
+                // Berges gleich stark zerbrochen – und ein Koerper, der
+                // ueberall gleich fein zerlegt ist, liest sich als Haufen,
+                // nicht als Massiv. In der Natur (und in jeder gemalten
+                // Referenz) sitzt der Bruch dort, wo Kraefte angreifen:
+                // an Kanten, Abbruechen, im Geroellfuss. Dazwischen liegen
+                // GROSSE RUHIGE FLAECHEN, auf denen die Form regiert.
+                // bruchT liefert je Dreieck 0 (ruhige Wand) .. 1 (zerlegt);
+                // gezeichnet wird in zwei Zuegen: ein leiser Grundzug ueber
+                // alles, ein zweiter nur auf den Bruchzonen.
+                const bruchT=(t3)=>{
+                  const s9=(slopeT(t3.qa)+slopeT(t3.qb)+slopeT(t3.qc))/3;
+                  let dr=0;
+                  for(const q9 of [t3.qa,t3.qb,t3.qc])
+                    for(const b9 of m.nbs(q9)){
+                      const d9=Math.abs(hgtT(q9)-hgtT(b9));
+                      if(d9>dr) dr=d9;
+                    }
+                  const fo=Math.max(footOf(t3.qa),footOf(t3.qb),footOf(t3.qc));
+                  const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
+                  const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
+                  // grosse ruhige/zerlegte Zonen (Wellenlaenge ~5 Knoten),
+                  // damit der Wechsel nicht am Relief allein haengt
+                  const nz=tnoise(X9*0.28+617, Y9*0.28+139);
+                  const v9=Math.max(smT((s9-1.15)/1.40), smT((dr-0.75)/0.85),
+                                    fo>0.9? 0.85 : fo>0.4? 0.45 : 0);
+                  return Math.max(0, Math.min(1, v9*0.80+(nz-0.5)*0.70+0.22));
+                };
+                const bruchZ=[];      // Dreiecke der Bruchzonen (>0.45)
+                for(const t3 of tris){
+                  t3._bk=bruchT(t3);
+                  if(t3._bk>0.45) bruchZ.push(t3);
+                }
+                const bruchWeg=(list)=>{
+                  g.beginPath();
+                  for(const t3 of list){
+                    g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+                    g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+                  }
+                };
+                // Grundzug (ueberall) und Zusatz (nur Bruchzonen) ergeben
+                // zusammen wieder aBase – die Bruchzonen sehen also aus wie
+                // bisher, die ruhigen Flaechen tragen nur noch 44 %.
+                const aRuhe=0.44, aZus=1-aRuhe;
                 // Umbau 3.2b: EIN leiser MULTIPLY-Zug VOR dem Overlay.
                 // 'overlay' verhaelt sich auf Untergruenden ueber 128 wie
                 // 'screen' – genau auf den grossen SONNENHAENGEN, die 3.2
@@ -1942,11 +1989,19 @@ export class Renderer {
                 // der angehobene Spitzlicht-Deckel (182) wieder auf.
                 g.globalCompositeOperation='multiply';
                 g.fillStyle=det1;
-                g.globalAlpha=aBase*0.30;
+                g.globalAlpha=aBase*0.30*aRuhe;
                 g.fillRect(c.ox,c.oy,w,h);
                 g.globalCompositeOperation='overlay';
-                g.globalAlpha=aBase;
+                g.globalAlpha=aBase*aRuhe;
                 g.fillRect(c.ox,c.oy,w,h);
+                if(bruchZ.length){
+                  g.globalCompositeOperation='multiply';
+                  g.globalAlpha=aBase*0.30*aZus;
+                  bruchWeg(bruchZ); g.fill();
+                  g.globalCompositeOperation='overlay';
+                  g.globalAlpha=aBase*aZus;
+                  bruchWeg(bruchZ); g.fill();
+                }
                 // --- zweite und dritte Lage per Rauschmaske ---
                 // Der grosse Massstab aus 3.1 laesst eine Kachel 385 Welt-
                 // pixel (7,4 Knoten) ueberdecken. Innerhalb eines Bildes
@@ -1966,6 +2021,11 @@ export class Renderer {
                 if(det2||det3){
                   const n2=[], n3=[];
                   for(const t3 of tris){
+                    // Zusatzlagen nur in den Bruchzonen: auf den ruhigen
+                    // Grossflaechen wuerde die dritte, gedrehte Lage die
+                    // Platten kreuzweise ueberzeichnen – genau der Grus,
+                    // den der Nutzer als "Steinhaufen" liest.
+                    if(t3._bk<0.42) continue;
                     const X9=(m.X(t3.qa)+m.X(t3.qb)+m.X(t3.qc))/3;
                     const Y9=(m.Y(t3.qa)+m.Y(t3.qb)+m.Y(t3.qc))/3;
                     const f9=tnoise(X9*0.62+311,Y9*0.62+83);
@@ -2088,7 +2148,34 @@ export class Renderer {
                   // Schwelle RELATIV zum Massiv-Relief (Kritik G1): kleine
                   // Massive kippen frueher in die Wandtextur
                   const thrC=Math.max(1.30, Math.min(2.0, relEffOf(q)*0.85));
-                  v= m.terr[q]===TER.LAVA? 0 : smT((slopeT(q)-thrC)/1.2);
+                  // Nutzerkritik v84 ("die Textur laesst es wie einen grossen
+                  // Steinhaufen aussehen"): allein die NEIGUNG als Kriterium
+                  // legte die senkrecht gestreckte Wandkachel ueber weite
+                  // Teile des Massivs – auf dem Handybild lief die halbe
+                  // Bergflanke als senkrechte dunkle "Farbnasen" zu. Die
+                  // Kluefte der Wandkachel laufen ueber ihre volle Hoehe;
+                  // auf einer flach geneigten Flaeche werden daraus mehrere
+                  // hundert Weltpixel lange Striche.
+                  // GEMESSEN auf den Massivknoten (zwei Karten, 2671/1383
+                  // Knoten): die alte Maske deckte im Mittel 0,52 der
+                  // Flaeche ab – mehr als die Haelfte des Berges galt als
+                  // "Wand". Ursache: auf dem TERRASSIERTEN Feld betraegt
+                  // der mediane Nachbarsprung schon 1,37 und die mediane
+                  // Steilheit 2,6; beides trennt nichts mehr.
+                  // Zweites, hartes Kriterium ist deshalb der groesste
+                  // Nachbarsprung mit einem Fenster OBERHALB des Uelichen
+                  // (1,55..1,90, also etwa das oberste Fuenftel). Damit
+                  // liegt die Abdeckung bei 0,13-0,22 – die Wandkachel
+                  // sitzt wieder auf den Abbruechen statt auf dem Hang.
+                  // Die eigentlichen Terrassentritte bleiben unabhaengig
+                  // davon Wand (t3.wl weiter unten).
+                  let dr=0;
+                  for(const b9 of m.nbs(q)){
+                    const d9=Math.abs(hgtT(q)-hgtT(b9));
+                    if(d9>dr) dr=d9;
+                  }
+                  v= m.terr[q]===TER.LAVA? 0
+                   : smT((slopeT(q)-thrC)/1.0)*smT((dr-1.55)/0.35);
                   cmv.set(q,v);
                   return v;
                 };
@@ -2161,7 +2248,13 @@ export class Renderer {
                   // 30x74 px SAEULEN, die Baender treten zurueck. Das
                   // arbeitet zugleich gegen Leitlinie B – waagerechte
                   // Baender auf jeder Terrassenstufe lasen sich als Treppe.
-                  const CST=1.5/0.64;
+                  // v85: 1.75 statt 2.344. Mit der vollen Stauchungsformel
+                  // wurden aus den senkrechten Klüften der Wandkachel 74 px
+                  // lange Säulen; wo die Maske sie auf eine flach geneigte
+                  // Fläche legte, liefen sie als dunkle FARBNASEN über den
+                  // halben Berg (Handybild v84). Kürzere Säulen bleiben als
+                  // Klüftung lesbar, ohne zu verlaufen.
+                  const CST=1.75;
                   const patC=patOf('ter_rock_cliff',0.19,0,0,0,imC,0.19*CST);
                   tex4.fillStyle=patC||'#8a7e68';
                   tex4.fillRect(c.ox,c.oy,w,h);
@@ -2171,26 +2264,32 @@ export class Renderer {
                   // die Schichtbaender nicht mehr im selben Takt quer ueber
                   // alle Terrassenstufen. Vier Toepfe, der erste ist die
                   // Grundfuellung oben – es bleiben drei Zusatzlagen.
+                  // v85: JEDER Block bekommt eine eigene Lage – vorher lief
+                  // ein knappes Drittel der Blöcke ungebrochen in der
+                  // Grundfüllung mit, und die Klüfte der Wandkachel (sie
+                  // laufen über deren volle Höhe, weltverankert also über
+                  // 300-500 Weltpixel) zogen sich als durchgehende dunkle
+                  // Striche über mehrere Knotenreihen. Mit fünf Phasenlagen
+                  // bricht die Klüftung alle 2,6 Knoten (Blockmaß BQ).
                   const imC2=this.felsLasur('ter_rock_cliff2')||imC;
                   const LAGEN=[
-                    // [von, bis, Bild, scX, tx, ty]
-                    [0.30,0.55, imC,  0.237, 37, 61],
-                    [0.55,0.80, imC2, 0.19,   0,  0],
-                    [0.80,1.01, imC2, 0.221, 91, 23],
+                    // [Bild, scX, tx, ty]
+                    [imC,  0.237,  37,  61],
+                    [imC2, 0.190,   0,   0],
+                    [imC2, 0.221,  91,  23],
+                    [imC,  0.205, 143, 117],
+                    [imC2, 0.248,  61, 189],
                   ];
                   // EIN Durchlauf sortiert die Dreiecke in die Toepfe, danach
                   // je Topf ein Beschnitt-Zug (G3-Budget)
-                  const tb9=[[],[],[]];
-                  for(const t3 of tris){
-                    const hB=hash01(t3.blk*29+3);
-                    if(hB<0.30) continue;
-                    tb9[hB<0.55? 0 : hB<0.80? 1 : 2].push(t3);
-                  }
-                  for(let k9=0;k9<3;k9++){
+                  const tb9=[[],[],[],[],[]];
+                  for(const t3 of tris)
+                    tb9[(hash01(t3.blk*29+3)*5)|0].push(t3);
+                  for(let k9=0;k9<5;k9++){
                     if(!tb9[k9].length) continue;
                     const L=LAGEN[k9];
-                    const pL=patOf(L[2]===imC?'ter_rock_cliff':'ter_rock_cliff2',
-                                   L[3],0,L[4],L[5],L[2],L[3]*CST);
+                    const pL=patOf(L[0]===imC?'ter_rock_cliff':'ter_rock_cliff2',
+                                   L[1],0,L[2],L[3],L[0],L[1]*CST);
                     if(!pL) continue;
                     tex4.save();
                     tex4.beginPath();
@@ -2239,12 +2338,83 @@ export class Renderer {
                   // 0.78 statt 0.92: der Facettenton (und mit ihm die
                   // Grossform aus 3.2) scheint durch die Wandzeichnung durch,
                   // statt von ihr zugedeckt zu werden.
-                  g.globalAlpha=0.78;
+                  g.globalAlpha=0.42;
                   g.drawImage(this._texTmp, mbx0*S, mby0*S, mbw*S, mbh*S,
                               c.ox+mbx0, c.oy+mby0, mbw, mbh);
                   g.globalAlpha=1;
                 }
               }
+            }
+            // 3c) GROSSFORM ÜBER DER TEXTUR
+            //     (Nutzerkritik v84: "die Textur vom Gebirge lässt es
+            //      immernoch wie einen großen Steinhaufen aussehen")
+            //     Bis hierher liegt die Form UNTER dem Gestein: Pass 2 malt
+            //     die Facettentöne, danach decken vier Lasurzüge und die
+            //     Wandkachel sie zu. Im Endbild blieb von der Modellierung
+            //     so wenig übrig, dass nur noch das Kleinklein der Platten
+            //     zu sehen war – und ein Körper, an dem man nur Bruchstücke
+            //     erkennt, ist ein Haufen. Maler gehen andersherum vor: erst
+            //     das Material, dann die Modellierung DARÜBER.
+            //     Dieser Pass legt eine Hell-Dunkel-Karte der GROSSFORM als
+            //     Weichlicht über das fertige Gestein: Großgradient (über
+            //     zwei Knotenringe, überspringt Terrassen), Höhenlage im
+            //     Massiv und Wölbung. Nur Licht, kein Farbeingriff – Sonnen-
+            //     und Schattenflanken hängen wieder über Dutzende Platten
+            //     hinweg zusammen. Die Werte kommen je KNOTEN (nicht aus
+            //     einem Weichzeichner über den Chunk), deshalb gibt es an
+            //     den Chunkgrenzen keine Nähte.
+            if(mbw>0 && mbh>0){
+              const A9=58;                     // Ausschlag der Formkarte
+              const fmc=this._maskTmp.getContext('2d');
+              fmc.globalCompositeOperation='source-over';
+              fmc.setTransform(1,0,0,1,0,0);
+              fmc.fillStyle='rgb(128,128,128)';
+              fmc.fillRect(0,0,w,h);
+              fmc.save(); fmc.translate(-c.ox,-c.oy);
+              const fvv=new Map();
+              const formAt=(q)=>{
+                let v=fvv.get(q);
+                if(v!==undefined) return v;
+                const gb=gradBigAt(q);
+                const d9=Math.max(-1,Math.min(1,(gb[0]*0.75+gb[1]*0.5)*0.62));
+                const u9=Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
+                const cu=curvOf(q);
+                v=Math.max(-1,Math.min(1,
+                    d9*0.78+(u9-0.46)*0.78+(cu>0? cu*0.30 : cu*0.55)));
+                fvv.set(q,v);
+                return v;
+              };
+              for(const t3 of tris){
+                const fv=(formAt(t3.qa)+formAt(t3.qb)+formAt(t3.qc))/3;
+                const gv=Math.max(0,Math.min(255,(128+A9*fv)|0));
+                fmc.fillStyle='rgb('+gv+','+gv+','+gv+')';
+                fmc.beginPath();
+                fmc.moveTo(t3.A[0],t3.A[1]); fmc.lineTo(t3.B[0],t3.B[1]);
+                fmc.lineTo(t3.C[0],t3.C[1]); fmc.closePath();
+                fmc.fill();
+                fmc.strokeStyle=fmc.fillStyle; fmc.lineWidth=1; fmc.stroke();
+              }
+              fmc.restore();
+              // milder Weichzeichner (14 px, weit innerhalb des Chunk-
+              // Überstands von 78 px) nimmt die Dreieckskanten heraus
+              const fmb=this._maskTmp2.getContext('2d');
+              fmb.globalCompositeOperation='source-over';
+              fmb.setTransform(1,0,0,1,0,0);
+              fmb.clearRect(0,0,w,h);
+              this.blurInto(fmb, this._maskTmp, 14, 1, w, h);
+              g.save();
+              g.beginPath();
+              for(const t3 of tris){
+                g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
+                g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+              }
+              g.clip();
+              g.globalCompositeOperation='soft-light';
+              g.globalAlpha=0.96;
+              g.drawImage(this._maskTmp2, c.ox, c.oy, w, h);
+              g.globalAlpha=1;
+              g.globalCompositeOperation='source-over';
+              g.restore();
             }
             // 4) Fugen + Kantenlicht, GERICHTET statt Drahtgitter: jede
             //    Blockfuge bekommt einen breiten, sehr weichen AO-Saum und
@@ -2353,7 +2523,7 @@ export class Renderer {
                 // Firnrand kein brauner Saum (Schnee schattet kühl, das
                 // macht die Schneewehe des Bergfuß-Passes).
                 if(m.terr[e.u]===TER.SNOW||m.terr[e.v]===TER.SNOW) continue;
-                if(firnY<90 && (m.hgt[e.u]>firnY-0.4||m.hgt[e.v]>firnY-0.4)) continue;
+                if(m.hgt[e.u]>fY(e.u)-0.4||m.hgt[e.v]>fY(e.v)-0.4) continue;
                 const P1=pos(e.u),P2=pos(e.v);
                 // Aussennormale der Silhouettenkante (vom Facetten-
                 // Schwerpunkt weg): trennt Sonnen-/Talseite
@@ -2444,7 +2614,7 @@ export class Renderer {
                 // Deckungsgrad steuert die ZELLGRÖSSE, nicht die Deckkraft:
                 // Schnee liegt oder liegt nicht – halbdurchsichtige Schleier
                 // ergäben fleckige Überlappungen statt einer Firnkante
-                let sn=(m.hgt[i2]-(firnY-0.4))/0.8;
+                let sn=(m.hgt[i2]-(fY(i2)-0.4))/0.8;
                 // Winterwelt: Schnee liegt überall, wo er liegen BLEIBT –
                 // flache Bergpartien sind zu, nur Steilwände apern aus.
                 // Steilheit über die NACHBARSCHAFT gemittelt: der rohe
@@ -2520,7 +2690,7 @@ export class Renderer {
                     // in seen9 landen, sonst wuerde ihr Rest bei spaeterem
                     // Scanstart ohne den offenen Knoten neu bewertet
                     for(let k=0;k<comp.length && comp.length<400;k++){
-                      if(m.hgt[comp[k]]<firnY-0.8) open=true;
+                      if(m.hgt[comp[k]]<fY(comp[k])-0.8) open=true;
                       for(const q of m.nbs(comp[k])){
                         if(seen9.has(q)) continue;
                         if(snOf(q)===0){ seen9.add(q); comp.push(q); }
@@ -2699,7 +2869,7 @@ export class Renderer {
                     const isGl=(q)=>{
                       let v=gq.get(q);
                       if(v!==undefined) return v;
-                      v= snOf(q)>=0.8 && m.hgt[q]>firnY+0.15 && slopeT(q)<1.1;
+                      v= snOf(q)>=0.8 && m.hgt[q]>fY(q)+0.15 && slopeT(q)<1.1;
                       gq.set(q,v);
                       return v;
                     };
@@ -2815,7 +2985,7 @@ export class Renderer {
                   const cvv=curvOf(i);
                   const hg2=m.hgt[i];
                   const [px,py]=pos(i);
-                  const onFirn=fOn && hg2>firnY-0.4;
+                  const onFirn=fOn && hg2>fY(i)-0.4;
                   // (a) Muldenschatten: konkave Kerben dunkeln weich ein –
                   //     auf Firn kühl-blau statt braun (Schnee schattet blau)
                   if(cvv<-0.08){
@@ -2831,7 +3001,7 @@ export class Renderer {
                   //     unterhalb der geschlossenen Firndecke. SEHR sparsam
                   //     und nur in echten Kesseln nahe der Grenze.
                   if(fOn && !onFirn && m.terr[i]===TER.MOUNT && cvv<-0.07
-                     && hg2>firnY-1.0 && hash01(i*37+5)<0.09){
+                     && hg2>fY(i)-1.0 && hash01(i*37+5)<0.09){
                     // WEICHER Muldenrest statt dreier harter Striche – die
                     // alten Ellipsenreihen lasen sich als weiße Kratzer auf
                     // der Wand. Jetzt: ein verlaufender Fleck mit Schatten-
@@ -2922,6 +3092,17 @@ export class Renderer {
               const roadSet=new Set();
               for(const r of this.game.roads.values())
                 for(const n2 of r.path) roadSet.add(n2);
+              // Umgebungshelligkeit am Knoten (-1..+1), dieselben Beiträge
+              // wie die Großform-Karte aus 3c. Die Felsobjekte übernehmen
+              // damit das Licht ihres Standorts, statt ihre eigene, im Bild
+              // eingebackene Beleuchtung mitzubringen – der Hauptgrund,
+              // warum sie bis v84 "aufgesetzt" wirkten.
+              const lumOf=(q)=>{
+                const gb=gradBigAt(q);
+                const d9=Math.max(-1,Math.min(1,(gb[0]*0.75+gb[1]*0.5)*0.62));
+                const u9=Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
+                return Math.max(-1,Math.min(1, d9*0.78+(u9-0.46)*0.78));
+              };
               g.save(); g.translate(-c.ox,-c.oy);
               for(let y=Math.max(0,y0+1); y<Math.min(m.h-1,y1-1); y++)
                 for(let x=Math.max(0,x0+1); x<Math.min(m.w-1,x1-1); x++){
@@ -2932,17 +3113,20 @@ export class Renderer {
                   // lasen sich nur als graue Stöckchen auf den Platten.
                   // Leitlinie B: an TERRASSENKANTEN haeufiger – die Sporne
                   // zerschneiden die waagerechten Stufenbaender.
-                  if(h7>=0.05) continue;
+                  if(h7>=0.038) continue;
                   let brink=false;
                   for(const q of m.nbs(i))
                     if(isMassif(q) && hgtT(i)-hgtT(q)>0.9){ brink=true; break; }
-                  if(h7>=(brink? 0.05 : 0.022)) continue;
+                  // v85: noch einmal ausgedünnt. Auf dem Handybild standen
+                  // die Objekte so dicht, dass sie als Streumuster über der
+                  // Fläche lagen – ein Akzent wirkt nur, wenn er selten ist.
+                  if(h7>=(brink? 0.038 : 0.015)) continue;
                   if(!brink && (this.slopeOf(m,i)>0.5 || curvOf(i)<-0.02)) continue;
                   if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                   if(m.pass && m.pass[i]) continue;
                   if(signs && signs.has(i)) continue;
                   if(roadSet.has(i)) continue;
-                  const onFirn2=firnY<90 && m.hgt[i]>firnY-0.4;
+                  const onFirn2=m.hgt[i]>fY(i)-0.4;
                   if(onFirn2 && hash01(i*59+3)<0.65) continue;  // auf Firn seltener
                   const [px,py]=pos(i);
                   const ox2=(hash01(i*13+3)-0.5)*18, oy2=(hash01(i*19+11)-0.5)*10;
@@ -2953,16 +3137,16 @@ export class Renderer {
                   const vN=1+((h7*137|0)%6);
                   const box=this.drawFelsObj(g,'obj_rockspire_'+vN,
                                              px+ox2, py+oy2+3, sc7,
-                                             hash01(i*7+1)>0.5, 0.26);
-                  const hh7=box? box.h : 70;
-                  if(!box) this.drawRockNeedle(g, px+ox2, py+oy2+3, hh7, i);
-                  // kantige Trümmer am Fuß der Nadel (Referenz: Blöcke
-                  // um die Basis)
-                  const bw7=box? box.w : hh7*0.5;
-                  for(let k7=0;k7<4;k7++){
-                    const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*bw7*0.9;
-                    const by7=py+oy2+2+(hash01(i*31+k7*11)-0.30)*7;
-                    this.rockChunklet(g, bx7, by7, 2.8+hash01(i*37+k7)*3.4, i*5+k7);
+                                             hash01(i*7+1)>0.5, 0.26,
+                                             lumOf(i), i*3+1);
+                  if(!box){
+                    const hh7=70;
+                    this.drawRockNeedle(g, px+ox2, py+oy2+3, hh7, i);
+                    for(let k7=0;k7<4;k7++){
+                      const bx7=px+ox2+(hash01(i*29+k7*7)-0.5)*hh7*0.45;
+                      const by7=py+oy2+2+(hash01(i*31+k7*11)-0.30)*7;
+                      this.rockChunklet(g, bx7, by7, 2.8+hash01(i*37+k7)*3.4, i*5+k7, lumOf(i));
+                    }
                   }
                 }
               // 8b) TERRASSENBRECHER an Abbruchkanten: obj_cliff_ledge
@@ -2977,12 +3161,16 @@ export class Renderer {
                     const i=m.idx(x,y);
                     if(m.terr[i]!==TER.MOUNT) continue;
                     const h8=hash01(i*97+13);
-                    if(h8>=0.11) continue;
+                    if(h8>=0.075) continue;
+                    // NICHT auf der äußersten Massivreihe: dort ragte der
+                    // Balkon über die Silhouette hinaus und stand als
+                    // schwebende Steinplatte über der Wiese (Handybild v84)
+                    if(footOf(i)>0.9) continue;
                     if(m.bld[i]>=0 || m.flag[i] || (m.obj[i]&127)!==0) continue;
                     if(m.pass && m.pass[i]) continue;
                     if(signs && signs.has(i)) continue;
                     if(roadSet.has(i)) continue;
-                    if(firnY<90 && m.hgt[i]>firnY-0.5) continue;  // nicht im Firn
+                    if(m.hgt[i]>fY(i)-0.5) continue;              // nicht im Firn
                     // hoechste Abbruchkante zum Nachbarn suchen
                     let best8=-1, bd8=0;
                     for(const q of m.nbs(i)){
@@ -2995,7 +3183,8 @@ export class Renderer {
                     const mx8=px*0.55+qx8*0.45, my8=py*0.55+qy8*0.45;
                     const kk=KANT[(h8*211|0)%KANT.length];
                     this.drawFelsObj(g, kk, mx8, my8+4,
-                                     0.88+hash01(i*41+7)*0.24, qx8<px, 0.24);
+                                     0.88+hash01(i*41+7)*0.24, qx8<px, 0.24,
+                                     lumOf(i), i*5+7);
                   }
               }
               // 8c) GIPFELKUPPE obj_summit_1 auf den hoechsten Massivknoten:
@@ -3015,7 +3204,7 @@ export class Renderer {
                     if(m.pass && m.pass[i]) continue;
                     if(signs && signs.has(i)) continue;
                     if(roadSet.has(i)) continue;
-                    if(firnY<90 && m.hgt[i]>firnY-0.6) continue;
+                    if(m.hgt[i]>fY(i)-0.6) continue;
                     if(relEffOf(i)<0.85 || curvOf(i)<0.05) continue;
                     const hi=hgtT(i);
                     let top=true;
@@ -3024,7 +3213,8 @@ export class Renderer {
                     const [px,py]=pos(i);
                     this.drawFelsObj(g,'obj_summit_1', px, py+3,
                                      0.92+hash01(i*67+5)*0.22,
-                                     hash01(i*11+9)>0.5, 0.28);
+                                     hash01(i*11+9)>0.5, 0.28,
+                                     lumOf(i), i*11+3);
                   }
               }
               g.restore();
@@ -3709,17 +3899,19 @@ export class Renderer {
       // Schmutz im Schnee. Großzügig gefasst: auch die ausgefranste
       // Übergangszone franst über Nachbarzellen bis hierher, und neben
       // Gipfel-Eis liegt praktisch immer Schnee.
-      if(hg>this.firnLine()-1.2) return;
+      if(hg>this.firnAt(i)-1.2) return;
       const msn2=this.massifSnow();
       if(m.nbs(i).some(n=>m.terr[n]===TER.SNOW&&msn2[n])) return;
       if(h<0.15){
         // Felsnase: kleine Gruppe KANTIGER Trümmerblöcke im Facettenstil
-        // (helle Deckfläche, dunkle Schattenseite – wie am Bergfuß)
-        const zx=px+o1, zy=py+o2;
+        // (helle Deckfläche, dunkle Schattenseite – wie am Bergfuß).
+        // Mit der Umgebungshelligkeit getönt: auf der Schattenflanke lagen
+        // sie sonst als weiße Körner im Dunkeln.
+        const zx=px+o1, zy=py+o2, lz=this.felsLicht(i);
         for(let k=0;k<3;k++){
           const bx=zx+(hash01(i*7+k*11)-0.5)*22;
           const by=zy+(hash01(i*13+k*17)-0.5)*14;
-          this.rockChunklet(g, bx, by, 2.4+hash01(i*19+k)*3.0, i*7+k*13);
+          this.rockChunklet(g, bx, by, 2.4+hash01(i*19+k)*3.0, i*7+k*13, lz);
         }
       } else if(h<0.5){
         // Geröllfeld
@@ -4025,6 +4217,51 @@ export class Renderer {
   // des ganzen Massivs (oberstes Fünftel), nicht an einzelnen TER.SNOW-Knoten:
   // die vereisten Kammknoten liegen verstreut auf den Gratlinien – eine an
   // ihnen aufgehängte Decke zerfiele in weiße Einzeltupfen.
+  // Firngrenze JE MASSIV. Das globale Perzentil in firnLine() legt EINE
+  // Schneehöhe über die ganze Karte: hohe Massive tragen dann eine Kappe,
+  // niedrige gar keinen Schnee – und mittlere bekommen einen weißen Fleck
+  // mitten am Hang, weil die Grenze zufällig quer durch ihre Hochfläche
+  // läuft (Handybild v84: eine weiße Amöbe mitten im Fels). Je Massiv
+  // gerechnet bekommt JEDER Berg seine Kappe an seiner eigenen höchsten
+  // Stelle – und ein flacher Felsrücken gar keine.
+  firnAt(i){
+    const map=this._firnMap || this.buildFirnMap();
+    const v=map[i];
+    return v>0? v : 99;
+  }
+  buildFirnMap(){
+    const m=this.game.map;
+    const n=m.terr.length;
+    const msn=this.massifSnow();
+    const isM=(q)=>{ const t=m.terr[q];
+      return t===TER.MOUNT||t===TER.LAVA||(t===TER.SNOW&&msn[q]); };
+    const map=new Float32Array(n);          // 0 = kein Firn
+    // hoeher angesetzt als die globale Firngrenze: JE MASSIV gerechnet
+    // liegt das oberste Fuenftel oft noch mitten am Hang. Erst das oberste
+    // Zwanzigstel ist wirklich Gipfel – sonst schwimmt eine weisse Amoebe
+    // in der Bergflanke (Handybild v84).
+    const p={ winter:0.30, gebirge:0.88, vulkan:2, wueste:2 }[this.theme] ?? 0.945;
+    if(p<1){
+      const seen=new Uint8Array(n);
+      for(let i=0;i<n;i++){
+        if(seen[i]||!isM(i)) continue;
+        const comp=[i]; seen[i]=1;
+        for(let k=0;k<comp.length;k++)
+          for(const b of m.nbs(comp[k]))
+            if(!seen[b] && isM(b)){ seen[b]=1; comp.push(b); }
+        if(comp.length<24) continue;        // Hügel tragen keinen Firn
+        const hs=comp.map(q=>m.hgt[q]).sort((a,b)=>a-b);
+        // Mindestrelief: auf einem flachen Felsrücken läge der Schnee als
+        // Fleck ohne Gipfel darunter
+        if(hs[hs.length-1]-hs[0]<2.0) continue;
+        const fl=Math.max(1.0,
+          hs[Math.min(hs.length-1, Math.floor(hs.length*p))]);
+        for(const q of comp) map[q]=fl;
+      }
+    }
+    this._firnMap=map;
+    return map;
+  }
   firnLine(){
     if(this._firnLine!=null) return this._firnLine;
     const m=this.game.map;
@@ -4175,9 +4412,37 @@ export class Renderer {
   // Südost-Facette und heller, nach Nordwest gerückter Deckfläche – Licht
   // von oben links wie im ganzen Spiel. Deterministisch aus seed; ersetzt
   // die alten runden Kiesel an Bergfuß und Felsnase.
-  rockChunklet(g,x,y,r,seed){
+  // Grobe Umgebungshelligkeit eines Massivknotens (-1..+1) für Streugut,
+  // das PRO BILD gezeichnet wird und die Töne des gebackenen Chunks nicht
+  // kennt. Dieselben zwei Beiträge wie die Großform-Karte des Massiv-
+  // Passes: Hanglage und Höhenlage im Massiv.
+  felsLicht(i){
+    const m=this.game.map;
+    const [hlo,hhi]=this.massifHiLo();
+    const sp=(hhi-hlo)||1;
+    let gx=0, gy=0;
+    for(const b of m.nbs(i)){
+      const ddx=(m.X(b)+((m.Y(b)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
+      const ddy=m.Y(b)-m.Y(i);
+      const dh=m.hgt[b]-m.hgt[i];
+      gx+=dh*ddx; gy+=dh*ddy;
+    }
+    const d9=Math.max(-1,Math.min(1,(gx*0.75+gy*0.5)*0.62));
+    const u9=Math.max(0,Math.min(1,(m.hgt[i]-hlo)/sp));
+    return Math.max(-1,Math.min(1, d9*0.78+(u9-0.46)*0.78));
+  }
+  // lum (optional, -1..+1): Umgebungshelligkeit. Ohne sie greift der Block
+  // immer zur hellsten Deckfläche der Palette – auf einer Schattenflanke
+  // liegen die Trümmer dann als weiße Popcornkörner im Dunkeln (Handybild
+  // v84). Mit ihr rutscht die ganze Blockfärbung eine Palettenstufe nach
+  // unten bzw. oben.
+  rockChunklet(g,x,y,r,seed,lum){
     const P=this.rockPal();
-    const C=(k)=>'rgb('+(P[k][0]|0)+','+(P[k][1]|0)+','+(P[k][2]|0)+')';
+    const st= lum===undefined? 0 : lum<-0.22? -1 : lum>0.34? 1 : 0;
+    const C=(k)=>{
+      const k2=Math.max(0,Math.min(4,k+st));
+      return 'rgb('+(P[k2][0]|0)+','+(P[k2][1]|0)+','+(P[k2][2]|0)+')';
+    };
     // Bodenschatten zuerst – ohne ihn klebt der Block AUF dem Boden
     g.fillStyle='rgba(28,25,21,0.28)';
     g.beginPath(); g.ellipse(x+r*0.28,y+r*0.42,r*1.12,r*0.5,0,0,7); g.fill();
@@ -4207,11 +4472,19 @@ export class Renderer {
   // Felsnadel-Bild auf die Thema-Felspalette getönt (einmal je Bild
   // gecacht): das neutrale Hellgrau der gemalten Nadeln stünde sonst
   // fremd auf dunklem Vulkanfels bzw. warmem Wüstenstein.
-  tintedSpire(key){
+  // stufe (optional, -1/0/+1): LICHTANGLEICH an die Umgebung. Ohne ihn trägt
+  // jedes Felsobjekt seine eigene, im Bild eingebackene Beleuchtung – auf
+  // einer besonnten Flanke steht es dann zu dunkel, in einer Schattenmulde
+  // zu hell, und genau das liest sich als "aufgesetzt" (Nutzerkritik v84:
+  // "die gebirgsobjekte wirken wie aufgesetzt"). Drei Fassungen je Bild
+  // reichen; sie werden wie die Grundfassung einmal je Bild gebacken.
+  tintedSpire(key, stufe){
+    const st= stufe===undefined? 0 : (stufe<-0.5? -1 : stufe>0.5? 1 : 0);
+    const ck=key+'|'+st;
     if(!this._spireTint) this._spireTint=new Map();
-    if(this._spireTint.has(key)) return this._spireTint.get(key);
+    if(this._spireTint.has(ck)) return this._spireTint.get(ck);
     const img=this.asset(key);
-    if(!img){ this._spireTint.set(key,null); return null; }
+    if(!img){ this._spireTint.set(ck,null); return null; }
     const P=this.rockPal();
     const W=img.naturalWidth, H=img.naturalHeight;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
@@ -4227,11 +4500,30 @@ export class Renderer {
       t.globalAlpha=0.45;
       t.fillRect(0,0,W,H);
     }
+    // Grunddämpfung: die gemalten Felsobjekte kommen deutlich heller aus
+    // dem Blatt als der Untergrund, über den vier Lasurzüge gelaufen sind.
+    // Ohne diese Angleichung leuchtet jeder Block aus der Fläche heraus –
+    // der zweite Grund für den Eindruck "aufgesetzt".
+    t.globalCompositeOperation='multiply';
+    t.globalAlpha=0.34;
+    t.fillStyle='rgb(158,152,136)';
+    t.fillRect(0,0,W,H);
+    if(st<0){                       // Schattenlage: andunkeln und kühlen
+      t.globalCompositeOperation='multiply';
+      t.globalAlpha=0.30;
+      t.fillStyle='rgb(150,146,136)';
+      t.fillRect(0,0,W,H);
+    } else if(st>0){                // Sonnenlage: aufhellen, Zeichnung hält
+      t.globalCompositeOperation='screen';
+      t.globalAlpha=0.13;
+      t.fillStyle='rgb(214,203,178)';
+      t.fillRect(0,0,W,H);
+    }
     t.globalAlpha=1;
     t.globalCompositeOperation='destination-in';
     t.drawImage(img,0,0);
     t.globalCompositeOperation='source-over';
-    this._spireTint.set(key,cv);
+    this._spireTint.set(ck,cv);
     return cv;
   }
   // Alpha-Hüllrechteck eines Felsobjekts, einmal je Bild bestimmt und
@@ -4272,25 +4564,61 @@ export class Renderer {
   // FELS_F, Unterkante des Bildinhalts = Bodenlinie am Knoten. sc ist eine
   // leichte Streuung je FUNDORT (nicht je Bild) – die relativen Größen
   // kommen aus dem Bild. Liefert die Inhaltsmaße auf dem Schirm zurück.
-  drawFelsObj(g, key, x, y, sc, spiegel, schatten){
-    const img=this.tintedSpire(key);
+  // lum (optional, -1..+1): Helligkeit der UMGEBUNG an dieser Stelle. Sie
+  // wählt die Lichtfassung des Bildes (tintedSpire) und dosiert den
+  // Kontaktschatten – der Fels sitzt damit im selben Licht wie der Hang.
+  // seed (optional): ohne ihn gibt es keinen Schuttsaum (der braucht eine
+  // ortsfeste Streuung).
+  drawFelsObj(g, key, x, y, sc, spiegel, schatten, lum, seed){
+    const L9= lum===undefined? 0 : Math.max(-1,Math.min(1,lum));
+    const img=this.tintedSpire(key, L9<-0.28? -1 : L9>0.28? 1 : 0);
     if(!img) return null;
     const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
     const f=FELS_F*(sc||1);
     const dw=W*f, dh=H*f;
     const bx=this.felsBox(key);
     const cw=(bx? bx.w : W)*f, ch=(bx? bx.h : H)*f;
+    // KONTAKTSCHATTEN statt Bodenteller (Nutzerkritik v84 "aufgesetzt"):
+    // die alte gleichmäßig gefüllte Ellipse lag als grauer Fleck UM den
+    // Fels herum und schob ihn optisch nach oben vom Boden weg. Ein echter
+    // Kontaktschatten ist am Berührungspunkt fast schwarz und verliert
+    // sich nach außen; er klebt das Objekt an den Grund. Auf besonnten
+    // Flanken fällt er kräftiger aus als im Schatten.
     if(schatten>0){
-      g.fillStyle='rgba(30,27,23,'+schatten+')';
-      g.beginPath();
-      g.ellipse(x+cw*0.10, y+2.5, cw*0.44, cw*0.15, 0, 0, 7);
-      g.fill();
+      const kx=x+cw*0.08, ky=y+1.5;
+      const rx=Math.max(4,cw*0.52), ry=Math.max(1.6,cw*0.175);
+      const st=schatten*(1+L9*0.28);
+      const rg=g.createRadialGradient(kx,ky,Math.max(1,rx*0.10), kx,ky,rx);
+      rg.addColorStop(0,   'rgba(26,23,19,'+(st*1.35).toFixed(3)+')');
+      rg.addColorStop(0.38,'rgba(26,23,19,'+(st*0.78).toFixed(3)+')');
+      rg.addColorStop(0.72,'rgba(26,23,19,'+(st*0.26).toFixed(3)+')');
+      rg.addColorStop(1,   'rgba(26,23,19,0)');
+      g.save();
+      g.translate(kx,ky); g.scale(1,ry/rx); g.translate(-kx,-ky);
+      g.fillStyle=rg;
+      g.beginPath(); g.arc(kx,ky,rx,0,7); g.fill();
+      g.restore();
     }
     g.save();
     if(spiegel){ g.translate(x,0); g.scale(-1,1); g.translate(-x,0); }
     // die Bildunterkante liegt FELS_BODEN unter der Bodenlinie
     g.drawImage(img, x-dw/2, y-dh+FELS_BODEN*f, dw, dh);
     g.restore();
+    // SCHUTTSAUM: ein paar kantige Brocken über der Unterkante. Sie
+    // durchbrechen die messerscharfe Silhouette des Bildrands – ohne sie
+    // endet der Fels wie ein ausgeschnittener Aufkleber. Zwei davon liegen
+    // bewusst VOR dem Objekt (über der Unterkante), der Rest daneben.
+    if(seed!==undefined && cw>10){
+      const n9=3+((hash01(seed*7+5)*3)|0);
+      for(let k=0;k<n9;k++){
+        const t9=hash01(seed*17+k*13);
+        const bxp=x+(t9-0.5)*cw*1.06+cw*0.05;
+        const byp=y+(hash01(seed*23+k*11)-0.62)*Math.max(3,cw*0.13);
+        this.rockChunklet(g, bxp, byp,
+                          Math.max(2.2, cw*(0.055+hash01(seed*29+k*7)*0.055)),
+                          seed*5+k*31, L9);
+      }
+    }
     return {w:cw, h:ch};
   }
   // Lasur-Kachel für die Felsflächen und -wände (Stilguide 11.1: "Die
@@ -4568,7 +4896,7 @@ export class Renderer {
     if(t===TER.MOUNT){ lo=0.30; hi=0.76; }
     // unter der Firndecke nur noch sanft modellieren: eine einzelne
     // Steilstufe mitten im Eisfeld stünde sonst als dunkler Pfeil im Weiß
-    if((t===TER.MOUNT || (t===TER.SNOW && this.massifSnow()[i])) && m.hgt[i]>this.firnLine()-1.2){
+    if((t===TER.MOUNT || (t===TER.SNOW && this.massifSnow()[i])) && m.hgt[i]>this.firnAt(i)-1.2){
       k=0.45; lo=0.30; hi=0.78;
     }
     // Sonne von oben-links (wie alle Schlagschatten): nach Nordwest geneigte
