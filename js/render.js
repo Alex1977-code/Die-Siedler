@@ -1801,7 +1801,7 @@ export class Renderer {
                 //  am Endbild nach ALLEN Paessen liegt der hellste Felspixel
                 //  bei 171, also unter dem Ziel 180.)
                 const lum=0.299*r9+0.587*g9+0.114*b9;
-                if(lum>182){ const f0=182/lum; r9*=f0; g9*=f0; b9*=f0; }
+                if(lum>170){ const f0=170/lum; r9*=f0; g9*=f0; b9*=f0; }
                 return [r9|0,g9|0,b9|0];
               };
               const uAt=(q)=>Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
@@ -1963,10 +1963,28 @@ export class Renderer {
                                     fo>0.9? 0.85 : fo>0.4? 0.45 : 0);
                   return Math.max(0, Math.min(1, v9*0.80+(nz-0.5)*0.70+0.22));
                 };
+                // Sonnenlage je Dreieck. 'overlay' verhaelt sich auf hellen
+                // Untergruenden wie 'screen': gerade auf den besonnten
+                // Grossflaechen wusch die Plattenlasur die Zeichnung ins
+                // Weisse (gemessen p95=195, p99=224 im Endbild – heller als
+                // alles andere und ohne Fugen). Diese Flaechen bekommen
+                // deshalb einen zusaetzlichen MULTIPLY-Zug mit derselben
+                // Kachel: er holt die Fugen zurueck und nimmt die
+                // Ueberhelligkeit heraus, ohne die Schattenseite zu
+                // beruehren.
+                const lichtOf=(q)=>{
+                  const gb=gradBigAt(q);
+                  const d9=Math.max(-1,Math.min(1,(gb[0]*0.75+gb[1]*0.5)*0.62));
+                  const u9=Math.max(0,Math.min(1,(hgtT(q)-hlo)/spanH));
+                  return d9*0.78+(u9-0.46)*0.78;
+                };
                 const bruchZ=[];      // Dreiecke der Bruchzonen (>0.45)
+                const hellZ=[];       // besonnte Grossflaechen
                 for(const t3 of tris){
                   t3._bk=bruchT(t3);
                   if(t3._bk>0.45) bruchZ.push(t3);
+                  const li=(lichtOf(t3.qa)+lichtOf(t3.qb)+lichtOf(t3.qc))/3;
+                  if(li>0.20) hellZ.push(t3);
                 }
                 const bruchWeg=(list)=>{
                   g.beginPath();
@@ -2001,6 +2019,11 @@ export class Renderer {
                   g.globalCompositeOperation='overlay';
                   g.globalAlpha=aBase*aZus;
                   bruchWeg(bruchZ); g.fill();
+                }
+                if(hellZ.length){
+                  g.globalCompositeOperation='multiply';
+                  g.globalAlpha=aBase*0.46;
+                  bruchWeg(hellZ); g.fill();
                 }
                 // --- zweite und dritte Lage per Rauschmaske ---
                 // Der grosse Massstab aus 3.1 laesst eine Kachel 385 Welt-
@@ -2386,7 +2409,14 @@ export class Renderer {
               };
               for(const t3 of tris){
                 const fv=(formAt(t3.qa)+formAt(t3.qb)+formAt(t3.qc))/3;
-                const gv=Math.max(0,Math.min(255,(128+A9*fv)|0));
+                // ASYMMETRISCH: der dunkle Ast trägt voll, der helle nur zur
+                // Hälfte. Gemessen am Endbild lag der Fels nach dem ersten
+                // Anlauf bei p95=195/p99=224 – deutlich heller als alles
+                // andere im Bild und auf den Sonnenflächen ausgewaschen.
+                // Ein Berg wird durch seine SCHATTEN plastisch, nicht durch
+                // Spitzlichter.
+                const gv=Math.max(0,Math.min(255,
+                  (128+A9*(fv>0? fv*0.50 : fv))|0));
                 fmc.fillStyle='rgb('+gv+','+gv+','+gv+')';
                 fmc.beginPath();
                 fmc.moveTo(t3.A[0],t3.A[1]); fmc.lineTo(t3.B[0],t3.B[1]);
@@ -4268,7 +4298,43 @@ export class Renderer {
         if(hs[hs.length-1]-hs[0]<2.0) continue;
         const fl=Math.max(1.0,
           hs[Math.min(hs.length-1, Math.floor(hs.length*p))]);
-        for(const q of comp) map[q]=fl;
+        // Die Schwelle steigt, je weiter ein Knoten unter der hoechsten
+        // Stelle SEINER UMGEBUNG liegt. Ohne das legt sich der Firn als
+        // Fleck ueber jede Stelle, die zufaellig hoch genug ist – auch
+        // mitten in der Flanke (Handybild v86). So haengt die Kappe an
+        // den Kuppen: wer 0,9 unter seinem lokalen Gipfel liegt, braucht
+        // eine um 1,0 hoehere Lage und faellt damit heraus.
+        for(const q of comp){
+          let lm=m.hgt[q], r2=[q];
+          const sn2=new Set([q]);
+          for(let d=0;d<3;d++){
+            const nx=[];
+            for(const a of r2) for(const b of m.nbs(a)){
+              if(sn2.has(b)) continue; sn2.add(b);
+              if(!isM(b)) continue;
+              nx.push(b);
+              if(m.hgt[b]>lm) lm=m.hgt[b];
+            }
+            r2=nx;
+          }
+          map[q]=fl+Math.min(1.6,(lm-m.hgt[q])*1.15);
+        }
+      }
+    }
+    // Einzelflecken herauswerfen: eine Firndecke aus zwei, drei Knoten
+    // steht als weisser Klecks mitten in der Flanke (Handybild v86). Nur
+    // zusammenhaengende Felder ab sechs Knoten bleiben – das ist eine
+    // Kappe, kein Fleck.
+    {
+      const oben=(q)=> map[q]>0 && m.hgt[q]>map[q]-0.4;
+      const seen2=new Uint8Array(n);
+      for(let i=0;i<n;i++){
+        if(seen2[i] || !oben(i)) continue;
+        const comp=[i]; seen2[i]=1;
+        for(let k=0;k<comp.length;k++)
+          for(const b of m.nbs(comp[k]))
+            if(!seen2[b] && oben(b)){ seen2[b]=1; comp.push(b); }
+        if(comp.length<6) for(const q of comp) map[q]=0;
       }
     }
     this._firnMap=map;
