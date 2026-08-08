@@ -1339,12 +1339,24 @@ export class Renderer {
         const RC = L.soft? 30 : 36;                    // Zellradius (überlappt leicht)
         for(const i of L.nodes){
           const [px,py]=m.worldPos(i);
+          // WASSER AM FELS (v101): die Zellen greifen mit 36 Weltpixeln gut
+          // eine halbe Kachel über den Knoten hinaus. Gegen Wiese ist das
+          // gewollt - dort verzahnt sich die Küste. Gegen GEBIRGE nicht:
+          // das Massiv wird zwar danach gezeichnet, seine Randdreiecke mit
+          // nur EINER Felsecke fallen aber weg (sie gehören dem Umland),
+          // und so blieb der sandige Flachwassersaum eines Sees IM FELS als
+          // heller Schmier auf dem Gestein liegen. Ein See im Fels hat ein
+          // Felsufer. Radius dort auf zwei Drittel.
+          let rf=1;
+          if(L.key===TER.WATER
+             && m.nbs(i).some(q=>m.terr[q]===TER.MOUNT || m.terr[q]===TER.SNOW))
+            rf=0.62;
           const path=()=>{
             mk.beginPath();
             for(let k=0;k<7;k++){
               const a2=k*Math.PI/3 + hash01(i*11+1)*0.6;
               // jede Ecke einzeln ausgebeult -> der Rand franst nie regelmäßig aus
-              const rr=RC*(0.82+hash01(i*17+k*5)*0.46);
+              const rr=RC*rf*(0.82+hash01(i*17+k*5)*0.46);
               const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.86;
               if(k===0) mk.moveTo(qx,qy); else mk.lineTo(qx,qy);
             }
@@ -3861,6 +3873,18 @@ export class Renderer {
               const ang=Math.atan2(by-ay, bx-ax)-Math.PI/2;
               const hsh=hash01(i*17+n);
               if(t!==TER.WATER && tn===TER.WATER){
+                // ABER NICHT AUF DEM FELS (v101). Der Sand- und Schaum-
+                // pinsel wurde fuer JEDEN Landknoten am Wasser gesetzt, auch
+                // fuer einen Gebirgsknoten - und zwar auf die UNANGEHOBENE
+                // Knotenmitte. Auf einem angehobenen Massiv liegt die bis zu
+                // 40 Bildpunkte unter der gezeichneten Felskante, der 34 px
+                // hohe und 2,3-fach breite Stempel landete also quer auf der
+                // Felswand. Das war der helle Schmier um einen See IM FELS
+                // (Nutzerfoto). Ein Bergsee hat ein Felsufer, keinen Strand;
+                // die Berggrenze gehoert ohnehin dem Geroellband unten - so
+                // steht es zwei Zeilen weiter fuer alle anderen Nachbarn
+                // auch schon.
+                if(t===TER.MOUNT || isMassif(i)) continue;
                 const jit=(hsh-0.5)*0.22;              // nur leicht kippen: der Saum folgt der Kante
                 if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.55, jit, 2.3); any=true; }
                 if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 21+hsh*6, 0.45, -jit, 2.5); any=true; }
@@ -7492,6 +7516,13 @@ export class Renderer {
         let kE=0;
         for(const n of m.nbs(i)){
           if(m.terr[n]===TER.WATER) continue;
+          // KEIN Schaum gegen Fels (v101). Der Saum wird auf die Mitte
+          // zwischen Wasser- und Landknoten gesetzt, und zwar auf die
+          // UNANGEHOBENE Position des Nachbarn - bei einem Felsnachbarn
+          // liegt die aber bis zu 40 Bildpunkte unter der gezeichneten
+          // Felskante, der Saum landete also mitten auf der Wand. Ein See
+          // im Fels braucht ohnehin keinen Sandsaum.
+          if(m.terr[n]===TER.MOUNT || m.terr[n]===TER.SNOW) continue;
           const hsh=hash01(i*5+kE*131+1);
           kE++;
           const foamA=0.30+0.20*Math.sin(this.time/1900+hsh*6.283);
