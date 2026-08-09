@@ -61,6 +61,12 @@ const FM_MOSS   = 7.4;   // Moos           70 px -> 27,7 Weltpixel
 const MINE_F = 0.265;
 const MINE_BODEN = 288;      // Bodenlinie in Bildzeilen (von 300)
 const MINE_DOM = 0.474;      // Domachse als Anteil der Bildbreite
+// Wegfahne und Burgfahne (obj_flag / obj_flag_gross, je 352x384).
+// Beide teilen sich Leinwand und Anker; dass die Burgfahne größer wirkt,
+// steckt schon im Bild – sie füllt die Leinwand höher aus.
+const FLAG_H = 25;           // Zeichenhöhe der ganzen Leinwand in Weltpixeln
+const FLAG_ANKER_X = 0.3125; // Mastfuß als Anteil der Bildbreite
+const FLAG_BODEN = 376/384;  // Standlinie als Anteil der Bildhöhe
 const OUT='rgba(88,58,34,0.5)';    // Standard-Kontur (warm, weich)
 // natürliche Blickrichtung der Figuren-Bilder: -1 = schaut nach links, 1 = nach rechts
 const UNIT_FACING={
@@ -9559,10 +9565,53 @@ export class Renderer {
       }
     }
   }
+  // Spielerfarbe auf ein Blatt legen, ohne den Rest mitzufärben.
+  // Bewusst NUR mit Composite-Operationen: ctx.filter ist hier verboten,
+  // es hat auf iOS die ganze Zeichnung gekostet (Aufgabe 33).
+  // 'multiply' erhält die Faltenschatten des cremeweißen Tuchs – eine
+  // flache Farbfläche würde es platt machen. 'destination-in' holt danach
+  // die Alphakante des Blattes zurück, die das Füllrechteck plattgemacht hat.
+  eingefaerbt(name, col){
+    const spr=this.asset(name);
+    if(!spr || !spr.naturalWidth) return null;
+    this._tintCache=this._tintCache||new Map();
+    const key=name+'|'+col;
+    let c=this._tintCache.get(key);
+    if(c) return c;
+    c=document.createElement('canvas');
+    c.width=spr.naturalWidth; c.height=spr.naturalHeight;
+    const cx=c.getContext('2d');
+    cx.drawImage(spr,0,0);
+    cx.globalCompositeOperation='multiply';
+    cx.fillStyle=col; cx.fillRect(0,0,c.width,c.height);
+    cx.globalCompositeOperation='destination-in';
+    cx.drawImage(spr,0,0);
+    this._tintCache.set(key,c);
+    return c;
+  }
   drawFlag(g, m, game, i){
     let [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
     y-=this.liftAt(i)*HSCALE;          // auf angehobenem Fels (G1)
     const pl=m.owner[i];
+    const col=pl>=0?PLAYER_COLORS[pl]:'#999';
+    // Gemalte Fahne, sobald das Blatt im Paket liegt. Die Hauptburg bekommt
+    // den großen Wimpel mit Quasten, jede andere Fahne den schlichten.
+    const bd=this._doorMap && this._doorMap.get(i);
+    const name=(bd && bd.type==='hq') ? 'obj_flag_gross' : 'obj_flag';
+    const spr=this.asset(name);
+    if(spr && spr.naturalWidth){
+      const hh=FLAG_H, ww=hh*(spr.naturalWidth/spr.naturalHeight);
+      // Verankert am FUSS DES MASTES, nicht an der Bildmitte: das Tuch weht
+      // nach rechts und zieht die Bounding Box mit sich. Auf die Bildmitte
+      // gesetzt stünde die Fahne neben ihrem Klickkreis (Aufgabe 47) und
+      // spränge beim Wechsel klein/groß.
+      const dx=x-FLAG_ANKER_X*ww, dy=y-FLAG_BODEN*hh;
+      g.drawImage(spr, dx, dy, ww, hh);
+      const tuch=this.eingefaerbt(name+'_tuch', col);
+      if(tuch) g.drawImage(tuch, dx, dy, ww, hh);
+      this.flagGoods(g, game, i, x, y);
+      return;
+    }
     this.shadow(g,x+1,y+1.4,4,1.6,0.28);
     // Mast (etwas kleiner, damit er die Figuren nicht überragt)
     g.strokeStyle='#3d2c18'; g.lineWidth=2.2;
@@ -9571,7 +9620,6 @@ export class Renderer {
     g.beginPath(); g.moveTo(x-0.5,y-1); g.lineTo(x-0.5,y-14); g.stroke();
     g.fillStyle='#c9a05a'; g.beginPath(); g.arc(x,y-15.5,1.4,0,7); g.fill();
     // wehender Ritter-Wimpel mit Schwalbenschwanz
-    const col=pl>=0?PLAYER_COLORS[pl]:'#999';
     const w1=Math.sin(this.time/260+i)*1.4, w2=Math.sin(this.time/260+i+1.4)*2;
     g.fillStyle=col;
     g.beginPath();
@@ -9587,13 +9635,15 @@ export class Renderer {
     g.moveTo(x,y-15); g.quadraticCurveTo(x+5.5,y-15.8+w1, x+11,y-13.8+w2);
     g.lineTo(x+10.2,y-13+w2); g.quadraticCurveTo(x+5,y-14.6+w1,x,y-13.7);
     g.closePath(); g.fill();
-    // wartende Waren als kleiner Stapel (Bild-Assets, sonst Kistchen)
+    this.flagGoods(g, game, i, x, y);
+  }
+  // wartende Waren als kleiner Stapel (Bild-Assets, sonst Kistchen)
+  flagGoods(g, game, i, x, y){
     const items=game.flagItems.get(i);
-    if(items && items.length){
-      for(let k=0;k<Math.min(items.length,8);k++){
-        const bx=x-7+(k%4)*5.6, by=y+4.4+Math.floor(k/4)*5;
-        this.drawGood(g, items[k].good, bx, by, 7.4);
-      }
+    if(!items || !items.length) return;
+    for(let k=0;k<Math.min(items.length,8);k++){
+      const bx=x-7+(k%4)*5.6, by=y+4.4+Math.floor(k/4)*5;
+      this.drawGood(g, items[k].good, bx, by, 7.4);
     }
   }
   // ---------- Kampf- und Zerstörungseffekte (game.fx, rein kosmetisch) ----------

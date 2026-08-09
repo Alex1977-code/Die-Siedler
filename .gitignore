@@ -1,2 +1,4 @@
 tools/models/*.glb
 .claude/
+node_modules/
+package-lock.json
