@@ -132,5 +132,20 @@
 "bld_build_turm_0": 46,
 "bld_build_turm_1": 64,
 "bld_build_turm_2": 104,
-"bld_build_turm_3": 108
+"bld_build_turm_3": 108,
+"bld_build_mill_1": 92,
+"bld_build_mill_2": 92,
+"bld_build_mill_3": 92,
+"bld_build_chapel_1": 100,
+"bld_build_chapel_2": 100,
+"bld_build_chapel_3": 100,
+"bld_build_smelter_1": 94,
+"bld_build_smelter_2": 94,
+"bld_build_smelter_3": 94,
+"bld_build_tithebarn_1": 92,
+"bld_build_tithebarn_2": 92,
+"bld_build_tithebarn_3": 92,
+"fx_burn_mill_1": 112,
+"fx_burn_chapel_1": 130,
+"fx_burn_tithebarn_1": 151
 }
