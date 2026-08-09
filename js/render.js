@@ -5606,6 +5606,13 @@ export class Renderer {
   felsMaterial(key){
     if(!this._matC) this._matC=new Map();
     if(this._matC.has(key)) return this._matC.get(key);
+    // Stilguide 20.1: ter_rock_wall löst die alte Wandtextur ab, sobald sie
+    // im Paket liegt. Sie ist senkrecht gezeichnet – lange Kluftlinien,
+    // versetzte Bänder – statt der durchgehenden Lagen, die sich als
+    // Mauerwerk lasen, und sie ist warm gebrochen statt neutral grau
+    // (ter_rock_cliff lag auf 113/113/113, also genau dem Grau, das die
+    // Palette ausschließt).
+    if(key==='ter_rock_cliff' && this.asset('ter_rock_wall')) key='ter_rock_wall';
     const img=this.asset(key);
     if(!img||!img.naturalWidth){ this._matC.set(key,null); return null; }
     const W=img.naturalWidth, H=img.naturalHeight;
@@ -8514,8 +8521,12 @@ export class Renderer {
       if(img){
         const hh=this.scaleOf('bld_hq',118);
         const ww=hh*(img.naturalWidth/img.naturalHeight);
-        // Bildanteil des äußeren Brückenkopfes (aus der Grafik ausgemessen)
-        const BX=0.155, BY=0.895;
+        // Bildanteil des äußeren Brückenkopfes (aus der Grafik ausgemessen).
+        // Die neue Sandsteinburg (Stilguide 15) hat das Tor MITTIG und die
+        // Zugbrücke gerade nach vorn – die alte hatte sie links vorn bei
+        // 15,5 %. Wird das hier nicht mitgezogen, endet das Pflaster im
+        // Wassergraben statt auf der Brücke.
+        const BX=0.516, BY=0.998;
         // Gebäude wird bei (bx-ww/2, by-hh+10) gezeichnet
         const px=bx-ww/2+BX*ww, py=by-hh+10+BY*hh;
         // ein Stück in Richtung Knoten versetzt, damit die Fahne vor der
