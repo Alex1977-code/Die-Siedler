@@ -225,10 +225,24 @@ export function genWorld(opts){
   const gs = 8, gw = Math.ceil(w/gs)+2, gh = Math.ceil(h/gs)+2;
   const mkGrid = ()=> Float32Array.from({length:gw*gh}, ()=> rng());
   const grids = [mkGrid(), mkGrid(), mkGrid(), mkGrid()];
+  // Das Gitter wird UMLAUFEND gelesen, nicht geklemmt. Vorher stand hier
+  // clamp() - und weil die Aufrufer die Frequenz ueber den Faktor vor x
+  // machen (Wald X*2.6+71, Lichtung X*7.3, Feinrelief x*9.1), lag der
+  // Lesepunkt schon ab X=13 hinter der letzten Gitterspalte. Auf einer
+  // 96er Karte waren damit 87 Prozent der Breite und ebenso viel der Hoehe
+  // geklemmt: ueber gut drei Viertel der Flaeche lieferte das Waldrauschen
+  // EINEN einzigen Wert. Ob eine Karte Urwald oder Steppe wurde, entschied
+  // eine einzige Zufallszahl - gemessen 57 Baeume bei Saat 11071 gegen
+  // 1703 bei Saat 11, gleiche Groesse, gleiches Thema.
+  // Umlaufend wiederholt sich das Rauschen stattdessen mit gw*gs/Frequenz
+  // Knoten (Wald rund 43, Lichtungen rund 15) - das ist genau die
+  // Bestandsgroesse, die hier gemeint ist, und die Grossform der
+  // Landschaft (Frequenz 1, Periode 112 > 96) wiederholt sich gar nicht.
+  const wrp = (v,n)=>{ const r=v%n; return r<0? r+n : r; };
   const sample = (g, x, y)=>{
-    const fx=x/gs, fy=y/gs, x0=fx|0, y0=fy|0, tx=fx-x0, ty=fy-y0;
+    const fx=x/gs, fy=y/gs, x0=Math.floor(fx), y0=Math.floor(fy), tx=fx-x0, ty=fy-y0;
     const sx=tx*tx*(3-2*tx), sy=ty*ty*(3-2*ty);
-    const v=(xx,yy)=> g[clamp(yy,0,gh-1)*gw + clamp(xx,0,gw-1)];
+    const v=(xx,yy)=> g[wrp(yy,gh)*gw + wrp(xx,gw)];
     return (v(x0,y0)*(1-sx)+v(x0+1,y0)*sx)*(1-sy) + (v(x0,y0+1)*(1-sx)+v(x0+1,y0+1)*sx)*sy;
   };
   // Großform der Landschaft: entscheidet über Wasser/Land/Gebirge
@@ -755,11 +769,29 @@ export function genWorld(opts){
     && !map.nbs(i).some(q=> map.terr[q]===TER.MOUNT);
   const smooth = (a,b,x)=>{ const t=Math.max(0,Math.min(1,(x-a)/(b-a))); return t*t*(3-2*t); };
   const MAXDENS = 0.60;                       // dichtester Kern: gut 3 von 5 Knoten
+  const waldF = (i)=> sample(grids[1], map.X(i)*2.6+71, map.Y(i)*2.6+43);
+  // Die Schwelle wird als ANTEIL der Wiese bestimmt, nicht als fester
+  // Rauschwert. Vorher stand hier t0 = 1-treeP: das setzt voraus, dass das
+  // Rauschen die ganze Spanne 0..1 gleichmaessig ausfuellt. Bilinear
+  // geglaettete Gleichverteilung tut das aber nicht - sie draengt sich um
+  // 0,5. Fuer die Wueste (treeP 0,11, Schwelle 0,89) lag die Schwelle so
+  // weit im Randbereich, dass praktisch nichts mehr darueber kam. Ueber das
+  // Quantil heisst treeP jetzt schlicht: SO GROSS ist der bewaldete Anteil
+  // der waldfaehigen Flaeche - unabhaengig davon, wie das Rauschen liegt.
+  let t0 = 1-treeP*res;
+  {
+    const kand=[];
+    for(let i=0;i<w*h;i++) if(woodOk(i) && !map.obj[i]) kand.push(waldF(i));
+    if(kand.length>32){
+      kand.sort((a,b2)=>a-b2);
+      const anteil=Math.max(0.02, Math.min(0.92, treeP*res));
+      t0 = kand[Math.min(kand.length-1, Math.floor((1-anteil)*kand.length))];
+    }
+  }
   for(let i=0;i<w*h;i++){
     if(!woodOk(i) || map.obj[i]) continue;
     const X=map.X(i), Y=map.Y(i);
     const f = sample(grids[1], X*2.6+71, Y*2.6+43);
-    const t0 = 1-treeP*res;                   // Saum des Bestands
     let p = smooth(t0-0.10, t0+0.13, f) * MAXDENS;
     if(p<=0.001) continue;
     // Lichtungen: feineres Rauschen frisst Löcher in geschlossene Bestände
