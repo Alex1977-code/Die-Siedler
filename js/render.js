@@ -7283,9 +7283,23 @@ export class Renderer {
     // Stelle, das Anhebungsfeld, die Firngrenze und die Grenzverläufe.
     // Passiert genau einmal je fertig geebnetem Bauplatz.
     if(game.hoehenNeu && game.hoehenNeu.length){
-      for(const q of game.hoehenNeu) this.markDirtyNode(q);
+      // Die Anhebung NUR um die geänderte Stelle herum verwerfen, nicht
+      // komplett. Der Zwischenspeicher wird erst beim Neubacken der Chunks
+      // wieder gefüllt, und das läuft mit ein bis zwei Chunks je Bild.
+      // Wurde er ganz geleert, lieferte liftAt() für JEDEN Knoten 0 – jeder
+      // Fels der ganzen Karte sackte auf Geländehöhe ab und stieg erst
+      // Chunk für Chunk wieder hoch. Gemessen: fünf Bilder lang 0 statt 1,19
+      // für einen Felsen am anderen Ende der Karte, der mit dem planierten
+      // Bauplatz nichts zu tun hat.
+      const raus=new Set();
+      for(const q of game.hoehenNeu){
+        this.markDirtyNode(q);
+        raus.add(q);
+        for(const n1 of m.nbs(q)){ raus.add(n1); for(const n2 of m.nbs(n1)) raus.add(n2); }
+      }
       game.hoehenNeu.length=0;
-      this._liftC=null; this._liftFld=null;
+      if(this._liftC) for(const q of raus) this._liftC.delete(q);
+      this._liftFld=null;
       this._firnMap=null; this._firnLine=null;
       this._massifSnow=null;
       this._bordLiftN=-1;              // erzwingt neue Grenzberechnung
