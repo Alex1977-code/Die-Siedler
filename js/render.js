@@ -8521,12 +8521,13 @@ export class Renderer {
       if(img){
         const hh=this.scaleOf('bld_hq',118);
         const ww=hh*(img.naturalWidth/img.naturalHeight);
-        // Bildanteil des äußeren Brückenkopfes (aus der Grafik ausgemessen).
-        // Die neue Sandsteinburg (Stilguide 15) hat das Tor MITTIG und die
-        // Zugbrücke gerade nach vorn – die alte hatte sie links vorn bei
-        // 15,5 %. Wird das hier nicht mitgezogen, endet das Pflaster im
-        // Wassergraben statt auf der Brücke.
-        const BX=0.516, BY=0.998;
+        // Bildanteil des Punktes, an dem die Straße das Gebäude erreicht –
+        // aus der Grafik ausgemessen und bei jedem Burgwechsel neu zu messen.
+        // Die Werksteinburg hat KEINE Zugbrücke mehr; die Straße endet an der
+        // TORSCHWELLE, nicht am Brückenkopf. Das Tor sitzt leicht links der
+        // Mitte. Vorgänger zum Vergleich: Sandsteinburg 0,516/0,998 (Brücke
+        // mittig vorn), davor 0,155/0,895 (Brücke links vorn).
+        const BX=0.453, BY=0.950;
         // Gebäude wird bei (bx-ww/2, by-hh+10) gezeichnet
         const px=bx-ww/2+BX*ww, py=by-hh+10+BY*hh;
         // ein Stück in Richtung Knoten versetzt, damit die Fahne vor der
