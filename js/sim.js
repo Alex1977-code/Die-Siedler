@@ -3268,7 +3268,18 @@ export class Game {
       if(!this.landDetour({x:sx2,y:sy2}, hx2, hy2, 30000)) continue;
       const r=this.placeBuilding(p.id, type, spot);
       if(r.ok){
-        this.aiConnect(p, r.b);
+        // Wurzel B, Stufe 1: Der Landweg-Wächter oben prüft nur, ob überhaupt
+        // Land hinführt - NICHT, ob eine Straße möglich ist. Straßen dürfen
+        // keine fremde Fahne kreuzen und keinen Hausschatten queren, deshalb
+        // scheitert aiConnect auch auf zusammenhängendem Land regelmäßig.
+        // Gemessen (Spielekritiker, 111 Minuten mit einer KI): fünf Gebäude,
+        // null Militärbauten, null Angriffe - die KI setzte Baustellen, die
+        // nie ans Netz kamen, warf sie nach 3000 Ticks weg und begann von
+        // vorn, während ihr Lager auf 135 Bretter anwuchs.
+        // Klappt der Anschluss nicht, wird SOFORT abgerissen: das Material
+        // ist zurück, der Militär-Deckel bleibt frei, und der nächste Zug
+        // probiert einen anderen Platz.
+        if(!this.aiConnect(p, r.b)){ this.demolish(r.b.id); continue; }
         break; // ein Gebäude pro Zug
       }
     }
