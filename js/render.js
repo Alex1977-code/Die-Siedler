@@ -8541,7 +8541,7 @@ export class Renderer {
         // TORSCHWELLE, nicht am Brückenkopf. Das Tor sitzt leicht links der
         // Mitte. Vorgänger zum Vergleich: Sandsteinburg 0,516/0,998 (Brücke
         // mittig vorn), davor 0,155/0,895 (Brücke links vorn).
-        const BX=0.453, BY=0.950;
+        const BX=0.453, BY=0.900;
         // Gebäude wird bei (bx-ww/2, by-hh+10) gezeichnet
         const px=bx-ww/2+BX*ww, py=by-hh+10+BY*hh;
         // ein Stück in Richtung Knoten versetzt, damit die Fahne vor der
