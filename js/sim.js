@@ -1671,9 +1671,15 @@ export class Game {
     // heraus (b.tabu, gefüllt vom Wächter in tickWorker). Ohne das wählt die
     // Zielsuche denselben toten Knoten sofort wieder: sie nimmt immer den
     // ERSTEN Treffer, und der ändert sich ja nicht.
-    const nodes=b.tabu && b.tabu.size
-      ? this.nodesWalkable(b.node, R).filter(i=>!b.tabu.has(i))
-      : this.nodesWalkable(b.node, R);
+    // Wurzel B: "erreichbar" wurde an drei Stellen verschieden beantwortet.
+    // nodesWalkable schliesst nur Wasser und Lava aus, die BEWEGUNG prueft
+    // zusaetzlich Fels und den Schatten fremder Hausbilder (gehbar). Ein Ziel
+    // konnte damit gueltig sein, ohne je betretbar zu sein - genau der Fall
+    // des Foersters, dessen Pflanzplatz unter dem Bild der Burg lag.
+    // Jetzt gilt fuer die Zielsuche dasselbe Mass wie fuers Laufen.
+    const roh=this.nodesWalkable(b.node, R);
+    const nodes=roh.filter(i=> this.gehbar(i, b.id)
+                               && !(b.tabu && b.tabu.has(i)));
     const un=(o)=>o&127;
     switch(def.gather){
       case 'tree': {
