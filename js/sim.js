@@ -1666,8 +1666,14 @@ export class Game {
   findGatherJob(b){
     const m=this.map, def=BLD[b.type];
     const R=def.range;
-    // ausdrücklich nur erreichbare Knoten – siehe nodesWalkable
-    const nodes=this.nodesWalkable(b.node, R);
+    // ausdrücklich nur erreichbare Knoten – siehe nodesWalkable.
+    // Knoten, an denen sich schon einmal eine Figur festgelaufen hat, fallen
+    // heraus (b.tabu, gefüllt vom Wächter in tickWorker). Ohne das wählt die
+    // Zielsuche denselben toten Knoten sofort wieder: sie nimmt immer den
+    // ERSTEN Treffer, und der ändert sich ja nicht.
+    const nodes=b.tabu && b.tabu.size
+      ? this.nodesWalkable(b.node, R).filter(i=>!b.tabu.has(i))
+      : this.nodesWalkable(b.node, R);
     const un=(o)=>o&127;
     switch(def.gather){
       case 'tree': {
@@ -2207,6 +2213,32 @@ export class Game {
         else this.moveToward(u, a.x, a.y, WALK_SPEED);
       }
       else if(this.moveToward(u,tx,ty,WALK_SPEED)) { u.state='act'; u.actT=0; }
+      // WÄCHTER gegen versandete Aufträge.
+      //
+      // Gemessen im Testlauf: ein Förster hing 18.622 Ticks (rund 69 Minuten)
+      // im Zustand 'go', weil sein Pflanzziel UNTER dem gezeichneten Bild der
+      // Burg lag - als Ziel gültig, aber nicht betretbar und ohne Landweg.
+      // moveToward liefert dann für immer false, und weil die Zielsuche stets
+      // den ERSTEN Treffer nimmt, wählte er nach jedem Neuanlauf denselben
+      // toten Knoten. Das Gebäude zeigte dabei durchgehend "In Betrieb".
+      //
+      // Deshalb: kommt eine Figur ihrem Ziel lange nicht näher, wird der
+      // Auftrag abgebrochen, die Reservierung gelöst und der Knoten FÜR DIESES
+      // GEBÄUDE gesperrt - sonst liefe sie sofort wieder hinein.
+      u.goT=(u.goT||0)+1;
+      const dz=Math.hypot(tx-u.x, ty-u.y);
+      if(u.goBest===undefined || dz<u.goBest-2){ u.goBest=dz; u.goT=0; }
+      if(u.goT>600){
+        if(u.target>=0 && (m.obj[u.target]&128)) m.obj[u.target]&=127;   // Reservierung lösen
+        if(!b.tabu) b.tabu=new Set();
+        b.tabu.add(u.target);
+        if(b.tabu.size>24){ const alt=b.tabu.values().next().value; b.tabu.delete(alt); }
+        // Die Fachkraft ist ein DATENSATZ am Gebäude, nicht diese Figur -
+        // sie wird zurück ins Haus gesetzt, damit der Betrieb weiterläuft.
+        if(b.worker) b.worker.state='in';
+        u.dead=true;
+        return;
+      }
     } else if(u.state==='act'){
       u.actT++;
       const done=(need)=>u.actT>=need;
