@@ -4792,8 +4792,11 @@ export class Renderer {
   terrainPattern(t, g, variant=0){
     // 512er-Kacheln: Grundskala je Terrainart; Variante 1 legt dieselbe Kachel
     // größer und gedreht darüber, damit die Wiederholung verschwindet
+    // MOUNT steht hier NICHT: das Gebirge bekommt seine Fläche aus
+    // felsMaterial (ter_fels_1..4), nicht aus einer einzelnen Kachel. Die
+    // ORDER-Liste im Chunk-Bake führt MOUNT deshalb gar nicht.
     const KEY={ [TER.GRASS]:['ter_grass',0.44], [TER.DESERT]:['ter_sand',0.5], [TER.SNOW]:['ter_snow',0.5],
-                [TER.SWAMP]:['ter_swamp',0.5], [TER.MOUNT]:['ter_rock',0.42],
+                [TER.SWAMP]:['ter_swamp',0.5],
                 [TER.WATER]:['ter_water',0.26], [TER.LAVA]:['ter_lava',0.5],
                 // Firn liegt auf den Gipfelgraten: härter und windgeriffelt
                 firn:['ter_firn',0.4] };
@@ -8000,8 +8003,7 @@ export class Renderer {
         // An einem Knick stossen zwei Steinmuster hart aneinander. Genau
         // dafuer gibt es die Kurven- und Kreuzungskacheln: sie decken die
         // Stossstelle mit einem Muster ab, das um die Ecke laeuft.
-        const kEnd=this.asset('road_end'), kCur=this.asset('road_cur'),
-              kY=this.asset('road_y'), kX=this.asset('road_x');
+        const kEnd=this.asset('road_end'), kCur=this.asset('road_cur');
         const js=gr('road_hub');   // Nabe nach ihrem eigenen Bandanteil
         // Knoten, an denen mehrere Wege zusammenstossen
         const zaehl=new Map();
@@ -8041,21 +8043,14 @@ export class Renderer {
             // gezeichnet: unrotiert decken ihre Arme jede echte
             // Armrichtung exakt, und die Arme ohne Weg schneidet der
             // Band-Clip einfach weg.
+            // Die alten T-/Y-/X-Kacheln standen hier als Notnagel. Sie sind
+            // raus: ihre Arme stehen auf 90 Grad und trafen die sechs
+            // Rasterrichtungen nie - genau der helle Schleier, den die Nabe
+            // beseitigt hat. Fehlt die Nabe wirklich einmal (Bild noch nicht
+            // geladen), bleibt der Knoten diesmal ungedeckt und wird beim
+            // naechsten Bake sauber gezeichnet.
             const hub=this.asset('road_hub');
             if(hub){ img=hub; rot=0; kind='hub'; }
-            else if(arr.length===3){
-              // Notnagel ohne Nabe: Y-Kachel, Stiel zum Gegenueber-Arm
-              img=kY;
-              let best=0, bw2=-9;
-              for(let i=0;i<3;i++){
-                let sx=0, sy=0;
-                for(let j=0;j<3;j++) if(j!==i){ sx+=Math.cos(arr[j]); sy+=Math.sin(arr[j]); }
-                const s=-(Math.cos(arr[i])*sx+Math.sin(arr[i])*sy);
-                if(s>bw2){ bw2=s; best=i; }
-              }
-              rot=arr[best]-Math.PI/2;
-            }
-            else { img=kX; rot=arr[0]; }
           }
           if(!img) continue;
           g.save();
