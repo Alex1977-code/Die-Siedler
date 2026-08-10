@@ -15,7 +15,13 @@ console.log(JSON.stringify(await page.evaluate(async ()=>{
   m.explored.fill(1);
   const hq=[...g.buildings.values()].find(b=>b.type==='hq');
   const frei=g.nodesInRange(hq.node,4).filter(n=>g.canBuild(0,'barracks',n).ok);
-  const nd=frei[0], nd2=frei[1];
+  // Der zweite Platz muss WEIT genug weg liegen: Haken und Kreuz schweben
+  // unter dem durchsichtigen Haus, und der Nachbarknoten fiel bisher mit 15
+  // Weltpixeln genau in den Kreuz-Radius (15,4) - der Tipp brach dann ab,
+  // statt die Vorschau zu versetzen.
+  const nd=frei[0];
+  const [nx,ny]=m.worldPos(nd);
+  const nd2=frei.slice(1).find(n=>{ const [a,b]=m.worldPos(n); return Math.hypot(a-nx,b-ny)>70; });
   const [x,y]=m.worldPos(nd); ui.cam.x=x; ui.cam.y=y-40; ui.cam.z=1.7;
   const out={};
   const bild=()=>ui.renderer.draw(ui.cam, {...ui.state, placeType:ui.state.mode==='place'?ui.state.placeType:null}, 16);

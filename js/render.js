@@ -1180,7 +1180,13 @@ export class Renderer {
     // additiv: die Gouraud-Verläufe summieren sich zur stufenlosen Fläche
     tg.globalCompositeOperation='lighter';
     tg.save(); tg.translate(-c.ox,-c.oy);
-    const x0=cx*CHUNK-3, y0=cy*CHUNK-3, x1=x0+CHUNK+6, y1=y0+CHUNK+6;
+    // Netzbereich MUSS die ganze Chunkflaeche decken, sonst bleibt oben ein
+    // ungezeichneter Streifen stehen und der Nachbarchunk zeigt dort seine
+    // Kante als Haarlinie. Die Flaeche beginnt bei cy*528-234 (pad 78 plus
+    // HSCALE*6=156 Kopffreiheit fuer hohe Knoten); Zeile cy*CHUNK-3 liegt
+    // aber erst bei cy*528-132. Sechs Zeilen Vorlauf reichen (-264), unten
+    // deckt cy*CHUNK+15 den Rand bei cy*528+658 ab.
+    const x0=cx*CHUNK-3, y0=cy*CHUNK-6, x1=x0+CHUNK+6, y1=cy*CHUNK+15;
     for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
       for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
         const i=m.idx(x,y);
@@ -5622,7 +5628,13 @@ export class Renderer {
     // Tiefpass ueber Downscale/Upscale. 1/24 der Kachelbreite entspricht bei
     // 1024 px rund 43 px – deutlich groeber als das Korn, aber fein genug,
     // dass die eingebackene Plattenbeleuchtung erfasst wird.
-    const lw=Math.max(2,Math.round(W/24)), lh=Math.max(2,Math.round(H/24));
+    // Tiefpass fuer die eingebackene Plattenbeleuchtung. W/24 (43 px auf
+    // 1024) nahm dem Fels GENAU seine Plattenzeichnung: gemessen schrumpfte
+    // die Struktur von 35 auf 5,8 Weltpixel und lag damit unter der
+    // Rauschgrenze von 14,6 - das Gebirge wirkte deshalb wie eine
+    // strukturlose Sandflaeche. W/6 (rund 64 Weltpixel) laesst die Platten
+    // stehen und nimmt nur die Grossbeleuchtung.
+    const lw=Math.max(2,Math.round(W/6)), lh=Math.max(2,Math.round(H/6));
     const lo=document.createElement('canvas'); lo.width=lw; lo.height=lh;
     const lg=lo.getContext('2d');
     lg.imageSmoothingEnabled=true; lg.imageSmoothingQuality='high';
@@ -7790,7 +7802,16 @@ export class Renderer {
       // wie das Band, schrumpfen die Steine zu Kies. Deshalb wird sie
       // deutlich groesser gezeichnet und nur ihr mittlerer Streifen benutzt
       // - die Steine behalten damit fast ihre gedachte Groesse.
-      const bw=BAND/0.36;
+      // Jede Vorlage traegt ihren Bandanteil selbst - EIN gemeinsamer Faktor
+      // war falsch. Gemessen schwankt der Anteil zwischen 0,21 (road_hub) und
+      // 0,58 (road_slope); mit BAND/0,36 wurde die Nabe dadurch SCHMALER als
+      // die Fahrbahn (13,6 gegen 15,6 Weltpixel, heller Sandsaum mitten auf
+      // dem Weg), die Geraden dagegen 25 bis 83 % zu breit, so dass nur ihre
+      // ausgetretene Mitte uebrigblieb und die Steinreihen wegfielen.
+      const ANTEIL={ road_str:0.559, road_dirt:0.551, road_slope:0.578,
+                     road_end:0.506, road_cur:0.357, road_hub:0.225 };
+      const gr=(k)=> BAND/(ANTEIL[k]||0.36);
+      const bw=gr('road_str');
       const band=new Path2D();
       const wege=[];
       const links=new Map();               // Knoten -> Richtungen der Anschluesse
@@ -7981,7 +8002,7 @@ export class Renderer {
         // Stossstelle mit einem Muster ab, das um die Ecke laeuft.
         const kEnd=this.asset('road_end'), kCur=this.asset('road_cur'),
               kY=this.asset('road_y'), kX=this.asset('road_x');
-        const js=bw*1.3;
+        const js=gr('road_hub');   // Nabe nach ihrem eigenen Bandanteil
         // Knoten, an denen mehrere Wege zusammenstossen
         const zaehl=new Map();
         for(const {r} of wege) for(const nd of [r.path[0], r.path[r.path.length-1]])
@@ -10862,7 +10883,7 @@ export class Renderer {
   // Pixeln gerundet, damit beim Zoomen nicht dauernd neu gerechnet wird.
   roadKachel(img, key, px){
     if(!img) return null;
-    const s=Math.max(8, Math.min(256, Math.round(px/8)*8));
+    const s=Math.max(8, Math.min(img.naturalWidth||256, Math.round(px/8)*8));
     if(!this._rk) this._rk=new Map();
     const ck=key+'@'+s;
     let cv=this._rk.get(ck);
