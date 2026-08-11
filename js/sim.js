@@ -440,7 +440,7 @@ export class Game {
     if(b.door>=0 && this.map.flag[b.door]){
       const used=[...this.buildings.values()].some(o=>o.door===b.door)
         || [...this.roads.values()].some(r=>r.path[0]===b.door||r.path[r.path.length-1]===b.door);
-      if(!used){ this.map.flag[b.door]=0; this.flagItems.delete(b.door); this.routeVer++; this.changedNodes.push(b.door); }
+      if(!used){ this.map.flag[b.door]=0; this.leereFahne(b.door); this.routeVer++; this.changedNodes.push(b.door); }
     }
     // Träger/Einheiten dieses Gebäudes entfernen – Bauarbeiter und Planierer
     // bleiben und kehren mit ihrem Werkzeug heim (eigene Heim-Logik)
@@ -470,7 +470,7 @@ export class Game {
   roadsCleanupForPlayer(pl){
     for(const [id,r] of [...this.roads]) if(r.player===pl) this.removeRoad(id);
     for(let i=0;i<this.map.flag.length;i++)
-      if(this.map.flag[i] && this.map.owner[i]===pl){ this.map.flag[i]=0; this.flagItems.delete(i); this.changedNodes.push(i); }
+      if(this.map.flag[i] && this.map.owner[i]===pl){ this.map.flag[i]=0; this.leereFahne(i); this.changedNodes.push(i); }
   }
 
   // ---------- Fahnen & Straßen ----------
@@ -527,7 +527,7 @@ export class Game {
     // Gebäude-Türfahnen nicht löschen
     for(const b of this.buildings.values()) if(b.door===i) return;
     for(const [id,r] of [...this.roads]) if(r.path[0]===i || r.path[r.path.length-1]===i) this.removeRoad(id);
-    this.map.flag[i]=0; this.flagItems.delete(i); this.routeVer++; this.changedNodes.push(i);
+    this.map.flag[i]=0; this.leereFahne(i); this.routeVer++; this.changedNodes.push(i);
   }
   roadAt(node){
     for(const r of this.roads.values()) if(r.path.includes(node)) return r;
@@ -683,7 +683,26 @@ export class Game {
   }
   removeRoad(id, silent=false){
     const r=this.roads.get(id); if(!r) return;
-    if(r.carrier.item) this.dropItem(r.carrier.item);
+    // Die getragene Ware wurde bisher ersatzlos vernichtet. Das passiert bei
+    // JEDER neuen Fahne auf einem bestehenden Weg (addFlag -> splitRoadsAt ->
+    // removeRoad), also bei ganz normalem Umbauen. Jetzt wird sie auf einer
+    // Endfahne des Weges abgelegt, sofern von dort noch eine Route zum
+    // Besteller fuehrt; erst wenn das scheitert, wird abgebucht.
+    if(r.carrier.item){
+      const enden=[r.path[r.path.length-1], r.path[0]];
+      // Die Strasse ist beim Ablegen schon nicht mehr befahrbar - erst
+      // loeschen, dann umlagern, sonst rechnet nextRoad noch mit ihr.
+      this.roads.delete(id); this.routeVer++;
+      this.umlagernOderAbbuchen(r.carrier.item, enden);
+      r.carrier.item=null;
+    }
+    // Der Traeger hatte seine Ware vielleicht erst RESERVIERT und noch nicht
+    // aufgenommen (Zustand toPick/pickup). Ohne diese Zeile bleibt das
+    // Reserviert-Bit fuer immer stehen: jeder andere Traeger ueberspringt die
+    // Ware (siehe tickCarriers), incoming beim Ziel bleibt erhoeht, und
+    // requestsOf bestellt deshalb nie nach. Genau so entstand die Baustelle,
+    // die bei vollem Lager ewig auf ihr letztes Brett wartet.
+    if(r.carrier.job && r.carrier.job.item) r.carrier.job.item.reserved=false;
     this.roads.delete(id);
     this.routeVer++;
     if(!silent){
@@ -693,6 +712,58 @@ export class Game {
   dropItem(item){ // Ware geht verloren -> incoming beim Ziel korrigieren
     const b=this.buildings.get(item.destB);
     if(b && b.incoming[item.good]) b.incoming[item.good]--;
+  }
+  // Eine Ware woanders unterbringen, statt sie zu vernichten. Zielfahne taugt
+  // nur, wenn von ihr aus ueberhaupt eine Route zum Besteller fuehrt - sonst
+  // laege die Ware fuer immer tot herum UND incoming bliebe erhoeht, es wuerde
+  // also auch nie nachbestellt. Klappt es nicht, wird sauber abgebucht.
+  umlagernOderAbbuchen(item, fahnen){
+    const dest=this.buildings.get(item.destB);
+    if(dest){
+      for(const f of fahnen){
+        if(f===undefined || f<0 || !this.map.flag[f]) continue;
+        if(f!==dest.door && this.nextRoad(f, dest.door)===null) continue;
+        const items=this.flagItems.get(f)||[];
+        if(items.length>=FLAG_CAP+4) continue;
+        item.reserved=false;
+        items.push(item); this.flagItems.set(f, items);
+        return true;
+      }
+    }
+    this.dropItem(item);
+    return false;
+  }
+  // Alle Waren einer Fahne aufloesen, BEVOR die Fahne verschwindet. Vorher
+  // stand an vier Stellen ein blankes flagItems.delete(): die Waren waren weg,
+  // incoming beim Besteller blieb aber stehen, und requestsOf bestellte
+  // deshalb nie nach - das Gebaeude wartete bis Spielende auf Nachschub.
+  leereFahne(i){
+    const items=this.flagItems.get(i);
+    if(items && items.length){
+      const nachbarn=this.map.nbs(i).filter(q=>this.map.flag[q]);
+      for(const it of items) this.umlagernOderAbbuchen(it, nachbarn);
+    }
+    this.flagItems.delete(i);
+  }
+  // Sicherheitsnetz gegen haengende Reservierungen. Reserviert wird eine Ware
+  // nur zwischen "Traeger nimmt Auftrag an" und "Traeger hebt sie auf" - es
+  // darf also keine reservierte Ware geben, zu der kein lebender Traegerauftrag
+  // gehoert. Bleibt doch eine liegen, ist sie fuer alle anderen unsichtbar und
+  // die Baustelle wartet ewig. Der Durchlauf raeumt das auf und repariert
+  // damit auch Spielstaende, die den Fehler schon eingefroren haben.
+  entsperreVerwaisteWaren(){
+    let lebend=null;
+    for(const it of this.flagItems.values()){
+      for(const x of it){
+        if(!x.reserved) continue;
+        if(lebend===null){
+          lebend=new Set();
+          for(const r of this.roads.values())
+            if(r.carrier && r.carrier.job && r.carrier.job.item) lebend.add(r.carrier.job.item);
+        }
+        if(!lebend.has(x)) x.reserved=false;
+      }
+    }
   }
 
   // ---------- Routen (Fahnengraph) ----------
@@ -913,7 +984,7 @@ export class Game {
           const bId=m.bld[i];
           keep = true;
         }
-        if(m.owner[i]<0){ m.flag[i]=0; this.flagItems.delete(i); this.changedNodes.push(i); }
+        if(m.owner[i]<0){ m.flag[i]=0; this.leereFahne(i); this.changedNodes.push(i); }
       }
     }
     for(const b of [...this.buildings.values()]){
@@ -1161,6 +1232,7 @@ export class Game {
     this.tickBattles();
     this.tickMilitary();
     if(this.t%25===11) this.tickBuilderSpawn();
+    if(this.t%300===137) this.entsperreVerwaisteWaren();
     if(this.t%100===61) this.checkMatWait();
     this.tickRuins();
     if(this.t%2===0) this.tickAnimals();
