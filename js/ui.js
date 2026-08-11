@@ -568,7 +568,17 @@ export class UI {
   isConnected(b){
     const hq=this.game.buildings.get(this.game.players[0].hq);
     if(!hq) return true;
-    return this.game.compOf(b.door)!==undefined && this.game.compOf(b.door)===this.game.compOf(hq.door);
+    // Das Hauptquartier IST das Netz - es kann nicht von sich selbst getrennt
+    // sein. Vorher meldete ausgerechnet das erste Gebaeude, das der Spieler
+    // antippt, "Nicht mit dem Wegenetz verbunden": compOf speist sich aus dem
+    // Fahnengraphen, und der ist ohne eine einzige Strasse leer.
+    if(b.id===hq.id) return true;
+    // NICHT zusaetzlich "ohne Wegenetz gilt alles als verbunden": diese
+    // Auskunft loest ueber confirmPlace auch den automatischen Wegebau aus.
+    // Ein frisch gesetztes Haus ist ohne Strasse WIRKLICH nicht angebunden -
+    // sagt man hier "doch", bietet das Spiel nie wieder einen Weg an.
+    const c=this.game.compOf(b.door), ch=this.game.compOf(hq.door);
+    return c!==undefined && c===ch;
   }
   // ---------- Straßenbau ----------
   startRoad(fromFlag, autoHint=false){
@@ -1078,7 +1088,11 @@ export class UI {
   pauseMenu(show){
     this.paused=show;
     $('#game-menu').classList.toggle('hidden',!show);
-    $('#g-pause').textContent=this.paused?'▶':'';
+    // Der Knopf traegt sein Zeichen als CSS-Klasse (font-size ist 0, ein
+    // gesetzter Text war ohnehin unsichtbar). Ohne syncPauseBtn blieb er nach
+    // "Weiterspielen" auf Pause stehen: der naechste Tipp pausierte, obwohl
+    // der Spieler fortsetzen wollte.
+    this.syncPauseBtn();
   }
   toggleObjectives(show, autohide=0){
     const o=$('#objectives');
@@ -1168,7 +1182,7 @@ export class UI {
       +this.unitChip('icon_bow','🏹','Bogenschützen',st.bow);
     const ub=$('#unit-bar');
     if(ub) ub.innerHTML=
-      sel.map(k=>`<span title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
+      sel.map(k=>`<span class="${(inv[k]||0)?'':'leer'}" title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
       +`<span class="res-more">📦</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
   }

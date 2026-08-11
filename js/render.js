@@ -8385,9 +8385,15 @@ export class Renderer {
       // gerade ging – und drei Zeilen Text für eine Ja/Nein-Frage.
       // Alle Maße in Bildschirmpunkten, deshalb durch den Zoom geteilt.
       const u=1/Math.max(0.25, cam.z);
-      const ty=py+15*u;
-      this.uiSchild(g, px, ty, u, def.name, ok);
-      const R=21*u, by2=ty+10*u+R+7*u, sp=30*u;
+      const R=21*u, sp=30*u;
+      // Schild und Knopfreihe hingen bisher STARR unter dem Knoten. Bei einem
+      // Bauplatz im unteren Bilddrittel rutschten sie damit aus dem Bild -
+      // gemessen auf dem iPhone 15 (852 hoch) lag der Haken bei y=843, vom
+      // Kreuz blieben zwei Halbkreise am Rand. Reicht die Reihe unter den
+      // Bildrand, wandert die ganze Gruppe so weit nach oben, dass sie
+      // vollstaendig sichtbar bleibt.
+      let ty=py+15*u, by2=ty+10*u+R+7*u;
+      { const d=this.randVersatz(by2, R, u, cam); ty-=d; by2-=d; }
       if(ok){
         this.uiKnopf(g, px-sp, by2, u, 'ok');
         this.uiKnopf(g, px+sp, by2, u, 'no');
@@ -8405,9 +8411,10 @@ export class Renderer {
       const [ax,ay]=this.doorVisualPos(ui.roadAnchor);
       const u=1/Math.max(0.25, cam.z);
       const n=ui.roadPreview.length-1;
-      const ty=ay+26*u;
+      const R=21*u, sp=30*u;
+      let ty=ay+26*u, by2=ty+10*u+R+7*u;
+      { const d=this.randVersatz(by2, R, u, cam); ty-=d; by2-=d; }
       this.uiSchild(g, ax, ty, u, n>0? `Weg bauen · ${n} Stück` : 'Weg bauen', true);
-      const R=21*u, by2=ty+10*u+R+7*u, sp=30*u;
       this.uiKnopf(g, ax-sp, by2, u, 'ok');
       this.uiKnopf(g, ax+sp, by2, u, 'no');
       this._roadBtn={ ok:[ax-sp,by2], no:[ax+sp,by2], r:R*1.25 };
@@ -8417,7 +8424,11 @@ export class Renderer {
     if(ui.flagSel>=0 && m.flag[ui.flagSel]){
       const [fx,fy]=this.doorVisualPos(ui.flagSel);
       const u=1/Math.max(0.25, cam.z);
-      const R=21*u, by2=fy+16*u+R, sp=50*u;
+      const R=21*u, sp=50*u;
+      // Die Beschriftung steht UNTER den Knoepfen - sie zaehlt zum Platzbedarf,
+      // sonst klebt sie am Bildrand.
+      let by2=fy+16*u+R;
+      by2-=this.randVersatz(by2+13*u, R, u, cam);
       this.uiRundKnopf(g, fx-sp, by2, u, 'weg', true);
       this.uiRundKnopf(g, fx,    by2, u, 'geo', ui.flagGeoOk);
       this.uiRundKnopf(g, fx+sp, by2, u, 'spaeher', true);
@@ -9203,6 +9214,14 @@ export class Renderer {
     }
     // Arbeits-Effekte (Rauch, Funken, Staub …) – je Gebäude passend verankert
     this.bldEffect(g, b, x, y, working);
+  }
+  // Wie weit muss eine schwebende Knopfreihe nach oben, damit sie nicht unten
+  // aus dem Bild faellt? Die unteren 34 Punkte bleiben frei - dort liegt auf
+  // iPhones der Home-Streifen, ein Knopf darunter ist praktisch unerreichbar.
+  randVersatz(by2, R, u, cam){
+    const unten = cam.y + this.vh/2/Math.max(0.25,cam.z) - 34*u;
+    const ueber = (by2 + R*1.25) - unten;
+    return ueber>0 ? ueber : 0;
   }
   // Welcher Dauerzustand gilt für dieses Gebäude? (F5)
   // 'warn'  = erschöpfte Umgebung / leeres Vorkommen / Baustelle wartet auf Material

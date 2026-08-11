@@ -1669,20 +1669,44 @@ export class Game {
   // warten auf Baumaterial") statt gar nicht (F4) oder einzeln im Minutentakt.
   // Gemeldet wird beim Eintritt in den Zustand; erst wenn wieder KEINE
   // Baustelle mehr wartet, darf eine neue Sammelmeldung kommen.
+  // Gemeldet wird nach URSACHE, nicht als Sammelposten. Vorher hiess es
+  // immer "warten auf Baumaterial", auch wenn 35 Bretter im Lager lagen und
+  // in Wahrheit der Weg fehlte - der Spieler suchte den Fehler an der
+  // falschen Stelle. Und die Sperre _matWarned wurde erst zurueckgesetzt,
+  // wenn KEINE Baustelle mehr wartete: blieb eine haengen, war der Kanal fuer
+  // den Rest der Partie tot (gemessen: eine Meldung bei Tick 1861, danach
+  // 38.000 Ticks Stille). Jetzt meldet sich jede Ursache alle 3000 Ticks
+  // erneut, solange sie anhaelt.
   checkMatWait(){
-    let n=0, first=null;
+    const gruppen={ohneWeg:[], lagerLeer:[], nachschub:[]};
     for(const b of this.buildings.values()){
       if(b.player!==0 || b.state!=='build') continue;
-      if((b.matWaitT||0)>=1200){ n++; if(!first) first=b; }
+      if((b.matWaitT||0)<1200) continue;
+      const def=BLD[b.type];
+      const fehltB=Math.max(0,(def.cost.board||0)-(b.stock.board||0));
+      const fehltS=Math.max(0,(def.cost.stone||0)-(b.stock.stone||0));
+      const lager=this.invTotal(0);
+      if(b.door<0 || this.compOf(b.door)===undefined) gruppen.ohneWeg.push(b);
+      else if((fehltB>0 && (lager.board||0)===0) || (fehltS>0 && (lager.stone||0)===0))
+        gruppen.lagerLeer.push(b);
+      else gruppen.nachschub.push(b);
     }
-    if(n>0){
-      if(!this._matWarned){
-        this._matWarned=true;
-        const txt= n===1 ? 'Eine Baustelle wartet auf Baumaterial (Bretter/Steine)!'
-                         : `${n} Baustellen warten auf Baumaterial (Bretter/Steine)!`;
-        this.warn(first, 'material', txt, 3000);
-      }
-    } else this._matWarned=false;
+    if(!this._matWarn) this._matWarn={};
+    const texte={
+      ohneWeg:   (n)=> n===1 ? 'Eine Baustelle hat keinen Weg zum Lager – verbinde sie mit einer Straße!'
+                             : `${n} Baustellen haben keinen Weg zum Lager – verbinde sie mit Straßen!`,
+      lagerLeer: (n)=> n===1 ? 'Eine Baustelle wartet: das Lager ist leer.'
+                             : `${n} Baustellen warten: das Lager ist leer.`,
+      nachschub: (n)=> n===1 ? 'Eine Baustelle wartet auf Nachschub – der Transport stockt.'
+                             : `${n} Baustellen warten auf Nachschub – der Transport stockt.`,
+    };
+    for(const k in gruppen){
+      const liste=gruppen[k];
+      if(!liste.length){ this._matWarn[k]=0; continue; }
+      if(this.t-(this._matWarn[k]||-9999) < 3000) continue;
+      this._matWarn[k]=this.t;
+      this.warn(liste[0], 'material', texte[k](liste.length), 3000);
+    }
   }
 
   // ---------- Produktion & Arbeiter ----------
