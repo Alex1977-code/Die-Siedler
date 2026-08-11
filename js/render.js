@@ -78,7 +78,14 @@ const FLAG_BODEN = 376/384;  // Standlinie als Anteil der Bildhöhe
 // Tore (Lagerhaus 0,67 statt 0,20). Eingetragen ist nur, was eindeutig zu
 // sehen war - alles andere bleibt bei 0,5, weil eine geschaetzte Zahl dort
 // nur Rauschen waere.
+// Toranker der Burg. Aus der Grafik ausgemessen und bei JEDEM Burgwechsel
+// neu zu messen. Die Werksteinburg hat keine Zugbruecke mehr; die Strasse
+// endet an der Torschwelle. Vorgaenger zum Vergleich: Sandsteinburg
+// 0,516/0,998 (Bruecke mittig vorn), davor 0,155/0,895 (Bruecke links vorn).
+const HQ_TOR_X = 0.453;
+const HQ_TOR_Y = 0.900;
 const TUER_X={
+  hq:HQ_TOR_X,                                        // Torbogen, leicht links
   storehouse:0.20,                                    // Scheunentor ganz links
   guardhouse:0.32, smelter:0.33, toolsmith:0.33,      // Bogen bzw. Glutmaul links
   mint:0.33, donkeyfarm:0.33, bakery:0.33,
@@ -87,6 +94,11 @@ const TUER_X={
   butcher:0.62,                                       // Holztuer rechts vom Verkaufsstand
   farm:0.72,                                          // Scheunentor am rechten Bau
 };
+// Senkrechte Torlage als Anteil der BILDHOEHE, gerechnet vom Bildoberrand.
+// Nur wo gemessen; sonst liegt die Schwelle wie bisher dicht am Knoten.
+// Bei der Burg macht das viel aus: sie ist 188 Weltpixel hoch, ihre Schwelle
+// liegt rund 9 Pixel UEBER dem Knoten, nicht 7 darunter.
+const TUER_Y={ hq:HQ_TOR_Y };
 const OUT='rgba(88,58,34,0.5)';    // Standard-Kontur (warm, weich)
 // natürliche Blickrichtung der Figuren-Bilder: -1 = schaut nach links, 1 = nach rechts
 const UNIT_FACING={
@@ -7853,9 +7865,6 @@ export class Renderer {
       const stummel=[];
       for(const b of game.buildings.values()){
         if(b.door==null || b.door<0 || !m.flag[b.door]) continue;
-        // Die Burg betritt man ueber die Zugbruecke; Pflaster darueber saehe
-        // aus wie ein Weg im Wassergraben
-        if(b.type==='hq' && this.asset('bld_hq')) continue;
         const [bx,by]=m.worldPos(b.node);
         if(bx<wx0-120||bx>wx1+120||by<wy0-120||by>wy1+120) continue;
         const [fx3,fy3]=this.doorVisualPos(b.door);
@@ -7867,7 +7876,12 @@ export class Renderer {
         const tx3=(TUER_X[b.type]!==undefined) ? TUER_X[b.type] : 0.5;
         const bf=(game.bldFoot && game.bldFoot[b.type]);
         const tor= bf ? bx+(tx3-0.5)*bf[0] : bx;
-        const sw=[tor+(fx3-tor)*0.20, by+7];        // Schwelle am Hausfuss
+        // Senkrecht: das Bild wird bei (bx-ww/2, by-hh+10) gezeichnet, die
+        // Schwelle liegt also bei by-hh+10+anteil*hh. Ohne gemessenen Wert
+        // bleibt es beim bisherigen by+7 dicht am Knoten.
+        const ty3=TUER_Y[b.type];
+        const torY= (ty3!==undefined && bf) ? by-bf[1]+10+ty3*bf[1] : by+7;
+        const sw=[tor+(fx3-tor)*0.20, torY];        // Schwelle am Hausfuss
         if(Math.hypot(sw[0]-fx3, sw[1]-fy3)<2) continue;
         stummel.push({a:[fx3,fy3], b:sw, nd:b.door});
       }
@@ -8618,7 +8632,7 @@ export class Renderer {
         // TORSCHWELLE, nicht am Brückenkopf. Das Tor sitzt leicht links der
         // Mitte. Vorgänger zum Vergleich: Sandsteinburg 0,516/0,998 (Brücke
         // mittig vorn), davor 0,155/0,895 (Brücke links vorn).
-        const BX=0.453, BY=0.900;
+        const BX=HQ_TOR_X, BY=HQ_TOR_Y;
         // Gebäude wird bei (bx-ww/2, by-hh+10) gezeichnet
         const px=bx-ww/2+BX*ww, py=by-hh+10+BY*hh;
         // ein Stück in Richtung Knoten versetzt, damit die Fahne vor der
