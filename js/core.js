@@ -150,7 +150,15 @@ export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, brea
 // expandiert breit und gemütlich, NORMAL/SCHWER schieben ihre Postenkette
 // zielstrebig Richtung Gegner (Kontakt binnen ~30 min auf M-Karten).
 export const AI_MIL = {
-  1: { grpMax:3,  milBase:2, milGrow:6000, milMax:6,   lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25 },
+  // R4: Stufe 1 war nicht zahm, sondern TOT. Gemessen ueber 45 Spielminuten
+  // stand sie ab Minute 10 vollstaendig still: Land 339, 16 Gebaeude, 3
+  // Posten, 3 Soldaten - vierzig Minuten lang keine einzige Aenderung. Ein
+  // Gegner, der sich nie veraendert, ist kein leichter Gegner, sondern gar
+  // keiner. milGrow 6000 hiess: ein neuer Posten alle zehn Spielminuten,
+  // gedeckelt bei sechs. Jetzt alle gut vier Minuten, gedeckelt bei zehn.
+  // Harmlos bleibt sie durch das, was sie harmlos MACHT: Gruppen von
+  // hoechstens drei, Hauptquartier tabu, lange Pause nach jedem Verlust.
+  1: { grpMax:3,  milBase:2, milGrow:2500, milMax:10,  lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25 },
   2: { grpMax:6,  milBase:2, milGrow:1000, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000, edW:0.6  },
   3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0,     edW:0.6  },
 };

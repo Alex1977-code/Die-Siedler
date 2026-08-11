@@ -2920,6 +2920,23 @@ export class Game {
           p.recruits[t]=(p.recruits[t]||0)+1;
           this.onRecruit && p.id===0 && this.onRecruit();
         }
+        // R3: Das Bier ist ein hartes Tor - ohne Bier kein Rekrut, egal wie
+        // viele Waffen im Lager liegen. Gemessen ueber fuenf Saaten und 20
+        // Spielminuten haengt die Rekrutierung zu 12,2 % der Militaertakte
+        // am Bier und zu 0,0 % an den Waffen; die Waffen sind also NIE die
+        // Bremse. Das Tor selbst bleibt (so macht es das Vorbild auch), aber
+        // es war unsichtbar: Waffen im Lager, Reserve nicht voll, und nichts
+        // sagte einem, woran es liegt. Jetzt sagt es einer - hoechstens alle
+        // 3000 Takte, damit es keine Dauerbeschwerde wird.
+        if(p.id===0 && this.recruitTotal(p.id)<10 && !(hq.inv.beer>0)){
+          const waffeDa=((hq.inv.sword||0)>0&&(hq.inv.shield||0)>0)
+                        ||(hq.inv.spear||0)>0||(hq.inv.bow||0)>0;
+          if(waffeDa && this.t-(p._bierMsgT||-9999)>3000){
+            p._bierMsgT=this.t;
+            this.msg('Waffen liegen bereit, aber es fehlt das Bier – ohne Bier keine Rekruten.',
+                     'warn', hq.node);
+          }
+        }
       }
       // Besatzung auffüllen (gemischte Trupps: stärkste Reserve zuerst)
       if(this.recruitTotal(p.id)>0){
@@ -3621,7 +3638,9 @@ export class Game {
       const def=BLD[type];
       if(boards<(def.cost.board||0) || stones<(def.cost.stone||0)) continue;
       const spot=this.aiFindSpot(p, type);
-      if(spot<0) continue;
+      // R4/R10: Kein Platz? Dann liegt es fast immer daran, dass das eigene
+      // Wegenetz nicht bis ans freie Land reicht - ein Pionierweg loest das.
+      if(spot<0){ this.aiPionierweg(p); continue; }
       // Wasser-Taschen-Wächter: Plätze ohne Landweg zum Hauptquartier bekommen
       // nie einen Straßenanschluss – die Baustelle stünde ewig, fräße Material
       // und verstopfte den Militär-Deckel (kompletter KI-Stillstand beobachtet:
@@ -3760,6 +3779,11 @@ export class Game {
       // sich fuer jede Strasse. Wer seine letzten Korridore verbaut, kann
       // danach gar nichts mehr anschliessen - genau so blieb die KI auf engen
       // Startgebieten stehen. Je knapper der Rest, desto teurer der Verlust.
+      // Diese Bremse frueher greifen zu lassen (Gewicht 0,25/0,6 schon ab 400
+      // freien Korridorknoten) wurde nachgemessen und war deutlich
+      // SCHLECHTER: die KI mied dann fast jeden Platz. Stufe 2 nach 45
+      // Spielminuten 303 Knoten und 14 Gebaeude statt 936 und 23. Bleibt
+      // also bei 120.
       if(ne.R.size<120){
         let frisst=0;
         for(const q of this.schattenBand(type, i)) if(ne.R.has(q)) frisst++;
@@ -3809,6 +3833,56 @@ export class Game {
       if(s>bs){ bs=s; best=i; }
     }
     return best;
+  }
+  // ---------- Pionierweg (R4/R10) ----------
+  // Die KI baute sich in ihrem Startgebiet fest. Gemessen nach 45
+  // Spielminuten auf Stufe 2: 271 eigene Knoten, davon EIN bebaubarer Platz -
+  // bei 212 Brettern, 207 Steinen, 45 Schwertern und 87 Bier im Lager. Sie
+  // hatte alles, nur keinen Platz. Auf Stufe 1 stand sie ab Minute 5
+  // vollstaendig still (Land 298, 13 Gebaeude, 1 Soldat, ueber 40 Minuten
+  // unveraendert).
+  // Der Grund ist ein Kreis: aiFindSpot sucht nur in EIGENEN Knoten, und
+  // canBuild verlangt seit K4 einen echten Weganschluss. Wo das Netz nicht
+  // hinreicht, ist nichts baubar - und ohne Militaerbau waechst das Gebiet
+  // nicht, also reicht das Netz nie weiter.
+  // Der Pionierweg bricht den Kreis: eine Strasse vom Netz zum ENTFERNTESTEN
+  // eigenen Knoten, den das Netz noch nicht erreicht. Danach findet
+  // aiFindSpot dort im naechsten Zug Plaetze. Hoechstens alle 600 Takte
+  // einer, damit die KI nicht die Karte mit Strassen zupflastert.
+  aiPionierweg(p){
+    if(this.t-(p._pionierT||-9999)<600) return false;
+    const m=this.map;
+    const hq=this.buildings.get(p.hq); if(!hq) return false;
+    const ne=this.netzErreichbar(p.id);
+    if(!ne.R || !ne.R.size) return false;
+    // Ziel ist der entfernteste eigene Knoten, den das Wegenetz noch NICHT
+    // erreicht (ne.R = was es ueberhaupt noch erreichen kann). Ob dorthin
+    // wirklich eine Strasse fuehrt, entscheidet roadPath weiter unten - der
+    // rechnet den echten Pfad, waehrend R nur die Reichweite abschaetzt.
+    // Auf R selbst zu zielen wurde nachgemessen und war SCHLECHTER: die
+    // Pionierwege frassen dann den letzten freien Korridor auf, statt neues
+    // Land zu erschliessen (Stufe 1: 14 Gebaeude -> 11, Korridor 6 -> 0).
+    const hx=m.X(hq.node), hy=m.Y(hq.node);
+    let ziel=-1, bd=-1;
+    for(let i=0;i<m.owner.length;i++){
+      if(m.owner[i]!==p.id || ne.R.has(i)) continue;
+      if(!m.terrOkRoad(i) || m.bld[i]>=0 || this.roadAt(i) || !this.roadObjOk(i)) continue;
+      const d=Math.hypot(m.X(i)-hx, m.Y(i)-hy);
+      if(d>bd){ bd=d; ziel=i; }
+    }
+    if(ziel<0) return false;
+    const cands=[];
+    for(const bb of this.buildings.values()) if(bb.player===p.id && bb.door>=0) cands.push(bb.door);
+    for(const r of this.roads.values()) if(r.player===p.id){ cands.push(r.path[0]); cands.push(r.path[r.path.length-1]); }
+    cands.sort((a,b2)=> Math.hypot(m.X(a)-m.X(ziel),m.Y(a)-m.Y(ziel))
+                       -Math.hypot(m.X(b2)-m.X(ziel),m.Y(b2)-m.Y(ziel)));
+    for(const f of cands.slice(0,10)){
+      if(f===ziel) continue;
+      const path=this.roadPath(p.id, ziel, f);
+      if(path){ this.createRoad(p.id, path.reverse()); p._pionierT=this.t; return true; }
+    }
+    p._pionierT=this.t;                 // auch ein Fehlversuch kostet Wartezeit
+    return false;
   }
   aiConnect(p, b){
     // Straße von b.door ins eigene Netz. Wichtig: bevorzugt eine Fahne im
