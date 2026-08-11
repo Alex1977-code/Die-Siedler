@@ -6327,6 +6327,33 @@ export class Renderer {
     this._tint.set(key,cv);
     return cv;
   }
+  // G9: Anteil der DURCHSICHTIGEN Luft unter dem sichtbaren Inhalt eines
+  // Blattes (0 = Inhalt reicht bis zur Unterkante). Gemessen einmal je Bild
+  // auf einer 64 Pixel hohen Verkleinerung und gemerkt.
+  // Hintergrund: die gemalten Brandblaetter sind unterschiedlich beschnitten.
+  // Die gebaeudeeigenen tragen im Mittel 3,8 % Luft unten, die generischen
+  // (fx_burn_s/m/l) dagegen 20,8 % und die Minen sogar 55 %. Alle wurden mit
+  // demselben Anker gezeichnet - die generischen Braende schwebten deshalb
+  // rund ein Fuenftel ihrer Hoehe ueber dem Boden.
+  luftUnten(key){
+    if(!this._luftC) this._luftC=new Map();
+    if(this._luftC.has(key)) return this._luftC.get(key);
+    const im=this.asset(key);
+    if(!im || !im.naturalWidth){ this._luftC.set(key,0); return 0; }
+    const H=64, W=Math.max(1, Math.round(H*im.naturalWidth/im.naturalHeight));
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const g=cv.getContext('2d');
+    g.drawImage(im,0,0,W,H);
+    let y1=-1;
+    try{
+      const d=g.getImageData(0,0,W,H).data;
+      for(let y=H-1;y>=0 && y1<0;y--)
+        for(let x=0;x<W;x++) if(d[(y*W+x)*4+3]>40){ y1=y; break; }
+    }catch(e){ y1=H-1; }
+    const v=y1<0? 0 : (H-1-y1)/H;
+    this._luftC.set(key,v);
+    return v;
+  }
   shadow(g,x,y,rx,ry,a=0.26){
     g.fillStyle=`rgba(12,18,10,${a})`;
     g.beginPath(); g.ellipse(x,y,rx,ry,0,0,7); g.fill();
@@ -10123,7 +10150,10 @@ export class Renderer {
           const ww=hh*(gemalt.naturalWidth/gemalt.naturalHeight);
           const fl=0.92+0.08*Math.sin(this.time/110+f.node);
           g.globalAlpha=Math.min(1, 0.35+sm)*fl;
-          g.drawImage(gemalt, x-ww/2, y-hh+8, ww, hh);
+          // G9: um die Luft unter dem Inhalt nach unten ruecken, sonst
+          // schwebt der Brand (siehe luftUnten)
+          const luft=hh*this.luftUnten(bKey+'_'+ph);
+          g.drawImage(gemalt, x-ww/2, y-hh+8+luft, ww, hh);
           g.globalAlpha=1;
         }
         // Glutschein – nur ohne gemaltes Brandblatt, sonst doppeltes Feuer
