@@ -8003,7 +8003,9 @@ export class Renderer {
           for(let k=0;k<N-1;k++){
             const [ux,uy,L2]=dirs[k];
             const steil=Math.abs(m.hgt[r.path[k]]-m.hgt[r.path[k+1]])>0.45;
-            const img=steil? tSlope : tDirt;
+            // Welche ABNUTZUNGSLAGE gehoert darueber - Stufen am Hang,
+            // sonst das gerade Steinband. Die Grundkachel ist immer Erde.
+            const img=steil? tSlope : tStr;
             // An den beiden Enden eines Weges ueber den Knoten hinausziehen:
             // dort stoesst ein anderer Weg an, und ohne Ueberstand klaffte
             // im Band eine Luecke, durch die das Gras schiene.
@@ -8029,15 +8031,22 @@ export class Renderer {
             // Laengsrichtung kachelbar) und laufen ueber Abschnittsgrenzen
             // hinweg durch - deshalb die fortlaufende Phase
             const off=-(phase%bw);
-            const kBasis=this.roadKachel(img, steil?'slope':'dirt', zpx(bw));
+            // UNTEN liegt immer der Erdpfad - auch am Hang. Vorher tauschte
+            // ein steiler Abschnitt die Grundkachel komplett gegen
+            // road_slope aus UND uebersprang die Abnutzungslage. Ein
+            // brandneuer Weg ohne einen einzigen Warengang bekam dadurch
+            // mitten im Verlauf eine voll gepflasterte Platte mit
+            // rasiermesserscharfer Kante, sobald er eine Gelaendestufe nahm.
+            const kBasis=this.roadKachel(tDirt,'dirt',zpx(bw));
             for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(kBasis, -bw/2, yy, bw, bw);
             // Pflaster als zweite Lage darueber. Weil der Pfad darunter
             // deckend ist, darf diese Lage halbdurchsichtig sein - dann
             // schaut zwischen den Steinen noch Erde durch, wie bei einem
-            // halb ausgefahrenen Weg.
-            if(!steil && deck>0.01){
+            // halb ausgefahrenen Weg. Am Hang uebernimmt road_slope diese
+            // Rolle: dieselbe Abnutzungslogik, nur mit Stufenmuster.
+            if(deck>0.01){
               g.globalAlpha=deck;
-              const kPfl=this.roadKachel(tStr,'str',zpx(bw));
+              const kPfl=this.roadKachel(img, steil?'slope':'str', zpx(bw));
               for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(kPfl, -bw/2, yy, bw, bw);
               g.globalAlpha=1;
             }
