@@ -1126,7 +1126,22 @@ export class Renderer {
     // S bestimmt draw() aus dpr*zoom mit Hysterese (this._chunkScale).
     const S=this._chunkScale||1;
     let c=this.chunks.get(key);
-    const veraltet = !c || c.ver!==ver || c.scale!==S;
+    const nochNichts  = !c;
+    const inhaltAlt   = !!c && c.ver!==ver;
+    const skalaAnders = !!c && c.scale!==S;
+    // GROB IST EIN PLATZHALTER FUER NICHTS, NIE EIN RUECKSCHRITT.
+    // Beim Heranzoomen wechselt die Backaufloesung (S 1 -> 2); damit galt
+    // jeder sichtbare Chunk als veraltet und wurde MITTEN IM PINCH durch die
+    // Grobfassung ersetzt - dem Spieler wurde beim Heranzoomen also genau
+    // die Felszeichnung weggenommen, die er sich naeher ansehen wollte
+    // (gemeldet: "textur der berge verschwindet beim ranzoomen").
+    // Solange die Kamera laeuft, bleibt ein VORHANDENER Chunk deshalb
+    // unangetastet stehen - auch wenn Aufloesung oder Inhalt nicht mehr
+    // stimmen. Er ist vollstaendig gezeichnet; hochskaliert sieht er
+    // allenfalls etwas weicher aus. Neu gebacken wird er, sobald die Kamera
+    // steht. Grob gebacken wird nur noch, was es ueberhaupt noch nicht gibt.
+    const wartet = !nochNichts && !!this._grobBake;
+    const veraltet = nochNichts || ((inhaltAlt || skalaAnders) && !wartet);
     // Ein grob gebackener Chunk (Gebirgspaesse ausgelassen, siehe draw()) gilt
     // als nachbesserungsbeduerftig - aber erst, wenn die Kamera steht.
     const feinNoetig = !!(c && c.grob && this._feinFrei);
@@ -1172,9 +1187,9 @@ export class Renderer {
       }
       c={cv:document.createElement('canvas')}; this.chunks.set(key,c);
     }
-    // Grobfassung nur fuer wirklich neue/veraltete Chunks waehrend der
-    // Bewegung; das Nachschaerfen im Stillstand laeuft ueber feinNoetig.
-    const grob = veraltet && !!this._grobBake;
+    // Grobfassung NUR fuer Chunks, die es noch gar nicht gibt (siehe oben);
+    // das Nachschaerfen im Stillstand laeuft ueber feinNoetig.
+    const grob = nochNichts && !!this._grobBake;
     c.used=this.time;
     c.ver=ver; c.grob=grob;
     c.scale=S; c.mem=S*S; c.dw=w; c.dh=h;
