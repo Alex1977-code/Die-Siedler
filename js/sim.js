@@ -1351,6 +1351,47 @@ export class Game {
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
+    if(this.t%300===41) this.notzimmerei();
+  }
+
+  // ---------- Notzimmerei (R1) ----------
+  // Zweite Haelfte der Rueckfallebene fuer Holz. Der Wildwuchs sorgt dafuer,
+  // dass wieder Baeume da sind - aber um einen Holzfaeller (2 Bretter) und
+  // ein Saegewerk (2 Bretter, 2 Steine) zu bauen, braucht man BRETTER. Wer
+  // bei null steht, kaeme nie wieder heraus: jedes einzelne der 34 baubaren
+  // Haeuser kostet Bretter.
+  // Steht ein Spieler wirklich bei null, schnitzen die Siedler im
+  // Hauptquartier per Hand ein Brett - eins alle 900 Takte, also gut anderthalb
+  // Minuten bei einfachem Tempo. Die sechs Bretter fuer Holzfaeller, Foerster
+  // und Saegewerk dauern damit rund neun Minuten: ein empfindlicher
+  // Rueckschlag, aber kein Spielende. Ein vorhandener Stamm wird dabei
+  // aufgebraucht; ohne Stamm geht es langsam auch ohne.
+  notzimmerei(){
+    for(let p=0;p<this.players.length;p++){
+      const pl=this.players[p];
+      if(pl.defeated) continue;
+      const hq=this.buildings.get(pl.hq);
+      if(!hq || hq.state!=='done' || !hq.inv) continue;
+      // Bis zu acht Bretter - genau so viel, wie Holzfaeller (2), Foerster (2),
+      // Saegewerk (2) und Steinbruch (2) zusammen kosten. Wer ein fertiges
+      // Saegewerk hat, schnitzt nicht: dann laeuft die Wirtschaft wieder.
+      // Erste Fassung stoppte schon bei EINEM Brett - der Spieler blieb damit
+      // fuer immer bei eins stehen, und das billigste Haus kostet zwei.
+      const inv=this.invTotal(p);
+      const saege=[...this.buildings.values()].some(x=>
+        x.player===p && x.type==='sawmill' && x.state==='done');
+      if(saege || (inv.board||0)>=8){ pl._notzT=0; pl._notzMsg=false; continue; }
+      pl._notzT=(pl._notzT||0)+300;
+      if(pl._notzT<600) continue;
+      pl._notzT=0;
+      if((hq.inv.trunk||0)>0) hq.inv.trunk--;
+      hq.inv.board=(hq.inv.board||0)+1;
+      if(p===0 && !pl._notzMsg){
+        pl._notzMsg=true;
+        this.msg('Keine Bretter mehr! Im Hauptquartier werden Notbretter geschnitzt – '
+                +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node);
+      }
+    }
   }
 
   // ---------- Statistik (H3) ----------
@@ -1414,7 +1455,24 @@ export class Game {
       // Bäume reifen zügig: mit den alten Raten brauchte ein Setzling ~9
       // Spielminuten bis zum fällbaren Baum – der Förster konnte die
       // Abholzung nie ausgleichen (Kritikbericht, Spielspaß-Bremse 1).
-      if(o===OBJ.SAPLING && this.rng()<0.35){ m.obj[i]=OBJ.TREE2; this.changedNodes.push(i); }
+      // R1: WILDWUCHS AM WALDRAND. Nachgemessen war Holz ein einziger Strang
+      // ohne jede Rueckfallebene: alle 34 baubaren Haeuser kosten Bretter,
+      // Bretter kommen nur aus dem Saegewerk, Staemme nur vom Holzfaeller,
+      // Baeume nur vom Foerster. Reisst der Strang irgendwo, ist das Spiel
+      // vorbei - und zwar lautlos. Ein Waldrand breitet sich jetzt von selbst
+      // aus: ein freier Wiesenknoten mit mindestens ZWEI Baumnachbarn wird
+      // mit kleiner Wahrscheinlichkeit zum Setzling. Das ist deutlich
+      // langsamer als ein Foerster (der setzt zwei Setzlinge je Gang) und
+      // nimmt ihm die Aufgabe nicht ab - es sorgt nur dafuer, dass der Wald
+      // nicht endgueltig verschwindet, solange irgendwo noch Baeume stehen.
+      // Bedingungen wie beim Foerster, damit kein Setzling auf Weg, Fahne
+      // oder Bauplatz waechst.
+      if(o===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i]
+         && !this.roadAt(i) && this.rng()<0.012){
+        let nb=0; for(const q of m.nbs(i)) if(Game.isTree(m.obj[q])) nb++;
+        if(nb>=2){ m.obj[i]=OBJ.SAPLING; this.changedNodes.push(i); }
+      }
+      else if(o===OBJ.SAPLING && this.rng()<0.35){ m.obj[i]=OBJ.TREE2; this.changedNodes.push(i); }
       else if(o===OBJ.TREE2 && this.rng()<0.3){ m.obj[i]=OBJ.TREE; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD0 && this.rng()<0.25){ m.obj[i]=OBJ.FIELD1; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD1 && this.rng()<0.2){ m.obj[i]=OBJ.FIELD2; this.changedNodes.push(i); }

@@ -10136,9 +10136,10 @@ export class Renderer {
         // Dachstuhl -> Vollbrand -> rauchende Truemmer). Es liegt UEBER
         // dem Platz, an dem das Haus stand; die prozeduralen Flammen
         // entfallen dann, der Rauch laeuft weiter mit.
-        let gemalt=null, bKey=null;
+        let gemalt=null, bKey=null, bPh=0;
         if(f.kl){
           const ph=age<dauer*0.30? 1 : age<dauer*0.62? 2 : 3;
+          bPh=ph;
           // Erst das Brandblatt DIESES Gebäudes, sonst das der Größenklasse.
           // Damit lässt sich Haus für Haus nachliefern, ohne dass die
           // fehlenden Bilder eine Lücke reißen.
@@ -10152,7 +10153,7 @@ export class Renderer {
           g.globalAlpha=Math.min(1, 0.35+sm)*fl;
           // G9: um die Luft unter dem Inhalt nach unten ruecken, sonst
           // schwebt der Brand (siehe luftUnten)
-          const luft=hh*this.luftUnten(bKey+'_'+ph);
+          const luft=hh*this.luftUnten(bKey+'_'+bPh);
           g.drawImage(gemalt, x-ww/2, y-hh+8+luft, ww, hh);
           g.globalAlpha=1;
         }
