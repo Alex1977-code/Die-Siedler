@@ -67,6 +67,26 @@ const MINE_DOM = 0.474;      // Domachse als Anteil der Bildbreite
 const FLAG_H = 25;           // Zeichenhöhe der ganzen Leinwand in Weltpixeln
 const FLAG_ANKER_X = 0.3125; // Mastfuß als Anteil der Bildbreite
 const FLAG_BODEN = 376/384;  // Standlinie als Anteil der Bildhöhe
+// Waagerechte Torlage je Gebaeudetyp, als ANTEIL DER BILDBREITE. Der
+// Torstummel - das Pflasterstueck von der Tuerfahne bis ans Haus - zielte
+// vorher immer auf die Bildmitte. Bei aussermittig gemalten Toren endete er
+// neben dem Eingang; beim Lagerhaus (Scheunentor ganz links, Aussentreppe
+// rechts) lief er genau unter die Treppe.
+//
+// Die Werte sind an den Bildern abgelesen, nicht gerechnet: eine
+// Torerkennung ueber "dunkelste Stelle" fand verlaesslich Schatten statt
+// Tore (Lagerhaus 0,67 statt 0,20). Eingetragen ist nur, was eindeutig zu
+// sehen war - alles andere bleibt bei 0,5, weil eine geschaetzte Zahl dort
+// nur Rauschen waere.
+const TUER_X={
+  storehouse:0.20,                                    // Scheunentor ganz links
+  guardhouse:0.32, smelter:0.33, toolsmith:0.33,      // Bogen bzw. Glutmaul links
+  mint:0.33, donkeyfarm:0.33, bakery:0.33,
+  fortress:0.35,                                      // Fallgitter
+  cottage:0.60, tithebarn:0.60, quarry:0.60, woodcutter:0.60,
+  butcher:0.62,                                       // Holztuer rechts vom Verkaufsstand
+  farm:0.72,                                          // Scheunentor am rechten Bau
+};
 const OUT='rgba(88,58,34,0.5)';    // Standard-Kontur (warm, weich)
 // natürliche Blickrichtung der Figuren-Bilder: -1 = schaut nach links, 1 = nach rechts
 const UNIT_FACING={
@@ -7839,7 +7859,15 @@ export class Renderer {
         const [bx,by]=m.worldPos(b.node);
         if(bx<wx0-120||bx>wx1+120||by<wy0-120||by>wy1+120) continue;
         const [fx3,fy3]=this.doorVisualPos(b.door);
-        const sw=[bx+(fx3-bx)*0.20, by+7];          // Schwelle am Hausfuss
+        // Der Stummel zielte auf die BILDMITTE des Hauses. Bei Gebaeuden,
+        // deren Tor deutlich aussermittig gemalt ist, endete er neben dem
+        // Eingang - beim Lagerhaus rund ein Drittel Kachel daneben, mitten
+        // unter der Aussentreppe. TUER_X haelt die waagerechte Torlage als
+        // Bildanteil; die Breite kommt aus dem gemessenen Bildmass (bldFoot).
+        const tx3=(TUER_X[b.type]!==undefined) ? TUER_X[b.type] : 0.5;
+        const bf=(game.bldFoot && game.bldFoot[b.type]);
+        const tor= bf ? bx+(tx3-0.5)*bf[0] : bx;
+        const sw=[tor+(fx3-tor)*0.20, by+7];        // Schwelle am Hausfuss
         if(Math.hypot(sw[0]-fx3, sw[1]-fy3)<2) continue;
         stummel.push({a:[fx3,fy3], b:sw, nd:b.door});
       }
