@@ -7933,6 +7933,14 @@ export class Renderer {
           }
         }
       }
+      // Einen Torstummel bekommt nur, wo auch WIRKLICH eine Strasse ankommt.
+      // Vorher legte ihn jedes fertige Haus mit Tuerfahne an: ein frisch
+      // gebautes, gar nicht angeschlossenes Haus hatte damit einen
+      // ausgetretenen Pfad vor der Tuer, als liefe dort seit Jahren Verkehr.
+      // links ist erst NACH der Strassenschleife gefuellt, deshalb wird hier
+      // gefiltert und nicht schon beim Anlegen.
+      for(let k=stummel.length-1;k>=0;k--)
+        if(!links.has(stummel[k].nd)) stummel.splice(k,1);
       for(const st of stummel){
         const dx=st.b[0]-st.a[0], dy=st.b[1]-st.a[1], L2=Math.hypot(dx,dy)||1;
         const nx=-dy/L2*half, ny=dx/L2*half;
