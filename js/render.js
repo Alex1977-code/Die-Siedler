@@ -11247,16 +11247,41 @@ export class Renderer {
   drawMinimap(cv, cam){
     const m=this.game.map, g=cv.getContext('2d');
     const w=cv.width, h=cv.height;
-    const sx=w/m.w, sy=h/m.h;
     const cols=TER_COL[this.theme]||TER_COL.gruen;
+    g.setTransform(1,0,0,1,0,0);
     g.fillStyle='#0a0e16'; g.fillRect(0,0,w,h);
+    // H4: Die Minikarte ist RUND (ui_ring). Eine Karte, die das Quadrat
+    // ausfuellt, verliert dadurch ihre vier Ecken - rechnerisch 1-pi/4, also
+    // 21 % der Flaeche, und genau dort liegen auf vielen Karten Inseln,
+    // Erzberge und der Gegner. Die Karte wird deshalb in das groesste
+    // Rechteck ihres Seitenverhaeltnisses gezeichnet, das noch VOLLSTAENDIG
+    // in den Kreis passt: Diagonale = Durchmesser, also
+    // k = 2R / Wurzel(Breite^2 + Hoehe^2). Sie wird kleiner - dafuer ist
+    // sie ganz da. Der Zeichencode darunter rechnet ab hier in KNOTEN,
+    // nicht in Bildpunkten; die Skalierung macht die Transformation.
+    const R=Math.min(w,h)/2;
+    const k=2*R/Math.hypot(m.w,m.h);
+    g.save();
+    g.translate((w-k*m.w)/2, (h-k*m.h)/2);
+    g.scale(k,k);
+    // Das Gelaende entsteht auf einer Hilfsflaeche mit GENAU einem Bildpunkt
+    // je Knoten und wird dann als EIN Bild hochskaliert. Direkt in die
+    // Endgroesse gezeichnet trifft jedes Knotenrechteck bei rund 1,1 Punkten
+    // Kantenlaenge mal einen, mal zwei Punkte - das ergab ein Moiré, das wie
+    // ein Karomuster ueber dem Wasser lag.
+    if(!this._mmC || this._mmC.width!==m.w || this._mmC.height!==m.h){
+      this._mmC=document.createElement('canvas');
+      this._mmC.width=m.w; this._mmC.height=m.h;
+    }
+    const mg=this._mmC.getContext('2d');
+    mg.fillStyle='#0a0e16'; mg.fillRect(0,0,m.w,m.h);
     // Unerkundetes: dezentes Karo statt tiefschwarzer Fläche – die fast
     // leere Minikarte der ersten Minuten wirkte wie ein Darstellungsfehler
     // (Kritikbericht F12). Das Muster sagt "Karte, noch nicht erkundet".
-    g.fillStyle='#111827';
+    mg.fillStyle='#111827';
     for(let y=0;y<m.h;y+=4) for(let x=0;x<m.w;x+=4){
       if(((x>>2)+(y>>2))%2) continue;
-      g.fillRect(x*sx, y*sy, Math.ceil(sx*4), Math.ceil(sy*4));
+      mg.fillRect(x, y, 4, 4);
     }
     for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
       const i=m.idx(x,y);
@@ -11266,11 +11291,12 @@ export class Renderer {
       let c=cols[m.terr[i]];
       if((m.obj[i]&127)===OBJ.TREE) c=shade(cols[TER.GRASS],0.72);
       if(m.owner[i]>=0) c=mixHex(c, PLAYER_COLORS[m.owner[i]], 0.42);
-      g.fillStyle=c;
-      g.fillRect(x*sx,y*sy,Math.ceil(sx),Math.ceil(sy));
+      mg.fillStyle=c;
+      mg.fillRect(x,y,1,1);
     }
+    g.imageSmoothingEnabled=true; g.imageSmoothingQuality='high';
+    g.drawImage(this._mmC, 0, 0, m.w, m.h);
     // Gebietsgrenzen kräftig in der Farbe des Besitzers
-    g.lineWidth=Math.max(1.2, sx*0.9);
     for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
       const i=m.idx(x,y);
       const o=m.owner[i];
@@ -11279,25 +11305,51 @@ export class Renderer {
       for(const n of m.nbs(i)) if(m.owner[n]!==o){ border=true; break; }
       if(!border) continue;
       g.fillStyle=PLAYER_COLORS[o];
-      g.fillRect(x*sx-sx*0.15, y*sy-sy*0.15, Math.ceil(sx*1.3), Math.ceil(sy*1.3));
+      g.fillRect(x-0.15, y-0.15, 1.3, 1.3);
+    }
+    // H4: Gebaeude. Bisher zeigte die Minikarte nur Gelaende und Gebiet -
+    // ausgerechnet die eigene Siedlung, das einzige, wonach man auf einer
+    // Uebersichtskarte sucht, fehlte. Burg und Militaerbauten stehen als
+    // groessere Punkte mit hellem Rand, alles andere als kleiner Punkt in
+    // Spielerfarbe. Ein Punkt ist rund 2,4 Knoten breit: bei 96x96 Knoten
+    // auf 106 Bildpunkten sind das gut 2,6 Pixel - sichtbar, ohne die
+    // Landschaft zuzukleistern.
+    for(const b of this.game.buildings.values()){
+      if(!m.explored[b.node]) continue;
+      const def=BLD[b.type]||{};
+      const gross = b.type==='hq' || def.size==='L' || def.mil;
+      const bx=m.X(b.node)+0.5, by=m.Y(b.node)+0.5;
+      const r=gross? 2.0 : 1.35;
+      // Dunkler Rand zuerst: die Spielerfarbe liegt auf eingefaerbtem
+      // Eigengebiet derselben Farbe - ohne Kontur verschwand der Punkt
+      // ausgerechnet in der eigenen Siedlung.
+      g.fillStyle='rgba(16,22,32,0.85)';
+      g.beginPath(); g.arc(bx,by,r+(gross?1.0:0.7),0,7); g.fill();
+      if(gross){
+        g.fillStyle='rgba(255,247,225,0.95)';
+        g.beginPath(); g.arc(bx,by,r+0.5,0,7); g.fill();
+      }
+      g.fillStyle=PLAYER_COLORS[b.player]||'#ddd';
+      g.beginPath(); g.arc(bx,by,r,0,7); g.fill();
     }
     // laufende Kämpfe blinken rot
     if(this.game.battles && this.game.battles.length){
       for(const bt of this.game.battles){
         const b=this.game.buildings.get(bt.bldId);
         if(!b) continue;
-        const bx=(m.X(b.node)+0.5)*sx, by=(m.Y(b.node)+0.5)*sy;
+        const bx=m.X(b.node)+0.5, by=m.Y(b.node)+0.5;
         const pulse=0.55+0.45*Math.sin(this.time/180);
         g.fillStyle=`rgba(255,${60+pulse*80|0},40,${0.55+pulse*0.45})`;
-        g.beginPath(); g.arc(bx,by,Math.max(3,sx*2.4),0,7); g.fill();
-        g.strokeStyle='rgba(255,240,210,0.9)'; g.lineWidth=1.2;
-        g.beginPath(); g.arc(bx,by,Math.max(3,sx*2.4)+pulse*2.6,0,7); g.stroke();
+        g.beginPath(); g.arc(bx,by,2.4,0,7); g.fill();
+        g.strokeStyle='rgba(255,240,210,0.9)'; g.lineWidth=1.2/k;
+        g.beginPath(); g.arc(bx,by,2.4+pulse*2.6/k,0,7); g.stroke();
       }
     }
-    g.strokeStyle='#fff'; g.lineWidth=1;
-    const vx=(cam.x/TILE)*sx, vy=(cam.y/ROWH)*sy;
-    const vw=(this.vw/cam.z/TILE)*sx, vh=(this.vh/cam.z/ROWH)*sy;
+    g.strokeStyle='#fff'; g.lineWidth=1.4/k;
+    const vx=cam.x/TILE, vy=cam.y/ROWH;
+    const vw=this.vw/cam.z/TILE, vh=this.vh/cam.z/ROWH;
     g.strokeRect(vx-vw/2, vy-vh/2, vw, vh);
+    g.restore();
   }
 }
 

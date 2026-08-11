@@ -168,6 +168,17 @@ h1::after{
   color:transparent; font-size:0;
 }
 #g-speed{ font-weight:700; font-size:15px; }
+/* H1: Daumenzone unten links. Menue, Pause und Geschwindigkeit sind die
+   einzigen Knoepfe, die im Spiel dauernd gebraucht werden - sie gehoeren
+   dorthin, wo der Daumen ohne Umgreifen hinkommt. Die Minikarte sitzt
+   spiegelbildlich unten rechts; zwischen beiden bleibt auf dem schmalsten
+   Geraet (360 px) noch Platz. */
+#hud-thumb{
+  position:absolute; left:8px; bottom:calc(8px + env(safe-area-inset-bottom));
+  display:flex; gap:8px; align-items:flex-end; z-index:4;
+}
+#hud-thumb .hbtn{ width:48px; min-width:48px; height:48px; border-radius:15px; }
+#hud-thumb #g-speed{ font-size:15px; }
 /* obere Leiste: Siedler nach Beruf/Waffengattung */
 #res-bar{
   flex:1; display:flex; gap:9px; overflow-x:auto; padding:4px 8px;
@@ -281,7 +292,10 @@ h1::after{
   padding:9px; opacity:0.97; z-index:4;
 }
 #minimap{
-  display:block; width:130px; height:130px; border-radius:50%;
+  /* H4: etwas groesser als vorher (130 -> 150). Die Karte fuellt den Kreis
+     seit dem Umbau nur noch zu 71 % der Kantenlaenge, weil sie vollstaendig
+     hineinpasst; die groessere Scheibe faengt das wieder auf. */
+  display:block; width:150px; height:150px; border-radius:50%;
   box-shadow:0 4px 14px rgba(0,0,0,0.45);
   background:#1a2634;
 }

@@ -222,17 +222,24 @@ export class UI {
       <canvas id="cv"></canvas>
       <div id="title-banner"><span>Neuland</span></div>
       <div id="hud-top">
-        <button id="g-menu" class="hbtn" title="Menü"></button>
         <div id="res-bar"></div>
-        <button id="g-pause" class="hbtn"></button>
       </div>
       <div id="goods-row">
         <div id="unit-bar"></div>
-        <button id="g-speed" class="hbtn">1×</button>
       </div>
       <div id="objectives" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
-      <div id="minimap-wrap"><canvas id="minimap" width="140" height="140"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
+      <!-- H1: die Knoepfe, die man WIRKLICH drueckt, liegen unten links in
+           der Daumenzone. Oben stehen nur noch die Anzeigen (Siedler, Waren) -
+           die liest man, man tippt sie kaum an. Vorher sass alles Bedienbare
+           am oberen Rand: auf einem 6-Zoll-Geraet muss man dafuer die Hand
+           umgreifen, waehrend die untere Haelfte leer blieb. -->
+      <div id="hud-thumb">
+        <button id="g-menu" class="hbtn" title="Menü"></button>
+        <button id="g-pause" class="hbtn"></button>
+        <button id="g-speed" class="hbtn">1×</button>
+      </div>
+      <div id="minimap-wrap"><canvas id="minimap" width="220" height="220"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
       <div id="sheet" class="hidden"></div>
       <div id="game-menu" class="hidden">
         <div class="panel">
@@ -317,9 +324,16 @@ export class UI {
     $('#minimap').addEventListener('pointerdown',(e)=>{
       if(!this.game) return;
       const r=e.target.getBoundingClientRect();
-      const fx=(e.clientX-r.left)/r.width, fy=(e.clientY-r.top)/r.height;
-      this.cam.x=fx*this.game.map.w*TILE;
-      this.cam.y=fy*this.game.map.h*ROWH;
+      const m=this.game.map;
+      // H4: Die Karte fuellt seit dem Umbau nicht mehr das ganze Quadrat,
+      // sondern das groesste vollstaendig in den Kreis passende Rechteck
+      // (siehe drawMinimap). Der Tipp muss dieselbe Umrechnung benutzen,
+      // sonst springt die Kamera daneben.
+      const kk=1/Math.hypot(m.w,m.h);            // Seitenanteil je Knoten
+      const fx=((e.clientX-r.left)/r.width  - (1-kk*m.w)/2)/(kk*m.w);
+      const fy=((e.clientY-r.top )/r.height - (1-kk*m.h)/2)/(kk*m.h);
+      this.cam.x=Math.max(0,Math.min(1,fx))*m.w*TILE;
+      this.cam.y=Math.max(0,Math.min(1,fy))*m.h*ROWH;
     });
     $('#objectives').onclick=()=>this.toggleObjectives(false);
   }
@@ -751,6 +765,39 @@ export class UI {
     s.innerHTML=html;
     s.classList.remove('hidden');
   }
+  // H2: Das Blatt am unteren Rand ist bis zu 52 % hoch. Wer einen Bauplatz
+  // im unteren Bilddrittel antippt, waehlt danach ein Gebaeude fuer eine
+  // Stelle, die er nicht mehr sieht - und die gruenen Bauplatzpunkte
+  // daneben genauso wenig. Die Kamera schiebt den Platz deshalb in das
+  // freie Band zwischen Kopfleisten und Blatt. Sie GLEITET dorthin (rund
+  // eine Fuenftelsekunde): ein Sprung im selben Moment, in dem sich das
+  // Blatt aufschiebt, verliert den Bezug zum angetippten Punkt.
+  blattFreiRuecken(node){
+    if(node==null || node<0 || !this.game) return;
+    requestAnimationFrame(()=>{
+      const s=$('#sheet');
+      const hoehe = (!s || s.classList.contains('hidden'))? 0 : s.getBoundingClientRect().height;
+      const vh=this.renderer.vh;
+      const oben=118, unten=vh-hoehe-16;
+      if(unten-oben<80) return;                       // kein sinnvolles Band
+      const [,wy]=this.game.map.worldPos(node);
+      const sy=(wy-this.cam.y)*this.cam.z + vh/2;
+      if(sy>=oben && sy<=unten) return;               // liegt schon frei
+      const ziel=(oben+unten)/2;
+      this._camZug={ von:this.cam.y, nach: wy-(ziel-vh/2)/this.cam.z, t0:performance.now(), ms:190 };
+    });
+  }
+  kameraZiehen(now){
+    const z=this._camZug; if(!z) return;
+    // Wer waehrenddessen selbst schiebt, hat Vorrang: hat sich cam.y seit dem
+    // letzten Bild von aussen geaendert, bricht der Zug ab.
+    if(z.zuletzt!==undefined && Math.abs(this.cam.y-z.zuletzt)>0.5){ this._camZug=null; return; }
+    const f=Math.min(1,(now-z.t0)/z.ms);
+    const e=f<0.5? 2*f*f : 1-Math.pow(-2*f+2,2)/2;    // weich rein, weich raus
+    this.cam.y = z.von + (z.nach-z.von)*e;
+    z.zuletzt = this.cam.y;
+    if(f>=1) this._camZug=null;
+  }
   closeSheet(){ $('#sheet').classList.add('hidden'); this.state.showBuildDots=false; }
   openBuildSheet(i){
     const g=this.game;
@@ -782,6 +829,7 @@ export class UI {
       <button class="hbtn" id="sh-x">✕</button></div>
       <div class="tabs">${tabs}</div>
       <div class="bgrid">${items}</div>`);
+    this.blattFreiRuecken(i);          // H2: Bauplatz nicht unters Blatt legen
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#sh-flag').onclick=()=>{
       if(g.placeFlag(i,0)){ Sound.sfx('flag'); this.state.sel=-1; this.closeSheet(); }
@@ -860,6 +908,10 @@ export class UI {
   }
   openBuildingSheet(b){
     if(!b) return;
+    // H2 gilt genauso fuer das Haus selbst: sein eigenes Blatt schob es
+    // sonst unter den Bildrand, und man regelte Vorraete fuer ein Gebaeude,
+    // das man nicht mehr sah.
+    this.blattFreiRuecken(b.node);
     const g=this.game, def=BLD[b.type];
     if(b.player!==0){
       // Feindgebäude: Angriff?
@@ -1138,6 +1190,7 @@ export class UI {
       const dt=Math.min(100, now-last); last=now;
       if(this.game && this.screen==='game'){
         if(!this.paused) this.game.update(dt, SPEED_MULT[this.opts.speed]||1);
+        this.kameraZiehen(now);
         // Straßenvorschau
         this.uiRenderState={
           sel:this.state.sel,
