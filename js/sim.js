@@ -1350,6 +1350,54 @@ export class Game {
     if(this.t%10===0) this.tickGrowth();
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
+    if(this.t%300===23) this.statistikTakt();
+  }
+
+  // ---------- Statistik (H3) ----------
+  // Ohne Zahlenwerk sieht man nie, ob die Siedlung waechst oder nur
+  // beschaeftigt ist - und schon gar nicht, wie man gegen die Gegner steht.
+  // Alle 300 Takte (30 Sekunden Spielzeit bei 1x) wird je Spieler ein
+  // Datensatz abgelegt. 240 Stueck decken zwei Stunden ab; danach faellt der
+  // aelteste heraus. Der Aufwand ist ein Durchlauf ueber owner (rund 9000
+  // Knoten) und je Spieler ein invTotal - alle 30 Sekunden vernachlaessigbar.
+  statistikTakt(){
+    const np=this.players.length;
+    if(!this.stats || this.stats.spieler.length!==np)
+      this.stats={ t:[], spieler:Array.from({length:np},()=>(
+        {land:[], bauten:[], siedler:[], soldaten:[], waren:[]})) };
+    const s=this.stats;
+    const land=new Array(np).fill(0);
+    for(let i=0;i<this.map.owner.length;i++){ const o=this.map.owner[i]; if(o>=0) land[o]++; }
+    const bauten=new Array(np).fill(0), soldaten=new Array(np).fill(0),
+          siedler=new Array(np).fill(0);
+    for(const b of this.buildings.values()){
+      if(b.player<0 || b.player>=np) continue;
+      if(b.state==='done'||b.state==='build') bauten[b.player]++;
+      if(b.soldiers) soldaten[b.player]+=b.soldiers.length;
+    }
+    for(const u of this.units){
+      if(u.dead || u.player<0 || u.player>=np) continue;
+      siedler[u.player]++;
+      if(u.type==='attack' && u.soldiers) soldaten[u.player]+=u.soldiers.length;
+      else if(u.type==='soldierMove') soldaten[u.player]++;
+    }
+    for(let p=0;p<np;p++){
+      const r=this.players[p].recruits||{};
+      soldaten[p]+=(r.sword||0)+(r.spear||0)+(r.bow||0);
+    }
+    s.t.push(this.t);
+    for(let p=0;p<np;p++){
+      const inv=this.invTotal(p);
+      let w=0; for(const k in inv) w+=inv[k];
+      const sp=s.spieler[p];
+      sp.land.push(land[p]); sp.bauten.push(bauten[p]);
+      sp.siedler.push(siedler[p]); sp.soldaten.push(soldaten[p]); sp.waren.push(w);
+    }
+    if(s.t.length>240){
+      s.t.shift();
+      for(const sp of s.spieler){ sp.land.shift(); sp.bauten.shift();
+        sp.siedler.shift(); sp.soldaten.shift(); sp.waren.shift(); }
+    }
   }
 
   // ---------- Wachstum (Bäume, Felder) ----------
@@ -3749,6 +3797,7 @@ export class Game {
       animals:this.animals,
       objectives:this.objectives, over:this.over, winner:this.winner,
       msgs:this.msgs.slice(-40),
+      stats:this.stats||null,          // H3: Verlaufskurven ueberdauern das Speichern
     };
   }
   static deserialize(data){
@@ -3767,6 +3816,11 @@ export class Game {
     g.map=m; g.gate=data.gate; g.t=data.t;
     g.over=data.over; g.winner=data.winner;
     g.msgs=data.msgs||[]; g.changedNodes=[];
+    // ABSTURZ NACH DEM LADEN: hoehenNeu legt nur der Konstruktor an, nicht
+    // deserialize. Sobald in einem geladenen Spiel der erste Planierer
+    // arbeitete, warf planiere() "Cannot read properties of undefined
+    // (reading 'push')" - also beim ersten Neubau nach jedem Laden.
+    g.hoehenNeu=[];
     g.territoryVer=1; g.routeVer=1; g._routeCache=new Map(); g._compVer=0; g._comp=new Map();
     g.players=data.players;
     g.buildings=new Map();
@@ -3779,6 +3833,7 @@ export class Game {
     g.signs=new Map(data.signs||[]);
     g.difficulty=data.setup.difficulty||'normal';
     g.animals=data.animals||[];
+    g.stats=data.stats||null;          // H3: alte Spielstaende fangen bei Null an
     // Alt-Spielstände (v2, Rang-System): Ränge -> Truppentypen, Rekrutenzahl -> Reserve-Objekt
     for(const p of g.players){
       if(typeof p.recruits==='number') p.recruits={sword:p.recruits, spear:0, bow:0};

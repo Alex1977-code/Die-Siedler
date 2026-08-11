@@ -247,11 +247,13 @@ export class UI {
           <button id="gm-resume" class="mbtn primary">Weiterspielen</button>
           <button id="gm-save" class="mbtn">💾 Speichern</button>
           <button id="gm-objectives" class="mbtn">🎯 Missionsziele</button>
+          <button id="gm-stats" class="mbtn">📊 Statistik</button>
           <button id="gm-export" class="mbtn">📤 Spielstand exportieren</button>
           <button id="gm-quit" class="mbtn back">Zum Hauptmenü</button>
           <p class="note" id="gm-build" style="text-align:center;opacity:0.5">Fassung –</p>
         </div>
       </div>
+      <div id="stats" class="hidden"></div>
       <div id="dlg" class="hidden"></div>
     </div>`;
     // Navigation
@@ -304,6 +306,7 @@ export class UI {
     $('#gm-save').onclick=()=>{ Sound.sfx('tap'); this.saveDialog(); };
     $('#gm-export').onclick=()=>{ if(this.game) SAVE.exportSave(this.game); };
     $('#gm-objectives').onclick=()=>{ this.pauseMenu(false); this.toggleObjectives(true); };
+    $('#gm-stats').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openStats(); };
     $('#gm-quit').onclick=()=>{
       Sound.sfx('tap');
       if(this.game && !this.game.over) SAVE.saveSlot('auto',this.game,'Autosave');
@@ -1165,6 +1168,105 @@ export class UI {
       o.classList.remove('hidden');
       if(autohide){ clearTimeout(this._objT); this._objT=setTimeout(()=>o.classList.add('hidden'),autohide); }
     } else o.classList.add('hidden');
+  }
+  // ================= Statistik (H3) =================
+  // Bisher gab es keinerlei Zahlenwerk: ob die Siedlung waechst oder nur
+  // beschaeftigt ist, ob der Gegner davonzieht, wo die Waren haengen - alles
+  // Bauchgefuehl. Der Bildschirm zeigt drei Dinge:
+  //   1. Verlaufskurve einer Groesse ueber die Spielzeit, alle Spieler
+  //      uebereinander (Land, Bauten, Siedler, Soldaten, Waren)
+  //   2. Der aktuelle Stand als Balken im Vergleich
+  //   3. Das eigene Lager, Ware fuer Ware
+  // Die Daten sammelt die Simulation alle 30 Sekunden Spielzeit selbst.
+  static STAT_FELDER=[['land','Land','🗺'],['bauten','Gebäude','🏠'],
+                      ['siedler','Siedler','🧍'],['soldaten','Soldaten','⚔️'],
+                      ['waren','Waren','📦']];
+  openStats(feld){
+    const g=this.game; if(!g) return;
+    if(!g.stats) g.statistikTakt();               // sofort einen Stand erzeugen
+    this.statFeld = feld || this.statFeld || 'land';
+    const F=UI.STAT_FELDER;
+    const akt=this.statFeld;
+    const s=g.stats;
+    const tabs=F.map(([k,label,ic])=>
+      `<button class="tab ${k===akt?'on':''}" data-f="${k}">${ic} ${label}</button>`).join('');
+    // Balken: aktueller Stand je Spieler
+    const jetzt=g.players.map((p,i)=>{
+      const r=s.spieler[i]; const arr=r? r[akt] : [];
+      return { i, name:p.name, wert: arr.length? arr[arr.length-1] : 0, tot:!!p.defeated };
+    });
+    const max=Math.max(1, ...jetzt.map(x=>x.wert));
+    const balken=jetzt.map(x=>`<div class="st-zeile">
+        <span class="st-name" style="color:${PLAYER_COLORS[x.i]}">${x.name}${x.tot?' †':''}</span>
+        <span class="st-bahn"><i style="width:${Math.round(x.wert/max*100)}%;
+              background:${PLAYER_COLORS[x.i]}"></i></span>
+        <b class="st-wert">${x.wert}</b></div>`).join('');
+    // Lager: eigene Waren, absteigend
+    const inv=g.invTotal(0);
+    const waren=GOOD_LIST.filter(k=>inv[k]).sort((a,b)=>inv[b]-inv[a])
+      .map(k=>`<span class="st-ware"><i style="background:${goodColor(k)}"></i>${GOODS[k].name} <b>${inv[k]}</b></span>`).join('');
+    const min=Math.floor(g.t/600), sek=Math.floor(g.t/10)%60;
+    $('#stats').innerHTML=`<div class="panel">
+      <div class="sh-head"><b>📊 Statistik</b>
+        <span class="st-zeit">${min}:${String(sek).padStart(2,'0')} Spielzeit</span>
+        <button class="hbtn" id="st-x">✕</button></div>
+      <div class="tabs">${tabs}</div>
+      <canvas id="st-kurve" width="640" height="300"></canvas>
+      <div class="st-legende">${g.players.map((p,i)=>
+        `<span style="color:${PLAYER_COLORS[i]}">▬ ${p.name}</span>`).join('')}</div>
+      <div class="st-balken">${balken}</div>
+      <h3>Eigenes Lager</h3>
+      <div class="st-waren">${waren||'<i>nichts eingelagert</i>'}</div>
+    </div>`;
+    $('#stats').classList.remove('hidden');
+    $('#st-x').onclick=()=>{ Sound.sfx('tap'); $('#stats').classList.add('hidden'); };
+    document.querySelectorAll('#stats .tab').forEach(t=>
+      t.onclick=()=>{ Sound.sfx('tap'); this.openStats(t.dataset.f); });
+    this.zeichneKurve($('#st-kurve'), akt);
+  }
+  zeichneKurve(cv, feld){
+    const g=this.game, s=g.stats, c=cv.getContext('2d');
+    const W=cv.width, H=cv.height, L=42, Rr=10, O=10, U=24;
+    c.clearRect(0,0,W,H);
+    c.fillStyle='rgba(12,18,28,0.55)'; c.fillRect(0,0,W,H);
+    const n=s.t.length;
+    let max=1;
+    for(const sp of s.spieler) for(const v of sp[feld]) if(v>max) max=v;
+    // Gitter mit runden Stufen
+    const stufe=Math.pow(10,Math.floor(Math.log10(max)));
+    const schritt=(max/stufe>5? 2 : max/stufe>2? 1 : 0.5)*stufe;
+    c.font='12px system-ui, sans-serif'; c.textBaseline='middle';
+    for(let v=0; v<=max+1e-6; v+=schritt){
+      const y=H-U-(H-U-O)*(v/max);
+      c.strokeStyle='rgba(201,160,90,0.18)'; c.lineWidth=1;
+      c.beginPath(); c.moveTo(L,y+0.5); c.lineTo(W-Rr,y+0.5); c.stroke();
+      c.fillStyle='#b9c6d8'; c.textAlign='right'; c.fillText(String(Math.round(v)), L-6, y);
+    }
+    if(n<2){
+      c.fillStyle='#b9c6d8'; c.textAlign='center';
+      c.fillText('Noch keine Messwerte – die erste Kurve entsteht nach einer halben Minute.', W/2, H/2);
+      return;
+    }
+    // Zeitachse: Minuten. Die aeussersten Beschriftungen werden nach innen
+    // gesetzt, sonst schneidet der Bildrand sie an ("14 m").
+    c.fillStyle='#b9c6d8';
+    for(let k=0;k<=4;k++){
+      const x=L+(W-Rr-L)*k/4;
+      const t=s.t[Math.min(n-1, Math.round((n-1)*k/4))];
+      c.textAlign= k===0? 'left' : k===4? 'right' : 'center';
+      c.fillText(Math.floor(t/600)+' min', x, H-10);
+    }
+    for(let p=0;p<s.spieler.length;p++){
+      const arr=s.spieler[p][feld];
+      c.strokeStyle=PLAYER_COLORS[p]; c.lineWidth= p===0? 3 : 2;
+      c.beginPath();
+      for(let i=0;i<n;i++){
+        const x=L+(W-Rr-L)*(n===1?0:i/(n-1));
+        const y=H-U-(H-U-O)*((arr[i]||0)/max);
+        if(i===0) c.moveTo(x,y); else c.lineTo(x,y);
+      }
+      c.stroke();
+    }
   }
   toast(txt, type='info', node=-1){
     const t=$('#msg-toast');
