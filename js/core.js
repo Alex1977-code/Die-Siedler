@@ -124,7 +124,18 @@ export const STYPE_LIST = Object.keys(STYPES);
 export const PLAYER_COLORS = ['#4a6d9c','#a84a38','#c2a24e','#7d5a8a'];
 export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 
-export const START_GOODS = { trunk:12, board:24, stone:16, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:10, pick:3, axe:3, saw:2, scythe:2, rod:2, cleaver:1, shovel:3 };
+// R2: Die Startkiste sah mit 23 Warenarten reich aus, war aber falsch
+// gepackt. Gemessen (Spieler 0 als KI, drei Saaten, 20 Spielminuten):
+//   - BRETTER waren nach 1 bis 3 Minuten aufgebraucht. Sie sind das einzige,
+//     was wirklich bindet - alle 34 baubaren Haeuser kosten sie.
+//   - WERKZEUG lag dagegen als totes Gewicht herum: 26 Stueck zum Start,
+//     nach 20 Minuten 60 Haemmer, 37 Spitzhacken, 20 Saegen, Sensen, Angeln
+//     und Beile. Spitzhacke, Sense, Angel und Beil wurden in keiner Saat
+//     jemals unter den Startbestand gedrueckt - der Werkzeugschmied hatte
+//     die ersten zwanzig Minuten schlicht keinen Grund zu existieren.
+// Die Kiste enthaelt deshalb jetzt mehr von dem, was die Eroeffnung
+// wirklich braucht, und weniger von dem, was nur im Lager lag.
+export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:6, pick:2, axe:2, saw:1, scythe:1, rod:1, cleaver:1, shovel:2 };
 
 // ---------- Militär-Kennzahlen ----------
 // KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js
