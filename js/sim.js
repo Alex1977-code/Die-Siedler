@@ -245,6 +245,16 @@ export class Game {
         (m.flag[q] || this.roadAt(q) ||
          (m.owner[q]===player && m.terrOkRoad(q) && m.bld[q]<0 && this.roadObjOk(q) && !this.unterHaus(q))));
       if(!ausgang) return {ok:false, r:'Eingang wäre eingeschlossen'};
+      // Und jetzt die entscheidende Frage, die bisher NIEMAND gestellt hat:
+      // kommt von dieser Tuer ueberhaupt je eine Strasse ans Wegenetz? Der
+      // eigene Bauschatten zaehlt dabei mit - das neue Haus verstellt sich
+      // sonst selbst den Ausgang.
+      const ne=this.netzErreichbar(player);
+      if(ne.netz.size && !ne.netz.has(tuer)){
+        const eig=new Set(this.schattenBand(type, node));
+        const geht=m.nbs(tuer).some(q=> !eig.has(q) && (ne.netz.has(q) || ne.R.has(q)));
+        if(!geht) return {ok:false, r:'Kein Weg von dort zum Wegenetz'};
+      }
     }
     // Fischer: ohne erreichbares Ufer in Gehweite faengt dort nie jemand
     // etwas - solche Plaetze werden gar nicht erst angeboten. Die Antwort
@@ -567,6 +577,49 @@ export class Game {
     return set;
   }
   unterHaus(n){ return this.bauSchatten().has(n); }
+  // Von welchen Knoten aus kommt ueberhaupt noch eine Strasse ans Wegenetz?
+  //
+  // netLandOk hat bisher nur den LAND-Zusammenhang geprueft - Fahnen,
+  // Strassen und Bauschatten blieben aussen vor. Gemessen: nach vier
+  // regulaeren Gebaeuden waren 54 Bauplaetze laut canBuild legal und davon
+  // KEIN EINZIGER anschliessbar. Der Spieler baut sich zu, die KI setzt
+  // Baustellen, die sie 3000 Ticks spaeter wieder abreisst.
+  //
+  // Statt je Bauplatz einen A*-Lauf zu starten (canBuild wird beim Anzeigen
+  // der Baupunkte hundertfach gerufen) wird EINMAL je Netz- und Bauzustand
+  // geflutet: von den Netzfahnen aus ueber alle Knoten, die als
+  // Strassen-Zwischenstueck taugen. Fahnen sind dabei Endpunkte, keine
+  // Durchgaenge - genau wie in roadPath.
+  netzErreichbar(player){
+    const key=player+'|'+this.routeVer+'|'+(this.bldVer||0)+'|'+(this.gebietVer||0);
+    if(this._netzE && this._netzE.key===key) return this._netzE;
+    const m=this.map;
+    const netz=new Set();
+    const stores=this.storesOf(player);
+    const comps=new Set();
+    for(const s of stores){
+      if(s.door>=0) netz.add(s.door);
+      const c=this.compOf(s.door);
+      if(c!==undefined) comps.add(c);
+    }
+    for(const r of this.roads.values()){
+      if(r.player!==player) continue;
+      for(const f of [r.path[0], r.path[r.path.length-1]])
+        if(comps.has(this.compOf(f))) netz.add(f);
+    }
+    const onRoad=new Set();
+    for(const r of this.roads.values())
+      r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
+    const frei=(n)=> !m.flag[n] && m.owner[n]===player && m.terrOkRoad(n) && m.bld[n]<0
+                     && this.roadObjOk(n) && !this.unterHaus(n) && !onRoad.has(n);
+    const R=new Set(), q=[];
+    for(const f of netz)
+      for(const n of m.nbs(f)) if(frei(n) && !R.has(n)){ R.add(n); q.push(n); }
+    for(let i=0;i<q.length;i++)
+      for(const n of m.nbs(q[i])) if(frei(n) && !R.has(n)){ R.add(n); q.push(n); }
+    this._netzE={key, netz, R};
+    return this._netzE;
+  }
   // Bauschatten-Vorschau für einen BAUKANDIDATEN: dieselbe Bildmaß-Formel
   // wie bauSchatten(), nur für ein einzelnes, noch ungebautes Gebäude.
   schattenBand(type, node){
@@ -945,6 +998,11 @@ export class Game {
 
   // ---------- Territorium ----------
   recalcTerritory(){
+    // Gebietsstand mitzaehlen: netzErreichbar() haengt an m.owner, sein
+    // Zwischenspeicher kannte aber nur Wege- und Bauzustand. Nach einer
+    // Grenzverschiebung blieb die Maske deshalb stehen - und weil ohne neue
+    // Bauplaetze weder Weg noch Gebaeude dazukommen, taute sie nie wieder auf.
+    this.gebietVer=(this.gebietVer||0)+1;
     const m=this.map; const n=m.w*m.h;
     const best=new Float32Array(n).fill(1e9);
     m.owner.fill(-1);
@@ -2244,6 +2302,22 @@ export class Game {
     const b=this.buildings.get(u.bld);
     if(!b || b.state!=='done'){ u.dead=true; return; }
     const m=this.map;
+    // Waechter: bleibt die Austragsfigur haengen (Tuerfahne unerreichbar, Weg
+    // durch einen Neubau verstellt), stand der ganze Betrieb bisher bis
+    // Spielende still - gemessen 15.000 Ticks bei einem KI-Saegewerk. Der
+    // Waechter in tickProduction greift dort nicht: er prueft nur, ob die
+    // Figur FEHLT, nicht ob sie feststeckt. Der Austrag dauert normal wenige
+    // Dutzend Ticks; nach 300 wird er von Hand abgeschlossen.
+    if(this.t-(u._t0||this.t) > 300){
+      if(u.carry){                       // Ware war noch nicht abgelegt
+        b.out=Math.min(6,(b.out||0)+1);
+        this.onProduce && this.onProduce(b);
+        u.carry=null;
+      }
+      u.dead=true;
+      if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+      return;
+    }
     if(u.state==='zurFahne'){
       const [fx,fy]=m.worldPos(b.door);
       if(this.moveToward(u,fx,fy,WALK_SPEED)){
