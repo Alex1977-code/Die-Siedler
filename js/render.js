@@ -7804,16 +7804,32 @@ export class Renderer {
         const [dx,dy]=this.doorVisualPos(b.door);
         if(dx<wx0-160||dx>wx1+160||dy<wy0-160||dy>wy1+160) continue;
         const [bx,by]=m.worldPos(b.node);
+        // Der Platz gehoert vors TOR, nicht vor die Bildmitte - dieselbe
+        // Torlage wie beim Stummel.
+        const bf2=game.bldFoot && game.bldFoot[b.type];
+        const tx4=(TUER_X[b.type]!==undefined) ? TUER_X[b.type] : 0.5;
+        const torX2= bf2 ? bx+(tx4-0.5)*bf2[0] : bx;
         // Schwerpunkt zwischen Tor und Hauswand: der Platz reicht bis unter
         // die Schwelle, läuft aber nicht hinter dem Haus in die Wiese aus
-        const cx=dx+(bx-dx)*0.34, cy=dy+((by+6)-dy)*0.34;
-        const rw= b.type==='hq'? 56 : def.size==='M'? 38 : 31;
+        const cx=dx+(torX2-dx)*0.34, cy=dy+((by+6)-dy)*0.34;
+        // Der Platz war mit 0,52 auf halbe Hoehe gequetscht - ein 2:1 platter
+        // Fleck neben den RUNDEN Steinen der Wegkacheln, die unverzerrt
+        // gezeichnet werden. Nachgerechnet ist die Bodenebene aber fast gar
+        // nicht verkuerzt: waagerechter Nachbar 52 Weltpixel, diagonaler 51,1;
+        // ein regelmaessiges Dreiecksgitter braeuchte 45,0 Zeilenhoehe und hat
+        // 44,0 - Verkuerzung 0,977. Genau so viel wird jetzt gestaucht.
+        const KIPP=0.977;
+        // Weil der Platz dadurch fast doppelt so hoch wird, muss der Radius
+        // mit: sqrt(0.52/0.977) = 0,73. Beim HQ zusaetzlich kleiner - 56 ergab
+        // 112 Weltpixel Breite, mehr als zwei Rasterzellen, und las sich als
+        // Schmutzsaum entlang der ganzen Burgfront statt als Vorplatz.
+        const rw= b.type==='hq'? 32 : def.size==='M'? 27 : 22;
         const sp=this.plazaSprite(pl, rw*2);
         if(!sp) continue;
         g.save();
         g.globalAlpha=0.86;
         g.translate(cx, cy);
-        g.scale(1, 0.52);                   // in die Bodenebene gekippt
+        g.scale(1, KIPP);
         g.drawImage(sp, -rw, -rw, rw*2, rw*2);
         g.restore();
       }
