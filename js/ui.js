@@ -144,6 +144,7 @@ export class UI {
         <h2>Optionen</h2>
         <label class="opt"><input type="checkbox" id="o-sfx"> Soundeffekte</label>
         <label class="opt"><input type="checkbox" id="o-music"> Musik</label>
+        <label class="opt"><input type="checkbox" id="o-tilt"> Weichzeichner am Bildrand</label>
         <p class="note">Tipp: Füge das Spiel über das Browser-Menü zum Startbildschirm hinzu, um es
         wie eine App im Vollbild zu spielen – auch offline.</p>
         <button class="mbtn back" data-back>Zurück</button>
@@ -262,6 +263,15 @@ export class UI {
     $('#o-music').checked=this.opts.music;
     $('#o-sfx').onchange=(e)=>{ this.opts.sfx=e.target.checked; Sound.setSfx(this.opts.sfx); SAVE.setOptions(this.opts); };
     $('#o-music').onchange=(e)=>{ this.opts.music=e.target.checked; Sound.setMusic(this.opts.music); SAVE.setOptions(this.opts); };
+    // Weichzeichner am Bildrand (Tilt-Shift). Er liest jedes Bild zweimal aus
+    // dem Canvas zurueck; auf schwacher Grafik ist das der groesste einzelne
+    // Posten der Bildzeit. Wer lieber fluessig spielt, schaltet ihn ab.
+    const tiltAn=(this.opts.tilt!==false);
+    $('#o-tilt').checked=tiltAn;
+    if(this.renderer) this.renderer.tiltAus=!tiltAn;
+    $('#o-tilt').onchange=(e)=>{ this.opts.tilt=e.target.checked;
+      if(this.renderer) this.renderer.tiltAus=!e.target.checked;
+      SAVE.setOptions(this.opts); };
     // Schwierigkeitsgrad (gemerkt für Kampagne und freies Spiel)
     const diffInit=this.opts.diff||'normal';
     for(const id of ['#c-diff','#f-diff']){

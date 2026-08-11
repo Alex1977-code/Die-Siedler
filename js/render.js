@@ -8578,7 +8578,7 @@ export class Renderer {
     // keine High-Quality-Filterung – das kostete pro Band einen teuren
     // Lese-/Resampling-Pass und verdoppelte die Frametime; auf iOS lief
     // dieser Pfad schon immer) und daraus zwei Vergrößerungs-Züge je Band.
-    {
+    if(!this.tiltAus) {
       const dpr=this.dpr, band=Math.round(this.vh*0.14);
       const b2=Math.round(band*0.55);
       const K=4;                                  // Verkleinerungsfaktor
@@ -8586,14 +8586,30 @@ export class Renderer {
       const shTop=Math.max(1,Math.round((band+b2)/K));
       if(!this._tsTmp) this._tsTmp=document.createElement('canvas');
       const t=this._tsTmp;
-      if(t.width!==sw2||t.height!==shTop*2){ t.width=sw2; t.height=shTop*2; }
+      const neu=(t.width!==sw2||t.height!==shTop*2);
+      if(neu){ t.width=sw2; t.height=shTop*2; }
       const tg2=t.getContext('2d');
-      tg2.globalCompositeOperation='copy';
-      // oberes und unteres Band in EINEM kleinen Canvas (bilinear)
-      tg2.drawImage(this.cv, 0,0,this.cv.width,(band+b2)*dpr, 0,0,sw2,shTop);
-      tg2.globalCompositeOperation='source-over';
-      tg2.drawImage(this.cv, 0,this.cv.height-(band+b2)*dpr,this.cv.width,(band+b2)*dpr,
-                    0,shTop,sw2,shTop);
+      // Der Schnappschuss liest aus DEM CANVAS ZURUECK, IN DAS GERADE
+      // GEZEICHNET WIRD. Das ist auf jedem Geraet mit GPU ein Haltepunkt:
+      // die Grafikeinheit muss alles bisher Aufgetragene fertigstellen,
+      // bevor gelesen werden darf. Zweimal je Bild.
+      //
+      // Die Baender sind stark weichgezeichnet - ein Schnappschuss von
+      // vorgestern faellt darin nicht auf, solange die Kamera steht. Also
+      // nur auffrischen, wenn sich die Kamera bewegt hat, und sonst
+      // hoechstens jedes dritte Bild.
+      const bewegt = !this._tsCam || Math.abs(this._tsCam.x-cam.x)>0.5
+                     || Math.abs(this._tsCam.y-cam.y)>0.5 || this._tsCam.z!==cam.z;
+      this._tsZaehl=(this._tsZaehl||0)+1;
+      if(neu || bewegt || this._tsZaehl%3===0){
+        this._tsCam={x:cam.x, y:cam.y, z:cam.z};
+        tg2.globalCompositeOperation='copy';
+        // oberes und unteres Band in EINEM kleinen Canvas (bilinear)
+        tg2.drawImage(this.cv, 0,0,this.cv.width,(band+b2)*dpr, 0,0,sw2,shTop);
+        tg2.globalCompositeOperation='source-over';
+        tg2.drawImage(this.cv, 0,this.cv.height-(band+b2)*dpr,this.cv.width,(band+b2)*dpr,
+                      0,shTop,sw2,shTop);
+      }
       const fTop=shTop/(band+b2);                 // Kleinbild-px je Bild-px
       // starkes Band aussen, halbstarkes innen (wie zuvor 2.4/1.2)
       g.globalAlpha=1;
