@@ -1132,8 +1132,17 @@ export class Renderer {
     // Erzader am Chunk-Rand, Aufloesungswechsel beim Zoomen) bauen sich
     // über die nächsten Frames verteilt neu auf, statt in EINEM Frame zu
     // ruckeln.
-    if(c && this._chunkBudget!==undefined){
-      if(this._chunkBudget<=0){ c.used=this.time; return c; }
+    // Die Bremse galt nur fuer VERALTETE Chunks (c vorhanden). Ein Chunk,
+    // den es noch gar nicht gibt, buk bisher IMMER sofort - beim Schwenken in
+    // unbekanntes Gelaende also alle neu sichtbaren in EINEM Bild. Gemessen
+    // waren das Bilder von 1,6 bis 2,0 Sekunden gegen 131 ms sonst.
+    // Jetzt gilt das Budget fuer beide Faelle. Ist es aufgebraucht, kommt der
+    // alte Stand zurueck - oder null, wenn es noch gar keinen gibt; der
+    // Aufrufer laesst die Kachel dann eben ein, zwei Bilder lang weg. Ein
+    // kurz fehlender Fleck am Bildrand faellt weit weniger auf als ein
+    // Standbild von einer Sekunde.
+    if(this._chunkBudget!==undefined){
+      if(this._chunkBudget<=0){ if(c){ c.used=this.time; return c; } return null; }
       this._chunkBudget--;
     }
     const m=this.game.map;
@@ -4702,15 +4711,28 @@ export class Renderer {
   // Weiche Kante direkt in die Form gezeichnet: die Kontur wird mehrfach in
   // abnehmender Größe gefüllt. Braucht keinen Filter und keine Zwischenfläche.
   softShape(g, path, cx, cy, steps=6){
+    // EIN save/restore fuer alle Stufen statt eines je Stufe. Gemessen wurde
+    // softShape 358 Mal je Chunk-Backen gerufen - bei sechs Stufen waren das
+    // 2148 Speicherpunkte, die allein 157 der 707 Millisekunden eines Backens
+    // kosteten (die Fuellungen selbst nur 6,7). save() ist teuer, sobald ein
+    // Clip-Pfad aktiv ist, und im Backen ist fast immer einer aktiv.
+    //
+    // Statt jede Stufe aus demselben Ausgangszustand zu skalieren, wird
+    // SCHRITTWEISE weiterskaliert: Skalierungen um denselben Festpunkt
+    // multiplizieren sich, S(cx,cy,a) danach S(cx,cy,b) ist S(cx,cy,a*b).
+    // Das Ergebnis ist Pixel fuer Pixel dasselbe.
+    g.save();
+    let vor=0;
     for(let k=0;k<steps;k++){
       const sc=1.18-k*(0.42/steps);
-      g.save();
-      g.translate(cx,cy); g.scale(sc,sc); g.translate(-cx,-cy);
+      const f= k===0 ? sc : sc/vor;
+      vor=sc;
+      g.translate(cx,cy); g.scale(f,f); g.translate(-cx,-cy);
       g.globalAlpha=k===steps-1? 1 : 0.30;
       path();
       g.fill();
-      g.restore();
     }
+    g.restore();
     g.globalAlpha=1;
   }
   // Gouraud-Schattierung: die drei Eckfarben werden über die Dreiecksfläche
@@ -7380,19 +7402,35 @@ export class Renderer {
         this._liftC=null;   // Anhebung haengt an den Minenknoten
       }
     }
-    // hoechstens 2 veraltete Chunks je Frame neu aufbauen; im teureren
-    // 2x-Bake (G3) nur 1 – die Nachbauten verteilen sich auf mehr Frames
-    this._chunkBudget= (this._chunkScale===2)? 1 : 2;
+    // HOECHSTENS EIN Chunk je Frame. Gemessen kostet ein Backen rund 700 ms
+    // (Software-Rasterung, auf einem Geraet mit Grafikeinheit entsprechend
+    // weniger) - zwei in einem Frame verdoppeln den Hakler direkt. Die
+    // Bildzeitverteilung beim Schwenken zeigte es deutlich: Bilder ohne
+    // Backen 131 ms, Bilder MIT Backen 1766 ms. Ein Chunk weniger je Frame
+    // halbiert den schlimmsten Fall; die Nachbauten verteilen sich dafuer
+    // auf mehr Frames, was genau richtig ist.
+    this._chunkBudget=1;
     // Kritik G3: Bake-Aufloesung an devicePixelRatio*Zoom koppeln. Ueber
-    // q=1.75 backen Chunks doppelt aufgeloest (Fels so scharf wie die
-    // Baeume), unter 1.35 wieder einfach – die Hysterese verhindert
-    // Rebake-Pendeln beim Pinch. Der Wechsel invalidiert die Chunks ueber
-    // den c.scale-Vergleich in getChunk, verteilt aufs Frame-Budget.
+    // q=3.0 backen Chunks doppelt aufgeloest, unter q=2.3 wieder einfach –
+    // die Hysterese verhindert Rebake-Pendeln beim Pinch. Der Wechsel
+    // invalidiert die Chunks ueber den c.scale-Vergleich in getChunk,
+    // verteilt aufs Frame-Budget.
+    //
+    // Die Schwelle lag frueher bei 1,75. Auf dem Handy ist dpr auf 2
+    // gedeckelt (ui.js), der Startzoom ist 1,1 -> q=2,2: JEDER Chunk wurde
+    // dort doppelt aufgeloest gebacken. Gemessen kostet das 1,61x
+    // (Mittel 331 -> 534 ms, Maximum 581 -> 983 ms je Chunk) - und genau
+    // dieses Backen ist der Hakler beim Schwenken. Der Schaerfegewinn ist
+    // dagegen winzig: die Kantenenergie eines Gelaendeausschnitts liegt bei
+    // S=1 nur 3,9 % unter S=2, und im Bildvergleich wirkt S=1 sogar
+    // ruhiger (die Grasbueschel werden bei S=2 zu kratzigen Strichen).
+    // Ab Zoom 1,5 (q=3,0) schaltet es weiter hoch - da schaut man wirklich
+    // auf Einzelheiten, und es sind weniger Chunks im Bild.
     {
       const q=this.dpr*cam.z;
       const cs=this._chunkScale||1;
-      if(cs===1 && q>1.75) this._chunkScale=2;
-      else if(cs===2 && q<1.35) this._chunkScale=1;
+      if(cs===1 && q>3.0) this._chunkScale=2;
+      else if(cs===2 && q<2.3) this._chunkScale=1;
       else if(!this._chunkScale) this._chunkScale=cs;
     }
     const halfW=this.vw/2/cam.z, halfH=this.vh/2/cam.z;
@@ -7403,6 +7441,7 @@ export class Renderer {
     for(let cy=Math.max(0,cy0); cy<=Math.min(Math.ceil(m.h/CHUNK)-1,cy1); cy++)
       for(let cx=Math.max(0,cx0); cx<=Math.min(Math.ceil(m.w/CHUNK)-1,cx1); cx++){
         const c=this.getChunk(cx,cy);
+        if(!c) continue;               // noch nicht gebacken, kommt im naechsten Bild
         // Nur den SICHTBAREN Ausschnitt zeichnen (Quellrechteck in
         // Bake-Pixeln, Ziel in Weltpixeln): das Herunterfiltern des ganzen
         // hochaufgeloesten Canvas (G3) kostete sonst ein Vielfaches des
@@ -7414,6 +7453,33 @@ export class Renderer {
         g.drawImage(c.cv, (ix0-c.ox)*sc, (iy0-c.oy)*sc, (ix1-ix0)*sc, (iy1-iy0)*sc,
                     ix0, iy0, ix1-ix0, iy1-iy0);
       }
+    // VORAUSBACKEN: ist in diesem Bild kein sichtbarer Chunk gebaut worden,
+    // wird EIN Chunk aus dem Ring knapp ausserhalb des Blickfelds vorbereitet.
+    // Der Hakler faellt damit in ein ruhiges Bild statt mitten in den Schwenk -
+    // und beim Schwenken steht das Gelaende schon bereit.
+    //
+    // Der Ring kostet Speicher: jeder Chunk ist bei S=1 rund 2,8 MB, bei S=2
+    // das Vierfache. Sichtfeld plus Ring sind schnell 40 Stueck - auf dem Handy
+    // waeren das bei S=2 ueber 200 MB Bildspeicher, und ein Betriebssystem, das
+    // Canvas-Puffer wegwirft und neu anfordert, ruckelt schlimmer als jedes
+    // Backen. Darum zwei getrennte Schritte:
+    //   1) ANFASSEN: alle Ring-Chunks als "eben gebraucht" markieren, damit die
+    //      Speicherbremse in getChunk sie nicht wegwirft und im naechsten Bild
+    //      neu backen laesst (Pendeln).
+    //   2) BACKEN: hoechstens einer, und nur solange das Speicherbudget reicht.
+    {
+      const rx0=Math.max(0,cx0-1), rx1=Math.min(Math.ceil(m.w/CHUNK)-1,cx1+1);
+      const ry0=Math.max(0,cy0-1), ry1=Math.min(Math.ceil(m.h/CHUNK)-1,cy1+1);
+      let mem=0; for(const cc of this.chunks.values()) mem+=cc.mem||1;
+      const platz = mem < 34;
+      for(let cy=ry0; cy<=ry1; cy++)
+        for(let cx=rx0; cx<=rx1; cx++){
+          if(cx>=cx0 && cx<=cx1 && cy>=cy0 && cy<=cy1) continue;   // war schon dran
+          const cc=this.chunks.get(this.chunkKey(cx,cy));
+          if(cc){ cc.used=this.time; continue; }
+          if(platz && this._chunkBudget>0) this.getChunk(cx,cy);
+        }
+    }
     const x0=Math.max(0,Math.floor(wx0/TILE)-1), x1=Math.min(m.w-1,Math.ceil(wx1/TILE)+1);
     const y0=Math.max(0,Math.floor(wy0/ROWH)-2), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+6);
     // Fischschwärme zeigen ergiebige Fanggründe an (Anzahl = Bestand)
