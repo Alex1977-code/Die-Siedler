@@ -1126,7 +1126,11 @@ export class Renderer {
     // S bestimmt draw() aus dpr*zoom mit Hysterese (this._chunkScale).
     const S=this._chunkScale||1;
     let c=this.chunks.get(key);
-    if(c && c.ver===ver && c.scale===S){ c.used=this.time; return c; }
+    const veraltet = !c || c.ver!==ver || c.scale!==S;
+    // Ein grob gebackener Chunk (Gebirgspaesse ausgelassen, siehe draw()) gilt
+    // als nachbesserungsbeduerftig - aber erst, wenn die Kamera steht.
+    const feinNoetig = !!(c && c.grob && this._feinFrei);
+    if(!veraltet && !feinNoetig){ c.used=this.time; return c; }
     // Veralteter Chunk, aber Frame-Budget aufgebraucht? Dann diesmal den
     // alten Stand zeigen – mehrere gleichzeitig ungültige Chunks (frische
     // Erzader am Chunk-Rand, Aufloesungswechsel beim Zoomen) bauen sich
@@ -1168,8 +1172,11 @@ export class Renderer {
       }
       c={cv:document.createElement('canvas')}; this.chunks.set(key,c);
     }
+    // Grobfassung nur fuer wirklich neue/veraltete Chunks waehrend der
+    // Bewegung; das Nachschaerfen im Stillstand laeuft ueber feinNoetig.
+    const grob = veraltet && !!this._grobBake;
     c.used=this.time;
-    c.ver=ver;
+    c.ver=ver; c.grob=grob;
     c.scale=S; c.mem=S*S; c.dw=w; c.dh=h;
     c.ox=cx*CHUNK*TILE-pad; c.oy=cy*CHUNK*ROWH-pad-HSCALE*6;
     if(c.cv.width!==W2 || c.cv.height!==H2){ c.cv.width=W2; c.cv.height=H2; }
@@ -1226,8 +1233,10 @@ export class Renderer {
     // Kante als Haarlinie. Die Flaeche beginnt bei cy*528-234 (pad 78 plus
     // HSCALE*6=156 Kopffreiheit fuer hohe Knoten); Zeile cy*CHUNK-3 liegt
     // aber erst bei cy*528-132. Sechs Zeilen Vorlauf reichen (-264), unten
-    // deckt cy*CHUNK+15 den Rand bei cy*528+658 ab.
-    const x0=cx*CHUNK-3, y0=cy*CHUNK-6, x1=x0+CHUNK+6, y1=cy*CHUNK+15;
+    // deckt cy*CHUNK+CHUNK+3 den Rand bei cy*528+658 ab (drei Zeilen hinter
+    // dem eigenen Chunkende - frueher als feste 15 geschrieben, was dasselbe
+    // ergibt, solange CHUNK 12 ist).
+    const x0=cx*CHUNK-3, y0=cy*CHUNK-6, x1=x0+CHUNK+6, y1=cy*CHUNK+CHUNK+3;
     for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
       for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
         const i=m.idx(x,y);
@@ -1439,6 +1448,12 @@ export class Renderer {
         g.drawImage(this._blurTmp,0,0,w,h);
         g.restore();
       }
+      // GROBBACKEN (siehe draw()): waehrend die Kamera laeuft, bleiben die
+      // drei Gebirgspaesse - Massiv, Bergfuss, Schlagschatten - weg. Sie
+      // machen gemessen drei Viertel der Backzeit eines Felschunks aus. Die
+      // Einruecktiefe der drei Bloecke bleibt absichtlich unveraendert: neu
+      // einzuruecken wuerde 2900 Zeilen anfassen, ohne eine davon zu aendern.
+      if(!grob){
       // ---------- Bergmassiv: blockig facettierter Fels ----------
       // Referenzstil (Fels-Referenzbilder): große FLACHE Facetten mit klaren
       // Kanten, DREI Tonwerte (helle Deckflächen, mittlere lichtzugewandte
@@ -4343,6 +4358,44 @@ export class Renderer {
                       c.ox+sbx0, c.oy+sby0, sbw, sbh);
         g.globalAlpha=1;
       }
+      } else {
+        // GROBFASSUNG: eine flache Felsdecke statt des Facettenpasses. Ohne
+        // sie bliebe der Fels in der Farbe des Gouraud-Netzes stehen - und
+        // die ist an hohen Knoten nahezu weiss, weil der Massiv-Pass sie
+        // sonst vollstaendig ueberdeckt; das Gebirge sah beim Schwenken aus
+        // wie ein Schneefeld. Zwei flache Fuellungen je Knoten, dieselbe
+        // Anhebung (liftOf) wie im echten Pass, damit beim Nachschaerfen
+        // nichts springt.
+        const PG=this.rockPal();
+        const posG=(q)=>{ const v=m.worldPos(q); const L=liftOf(q); if(L>0) v[1]-=L*HSCALE; return v; };
+        const ton=(t)=>{
+          const k=Math.max(0,Math.min(2.999, 1+t*2));   // PG[1]..PG[3]
+          const a2=PG[k|0], b2=PG[(k|0)+1]||PG[k|0], f=k-(k|0);
+          return 'rgb('+((a2[0]+(b2[0]-a2[0])*f)|0)+','+((a2[1]+(b2[1]-a2[1])*f)|0)
+                 +','+((a2[2]+(b2[2]-a2[2])*f)|0)+')';
+        };
+        const [glo,ghi]=this.massifHiLo();
+        const gspan=(ghi-glo)||1;
+        g.save(); g.translate(-c.ox,-c.oy);
+        g.globalCompositeOperation='source-over';
+        const drei=(a2,b2,c2)=>{
+          if(!isMassif(a2)||!isMassif(b2)||!isMassif(c2)) return;
+          const A=posG(a2), B=posG(b2), C=posG(c2);
+          const hh=(m.hgt[a2]+m.hgt[b2]+m.hgt[c2])/3;
+          g.fillStyle=ton(Math.max(0,Math.min(1,(hh-glo)/gspan)));
+          g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]);
+          g.lineTo(C[0],C[1]); g.closePath(); g.fill();
+        };
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+          for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+            const i=m.idx(x,y), p2=y&1;
+            const iE = x+1<m.w ? m.idx(x+1,y) : i;
+            const iSW = m.inb(x-1+p2,y+1)? m.idx(x-1+p2,y+1) : i;
+            const iSE = m.inb(x+p2,y+1)? m.idx(x+p2,y+1) : i;
+            drei(i,iE,iSE); drei(i,iSE,iSW);
+          }
+        g.restore();
+      }   // Ende Grobbacken-Ausnahme (Massiv + Bergfuss + Schlagschatten)
       // Reliefpass: Höhengradient als Graustufenrelief, weichgezeichnet und
       // im Weichlicht-Modus aufgelegt -> Hänge, Kuppen und Senken werden sichtbar
       {
@@ -7410,6 +7463,31 @@ export class Renderer {
     // halbiert den schlimmsten Fall; die Nachbauten verteilen sich dafuer
     // auf mehr Frames, was genau richtig ist.
     this._chunkBudget=1;
+    // GROBBACKEN WAEHREND DER BEWEGUNG. Gemessen kostet ein Chunk MIT Fels
+    // 475 ms, einer ohne Fels 129 ms - der Hakler haengt am Gebirge, nicht an
+    // der Wiese. Der Massiv-, Bergfuss- und Schlagschattenpass macht also drei
+    // Viertel der Arbeit. Solange die Kamera laeuft, wird ein NEUER Chunk
+    // deshalb ohne diese drei Paesse gebacken: der Fels behaelt die Farbe aus
+    // dem Gouraud-Netz, das Gelaende ist vollstaendig und richtig eingefaerbt,
+    // nur die Facetten, das Geroellband und der Schlagschatten fehlen. Sobald
+    // die Kamera steht, wird jeder solche Chunk mit einem Bild Abstand fein
+    // nachgebacken. Man schwenkt also ueber ein schlichteres Gebirge und sieht
+    // es sich danach in voller Zeichnung an - statt bei jedem neuen Bergchunk
+    // eine halbe Sekunde stillzustehen.
+    {
+      const lk=this._grobCam;
+      this._grobBake = !!lk && (Math.abs(lk.x-cam.x)>0.5 || Math.abs(lk.y-cam.y)>0.5
+                                || Math.abs(lk.z-cam.z)>0.002);
+      this._grobCam={x:cam.x,y:cam.y,z:cam.z};
+      // Nachgeschaerft wird erst nach 15 ruhigen Bildern und dann nur jedes
+      // achte. Eine Feinfassung kostet den vollen Gebirgspreis; ohne Wartezeit
+      // schlug sie in jede kurze Denkpause mitten im Schwenken, ohne Takt
+      // reihten sich nach dem Schwenk ein Dutzend solcher Bilder aneinander.
+      // So bleibt das Ziehen ununterbrochen, und wer stehen bleibt, sieht das
+      // Gebirge ueber ein, zwei Sekunden nachziehen.
+      this._ruhig = this._grobBake? 0 : (this._ruhig||0)+1;
+      this._feinFrei = this._ruhig>15 && this._ruhig%8===0;
+    }
     // Kritik G3: Bake-Aufloesung an devicePixelRatio*Zoom koppeln. Ueber
     // q=3.0 backen Chunks doppelt aufgeloest, unter q=2.3 wieder einfach –
     // die Hysterese verhindert Rebake-Pendeln beim Pinch. Der Wechsel
@@ -7476,6 +7554,11 @@ export class Renderer {
         for(let cx=rx0; cx<=rx1; cx++){
           if(cx>=cx0 && cx<=cx1 && cy>=cy0 && cy<=cy1) continue;   // war schon dran
           const cc=this.chunks.get(this.chunkKey(cx,cy));
+          // Der Ring wird NICHT nachgeschaerft: er ist unsichtbar, und jede
+          // Feinfassung kostet den vollen Gebirgspreis. Gemessen stieg das
+          // schlimmste Bild im Stillstand dadurch von 260 auf 812 ms - man
+          // haette den Hakler vom Schwenken ins Stehen verschoben statt ihn
+          // loszuwerden. Ein Ringchunk wird fein, sobald er sichtbar wird.
           if(cc){ cc.used=this.time; continue; }
           if(platz && this._chunkBudget>0) this.getChunk(cx,cy);
         }
