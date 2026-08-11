@@ -4766,7 +4766,13 @@ export class Renderer {
           // (fadedBrush/screeTile merken sich "Bild fehlt")
           // die Felsobjekte (obj_rockspire/crag/summit/cliff/glacier) wirken
           // ebenfalls in die Chunk-Caches: sie sind eingebackene Akzente
+          // fx_glanz und fx_schaum wirken in die WASSERSTEMPEL hinein: die
+          // werden einmal gebaut und danach nur noch aus _waterStamps
+          // gelesen. Laedt das Bild erst danach - und das tut es immer, das
+          // Laden laeuft asynchron -, bliebe der prozedurale Ersatz fuer
+          // immer eingebacken. Deshalb gehoeren sie in dieselbe Verwerfliste.
           if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')
+             ||key==='fx_glanz'||key==='fx_schaum'
              ||key.startsWith('obj_rockspire')||key.startsWith('obj_crag')
              ||key.startsWith('obj_summit')||key.startsWith('obj_cliff')
              ||key.startsWith('obj_glacier')) img.onload=()=>{
@@ -4776,6 +4782,7 @@ export class Renderer {
             this._felsPool=null;
             this._felsBox=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
+            this._waterStamps=null;       // Glanzlichter und Schaum neu stempeln
             this.chunks.clear();
           };
           img.src='assets/'+name;
