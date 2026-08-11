@@ -8032,12 +8032,27 @@ export class Renderer {
             let d=arr[0]-arr[1];
             while(d> Math.PI) d-=Math.PI*2;
             while(d<-Math.PI) d+=Math.PI*2;
-            if(Math.abs(Math.abs(d)-Math.PI)<0.35){ img=tStr; rot=arr[0]-Math.PI/2; }
-            else {
+            const oeff=Math.abs(d);
+            if(Math.abs(oeff-Math.PI)<0.35){ img=tStr; rot=arr[0]-Math.PI/2; }
+            else if(oeff>Math.PI/2){
               // Kurvenkachel: ihre Arme zeigen nach unten und nach rechts,
-              // die Winkelhalbierende also nach unten rechts (45 Grad)
+              // die Winkelhalbierende also nach unten rechts (45 Grad).
+              // Nachgemessen oeffnet road_cur um 116 Grad - das passt auf den
+              // 120-Grad-Knick des Sechseckgitters, aber NUR auf den.
               img=kCur;
               rot=Math.atan2(Math.sin(arr[0])+Math.sin(arr[1]), Math.cos(arr[0])+Math.cos(arr[1]))-Math.PI/4;
+            } else {
+              // Der SPITZE Knick (60 Grad). Hier lag die Kurvenkachel bisher
+              // mit 116 statt 60 Grad Oeffnung auf, jeder Arm also rund 28
+              // Grad quer zur Fahrbahn. Die Nabe ist rasterfest gezeichnet -
+              // gemessen sitzen ihre sechs Arme bei 0,4 / 61,7 / 116,1 /
+              // 180,5 / 242,9 / 297,1 Grad, also genau auf den echten
+              // Richtungen. Unrotiert deckt sie beide Arme exakt; die Arme
+              // ohne Weg schneidet der Band-Clip weg.
+              const hub2=this.asset('road_hub');
+              if(hub2){ img=hub2; rot=0; kind='hub'; }
+              else { img=kCur;
+                rot=Math.atan2(Math.sin(arr[0])+Math.sin(arr[1]), Math.cos(arr[0])+Math.cos(arr[1]))-Math.PI/4; }
             }
           }
           else {
