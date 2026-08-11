@@ -3615,10 +3615,22 @@ export class Game {
     const own=[];
     for(let i=0;i<m.owner.length;i+=1) if(m.owner[i]===p.id) own.push(i);
     const sampleN=Math.min(own.length, 340);
+    // Wie viel Bewegungsfreiheit hat das eigene Wegenetz noch? Danach richtet
+    // sich, wie stark ein Bauplatz bestraft wird, der Korridore zubaut.
+    const ne=this.netzErreichbar(p.id);
     for(let k=0;k<sampleN;k++){
       const i=own[(this.rng()*own.length)|0];
       if(!this.canBuild(p.id,type,i).ok) continue;
       let s=this.rng()*2;
+      // NICHT SELBST ZUBAUEN: das Bild eines Hauses sperrt die Knoten unter
+      // sich fuer jede Strasse. Wer seine letzten Korridore verbaut, kann
+      // danach gar nichts mehr anschliessen - genau so blieb die KI auf engen
+      // Startgebieten stehen. Je knapper der Rest, desto teurer der Verlust.
+      if(ne.R.size<120){
+        let frisst=0;
+        for(const q of this.schattenBand(type, i)) if(ne.R.has(q)) frisst++;
+        if(frisst) s -= frisst * (ne.R.size<40 ? 3.0 : 1.2);
+      }
       const nearNodes=this.nodesInRange(i, def.range||5);
       const un=(o)=>o&127;
       if(def.gather==='tree') s+=nearNodes.filter(n=>un(m.obj[n])===OBJ.TREE).length*1.2;
