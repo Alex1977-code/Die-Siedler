@@ -5,6 +5,12 @@ import { mulberry32 } from './core.js';
 
 export const TICK_MS = 100;           // 10 Sim-Ticks pro Sekunde (bei 1x)
 const FLAG_CAP = 8;
+// Wie lange ein Knoten fuer ein Gebaeude gesperrt bleibt, nachdem sich dort
+// eine Figur festgelaufen hat. Rund fuenf Spielminuten - lang genug, damit der
+// Kreislauf "immer wieder derselbe tote Knoten" bricht, kurz genug, dass ein
+// nur zeitweise verstellter Platz (Figur im Weg, Baustelle daneben) wieder
+// zurueck ins Spiel kommt.
+const TABU_DAUER = 3000;
 const CARRY_SPEED = 0.2;              // Knoten pro Tick
 const WALK_SPEED = 0.12;
 
@@ -804,6 +810,24 @@ export class Game {
   // gehoert. Bleibt doch eine liegen, ist sie fuer alle anderen unsichtbar und
   // die Baustelle wartet ewig. Der Durchlauf raeumt das auf und repariert
   // damit auch Spielstaende, die den Fehler schon eingefroren haben.
+  // Dasselbe Netz fuer die Karte: ein Baum/Steinhaufen traegt das
+  // Reserviert-Bit (128), solange eine Figur zu ihm unterwegs ist. Stirbt die
+  // Figur anders als ueber den Waechter - das Gebaeude brennt ab, das Gebiet
+  // geht verloren - bleibt das Bit stehen und der Baum ist fuer JEDEN
+  // Holzfaeller unsichtbar. Der Wald sieht dann voll aus und niemand faellt.
+  entsperreVerwaisteZiele(){
+    const m=this.map;
+    let ziele=null;
+    for(let i=0;i<m.obj.length;i++){
+      if(!(m.obj[i]&128)) continue;
+      if(ziele===null){
+        ziele=new Set();
+        for(const u of this.units)
+          if(!u.dead && u.target>=0 && (u.type==='worker'||u.type==='geologe')) ziele.add(u.target);
+      }
+      if(!ziele.has(i)) m.obj[i]&=127;
+    }
+  }
   entsperreVerwaisteWaren(){
     let lebend=null;
     for(const it of this.flagItems.values()){
@@ -1291,6 +1315,7 @@ export class Game {
     this.tickMilitary();
     if(this.t%25===11) this.tickBuilderSpawn();
     if(this.t%300===137) this.entsperreVerwaisteWaren();
+    if(this.t%300===211) this.entsperreVerwaisteZiele();
     if(this.t%100===61) this.checkMatWait();
     this.tickRuins();
     if(this.t%2===0) this.tickAnimals();
@@ -1771,7 +1796,8 @@ export class Game {
             this.units.push(u);
             b.worker.state='out';
             if(job.reserve) m.obj[job.node]|=128; // reserviert-Bit
-          } else if(def.gather==='tree'||def.gather==='stone'||def.gather==='fish'||def.gather==='hunt'){
+          } else if(def.gather==='tree'||def.gather==='stone'||def.gather==='fish'
+                    ||def.gather==='hunt'||def.gather==='plant'){
             // Stille Erschöpfung sichtbar machen (Kritikbericht F4: der
             // Steinmetz verstummte einfach, das Bauwesen starb unbemerkt).
             // Erst nach 60 s ohne jede Beute gilt die Umgebung als erschöpft
@@ -1786,7 +1812,12 @@ export class Game {
               // sich dieselbe Meldung endlos, sobald ein nachgewachsener Baum
               // die Erschöpfung kurz löste und sie gleich wieder eintrat
               // (Kritikbericht F5: 17 gleiche Toasts in 50 Minuten).
-              this.warn(b, 'exhausted', `${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 6000);
+              // Der Foerster ist der Sonderfall: ihm geht nichts AUS, ihm
+              // fehlt der PLATZ. Bisher fiel er ganz aus der Meldung heraus
+              // und stand stumm da, als liefe alles.
+              this.warn(b, 'exhausted', def.gather==='plant'
+                ? `${def.name}: keine freie Fläche zum Pflanzen in Reichweite!`
+                : `${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 6000);
             }
           }
         }
@@ -1808,8 +1839,12 @@ export class Game {
     // des Foersters, dessen Pflanzplatz unter dem Bild der Burg lag.
     // Jetzt gilt fuer die Zielsuche dasselbe Mass wie fuers Laufen.
     const roh=this.nodesWalkable(b.node, R);
+    // Die Sperre laeuft nach TABU_DAUER ab - sie soll den Kreislauf
+    // "immer wieder derselbe tote Knoten" brechen, nicht ein Fleckchen
+    // Wald dauerhaft aus der Karte nehmen.
+    const tb=(b.tabu && typeof b.tabu==='object' && !(b.tabu instanceof Set)) ? b.tabu : null;
     const nodes=roh.filter(i=> this.gehbar(i, b.id)
-                               && !(b.tabu && b.tabu.has(i)));
+                               && !(tb && tb[i]!==undefined && this.t-tb[i] < TABU_DAUER));
     const un=(o)=>o&127;
     switch(def.gather){
       case 'tree': {
@@ -2382,9 +2417,21 @@ export class Game {
       if(u.goBest===undefined || dz<u.goBest-2){ u.goBest=dz; u.goT=0; }
       if(u.goT>600){
         if(u.target>=0 && (m.obj[u.target]&128)) m.obj[u.target]&=127;   // Reservierung lösen
-        if(!b.tabu) b.tabu=new Set();
-        b.tabu.add(u.target);
-        if(b.tabu.size>24){ const alt=b.tabu.values().next().value; b.tabu.delete(alt); }
+        // Sperrliste als EINFACHES Objekt Knoten -> Tick, nicht als Set:
+        //  - ein Set wird von JSON.stringify zu {} - nach Speichern und Laden
+        //    flog hier "b.tabu.has is not a function", das Spiel war hin.
+        //  - der Zeitstempel laesst die Sperre ABLAUFEN. Vorher galt sie
+        //    ewig: ein Knoten, der einmal blockiert war (Figur im Weg,
+        //    Baustelle daneben), blieb es fuer die Lebensdauer des Gebaeudes,
+        //    auch wenn dort laengst wieder ein Baum stand.
+        if(!b.tabu || typeof b.tabu!=='object' || b.tabu instanceof Set) b.tabu={};
+        b.tabu[u.target]=this.t;
+        const ks=Object.keys(b.tabu);
+        if(ks.length>24){
+          let aeltest=ks[0];
+          for(const k of ks) if(b.tabu[k]<b.tabu[aeltest]) aeltest=k;
+          delete b.tabu[aeltest];
+        }
         // Die Fachkraft ist ein DATENSATZ am Gebäude, nicht diese Figur -
         // sie wird zurück ins Haus gesetzt, damit der Betrieb weiterläuft.
         if(b.worker) b.worker.state='in';
@@ -3056,6 +3103,17 @@ export class Game {
       // Phase 2: Bauarbeiter mit Hammer
       if(b.builderId!=null && this.units.some(u=>u.id===b.builderId)) continue;
       b.builderId=null;
+      // Der Hammer wird erst gebunden, wenn wenigstens EIN Stueck Baumaterial
+      // an der Baustelle liegt. Vorher zog jede frisch planierte Baustelle
+      // sofort einen Hammer aus dem Lager, auch wenn nie ein Brett kam:
+      // gemessen fraßen 10 leere Baustellen alle 10 Hämmer des Startbestands,
+      // danach ließ sich gar nichts mehr bauen. Zurueck kommt der Hammer erst
+      // bei Fertigstellung oder Abriss.
+      {
+        const d0=BLD[b.type];
+        const braucht=(d0.cost.board||0)+(d0.cost.stone||0);
+        if(braucht>0 && ((b.stock.board||0)+(b.stock.stone||0))===0) continue;
+      }
       const src=this.findToolStore(b.player,'hammer');
       if(!src){
         if(this.toolTrulyMissing(b.player,'hammer'))
