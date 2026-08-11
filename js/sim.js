@@ -11,6 +11,8 @@ const FLAG_CAP = 8;
 // nur zeitweise verstellter Platz (Figur im Weg, Baustelle daneben) wieder
 // zurueck ins Spiel kommt.
 const TABU_DAUER = 3000;
+// Wie stark der Verkehrswert einer Strasse alle 300 Ticks abklingt.
+const VERKEHR_ZERFALL = 0.985;
 const CARRY_SPEED = 0.2;              // Knoten pro Tick
 const WALK_SPEED = 0.12;
 
@@ -804,6 +806,31 @@ export class Game {
     }
     this.flagItems.delete(i);
   }
+  // Verkehr klingt ab. Vorher wurde r.traffic nur HOCHGEZAEHLT: nach 32
+  // Ladungen erreichte (traffic-6)/26 dauerhaft 1, jede Strasse war also
+  // nach wenigen Minuten fuer immer voll gepflastert, und ein stillgelegter
+  // Weg verwitterte nie. Die gewollte Abstufung war ein Ratschenmechanismus.
+  //
+  // Jetzt ein gleitender Wert. Der Faktor ist AUSGEMESSEN, nicht geraten -
+  // je 40 Spielminuten Betrieb und 40 Minuten Stillstand, Spitzen- und
+  // Mittelwert der Pflasterung ueber alle Wege:
+  //
+  //   Zerfall  Halbwert   nach 40 min Betrieb   nach 40 min still
+  //   1,000    nie        1,00 / 0,81           1,00   <- die alte Ratsche
+  //   0,940     5,6 min   0,03 / 0,00           0,00   <- loescht auch aktive
+  //   0,970    11,4 min   0,46 / 0,15           0,00
+  //   0,985    22,9 min   1,00 / 0,49           0,19   <- gewaehlt
+  //   0,993    49,3 min   1,00 / 0,71           1,00   <- verwittert nicht
+  //
+  // 0,985 haelt befahrene Wege im Betrieb voll gepflastert (Spitze 1,00),
+  // laesst ruhige zurueckfallen (Mittel 0,49 statt 0,81) und laesst eine
+  // aufgegebene Siedlung ueber eine Dreiviertelstunde verwittern.
+  verkehrAbklingen(){
+    for(const r of this.roads.values()){
+      const t=r.traffic||0;
+      if(t>0.01) r.traffic=t*VERKEHR_ZERFALL; else if(t) r.traffic=0;
+    }
+  }
   // Sicherheitsnetz gegen haengende Reservierungen. Reserviert wird eine Ware
   // nur zwischen "Traeger nimmt Auftrag an" und "Traeger hebt sie auf" - es
   // darf also keine reservierte Ware geben, zu der kein lebender Traegerauftrag
@@ -1316,6 +1343,7 @@ export class Game {
     if(this.t%25===11) this.tickBuilderSpawn();
     if(this.t%300===137) this.entsperreVerwaisteWaren();
     if(this.t%300===211) this.entsperreVerwaisteZiele();
+    if(this.t%300===57) this.verkehrAbklingen();
     if(this.t%100===61) this.checkMatWait();
     this.tickRuins();
     if(this.t%2===0) this.tickAnimals();
