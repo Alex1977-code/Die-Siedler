@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, AI_MIL, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, AI_MIL, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -964,7 +964,12 @@ export class Game {
   brakeGood(b){
     const def=BLD[b.type];
     if(def.prod){
-      if(def.prod.outs) return null;
+      // R6: Betriebe mit MEHREREN moeglichen Ausgaben (Werkzeug- und
+      // Waffenschmiede) fielen bisher komplett aus der Bedarfsbremse - sie
+      // gab null zurueck. Genau deshalb lagen nach 20 Spielminuten 60
+      // Haemmer, 37 Spitzhacken und 45 Schwerter im Lager. Jetzt bremst die
+      // aktuell gewaehlte Ausgabe wie bei jedem anderen Betrieb auch.
+      if(def.prod.outs) return b.chosenTool || null;
       const g=def.prod.out;
       return (g && g[0]!=='@') ? g : null;
     }
@@ -980,8 +985,10 @@ export class Game {
     const g=this.brakeGood(b);
     if(!g) return false;
     const tot=this.invCached(b.player)[g]||0;
-    if(b.satPause){ if(tot<=SAT_RESUME) b.satPause=false; }
-    else if(tot>=SAT_PAUSE) b.satPause=true;
+    const stopp=SAT_OF[g]!==undefined? SAT_OF[g] : SAT_PAUSE;
+    const start=SAT_OF[g]!==undefined? Math.round(SAT_OF[g]*0.75) : SAT_RESUME;
+    if(b.satPause){ if(tot<=start) b.satPause=false; }
+    else if(tot>=stopp) b.satPause=true;
     return b.satPause;
   }
   // verbleibendes Vorkommen im Umkreis eines Bergwerks
@@ -3211,6 +3218,14 @@ export class Game {
     const inv=this.invTotal(pl);
     let best=null, bs=0;
     for(const t of TOOLS){
+      // R6: Deckel je Werkzeug. Der Bedarf waechst mit jeder Baustelle
+      // (+1 Hammer je Stelle, +2 je wartendem Haus) und kannte nach oben
+      // keine Grenze - gemessen lagen deshalb 138 Haemmer und 89
+      // Spitzhacken im Lager, obwohl nie mehr als ein Dutzend gebraucht
+      // wurde. Ueber der Saettigungsschwelle wird das Werkzeug nicht mehr
+      // gewaehlt; die Schmiede sucht sich ein anderes oder ruht.
+      const deckel=SAT_OF[t]!==undefined? SAT_OF[t] : SAT_PAUSE;
+      if((inv[t]||0)>=deckel) continue;
       const short=need[t]-(inv[t]||0);
       if(short>bs){ bs=short; best=t; }
     }
@@ -3519,6 +3534,51 @@ export class Game {
       this.aiStep(p);
     }
   }
+  // Alle Gebaeude eines Spielers (fuer Planschwellen)
+  aiBautenGesamt(p){
+    let n=0; for(const b of this.buildings.values()) if(b.player===p.id) n++;
+    return n;
+  }
+  // R4: Kennt die KI ueberhaupt ein Vorkommen, auf das sich dieses Bergwerk
+  // stellen liesse? Gezaehlt wird nur im EIGENEN Gebiet - dort, wo ein
+  // Bergwerk auch stehen koennte. Kurz gemerkt, der Scan laeuft ueber die
+  // ganze Karte.
+  aiErzBekannt(p, minetype){
+    const ziel={coalmine:1, ironmine:2, goldmine:3, granitemine:4}[minetype];
+    if(!ziel) return false;
+    p._erzC=p._erzC||{}; p._erzT=p._erzT||{};
+    if(this.t-(p._erzT[minetype]||-9999)<600) return !!p._erzC[minetype];
+    const m=this.map;
+    let da=false;
+    for(let i=0;i<m.oreT.length && !da;i++)
+      if(m.owner[i]===p.id && m.oreT[i]===ziel && m.oreA[i]>0) da=true;
+    p._erzC[minetype]=da; p._erzT[minetype]=this.t;
+    return da;
+  }
+  // R4: Geologen losschicken. Ohne Erkundung kennt die KI nur, was zufaellig
+  // im eigenen Gebiet liegt - Bergwerke entstanden entsprechend selten. Ab
+  // Stufe 2 schickt sie regelmaessig einen Geologen an eine Fahne nahe am
+  // Gebirge; er verbraucht eine Spitzhacke, gibt dem Werkzeugschmied also
+  // nebenbei seine Daseinsberechtigung zurueck.
+  aiGeologe(p, lvl){
+    if(lvl<2) return false;
+    if(this.t-(p.aiState.geoT||-9999)<1500) return false;
+    p.aiState.geoT=this.t;
+    if((this.invCached(p.id).pick||0)<1) return false;
+    const m=this.map;
+    // Fahne mit moeglichst viel unerkundetem Fels in der Naehe
+    let best=-1, bs=0;
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id || b.door==null || b.door<0) continue;
+      let s2=0;
+      for(const q of this.nodesInRange(b.door, 6))
+        if(m.terr[q]===TER.MOUNT && !this.signs.has(q)) s2++;
+      if(s2>bs){ bs=s2; best=b.door; }
+    }
+    if(best<0 || bs<3) return false;
+    this.callGeologist(p.id, best);
+    return true;
+  }
   aiCount(p, type, includeBuild=true){
     let n=0;
     for(const b of this.buildings.values())
@@ -3568,22 +3628,39 @@ export class Game {
         if(nS>0 && (hq.inv.stone||0)>0){ hq.inv.stone--; b.stock.stone=(b.stock.stone||0)+1; break; }
       }
     }
+    this.aiGeologe(p, lvl);
+    // ================= BAUPLAN DER KI (R4) =================
+    // Vorher war das eine feste Einkaufsliste: ein Bauernhof, eine Muehle,
+    // eine Baeckerei, egal ob Getreide liegen blieb oder Mehl fehlte. Jetzt
+    // entscheidet der BEDARF, und die PLANUNGSTIEFE haengt am
+    // Schwierigkeitsgrad: Stufe 1 baut die Grundversorgung, Stufe 2 die
+    // Verarbeitungsketten, Stufe 3 zusaetzlich Gold, Muenze und Vorratsbau.
+    // Jede Zeile beantwortet zwei Fragen: WIRD DAS GEBRAUCHT, und HABEN WIR
+    // WOVON. So entstehen keine fuenf ungenutzten Muehlen mehr - und
+    // umgekehrt ein zweiter Holzfaeller, wenn die Staemme knapp werden.
     const want=[];
     const c=(t)=>this.aiCount(p,t);
-    // Bauplan (Reihenfolge = Priorität)
-    if(c('woodcutter')<2) want.push('woodcutter');
+    const lagB=this.invCached(p.id);
+    const g0=(k)=>lagB[k]||0;
+    const tief = lvl>=3? 3 : lvl>=2? 2 : 1;
+    const essen = g0('fish')+g0('bread')+g0('meat');
+    // --- Stufe A: Holz, Stein, Nahrung. Ohne die geht gar nichts.
+    if(c('woodcutter')<1) want.push('woodcutter');
     if(c('sawmill')<1) want.push('sawmill');
-    if(c('quarry')<1+((lvl>1)?1:0)) want.push('quarry');
     if(c('forester')<1) want.push('forester');
-    // Militär-Ausbau ruht während der Nachbau-Bremse (siehe burnBuilding):
-    // frisch zerstörte Posten werden nicht im Sekundentakt ersetzt.
-    // Dosierung je Stufe (AI_MIL): LEICHT expandiert gemütlich und deckelt
-    // bei wenigen Posten – vorher wuchs selbst die Leicht-KI unbegrenzt
-    // (43 Gebäude, HQ-Fall auf "Leicht/Leicht", Kritikbericht F2).
-    // Ab NORMAL greift der Deckel erst MIT Feindkontakt: ohne ein Ziel in
-    // Angriffsreichweite schiebt die KI weiter Posten Richtung Gegner, sonst
-    // fror sie auf mittleren Karten im Niemandsland ein und es kam nie zu
-    // Kampfhandlungen (Kalter-Krieg-Patt, Kritikbericht F3).
+    if(c('quarry')<1) want.push('quarry');
+    if(essen<8 && c('fisher')+c('hunter')<1) want.push('fisher');
+    if(essen<8 && c('fisher')+c('hunter')<1) want.push('hunter');
+    // --- Nachschub nach Bedarf: knappe Ware -> noch ein Betrieb dafuer
+    if(g0('trunk')<8  && c('woodcutter')<2+tief) want.push('woodcutter');
+    if(g0('board')<14 && c('sawmill')<1+tief && c('woodcutter')>c('sawmill')) want.push('sawmill');
+    if(g0('trunk')<12 && c('forester')<1+Math.floor(tief/2)) want.push('forester');
+    if(g0('stone')<14 && c('quarry')<1+tief) want.push('quarry');
+    if(essen<12 && c('fisher')<1+tief) want.push('fisher');
+    if(essen<12 && c('hunter')<1+Math.floor(tief/2)) want.push('hunter');
+    // --- Militaerposten. Deckel je Stufe (AI_MIL): LEICHT waechst gemuetlich
+    // und deckelt frueh; ab NORMAL greift der Deckel erst MIT Feindkontakt,
+    // sonst fror die KI im Niemandsland ein (Kalter-Krieg-Patt, F3).
     const AM=AI_MIL[lvl]||AI_MIL[2];
     const milN=c('barracks')+c('guardhouse')+c('watchtower')+c('fortress');
     let milAllowed=Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow));
@@ -3591,21 +3668,27 @@ export class Game {
        && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
        && !this.aiContact(p)) milAllowed=Math.min(milN+1, AM.milMax*2);
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
-    if(c('fisher')<1) want.push('fisher');
-    if(c('well')<1) want.push('well');
-    if(c('farm')<1) want.push('farm');
-    if(c('mill')<1) want.push('mill');
-    if(c('bakery')<1) want.push('bakery');
-    if(c('coalmine')<1) want.push('coalmine');
-    if(c('ironmine')<1) want.push('ironmine');
-    if(c('smelter')<1) want.push('smelter');
-    if(c('toolsmith')<1) want.push('toolsmith');
-    if(c('armory')<1) want.push('armory');
-    if(c('brewery')<1) want.push('brewery');
-    if(lvl>=2 && c('goldmine')<1) want.push('goldmine');
-    if(lvl>=2 && c('mint')<1) want.push('mint');
-    if(c('woodcutter')<3) want.push('woodcutter');
-    if(c('hunter')<1) want.push('hunter');
+    // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
+    if(tief>=2){
+      if(g0('water')<6 && c('well')<1+Math.floor(tief/2)) want.push('well');
+      if(c('farm')<1 || (g0('grain')<6 && c('farm')<1+tief)) want.push('farm');
+      // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
+      if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
+      if(g0('flour')>=3 && g0('bread')<8 && c('bakery')<1+Math.floor(tief/2)) want.push('bakery');
+      if(g0('grain')>=5 && g0('beer')<6 && c('brewery')<1+Math.floor(tief/2)) want.push('brewery');
+      // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten)
+      if(g0('coal')<8    && c('coalmine')<1+tief   && this.aiErzBekannt(p,'coalmine'))  want.push('coalmine');
+      if(g0('ironore')<8 && c('ironmine')<1+tief   && this.aiErzBekannt(p,'ironmine'))  want.push('ironmine');
+      if(g0('ironore')>=3 && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
+      if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
+      if(g0('iron')>=2 && (g0('sword')+g0('shield'))<16 && c('armory')<1+Math.floor(tief/2)) want.push('armory');
+    }
+    // --- Stufe C (nur Schwer): Gold, Muenze, Vorratshaltung
+    if(tief>=3){
+      if(c('goldmine')<1 && this.aiErzBekannt(p,'goldmine')) want.push('goldmine');
+      if(g0('gold')>=2 && c('mint')<1) want.push('mint');
+      if(c('storehouse')<1 && this.aiBautenGesamt(p)>=12) want.push('storehouse');
+    }
 
     // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
     // Baustelle ohne Anschluss bekommt nie Material und stünde für immer.

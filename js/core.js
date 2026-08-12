@@ -179,6 +179,15 @@ export const MUSTER_WAIT = 600;
 // abrufen, sinkt der Bestand und die Produktion springt von selbst an.
 export const SAT_PAUSE = 60;
 export const SAT_RESUME = 50;
+// R6: EINE Schwelle fuer alles war zu grob. 60 Bretter auf Halde sind
+// Vorrat, 60 Haemmer sind Unsinn - so viele Baustellen hat niemand. Waren
+// mit eigener Schwelle bremsen frueher; alles ohne Eintrag bleibt bei
+// SAT_PAUSE. Wieder angeworfen wird bei 75 % der Schwelle.
+export const SAT_OF = {
+  hammer:12, pick:10, axe:10, saw:8, scythe:8, rod:8, cleaver:6, shovel:10,
+  sword:24, shield:24, spear:24, bow:24,
+  coin:20, water:40,
+};
 
 // ---------- Hilfsfunktionen ----------
 export function mulberry32(seed){
