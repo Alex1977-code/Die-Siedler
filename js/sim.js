@@ -1854,6 +1854,17 @@ export class Game {
   }
 
   // ---------- Bau ----------
+  // Wie weit traegt das bisher gelieferte Material? Der Sockel (80 Takte
+  // Grube und Geruest) braucht keines, jedes Brett und jeder Stein gibt 30
+  // weitere Takte frei. Steht hier als eigener Helfer, weil zwei Stellen
+  // dieselbe Antwort brauchen: der Baufortschritt und die Frage, ob der
+  // Bauarbeiter sichtbar haemmern soll.
+  bauGrenze(b){
+    const def=BLD[b.type];
+    const needB=def.cost.board||0, needS=def.cost.stone||0;
+    const da=Math.min(needB, b.stock.board||0)+Math.min(needS, b.stock.stone||0);
+    return { grenze:80+30*da, total:80+30*(needB+needS), da, noetig:needB+needS };
+  }
   tickConstruction(){
     for(const b of this.buildings.values()){
       if(b.state!=='build') continue;
@@ -1881,16 +1892,16 @@ export class Game {
       // unveraendert, aber sie faellt jetzt IN die Lieferzeit statt danach -
       // und weil der Renderer die Baustufen aus progress/total nimmt,
       // waechst die Baustelle mit jeder Lieferung sichtbar.
-      const noetig = needB + needS;
-      const da = Math.min(needB, b.stock.board||0) + Math.min(needS, b.stock.stone||0);
-      const total = 80 + 30*noetig;
-      const grenze = 80 + 30*da;          // so weit traegt das gelieferte Material
+      const { grenze, total, da, noetig } = this.bauGrenze(b);
       // Warten zaehlt erst, wenn das fehlende Material den Bau WIRKLICH
       // aufhaelt - sonst meldete das Warnschild eine Baustelle als wartend,
       // an der gerade gehaemmert wird.
       if(da<noetig && b.progress>=grenze) b.matWaitT=(b.matWaitT||0)+1;
       else b.matWaitT=0;
-      if(!builderThere || b.progress>=grenze) continue;
+      // Geebnet muss der Platz sein, bevor der erste Nagel sitzt. Der
+      // Bauarbeiter laeuft zwar schon waehrend des Ebnens los (siehe
+      // tickBuilderSpawn), warten muss er hier.
+      if(!b.leveled || !builderThere || b.progress>=grenze) continue;
       b.progress += 1;
       if(b.progress>=total){
         b.state='done'; b.stock={};
@@ -3382,26 +3393,39 @@ export class Game {
       if(b.state==='done' && b.worker && !b.worker.present){ this.trySettle(b); continue; }
       if(b.state!=='build') continue;
       // Phase 1: Planierer (freie Figur + Schaufel) ebnet den Bauplatz
-      if(!b.leveled){
-        if(b.levelerId!=null && this.units.some(u=>u.id===b.levelerId)) continue;
+      // Kein "continue" mehr ans Ende: der Bauarbeiter unten wird JETZT
+      // SCHON losgeschickt und laeuft, waehrend der Planierer graebt.
+      // Vorher liefen beide Wege nacheinander - und das ist teuer, denn das
+      // Graben selbst dauert nur 70 Takte, der Weg vom Lager zur Baustelle
+      // ein Vielfaches. Nachgemessen ging die Lebenszeit einer Baustelle zu
+      // 38,1 Prozent fuer die Planierer-Phase und noch einmal zu 15,9
+      // Prozent fuer den Hinweg des Bauarbeiters drauf - zweimal dieselbe
+      // Strecke hintereinander. Gebaut wurde in 9,2 Prozent der Zeit.
+      // Gehaemmert wird trotzdem erst nach dem Ebnen (siehe
+      // tickConstruction), die Reihenfolge im Bild bleibt also: erst
+      // Planierer, dann Bauarbeiter, dann Baustellenbild.
+      if(!b.leveled && !(b.levelerId!=null && this.units.some(u=>u.id===b.levelerId))){
         b.levelerId=null;
         const hq=this.buildings.get(this.players[b.player].hq);
-        if(!hq) continue;
-        const src=this.findToolStore(b.player,'shovel');
-        if(!src){
+        const src=hq && this.findToolStore(b.player,'shovel');
+        if(hq && !src && this.toolTrulyMissing(b.player,'shovel')){
           // nur bei ECHTEM Mangel warnen (keine Schaufel im Lager UND keine
           // unterwegs) und entdoppelt – siehe warn()/toolTrulyMissing()
-          if(this.toolTrulyMissing(b.player,'shovel'))
-            this.warn(b,'shovel','Baustelle wartet: keine Schaufel für den Planierer!');
-          continue;
+          this.warn(b,'shovel','Baustelle wartet: keine Schaufel für den Planierer!');
         }
-        this.takeTool(src,'shovel');
-        const u={ id:NEXT_ID++, type:'leveler', player:b.player, ...this.tuerAustritt(hq),
-          bld:b.id, state:'toSite', pt:0,
-          wp:this.flagWaypoints(hq.door, b.door)||undefined, wpi:0 };
-        this.units.push(u);
-        b.levelerId=u.id;
-        continue;
+        if(hq && src){
+          this.takeTool(src,'shovel');
+          // Er tritt aus DEM Lager, aus dem die Schaufel kommt. Vorher nahm
+          // er sie aus src, lief aber immer vom Hauptquartier los - lag die
+          // Schaufel in einem Lagerhaus nahe der Baustelle, wanderte sie
+          // unsichtbar quer ueber die Karte und der Planierer nahm trotzdem
+          // den langen Weg. Der Bauarbeiter unten macht es seit jeher richtig.
+          const u={ id:NEXT_ID++, type:'leveler', player:b.player, ...this.tuerAustritt(src),
+            bld:b.id, state:'toSite', pt:0,
+            wp:this.flagWaypoints(src.door, b.door)||undefined, wpi:0 };
+          this.units.push(u);
+          b.levelerId=u.id;
+        }
       }
       // Phase 2: Bauarbeiter mit Hammer
       if(b.builderId!=null && this.units.some(u=>u.id===b.builderId)) continue;
@@ -3562,9 +3586,12 @@ export class Game {
       } else u.atSpot=false;
       u.swing++;
       if(u.atSpot && u.swing%16===0){
-        // nur hämmern, wenn Material da ist (sonst wartet er sichtbar)
-        const def=BLD[b.type];
-        if((b.stock.board||0)>=(def.cost.board||0) && (b.stock.stone||0)>=(def.cost.stone||0)){
+        // Sichtbar geschlagen wird genau dann, wenn der Bau auch WIRKLICH
+        // vorankommt. Vorher stand hier die alte Bedingung "Material
+        // vollstaendig" - seit der Bau mit Teillieferungen weitergeht (R8),
+        // haette der Bauarbeiter stumm dagestanden, waehrend die Baustelle
+        // hinter ihm waechst.
+        if(b.leveled && (b.progress||0) < this.bauGrenze(b).grenze){
           this.onHammer && this.onHammer(u);
           // Staub wirbelt bei jedem Schlag auf
           this.fx.push({type:'dust', x:u.x+(this.rng()*10-5), y:u.y+3, t0:this.t});
