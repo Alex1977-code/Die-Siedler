@@ -300,6 +300,27 @@ export class Game {
     // (Wasser aendert sich im Spielverlauf nicht).
     if(def.gather==='fish' && !this.fischNah()[node])
       return {ok:false, r:'Kein Fischgrund in Gehweite'};
+    // Steinmetz: ohne einen einzigen Felsbrocken in Reichweite klopft dort
+    // nie jemand - solche Plaetze werden gar nicht erst angeboten
+    // (Nutzerbefund v165: "zu wenig Steinbloecke gefunden" - tote
+    // Steinbrueche nach dem ersten Ausbau). Anders als beim Fisch aendert
+    // sich der Steinbestand im Spielverlauf, deshalb kein festes Karten-
+    // Cache, sondern eine kurze Merkzeit je Knoten (60 s) - der
+    // Bauplatz-Vorschaumodus fragt sonst jeden Kandidaten jedes Bild ab.
+    if(def.gather==='stone'){
+      this._steinOk=this._steinOk||new Map();
+      const e=this._steinOk.get(node);
+      let da;
+      if(e && this.t-e.t<600) da=e.ok;
+      else {
+        const un=(o)=>o&127;
+        da=this.nodesInRange(node, def.range||10)
+          .some(q=> un(m.obj[q])===OBJ.STONE && m.amt[q]>0);
+        if(this._steinOk.size>4000) this._steinOk.clear();
+        this._steinOk.set(node, {t:this.t, ok:da});
+      }
+      if(!da) return {ok:false, r:'Keine Felsbrocken in Reichweite'};
+    }
     {
       // Eingang liegt unten: dort muss eine Türfahne möglich sein
       const my=m.Y(node);

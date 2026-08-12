@@ -820,9 +820,15 @@ export function genWorld(opts){
   // Steinhaufen: mehr Brocken und je Brocken deutlich mehr Abbauladungen.
   // Vorher (0,012 / 4–8 Ladungen) verstummte der Steinmetz nach ~7 Spiel-
   // minuten und die Stein-Spirale fror ganze Partien ein (Kritikbericht F3).
+  // Nutzerbefund v165 ("zu wenig Steinbloecke gefunden"), nachgemessen ueber
+  // vier Saaten: der MEDIAN-Steinbruchplatz am Start erreichte nur 30-53
+  // Ladungen (der beste 66-95), und abseits des Startrings lagen 11-15
+  // Haufen je 1000 Bauknoten - der zweite Steinbruch fand kaum noch etwas.
+  // Dichte 0,016 -> 0,021 und 8-15 -> 10-18 Ladungen je Haufen; die
+  // Granitmine bleibt die Dauerquelle des Mittelspiels.
   for(let i=0;i<w*h;i++){
     if(!map.terrOkBuild(i) || map.obj[i]) continue;
-    if(rng() < 0.016*res){ map.obj[i]=OBJ.STONE; map.amt[i]=8+((rng()*8)|0); }
+    if(rng() < 0.021*res){ map.obj[i]=OBJ.STONE; map.amt[i]=10+((rng()*9)|0); }
   }
   // Erz in Bergen. Granit ist breiter gestreut und ergiebiger als die
   // anderen Erze: das Steinbergwerk ist die verlässliche Dauerquelle des
@@ -1237,7 +1243,9 @@ function ensureStartResources(map, s, rng){
   const free=ring.filter(i=> map.terrOkBuild(i)&&!map.obj[i]&&map.bld[i]<0
     && !map.nbs(i).some(q=> map.terr[q]===TER.MOUNT));
   while(trees<12 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }
-  while(stones<3 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=10; stones++; }
+  // Start-Garantie 3 -> 5 Haufen: jedes Haus kostet Stein, und drei Haufen
+  // (~36 Ladungen) waren nach dem ersten Ausbau aufgebraucht (Nutzerbefund)
+  while(stones<5 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=12; stones++; }
 }
 
 function landComponents(map){
