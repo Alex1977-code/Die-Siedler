@@ -30,13 +30,16 @@ for(const saat of SAATEN){
       land[o]++;
       if(g.canBuild(o,'guardhouse',i).ok) frei[o]++;
     }
-    const bau=[0,0], sol=[0,0];
+    const bau=[0,0], sol=[0,0], roh=[0,0], wege=[0,0];
     for(const x of g.buildings.values()){
       if(x.player>1) continue; bau[x.player]++;
+      if(x.state==='build') roh[x.player]++;
       if(x.soldiers) sol[x.player]+=x.soldiers.length;
     }
-    return {saat, bauKI:bau[1], landKI:land[1], freiKI:frei[1], solKI:sol[1],
-            bauDu:bau[0], landDu:land[0], freiDu:frei[0]};
+    for(const r of g.roads.values()) if(r.player===0||r.player===1) wege[r.player]++;
+    return {saat, bauKI:bau[1], fertigKI:bau[1]-roh[1], baustellenKI:roh[1],
+            landKI:land[1], freiKI:frei[1], solKI:sol[1], wegeKI:wege[1],
+            bauDu:bau[0], fertigDu:bau[0]-roh[0], landDu:land[0], freiDu:frei[0]};
   }, {LVL,TICKS,saat}));
 }
 const st=(k)=>{ const v=erg.map(x=>x[k]).sort((a,b2)=>a-b2);

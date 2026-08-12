@@ -645,6 +645,23 @@ export class Game {
       for(const f of [r.path[0], r.path[r.path.length-1]])
         if(comps.has(this.compOf(f))) netz.add(f);
     }
+    // ABZWEIG VON DER EIGENEN STRASSE. Eine Fahne darf mitten auf einer
+    // Strasse stehen - canPlaceFlag verbietet es nicht, und addFlag teilt
+    // den Weg dort. Genau so verbindet der Knopf des Spielers (autoConnect:
+    // "das kann mitten auf einer Strasse liegen"). Diese Reichweite hier
+    // kannte den Abzweig nicht, und weil ein Strassen-Innenknoten unten in
+    // frei() gesperrt ist, galt jedes Stueck Land HINTER einer eigenen
+    // Strasse als unerreichbar. Die Siedlung mauerte sich mit ihrem eigenen
+    // Wegenetz ein: nachgemessen konnten 146 von 147 abgelehnten
+    // Bauplaetzen ("Kein Weg von dort zum Wegenetz") sehr wohl einen
+    // Strassenknoten erreichen, auf dem eine Fahne erlaubt gewesen waere.
+    // Seewege zaehlen nicht - auf dem Wasser steht keine Fahne.
+    for(const r of this.roads.values()){
+      if(r.player!==player || r.isSea) continue;
+      if(!comps.has(this.compOf(r.path[0]))) continue;
+      for(let k=1;k<r.path.length-1;k++)
+        if(this.canPlaceFlag(r.path[k], player)) netz.add(r.path[k]);
+    }
     const onRoad=new Set();
     for(const r of this.roads.values())
       r.path.forEach((n,ix)=>{ if(ix>0&&ix<r.path.length-1) onRoad.add(n); });
@@ -4078,17 +4095,39 @@ export class Game {
     const m=this.map;
     const hq=this.buildings.get(p.hq);
     const hqComp=hq ? this.compOf(hq.door) : undefined;
-    const cands=new Set();
-    for(const bb of this.buildings.values()) if(bb.player===p.id && bb.id!==b.id && bb.door>=0) cands.add(bb.door);
-    for(const r of this.roads.values()) if(r.player===p.id){ cands.add(r.path[0]); cands.add(r.path[r.path.length-1]); }
+    // ANSCHLUSS MITTEN AUF DER STRASSE. Bisher waren nur bestehende FAHNEN
+    // Ziel. Der Spieler darf laengst auch mitten auf einen eigenen Weg
+    // anschliessen - autoConnect setzt dort eine Fahne, die den Weg teilt.
+    // Ohne diese Moeglichkeit war jede eigene Strasse fuer die KI eine
+    // Mauer: gemessen liessen sich 19 von 22 gescheiterten Anschluessen
+    // ueber einen solchen Abzweig sehr wohl herstellen.
+    const cands=new Map();          // Knoten -> ist dort schon eine Fahne?
+    for(const bb of this.buildings.values())
+      if(bb.player===p.id && bb.id!==b.id && bb.door>=0) cands.set(bb.door, true);
+    for(const r of this.roads.values()){
+      if(r.player!==p.id) continue;
+      cands.set(r.path[0], true); cands.set(r.path[r.path.length-1], true);
+      if(r.isSea) continue;         // auf dem Wasser steht keine Fahne
+      for(let k=1;k<r.path.length-1;k++)
+        if(!cands.has(r.path[k]) && this.canPlaceFlag(r.path[k], p.id))
+          cands.set(r.path[k], false);
+    }
     cands.delete(b.door);
-    const list=[...cands].map(f=>({ f,
+    const list=[...cands].map(([f,istFahne])=>({ f, istFahne,
       d:Math.hypot(m.X(f)-m.X(b.door), m.Y(f)-m.Y(b.door)),
       im: hq && (f===hq.door || (hqComp!==undefined && this.compOf(f)===hqComp)) ? 0 : 1 }));
-    list.sort((a,b2)=> a.im-b2.im || a.d-b2.d);
-    for(const c of list.slice(0,12)){
+    // Eine vorhandene Fahne gewinnt bei Gleichstand: ein Abzweig kostet eine
+    // zusaetzliche Fahne und zerschneidet einen laufenden Weg.
+    list.sort((a,b2)=> a.im-b2.im || (a.d+(a.istFahne?0:0.5))-(b2.d+(b2.istFahne?0:0.5)));
+    for(const c of list.slice(0,16)){
       const path=this.roadPath(p.id, b.door, c.f);
-      if(path){ this.createRoad(p.id, path.reverse()); return true; }
+      if(!path) continue;
+      // Umgedreht faengt der Weg beim Anschlusspunkt an. Steht dort noch
+      // keine Fahne, setzt createRoad sie selbst (addFlag am Wegende) und
+      // addFlag teilt den alten Weg an dieser Stelle - genau der Ablauf,
+      // den auch buildRoad fuer den Spieler nimmt.
+      this.createRoad(p.id, path.reverse());
+      return true;
     }
     return false;
   }
