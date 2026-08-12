@@ -10779,7 +10779,11 @@ export class Renderer {
       // ändern verschiebt ihn nicht, nur das Tempo.
       const ATK_MS={ unit_fisher:240, unit_farm:135, unit_woodcutter:115,
         unit_leveler:125, unit_quarry:100, unit_builder:95, unit_geo:120,
-        unit_miner:110 };
+        unit_miner:110,
+        // Jaeger und Foerster fehlten hier und liefen mit den 85 ms des
+        // Rueckfalls - fuer einen Bogenschuss bzw. das Buecken zum Pflanzen
+        // viel zu hektisch. 150/140 ms je Bild = ruhige 1,2/1,1 s je Zyklus.
+        unit_hunter:150, unit_forester:140 };
       k=Math.floor(this.time/(ATK_MS[baseKey]||85) + (fight||0)*2.1)%n;
     } else {
       // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine

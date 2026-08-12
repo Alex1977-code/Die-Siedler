@@ -147,8 +147,10 @@ const TOOL_MATS={ wood:0x7a5a33, woodDark:0x5d4426, steel:0x767d83, steelDark:0x
 function mat(c){ return new THREE.MeshStandardMaterial({ color:c, roughness:0.75, metalness:0.05 }); }
 let toolGroups=[];
 window.toolClear=()=>{ toolGroups.forEach(g=>{ if(g.parent) g.parent.remove(g); }); toolGroups=[]; };
-// kind: axe|shovel|pick|hammer|chisel|mallet|scythe|rod|sack
+// kind: axe|shovel|pick|hammer|chisel|mallet|scythe|rod|sack|bow
 // Grundausrichtung: Stiel entlang +Y (aus der Faust nach oben), Kopf am +Y-Ende.
+// bow: Griff im Ursprung, Wurfarme entlang ±Y, Bogenbauch zeigt nach +Z,
+// Sehne parallel dazu bei z≈0.10 – Bogenebene ist die YZ-Ebene.
 // Mehrfach aufrufbar (Klüpfel + Meißel); toolClear() räumt alle ab.
 window.toolAttach=(kind, boneName, pos=[0,0,0], rotDeg=[0,0,0], scale=1)=>{
   const b=boneMap.get(boneName);
@@ -196,6 +198,18 @@ window.toolAttach=(kind, boneName, pos=[0,0,0], rotDeg=[0,0,0], scale=1)=>{
     const s=new THREE.Mesh(new THREE.SphereGeometry(0.085,7,6), mat(0xa3814e));
     s.scale.set(1,1.2,0.85); s.position.y=0.05; gph.add(s);
     const kragen=cyl(0.03,0.04,0.05,mat(0x8a6f42)); kragen.position.y=0.15; gph.add(kragen);
+  } else if(kind==='bow'){
+    // Jagdbogen: Griff + je zwei zunehmend gebogene Wurfarm-Segmente,
+    // Sehne als dünner Zylinder zwischen den Spitzen (YZ-Ebene)
+    const griff=cyl(0.013,0.013,0.10,wood2); gph.add(griff);
+    const arm=(sgn)=>{
+      const a1=cyl(0.010,0.012,0.13,wood); a1.rotation.x=sgn*0.30;
+      a1.position.set(0, sgn*0.105, 0.019); gph.add(a1);
+      const a2=cyl(0.007,0.010,0.12,wood); a2.rotation.x=sgn*0.62;
+      a2.position.set(0, sgn*0.215, 0.062); gph.add(a2);
+    };
+    arm(1); arm(-1);
+    const sehne=cyl(0.0028,0.0028,0.52,steel2); sehne.position.set(0,0,0.096); gph.add(sehne);
   }
   gph.position.set(pos[0],pos[1],pos[2]);
   gph.rotation.set(rotDeg[0]*Math.PI/180, rotDeg[1]*Math.PI/180, rotDeg[2]*Math.PI/180);
