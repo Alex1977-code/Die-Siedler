@@ -2574,6 +2574,12 @@ export class Game {
       // - der Zielknoten lag unter dem Bild eines FREMDEN Gebaeudes
       // (2071 von 2072 untersuchten Faellen). Bauplaetze liegen nun einmal
       // dicht bei bestehenden Haeusern.
+      // WO das passiert: NICHT auf der langen Strecke. Planierer und
+      // Bauarbeiter folgen sehr wohl der Strasse (gemessen bekommen 92,3
+      // bzw. 99,5 Prozent beim Losschicken eine Route). Querfeldein laeuft
+      // nur das letzte Stueck ab der Endfahne - im Schnitt 51 Pixel, also
+      // etwa ein Knoten. Genau dieses letzte Stueck zielt aber auf den
+      // Bauknoten, und der liegt zwischen den Bildern der Nachbarhaeuser.
       // Hinkommen genuegt: der naechstgelegene begehbare Nachbar des Ziels
       // tut es. Von dort ist der Rest Sache des lokalen Ausweichens.
       let ersatz=-1, bd=1e18;
