@@ -14,6 +14,11 @@ const TABU_DAUER = 3000;
 // Wie stark der Verkehrswert einer Strasse alle 300 Ticks abklingt.
 const VERKEHR_ZERFALL = 0.985;
 const CARRY_SPEED = 0.2;              // Knoten pro Tick
+// Wie lange darf eine Figur an EINEM Weg haengen, bevor sie aufgibt und
+// das Beste aus ihrer Lage macht? 1800 Takte sind drei Spielminuten -
+// lang genug, dass kein normaler Weg daran scheitert, kurz genug, dass
+// ein Haenger die Siedlung nicht fuer den Rest der Partie blockiert.
+const WEG_GEDULD = 1800;
 const WALK_SPEED = 0.12;
 
 let NEXT_ID = 1;
@@ -3550,7 +3555,13 @@ export class Game {
     const b=this.buildings.get(u.bld);
     if(u.state!=='home' && (!b || b.state!=='build' || b.leveled)) u.state='home';
     if(u.state==='toSite'){
-      if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
+      // Die Uhr laeuft AB HIER, nicht erst nach routeStep: wer schon beim
+      // Folgen der Strasse haengenbleibt, kam sonst nie bis zum
+      // Geduldsfaden weiter unten. Nach dem ersten Anlauf blieben so noch
+      // neun von elf Planierern im Hinweg stecken.
+      u.stallT=(u.stallT||0)+1;
+      if(u.stallT>WEG_GEDULD*2){ u.state='work'; b.levelT=0; u.stallT=0; }
+      else if(!this.routeStep(u,WALK_SPEED)) return;  // erst der Straße folgen
       // Ziel ist die ERSTE Grabstelle, nicht der Hausknoten: der liegt am
       // Hang bis zu 40 px über dem begehbaren Grund davor.
       const [tx,ty]=this.levelSpots(b)[0];
@@ -3558,9 +3569,20 @@ export class Game {
       // nicht (Hindernis-Ausweichen lenkt ab), fängt er dort an, wo er steht.
       // Das Ebnen hängt nicht am exakten Punkt - ewiges Herumtippeln fiele
       // dagegen sofort auf.
+      // GEDULDSFADEN OHNE NAEHE-BEDINGUNG. Vorher lief die Uhr erst, wenn
+      // der Planierer schon unter 80 px am Ziel war. Wer nie in diese
+      // Naehe kam, lief unbegrenzt weiter - und weil sein Bauplatz erst
+      // nach dem Ebnen gebaut werden darf, stand die Baustelle fuer immer.
+      // Nachgemessen nach 45 Spielminuten: 42 lebende Planierer, davon 20
+      // seit ueber 15 Spielminuten auf dem Hinweg, KEIN EINZIGER am
+      // Graben - bei 126 bis 154 px Restentfernung und stallT=0, die Uhr
+      // hatte also nie zu ticken begonnen. Das ist die Ursache dafuer,
+      // dass die Siedlung ab Minute 25 nicht mehr waechst.
+      // Jetzt zaehlt die Zeit im Hinweg IMMER. Wer nicht ankommt, faengt
+      // an, wo er steht - geebnet wird ohnehin der Bauknoten, nicht die
+      // Stelle, auf der die Figur zufaellig steht.
       const nah=Math.hypot(tx-u.x, ty-u.y)<80;
-      if(nah) u.stallT=(u.stallT||0)+1;
-      if(this.moveToward(u,tx,ty,WALK_SPEED) || (nah && u.stallT>60)){
+      if(this.moveToward(u,tx,ty,WALK_SPEED) || (nah && u.stallT>60) || u.stallT>WEG_GEDULD){
         u.state='work'; b.levelT=0; u.stallT=0;
       }
     } else if(u.state==='work'){
@@ -3588,9 +3610,14 @@ export class Game {
         u.wp=(b && this.map.flag[b.door] ? this.flagWaypoints(b.door, hq.door) : null)||[];
         u.wpi=0;
       }
-      if(!this.routeStep(u,WALK_SPEED)) return;
+      // Auch der Heimweg braucht eine Uhr: gemessen hingen 22 von 42
+      // Planierern auf dem Rueckweg fest und hielten ihr Werkzeug
+      // fuer immer. Wer nicht heimfindet, gibt es trotzdem ab - sonst
+      // versickert das Werkzeug still aus der Wirtschaft.
+      u.heimT=(u.heimT||0)+1;
+      if(!this.routeStep(u,WALK_SPEED) && u.heimT<WEG_GEDULD) return;
       const [tx,ty]=this.tuerPos(hq);                    // heim durch die HQ-Tür
-      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+      if(this.moveToward(u,tx,ty,WALK_SPEED) || u.heimT>WEG_GEDULD){
         u.dead=true;
         if(hq.inv) hq.inv.shovel=(hq.inv.shovel||0)+1;   // Schaufel zurück ins Lager
       }
@@ -3644,9 +3671,14 @@ export class Game {
         u.wp=(b && this.map.flag[b.door] ? this.flagWaypoints(b.door, hq.door) : null)||[];
         u.wpi=0;
       }
-      if(!this.routeStep(u,WALK_SPEED)) return;
+      // Auch der Heimweg braucht eine Uhr: gemessen hingen 22 von 42
+      // Planierern auf dem Rueckweg fest und hielten ihr Werkzeug
+      // fuer immer. Wer nicht heimfindet, gibt es trotzdem ab - sonst
+      // versickert das Werkzeug still aus der Wirtschaft.
+      u.heimT=(u.heimT||0)+1;
+      if(!this.routeStep(u,WALK_SPEED) && u.heimT<WEG_GEDULD) return;
       const [tx,ty]=this.tuerPos(hq);                    // heim durch die HQ-Tür
-      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+      if(this.moveToward(u,tx,ty,WALK_SPEED) || u.heimT>WEG_GEDULD){
         u.dead=true;
         if(hq.inv) hq.inv.hammer=(hq.inv.hammer||0)+1;   // Werkzeug zurück ins Lager
       }
