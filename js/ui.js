@@ -231,6 +231,7 @@ export class UI {
         <div id="unit-bar"></div>
       </div>
       <div id="objectives" class="hidden"></div>
+      <div id="obj-chip" class="hidden"></div>
       <div id="msg-toast" class="hidden"></div>
       <!-- H1: die Knoepfe, die man WIRKLICH drueckt, liegen unten links in
            der Daumenzone. Oben stehen nur noch die Anzeigen (Siedler, Waren) -
@@ -354,6 +355,10 @@ export class UI {
       this.cam.y=Math.max(0,Math.min(1,fy))*m.h*ROWH;
     });
     $('#objectives').onclick=()=>this.toggleObjectives(false);
+    // KD4/F2: der Ziel-Chip ist DAUERHAFT im Bild (das grosse Zieltableau
+    // verschwand nach 4 s und kam nur ueber das Pausemenue wieder - wer die
+    // Einblendung verpasste, spielte blind). Tippen oeffnet das Tableau.
+    $('#obj-chip').onclick=()=>{ Sound.sfx('tap'); this.toggleObjectives(true); };
   }
   showScreen(name){
     document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
@@ -446,6 +451,19 @@ export class UI {
     this.closeSheet();
     this.showScreen('game');
     if(game.objectives.length) this.toggleObjectives(true, 4000);
+    // KD4/F4: Erste-Schritte-Tipps, einmal je Profil, nur im freien Spiel
+    // (die Kampagne erklaert sich ueber ihre Story-Tafeln). Drei kurze
+    // Toasts in den ersten zwei Minuten; danach nie wieder.
+    if(this.freeMode && !this.opts.tippsGesehen){
+      this.opts.tippsGesehen=true; SAVE.setOptions(this.opts);
+      const T=[
+        [6000,  'Erste Schritte: Holzfäller, Sägewerk und Steinbruch bauen – Bauplatz antippen.'],
+        [45000, 'Jedes Gebäude braucht eine STRASSE von seiner Fahne zum Hauptquartier – sonst trägt niemand Waren.'],
+        [100000,'Wachhäuser erweitern dein Gebiet. Erz findet der Geologe: Fahne im Gebirge antippen und losschicken.'],
+      ];
+      for(const [ms,txt] of T)
+        setTimeout(()=>{ if(this.game && this.screen==='game') this.toast('💡 '+txt); }, ms);
+    }
   }
   resumeFromData(data){
     try{
@@ -1356,7 +1374,10 @@ export class UI {
       t.classList.add('hidden');
     };
     clearTimeout(this._toastT);
-    this._toastT=setTimeout(()=>t.classList.add('hidden'), war?6000:2600);
+    // KD4: Anzeigedauer waechst mit der Textlaenge - ein Zweizeiler war in
+    // 2,6 s nicht zu Ende gelesen, laengere Tipps und Warnungen erst recht.
+    this._toastT=setTimeout(()=>t.classList.add('hidden'),
+      war?6000:Math.max(2600, Math.min(9000, txt.length*55)));
   }
 
   // ================= Spielschleife =================
@@ -1426,6 +1447,22 @@ export class UI {
       sel.map(k=>`<span class="${(inv[k]||0)?'':'leer'}" title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
       +`<span class="res-more">📦</span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
+    // KD4/F2: Ziel-Chip aktualisieren - zeigt das naechste offene Ziel mit
+    // Fortschritt (oder den Sieg-Haken), laeuft im updateHud-Takt (600 ms)
+    {
+      const chip=$('#obj-chip');
+      const g=this.game;
+      if(!g || !g.objectives.length) chip.classList.add('hidden');
+      else {
+        const offen=g.objectives.filter(o=>!o.done);
+        const n=g.objectives.length, fertig=n-offen.length;
+        const o=offen[0];
+        chip.innerHTML = o
+          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${o.desc}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}`
+          : '🎯 ✅ Alle Ziele erfüllt';
+        chip.classList.remove('hidden');
+      }
+    }
   }
   // vollständige Warenübersicht (alle 28 Waren)
   openStockSheet(){

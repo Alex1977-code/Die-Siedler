@@ -3136,7 +3136,17 @@ export class Game {
                         ||(hq.inv.spear||0)>0||(hq.inv.bow||0)>0;
           if(waffeDa && this.t-(p._bierMsgT||-9999)>3000){
             p._bierMsgT=this.t;
-            this.msg('Waffen liegen bereit, aber es fehlt das Bier – ohne Bier keine Rekruten.',
+            // KD4: mit Handlungsanleitung statt blosser Feststellung - je
+            // nachdem, welches Glied der Bierkette wirklich fehlt.
+            let tipp='baue eine Brauerei';
+            for(const b2 of this.buildings.values()){
+              if(b2.player!==0 || b2.type!=='brewery') continue;
+              tipp = b2.state==='build'
+                ? 'die Brauerei ist noch im Bau'
+                : 'die Brauerei braucht Getreide (Bauernhof) und Wasser (Brunnen)';
+              break;
+            }
+            this.msg(`Waffen liegen bereit, aber es fehlt das Bier – ${tipp}, sonst gibt es keine Rekruten.`,
                      'warn', hq.node);
           }
         }
