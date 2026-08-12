@@ -2558,13 +2558,34 @@ export class Game {
   // Weltpunkte oder null (Ziel unerreichbar/zu weit).
   landDetour(u, tx, ty, cap=700){
     const m=this.map;
-    const from=m.nearestNode(u.x,u.y), to=m.nearestNode(tx,ty);
+    const from=m.nearestNode(u.x,u.y);
+    let to=m.nearestNode(tx,ty);
     if(from<0 || to<0 || from===to) return null;
     // Dieselbe Regel wie beim lokalen Ausweichen (gehbar). Der Startknoten
     // zaehlt immer als begehbar - sonst haengt eine Figur fest, die aus
     // irgendeinem Grund auf einem Fels oder unter einem Haus steht.
     const fest=(n)=> n===from || this.gehbar(n, u.bld);
-    if(!fest(to)) return null;
+    if(!fest(to)){
+      // ZIEL GESPERRT IST KEIN GRUND AUFZUGEBEN. Vorher hiess ein
+      // unbegehbarer Zielknoten: gar keine Suche, null zurueck, und die
+      // Figur rannte weiter lokal gegen ihr Hindernis. Nachgemessen war
+      // das der Normalfall: von 15135 Umwegsuchen scheiterten 14667
+      // (96,9 %) genau hier, und zwar praktisch immer aus demselben Grund
+      // - der Zielknoten lag unter dem Bild eines FREMDEN Gebaeudes
+      // (2071 von 2072 untersuchten Faellen). Bauplaetze liegen nun einmal
+      // dicht bei bestehenden Haeusern.
+      // Hinkommen genuegt: der naechstgelegene begehbare Nachbar des Ziels
+      // tut es. Von dort ist der Rest Sache des lokalen Ausweichens.
+      let ersatz=-1, bd=1e18;
+      for(const n of m.nbs(to)){
+        if(!fest(n)) continue;
+        const [nx,ny]=m.worldPos(n);
+        const dd=(nx-tx)*(nx-tx)+(ny-ty)*(ny-ty);
+        if(dd<bd){ bd=dd; ersatz=n; }
+      }
+      if(ersatz<0 || ersatz===from) return null;
+      to=ersatz;
+    }
     const prev=new Map([[from,-1]]);
     const q=[from];
     let end=-1;
@@ -3629,10 +3650,20 @@ export class Game {
     // Baustelle weg oder fertig -> heim ins Hauptquartier (Hammer zurück)
     if(u.state!=='home' && (!b || b.state!=='build')) u.state='home';
     if(u.state==='toSite'){
-      if(!this.routeStep(u,WALK_SPEED)) return;      // erst der Straße folgen
+      // GEDULDSFADEN WIE BEIM PLANIERER. Hier stand bisher gar keiner: ein
+      // Bauarbeiter, der seine Baustelle nicht erreicht, lief unbegrenzt
+      // weiter, und weil ohne ihn kein Takt Fortschritt zaehlt, stand das
+      // Haus fuer immer bei null Prozent. Genau so sahen die
+      // Dauerbaustellen aus: 33 von 36 bei null, mit Material, Platz und
+      // zugeteiltem Bauarbeiter.
+      u.stallT=(u.stallT||0)+1;
+      if(u.stallT>WEG_GEDULD*2){ u.state='work'; u.pt=0; b.bauerDa=true; u.stallT=0; }
+      else if(!this.routeStep(u,WALK_SPEED)) return;  // erst der Straße folgen
       const [tx,ty]=m.worldPos(b.node);
       // erst mit der Ankunft des Bauarbeiters erscheint das Baustellenbild
-      if(this.moveToward(u,tx+10,ty+13,WALK_SPEED)){ u.state='work'; u.pt=0; b.bauerDa=true; }
+      if(this.moveToward(u,tx+10,ty+13,WALK_SPEED) || u.stallT>WEG_GEDULD){
+        u.state='work'; u.pt=0; b.bauerDa=true; u.stallT=0;
+      }
     } else if(u.state==='work'){
       // Am Gerüst wird STEHEND gehämmert. Erst nach einer Weile wechselt der
       // Bauarbeiter die Seite – vorher tänzelte er ununterbrochen ums Haus.
