@@ -542,12 +542,24 @@ export class UI {
       // direkt über alle Fahnen suchen: Türfahnen werden an der Zugbrücke
       // gezeichnet, nicht am Gitterpunkt - der nächste Knoten zum Tipp wäre
       // dort ein anderer. Grobfenster + exakter Bildkasten je Fahne.
+      // Der Kasten deckt das GANZE gezeichnete Bild ab (F7, zweiter Anlauf).
+      // Vorher fehlten drei Dinge: die Felsanhebung (drawFlag hebt die
+      // Fahne um liftAt*HSCALE an, der Klicktest wusste davon nichts - auf
+      // Fels tippte man systematisch UNTER die Fahne), die rechte Haelfte
+      // des Tuchs (Kasten +-13 um den Mast, das Tuch weht aber bis +16
+      // nach rechts) und der Zoom (in Weltpixeln gemessen schrumpft der
+      // Kasten am Handy beim Rauszoomen unter jede Fingerspitze - deshalb
+      // waechst der Rand mit 1/zoom auf mindestens ~20 Bildschirmpixel).
+      const rand=Math.max(4, 20/(this.cam.z||1));
       for(let k=0;k<m.flag.length;k++){
         if(!m.flag[k]) continue;
         const [px,py]=m.worldPos(k);
-        if(Math.abs(px-wx)>44 || Math.abs(py-wy)>60) continue;
-        const p=this.renderer.doorVisualPos? this.renderer.doorVisualPos(k) : [px,py];
-        if(Math.abs(wx-p[0])<=13 && wy>=p[1]-20 && wy<=p[1]+8){ fahnenTreff=k; break; }
+        if(Math.abs(px-wx)>44+rand || Math.abs(py-wy)>60+rand) continue;
+        const p=this.renderer.flagVisualPos? this.renderer.flagVisualPos(k)
+              : this.renderer.doorVisualPos? this.renderer.doorVisualPos(k) : [px,py];
+        const py2=p[1]-(this.renderer.liftAt? this.renderer.liftAt(k)*26 : 0);
+        if(wx>=p[0]-8-rand && wx<=p[0]+16+rand
+           && wy>=py2-25-rand && wy<=py2+6+rand){ fahnenTreff=k; break; }
       }
     }
     const i=m.nearestNode(wx,wy);

@@ -8499,7 +8499,16 @@ export class Renderer {
       // wirkten wie Fremdkörper auf dem Facettenrelief. Das Gebirge bekommt
       // ein eigenes großes Grafik-Update.
       if(m.bld[i]>=0){ const b=game.buildings.get(m.bld[i]); if(b) items.push({kind:'bld', b, y:m.worldPos(i)[1]}); }
-      if(m.flag[i]) items.push({kind:'flag', i, y:m.worldPos(i)[1]+2});
+      // Tiefensortierung AM GEZEICHNETEN FUSS, nicht am Gitterpunkt (F1):
+      // Tuerfahnen werden an der Zugbruecke gezeichnet (doorVisualPos),
+      // teils etliche Pixel vom Knoten entfernt. Sortiert nach worldPos
+      // liefen Siedler, die zwischen beiden y-Werten unterwegs sind,
+      // GRAFISCH DURCH DAS FAHNENTUCH - die Fahne wurde hinter ihnen
+      // gezeichnet, obwohl ihr Fuss im Bild tiefer steht.
+      if(m.flag[i]){
+        const fy=this.flagVisualPos? this.flagVisualPos(i)[1] : m.worldPos(i)[1];
+        items.push({kind:'flag', i, y:fy+2});
+      }
       if(game.signs && game.signs.has(i) && m.bld[i]<0) items.push({kind:'sign', i, ore:game.signs.get(i), y:m.worldPos(i)[1]+1});
     }
     for(const r of game.roads.values()){
@@ -9427,6 +9436,37 @@ export class Renderer {
     }
     // ---------- deutliche Arbeits-Effekte ----------
     const working=b.state==='done' && !b.paused && (BLD[b.type].prod||BLD[b.type].mine) && b.prodT>0;
+    // SAEGEWERK: das gemalte Zahnrad dreht sich (F4). Kein neues Blatt
+    // noetig - das Rad ist eine rotationssymmetrische Scheibe, also wird
+    // sein Kreis EINMAL aus dem Gebaeudebild ausgeschnitten (gecacht) und
+    // im Betrieb gedreht darueber gezeichnet. Mitte und Radius sind im
+    // Sprite vermessen (153x150, Radmitte 60,5/109, Radius 17,5 px);
+    // aendert sich das Bild, muessen die drei Anteile neu gemessen werden.
+    if(b.type==='sawmill' && b.state==='done'){
+      const mimg=this.asset('bld_sawmill');
+      if(mimg && mimg.naturalWidth){
+        const SAEGE_CX=60.5/153, SAEGE_CY=109/150, SAEGE_R=17.5/153;
+        if(!this._saegeCv){
+          const sw=mimg.naturalWidth, r=SAEGE_R*sw;
+          const cv=document.createElement('canvas');
+          cv.width=cv.height=Math.ceil(r*2);
+          const t=cv.getContext('2d');
+          t.beginPath(); t.arc(r,r,r,0,7); t.clip();
+          t.drawImage(mimg, r-SAEGE_CX*sw, r-SAEGE_CY*mimg.naturalHeight);
+          this._saegeCv=cv;
+        }
+        const hh=this.scaleOf('bld_sawmill',80);
+        const ww=hh*(mimg.naturalWidth/mimg.naturalHeight);
+        const cx=x-ww/2+SAEGE_CX*ww, cy=y-hh+10+SAEGE_CY*hh, r2=SAEGE_R*ww;
+        // im Betrieb laeuft es um; still steht es je Gebaeude anders, wie
+        // Muehle und Haspel (sonst staenden alle Raeder identisch)
+        const ang= working? this.time/420 : (b.id%6.28);
+        g.save();
+        g.translate(cx,cy); g.rotate(ang);
+        g.drawImage(this._saegeCv, -r2, -r2, r2*2, r2*2);
+        g.restore();
+      }
+    }
     // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms
     if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')){
       const sails=this.asset('obj_millsails');
@@ -9975,8 +10015,23 @@ export class Renderer {
     this._tintCache.set(key,c);
     return c;
   }
+  // Wo die FAHNE steht - nicht dasselbe wie doorVisualPos: das ist die
+  // Torschwelle, an der das Pflaster endet (W3), und das muss so bleiben.
+  // Die Burgfahne stand damit aber GRAFISCH IM TORBOGEN (F5). Sie rueckt
+  // ein gutes Stueck den Weg hinaus Richtung Tuerknoten - dort steht sie
+  // am Wegesrand vor der Burg, wie im Vorbild. Trefferkasten (ui.js) und
+  // Tiefensortierung benutzen dieselbe Position.
+  flagVisualPos(i){
+    const p=this.doorVisualPos(i);
+    const b=this._doorMap && this._doorMap.get(i);
+    if(b && b.type==='hq'){
+      const [fx,fy]=this.game.map.worldPos(i);
+      return [p[0]+(fx-p[0])*0.72, p[1]+(fy-p[1])*0.72];
+    }
+    return p;
+  }
   drawFlag(g, m, game, i){
-    let [x,y]=this.doorVisualPos(i);   // Türfahnen stehen direkt am Eingang
+    let [x,y]=this.flagVisualPos(i);   // Türfahnen stehen direkt am Eingang
     y-=this.liftAt(i)*HSCALE;          // auf angehobenem Fels (G1)
     const pl=m.owner[i];
     const col=pl>=0?PLAYER_COLORS[pl]:'#999';
@@ -9992,9 +10047,25 @@ export class Renderer {
       // gesetzt stünde die Fahne neben ihrem Klickkreis (Aufgabe 47) und
       // spränge beim Wechsel klein/groß.
       const dx=x-FLAG_ANKER_X*ww, dy=y-FLAG_BODEN*hh;
-      g.drawImage(spr, dx, dy, ww, hh);
       const tuch=this.eingefaerbt(name+'_tuch', col);
-      if(tuch) g.drawImage(tuch, dx, dy, ww, hh);
+      // DAS TUCH WEHT (F6), wie die Wimpel auf den Burgtuermen
+      // (drawTowerFlag, gleiche Uhr this.time/240). Das Sprite ist starr -
+      // deshalb wird der Bildteil RECHTS des Mastes in senkrechten Streifen
+      // gezeichnet, jeder Streifen mit einer Sinuswelle senkrecht versetzt.
+      // Die Auslenkung waechst zur Tuchspitze hin (am Mast null), jede
+      // Fahne hat ueber ihren Knotenindex eine eigene Phase.
+      const sw=spr.naturalWidth, sh=spr.naturalHeight;
+      const mastA=FLAG_ANKER_X+0.06;          // bis knapp hinter den Mast starr
+      const mW=ww*mastA, mSW=sw*mastA;
+      g.drawImage(spr, 0,0, mSW,sh, dx,dy, mW,hh);
+      if(tuch) g.drawImage(tuch, 0,0, mSW,sh, dx,dy, mW,hh);
+      const S=5, rW=ww-mW, rSW=sw-mSW;
+      for(let k=0;k<S;k++){
+        const off=Math.sin(this.time/240 + i*0.83 + k*0.85)*((k+1)/S)*1.5;
+        const fx0=mW+rW*k/S, sx0=mSW+rSW*k/S;
+        g.drawImage(spr, sx0,0, rSW/S+1,sh, dx+fx0, dy+off, rW/S+0.6, hh);
+        if(tuch) g.drawImage(tuch, sx0,0, rSW/S+1,sh, dx+fx0, dy+off, rW/S+0.6, hh);
+      }
       this.flagGoods(g, game, i, x, y);
       return;
     }
@@ -11042,23 +11113,34 @@ export class Renderer {
     if(cv!==undefined) return cv;
     const w=img.naturalWidth, h=img.naturalHeight;
     cv=document.createElement('canvas'); cv.width=w; cv.height=h;
-    const t=cv.getContext('2d',{willReadFrequently:true});
+    const t=cv.getContext('2d');
     t.drawImage(img,0,0);
+    // DIE BINDE WIRD GEMALT, NICHT GESUCHT (F2). Der alte Weg suchte fast
+    // weisse Pixel (mn>=246) und faerbte sie um - nachgemessen hat KEINES
+    // der beiden Pfosten-Sprites auch nur ein solches Pixel. Ergebnis: die
+    // Grenzpfosten trugen nie eine Spielerfarbe. Jetzt wird ein Band quer
+    // ueber den Pfosten gelegt, per source-atop auf die Deckkraft des
+    // Sprites beschraenkt (es faerbt also nur den Pfahl, nicht die Luft),
+    // und die Schattierung des Holzes scheint per multiply durch - so
+    // wirkt die Binde gewickelt statt aufgeklebt.
     try{
-      const id=t.getImageData(0,0,w,h), d=id.data;
-      const col=toArr(PLAYER_COLORS[pl]||'#888');
-      for(let p2=0;p2<d.length;p2+=4){
-        if(d[p2+3]<8) continue;
-        const mn=Math.min(d[p2],d[p2+1],d[p2+2]), mx=Math.max(d[p2],d[p2+1],d[p2+2]);
-        if(mn<246 || mx-mn>6) continue;                 // nicht das Band
-        // das Band ist flach – die Rundung kommt hier dazu
-        const x=((p2/4)%w)/w;
-        const sh=0.72+0.42*Math.cos((x-0.36)*2.6);
-        d[p2]  = Math.min(255, col[0]*sh);
-        d[p2+1]= Math.min(255, col[1]*sh);
-        d[p2+2]= Math.min(255, col[2]*sh);
-      }
-      t.putImageData(id,0,0);
+      const y0=h*0.30, bh=h*0.15;
+      t.save();
+      t.beginPath(); t.rect(0, y0, w, bh); t.clip();
+      t.globalCompositeOperation='source-atop';
+      t.fillStyle=PLAYER_COLORS[pl]||'#888';
+      t.fillRect(0, y0, w, bh);
+      t.globalCompositeOperation='multiply';
+      t.globalAlpha=0.5;
+      t.drawImage(img,0,0);
+      t.restore();
+      // schmale dunkle Saeume oben und unten fassen die Binde ein
+      t.save();
+      t.globalCompositeOperation='source-atop';
+      t.fillStyle='rgba(30,22,12,0.35)';
+      t.fillRect(0, y0, w, Math.max(1,h*0.008));
+      t.fillRect(0, y0+bh-Math.max(1,h*0.008), w, Math.max(1,h*0.008));
+      t.restore();
     }catch(_){ cv=null; }
     this._postT.set(ck,cv);
     return cv;
@@ -11284,9 +11366,15 @@ export class Renderer {
   // umlaufenden Band in der Farbe des Gebietsbesitzers.
   drawBorderPost(g, p){
     const {x,y,pl}=p;
-    const tint=this.postTinted(pl, p.fels? 'obj_borderpost_fels' : null);
+    // EIN Pfosten fuer alle Boeden (F3). Die Fels-Variante war ein voellig
+    // anderes Sprite (143x256 statt 89x300, Steinsockel) - an der Grenze
+    // wechselte das Erscheinungsbild der Markierung mitten in der Reihe.
+    // Der Steinsockel-Gedanke war gut gemeint, las sich im Spiel aber als
+    // Stilbruch (Nutzerurteil). obj_borderpost_fels bleibt im Paket, wird
+    // aber nicht mehr gezeichnet.
+    const tint=this.postTinted(pl, null);
     if(tint){
-      const hh=this.scaleOf(p.fels&&this.asset('obj_borderpost_fels')?'obj_borderpost_fels':'obj_borderpost',22),
+      const hh=this.scaleOf('obj_borderpost',22),
             ww=hh*(tint.width/tint.height);
       this.shadow(g, x+2, y+1.2, ww*0.5, 1.4, 0.28);
       g.drawImage(tint, x-ww/2, y+2-hh, ww, hh);
