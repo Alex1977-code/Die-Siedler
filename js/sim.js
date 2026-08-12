@@ -213,7 +213,16 @@ export class Game {
     if(!def) return {ok:false, r:'?'};
     if(m.owner[node]!==player) return {ok:false, r:'Außerhalb deines Gebiets'};
     if(m.bld[node]>=0 || m.flag[node]) return {ok:false, r:'Platz belegt'};
-    if(m.obj[node]!==OBJ.NONE) return {ok:false, r:'Platz blockiert'};
+    // BAEUME BLOCKIEREN NICHT MEHR. Nachgemessen auf zwei Karten, auf denen
+    // die KI nach 30 Spielminuten NULL bebaubare Knoten hatte: von 628 bzw.
+    // 271 eigenen Knoten waren 376 bzw. 184 schlicht Wasser - und obendrein
+    // fielen 50 bzw. 29 Knoten nur deshalb weg, weil ein Baum daraufstand.
+    // Das Vorbild faellt den Baum einfach; der Bauplatz wird geraeumt. Stein,
+    // Fels, Ruinen und Felder blockieren weiterhin: Stein und Fels sind
+    // Rohstoff beziehungsweise Hindernis, Ruinen zerfallen von selbst, und
+    // ein Feld gehoert zu einem Bauernhof, der es noch braucht.
+    if(m.obj[node]!==OBJ.NONE && !Game.isTree(m.obj[node]&127))
+      return {ok:false, r:'Platz blockiert'};
     if(this.roadAt(node)) return {ok:false, r:'Hier verläuft eine Straße'};
     if(def.size==='MINE'){
       if(!m.terrOkMine(node)) return {ok:false, r:'Bergwerke nur im Gebirge'};
@@ -347,6 +356,11 @@ export class Game {
   }
   placeBuilding(player, type, node){
     const c=this.canBuild(player,type,node); if(!c.ok) return c;
+    // Steht ein Baum auf dem Bauplatz, faellt er mit dem ersten Spatenstich -
+    // sonst waechst das Haus mitten durch die Krone.
+    if(this.map.obj[node]!==OBJ.NONE && Game.isTree(this.map.obj[node]&127)){
+      this.map.obj[node]=OBJ.NONE; this.changedNodes.push(node);
+    }
     const b=this.spawnBuilding(player,type,node);
     // Bau-Anforderungen laufen über die Logistik (Bretter/Steine)
     return {ok:true, b};
