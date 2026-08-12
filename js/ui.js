@@ -144,6 +144,9 @@ export class UI {
         <h2>Optionen</h2>
         <label class="opt"><input type="checkbox" id="o-sfx"> Soundeffekte</label>
         <label class="opt"><input type="checkbox" id="o-music"> Musik</label>
+        <label class="opt">Lautstärke <input type="range" id="o-vol" min="0" max="100" step="5"></label>
+        <label class="opt">Musik-Pegel <input type="range" id="o-vol-music" min="0" max="100" step="5"></label>
+        <label class="opt">Effekt-Pegel <input type="range" id="o-vol-sfx" min="0" max="100" step="5"></label>
         <label class="opt"><input type="checkbox" id="o-tilt"> Weichzeichner am Bildrand</label>
         <p class="note">Tipp: Füge das Spiel über das Browser-Menü zum Startbildschirm hinzu, um es
         wie eine App im Vollbild zu spielen – auch offline.</p>
@@ -272,6 +275,18 @@ export class UI {
     $('#o-music').checked=this.opts.music;
     $('#o-sfx').onchange=(e)=>{ this.opts.sfx=e.target.checked; Sound.setSfx(this.opts.sfx); SAVE.setOptions(this.opts); };
     $('#o-music').onchange=(e)=>{ this.opts.music=e.target.checked; Sound.setMusic(this.opts.music); SAVE.setOptions(this.opts); };
+    // Lautstärkeregler (KD2): live beim Ziehen, gespeichert beim Loslassen
+    const volInit=(id, key, kind)=>{
+      const s=$(id); if(!s) return;
+      const v0=this.opts[key]??1;
+      s.value=String(Math.round(v0*100));
+      Sound.setVol(kind, v0);
+      s.oninput=(e)=>{ const v=(+e.target.value)/100; this.opts[key]=v; Sound.setVol(kind, v); };
+      s.onchange=()=>SAVE.setOptions(this.opts);
+    };
+    volInit('#o-vol','volMaster','master');
+    volInit('#o-vol-music','volMusic','music');
+    volInit('#o-vol-sfx','volSfx','sfx');
     // Weichzeichner am Bildrand (Tilt-Shift). Er liest jedes Bild zweimal aus
     // dem Canvas zurueck; auf schwacher Grafik ist das der groesste einzelne
     // Posten der Bildzeit. Wer lieber fluessig spielt, schaltet ihn ab.
@@ -344,6 +359,8 @@ export class UI {
     document.querySelectorAll('.screen').forEach(s=>s.classList.add('hidden'));
     $('#scr-'+name).classList.remove('hidden');
     this.screen=name;
+    // Ambience-Bett gehoert zur Spielansicht - in Menues ausblenden (KD2)
+    if(name!=='game') Sound.ambienceMix({wasser:0, wald:0, fels:0});
   }
   resize(){
     const cv=$('#cv');
@@ -436,61 +453,106 @@ export class UI {
       this.launch(g);
     }catch(e){ console.error(e); alert('Spielstand konnte nicht geladen werden.'); }
   }
+  // Stereo (KD2): Wo liegt die Weltposition im Bild? Links/rechts der
+  // Bildmitte ergibt den Pan, gedeckelt, damit nichts hart im Ohr klebt.
+  panVon(wx){
+    const px=(wx-this.cam.x)*this.cam.z;
+    return Math.max(-0.8, Math.min(0.8, px/(((this.renderer&&this.renderer.vw)||800)/2)));
+  }
   hookSounds(g){
     g.onBuilt=()=>Sound.sfx('done');
     g.onProduce=()=>{};
-    // Handwerker-Geräusche je nach Tätigkeit, leiser mit Entfernung zur Kamera
+    // Handwerker-Geräusche je nach Tätigkeit, leiser mit Entfernung zur
+    // Kamera und (KD2) von der Seite, auf der sie im Bild liegen
     const JOB_SFX={chop:'chop', pick:'pick', sow:'dig', plant:'dig', harvest:'rustle', fish:'splash', hunt:'rustle'};
     g.onWorkerAct=(u)=>{
       const name=JOB_SFX[u.jobKind];
       if(!name) return;
       const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
       if(d>750) return;
-      Sound.sfx(name, Math.max(0.15, 1-d/750));
+      Sound.sfx(name, Math.max(0.15, 1-d/750), this.panVon(u.x));
     };
     g.onGeoProbe=(u)=>{
       const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
       if(d>750) return;
-      Sound.sfx('pick', Math.max(0.15, 1-d/750));
+      Sound.sfx('pick', Math.max(0.15, 1-d/750), this.panVon(u.x));
     };
     g.onClash=(b)=>{
       const [x,y]=g.map.worldPos(b.node);
       const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
       if(d>900) return;
-      const s=Math.max(0.2, 1-d/900);
-      Sound.sfx('clash', s);
-      if(Math.random()<0.45) setTimeout(()=>Sound.sfx('grunt', s), 120+Math.random()*160);
+      const s=Math.max(0.2, 1-d/900), p=this.panVon(x);
+      Sound.sfx('clash', s, p);
+      if(Math.random()<0.45) setTimeout(()=>Sound.sfx('grunt', s, p), 120+Math.random()*160);
     };
     g.onGeoFind=(u)=>{
       const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
       if(d>900) return;
-      Sound.sfx('yay', Math.max(0.25, 1-d/900));
+      Sound.sfx('yay', Math.max(0.25, 1-d/900), this.panVon(u.x));
     };
     g.onRecruit=()=>Sound.sfx('recruit');
     g.onVolley=(x,y)=>{
       const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
       if(d>850) return;
-      Sound.sfx('arrow', Math.max(0.15, 1-d/850));
+      Sound.sfx('arrow', Math.max(0.15, 1-d/850), this.panVon(x));
     };
     g.onBurn=(b)=>{
       const [x,y]=g.map.worldPos(b.node);
       const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
-      Sound.sfx('burn', Math.max(0.2, 1-d/900));
+      Sound.sfx('burn', Math.max(0.2, 1-d/900), this.panVon(x));
     };
     g.onBoulder=()=>Sound.sfx('boulder');
     g.onHammer=(u)=>{
       const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
       if(d>750) return;
-      Sound.sfx('hammer', Math.max(0.15, 1-d/750));
+      Sound.sfx('hammer', Math.max(0.15, 1-d/750), this.panVon(u.x));
     };
     g.onLevel=(u)=>{
       const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
       if(d>750) return;
-      Sound.sfx('dig', Math.max(0.15, 1-d/750));
+      Sound.sfx('dig', Math.max(0.15, 1-d/750), this.panVon(u.x));
     };
     g.onShip=()=>Sound.sfx('splash');
     g.onBattleStart=(b)=>{ if(b.player===0) Sound.sfx('war'); };
     g.onCapture=()=>Sound.sfx('done');
+  }
+  // Ambience-Bett (KD2): alle 2 s den Bildausschnitt abtasten - Wasser-,
+  // Wald- und Gebirgsanteil steuern drei leise Dauerklaenge in sound.js.
+  klangKulisse(){
+    const g=this.game; if(!g) return;
+    const m=g.map;
+    let wasser=0, wald=0, fels=0, n=0;
+    const halbW=(((this.renderer&&this.renderer.vw)||800)/2)/this.cam.z;
+    const halbH=(((this.renderer&&this.renderer.vh)||600)/2)/this.cam.z;
+    for(let k=0;k<60;k++){
+      const i=m.nearestNode(this.cam.x+(Math.random()*2-1)*halbW,
+                            this.cam.y+(Math.random()*2-1)*halbH);
+      if(i<0) continue;
+      n++;
+      const t=m.terr[i];
+      if(t===TER.WATER) wasser++;
+      else if(t===TER.MOUNT) fels++;
+      const o=m.obj[i]&127;
+      if(o===OBJ.TREE||o===OBJ.TREE2||o===OBJ.SAPLING) wald++;
+    }
+    if(!n) return;
+    // Wald zaehlt pro Baum-Knoten - schon ein lockerer Hain soll hoerbar
+    // sein, deshalb der Faktor 3 mit Deckel.
+    Sound.ambienceMix({ wasser:wasser/n, wald:Math.min(1,(wald/n)*3), fels:fels/n });
+  }
+  // Marschtrommel (KD2/KD1): ziehende Angriffstruppen in Kameranaehe sind
+  // zu HOEREN, bevor man sie sieht - alle ~1,2 s ein dumpfer Doppelschlag
+  // von der Seite, auf der sie marschieren.
+  marschTrommel(){
+    const g=this.game; if(!g || this.paused) return;
+    let bx=0, bd=1e9;
+    for(const u of g.units){
+      if(u.dead || u.type!=='attack') continue;
+      const d=Math.hypot(u.x-this.cam.x, u.y-this.cam.y)*this.cam.z;
+      if(d<bd){ bd=d; bx=u.x; }
+    }
+    if(bd>800) return;
+    Sound.sfx('march', Math.max(0.15, 1-bd/800), this.panVon(bx));
   }
 
   // ================= Interaktion =================
@@ -1320,6 +1382,8 @@ export class UI {
         this.renderer.draw(this.cam, this.uiRenderState, dt);
         if(!this._mmT||now-this._mmT>500){ this._mmT=now; this.renderer.drawMinimap($('#minimap'), this.cam); }
         if(!this._resT||now-this._resT>600){ this._resT=now; this.updateHud(); }
+        if(!this._ambT||now-this._ambT>2000){ this._ambT=now; this.klangKulisse(); }
+        if(!this._marT||now-this._marT>1200){ this._marT=now; this.marschTrommel(); }
         this.pollMsgs();
         if(this.game.over) this.onGameOver();
       }

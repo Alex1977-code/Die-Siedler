@@ -3,16 +3,20 @@ export const Sound = {
   ctx:null, master:null, musicGain:null, sfxGain:null,
   sfxOn:true, musicOn:true, started:false,
   _musicTimer:null, _step:0,
+  // Nutzer-Regler (0..1) als Faktor auf die Basiswerte 0.9/0.34/0.8 (KD2).
+  // Sie werden vor init() gesetzt (Optionen laden frueher als der erste
+  // Touch) und hier beim Aufbau der Gains angewendet.
+  vols:{ master:1, music:1, sfx:1 },
 
   init(){
     if(this.ctx) return;
     const AC=window.AudioContext||window.webkitAudioContext;
     if(!AC) return;
     this.ctx=new AC();
-    this.master=this.ctx.createGain(); this.master.gain.value=0.9;
+    this.master=this.ctx.createGain(); this.master.gain.value=0.9*this.vols.master;
     this.master.connect(this.ctx.destination);
-    this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=0.8; this.sfxGain.connect(this.master);
-    this.musicGain=this.ctx.createGain(); this.musicGain.gain.value=0.34; this.musicGain.connect(this.master);
+    this.sfxGain=this.ctx.createGain(); this.sfxGain.gain.value=0.8*this.vols.sfx; this.sfxGain.connect(this.master);
+    this.musicGain=this.ctx.createGain(); this.musicGain.gain.value=0.34*this.vols.music; this.musicGain.connect(this.master);
     // Raumklang für die Musik: gefiltertes Echo mit Rückkopplung
     this.mDelay=this.ctx.createDelay(1); this.mDelay.delayTime.value=0.31;
     const fb=this.ctx.createGain(); fb.gain.value=0.34;
@@ -28,11 +32,26 @@ export const Sound = {
     if(this.ctx.state==='suspended') this.ctx.resume();
     if(!this.started){ this.started=true; if(this.musicOn) this.startMusic(); }
   },
-  setSfx(on){ this.sfxOn=on; },
+  setSfx(on){
+    this.sfxOn=on;
+    // Das Ambience-Bett laeuft als Dauerschleife an sfxGain vorbei am
+    // sfx()-Wächter - beim Abschalten muss es selbst auf null.
+    if(!on && this._amb && this.ctx)
+      for(const k in this._amb) this._amb[k].gain.setTargetAtTime(0, this.ctx.currentTime, 0.3);
+  },
   setMusic(on){
     this.musicOn=on;
     if(!this.ctx) return;
     if(on) this.startMusic(); else this.stopMusic();
+  },
+  // Lautstärkeregler (KD2): kind 'master' | 'music' | 'sfx', v 0..1
+  setVol(kind, v){
+    v=Math.max(0, Math.min(1, +v||0));
+    this.vols[kind]=v;
+    if(!this.ctx) return;
+    if(kind==='master' && this.master) this.master.gain.value=0.9*v;
+    else if(kind==='music' && this.musicGain) this.musicGain.gain.value=0.34*v;
+    else if(kind==='sfx' && this.sfxGain) this.sfxGain.gain.value=0.8*v;
   },
 
   // ---------- Effekte ----------
@@ -43,7 +62,16 @@ export const Sound = {
     g.gain.setValueAtTime(0.0001,t);
     g.gain.linearRampToValueAtTime(vol*this._scale,t+attack);
     g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    g.connect(this.sfxGain);
+    // Stereo (KD2): Weltklaenge kommen von dort, wo sie im Bild liegen.
+    // Der Pan wird je sfx()-Aufruf gesetzt; ohne Panner-API bleibt es mittig.
+    let ziel=this.sfxGain;
+    if(this._pan && this.ctx.createStereoPanner){
+      const p=this.ctx.createStereoPanner();
+      p.pan.value=this._pan;
+      p.connect(this.sfxGain);
+      ziel=p;
+    }
+    g.connect(ziel);
     return g;
   },
   osc(type,freq,dur,vol=0.4,slide=0){
@@ -66,13 +94,17 @@ export const Sound = {
     src.connect(f); f.connect(this.env(dur,vol));
     src.start();
   },
-  sfx(name, scale=1){
+  sfx(name, scale=1, pan=0){
     if(!this.ctx||!this.sfxOn) return;
     // defensiv: ein ungültiger Lautstärkefaktor darf die Simulation nicht
     // mit einem WebAudio-Fehler abbrechen
     if(!Number.isFinite(scale)) scale=1;
     scale=Math.max(0.05, Math.min(1, scale));
     this._scale=Math.max(0,Math.min(1,scale));
+    // Pan bleibt bis zum naechsten Aufruf stehen, damit auch die per
+    // setTimeout verzoegerten Teiltoene (Glocke, zweiter Trommelschlag)
+    // von derselben Seite kommen.
+    this._pan=Number.isFinite(+pan)? Math.max(-0.9, Math.min(0.9, +pan)) : 0;
     switch(name){
       case 'tap':    this.osc('sine', 660, 0.06, 0.15); break;
       case 'place':  this.noise(0.12,0.4,120,500); this.osc('sine',110,0.15,0.3,-40); break;
@@ -141,7 +173,63 @@ export const Sound = {
         setTimeout(()=>this.noise(0.35,0.16,1500,4400),650); break;
       case 'win':    [523,659,784,1047].forEach((f,i)=> setTimeout(()=>this.osc('triangle',f,0.4,0.3),i*160)); break;
       case 'lose':   [392,330,262,196].forEach((f,i)=> setTimeout(()=>this.osc('sawtooth',f,0.45,0.22),i*200)); break;
+      case 'march':  // Marschtrommel ziehender Truppen: dumpfer Doppelschlag
+        this.osc('sine',130,0.16,0.3,-80);
+        this.noise(0.06,0.22,80,240);
+        setTimeout(()=>{ this.osc('sine',112,0.12,0.2,-60); this.noise(0.05,0.14,80,220); },170);
+        break;
     }
+  },
+
+  // ---------- Ambience: leises Klangbett je nach Umgebung der Kamera (KD2) ----------
+  // Drei Dauerquellen (Wasser, Blätter, Wind) laufen als geloopte
+  // Rauschbaender mit Gain 0 und werden von ambienceMix() weich auf ihren
+  // Anteil im Bild gezogen. Wellen und Wind leben nicht von der Lautstaerke,
+  // sondern von langsam wandernden Filterfrequenzen - so pumpt nichts.
+  _ambInit(){
+    if(this._amb || !this.ctx) return;
+    const mk=(f1,f2,q,lfoHz,lfoAmp)=>{
+      const n=this.ctx.sampleRate*2;
+      const buf=this.ctx.createBuffer(1,n,this.ctx.sampleRate);
+      const d=buf.getChannelData(0);
+      for(let i=0;i<n;i++) d[i]=Math.random()*2-1;
+      const src=this.ctx.createBufferSource(); src.buffer=buf; src.loop=true;
+      const f=this.ctx.createBiquadFilter(); f.type='bandpass';
+      f.frequency.value=(f1+f2)/2; f.Q.value=q;
+      if(lfoHz){
+        const lfo=this.ctx.createOscillator(); lfo.frequency.value=lfoHz;
+        const lg=this.ctx.createGain(); lg.gain.value=lfoAmp;
+        lfo.connect(lg); lg.connect(f.frequency); lfo.start();
+      }
+      const g=this.ctx.createGain(); g.gain.value=0;
+      src.connect(f); f.connect(g); g.connect(this.sfxGain);
+      src.start();
+      return g;
+    };
+    this._amb={
+      wasser: mk(150,650,0.6,0.13,220),   // Wellen: Spektrum schwappt langsam
+      wald:   mk(1800,4200,0.4,0,0),      // Blaetterrascheln, statisch und fein
+      wind:   mk(280,900,0.35,0.07,150),  // duenner Hoehenwind
+    };
+  },
+  // mix: {wasser,wald,fels} jeweils 0..1 (Anteil im Bild). Sanfte Ziele,
+  // dazu gelegentliche Vogelrufe, wenn genug Wald im Bild ist.
+  ambienceMix(mix){
+    if(!this.ctx) return;
+    this._ambInit();
+    if(!this._amb) return;
+    const an=this.sfxOn? 1 : 0;
+    const ziel={
+      wasser: 0.055*(mix.wasser||0)*an,
+      wald:   0.038*(mix.wald||0)*an,
+      wind:   0.045*(mix.fels||0)*an,
+    };
+    const t=this.ctx.currentTime;
+    this._amb.wasser.gain.setTargetAtTime(ziel.wasser, t, 1.2);
+    this._amb.wald.gain.setTargetAtTime(ziel.wald, t, 1.2);
+    this._amb.wind.gain.setTargetAtTime(ziel.wind, t, 1.2);
+    if(an && (mix.wald||0)>0.2 && Math.random()<0.3)
+      this.sfx('zwitscher', 0.25+Math.random()*0.3, Math.random()*1.6-0.8);
   },
 
   // ---------- Generative Musik: moderner Chill-Soundtrack (eigene Komposition) ----------
@@ -333,3 +421,6 @@ export const Sound = {
     if(this._musicTimer){ clearTimeout(this._musicTimer); this._musicTimer=null; }
   },
 };
+
+// Fuer Messwerkzeuge erreichbar machen (wie window.__ui in main.js)
+if(typeof window!=='undefined') window.__sound=Sound;
