@@ -8819,9 +8819,19 @@ export class Renderer {
     // keine High-Quality-Filterung – das kostete pro Band einen teuren
     // Lese-/Resampling-Pass und verdoppelte die Frametime; auf iOS lief
     // dieser Pfad schon immer) und daraus zwei Vergrößerungs-Züge je Band.
+    //
+    // Bandmaß: 14% der BILDHÖHE waren im Handy-Hochformat 180+ px je Rand –
+    // gemessen behielten die oberen 21% des Bilds nur 33-55% ihrer Kanten-
+    // schärfe, insgesamt lag fast die halbe Spielfläche im Weichzeichner.
+    // Deshalb richtet sich das Band jetzt nach der KÜRZEREN Bildkante
+    // (Querformat unverändert, Hochformat schmaler) und zieht sich beim
+    // Heranzoomen zurück: die Miniatur-Anmutung gehört zur Übersicht,
+    // nicht zum Arbeiten am Detail (ab z=2.6 ganz aus).
     if(!this.tiltAus) {
-      const dpr=this.dpr, band=Math.round(this.vh*0.14);
+      const zf=Math.max(0, Math.min(1, (2.6-cam.z)/1.6));
+      const dpr=this.dpr, band=Math.round(Math.min(this.vw,this.vh)*0.14*zf);
       const b2=Math.round(band*0.55);
+      if(band>=6){
       const K=4;                                  // Verkleinerungsfaktor
       const sw2=Math.max(1,Math.round(this.vw/K));
       const shTop=Math.max(1,Math.round((band+b2)/K));
@@ -8862,6 +8872,7 @@ export class Renderer {
       g.globalAlpha=0.55;
       g.drawImage(t, 0,shTop,sw2,b2*fTop, 0,this.vh-band-b2,this.vw,b2);
       g.globalAlpha=1;
+      }                                           // band>=6
     }
     // Kartenrand: außerhalb der Karte liegt kein Nichts, sondern ein
     // dunkler Saum, der weich zur Bildkante hin ausläuft. Vorher brach die

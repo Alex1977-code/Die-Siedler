@@ -6,7 +6,7 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v157';
+const BUILD = 'v158';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
