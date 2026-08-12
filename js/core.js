@@ -158,9 +158,17 @@ export const AI_MIL = {
   // gedeckelt bei sechs. Jetzt alle gut vier Minuten, gedeckelt bei zehn.
   // Harmlos bleibt sie durch das, was sie harmlos MACHT: Gruppen von
   // hoechstens drei, Hauptquartier tabu, lange Pause nach jedem Verlust.
-  1: { grpMax:3,  milBase:2, milGrow:2500, milMax:10,  lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25 },
-  2: { grpMax:6,  milBase:2, milGrow:1000, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000, edW:0.6  },
-  3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0,     edW:0.6  },
+  // vorlauf  = Soldaten (Besatzungen + Reserve), die zusammenkommen muessen,
+  //            BEVOR die KI ueberhaupt angreift. Vorher zog sie los, sobald
+  //            zwei Mann abkoemmlich waren - das war kein Feldzug, das war
+  //            Tropfenzaehlen, und der Spieler merkte nie einen Druckaufbau.
+  // heimwehr = Anteil des Vorlaufs, der zu Hause bleiben MUSS. Verhindert,
+  //            dass die KI ihr eigenes Land entbloesst.
+  // milNeed  = wie stark der BEDARF (Feinddruck an der Grenze, Platznot)
+  //            zusaetzliche Posten erlaubt - ueber die reine Uhr hinaus.
+  1: { grpMax:3,  milBase:2, milGrow:2500, milMax:10,  lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25, vorlauf:5,  heimwehr:0.5, milNeed:1 },
+  2: { grpMax:6,  milBase:2, milGrow:1000, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000, edW:0.6,  vorlauf:9,  heimwehr:0.45, milNeed:3 },
+  3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0,     edW:0.6,  vorlauf:14, heimwehr:0.3,  milNeed:5 },
 };
 // Schutzzone um ein Hauptquartier (Knotenabstand): das HQ und Posten in
 // diesem Umkreis gelten für die HQ-Regeln oben als "HQ-Angriff".

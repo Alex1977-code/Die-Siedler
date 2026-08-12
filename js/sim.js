@@ -3579,6 +3579,43 @@ export class Game {
     this.callGeologist(p.id, best);
     return true;
   }
+  // Gesamtstaerke eines Spielers: Besatzungen, marschierende Trupps und
+  // die Reserve im Hauptquartier.
+  aiStaerke(p){
+    let n=0;
+    for(const b of this.buildings.values())
+      if(b.player===p.id && b.soldiers) n+=b.soldiers.length;
+    for(const u of this.units){
+      if(u.dead || u.player!==p.id) continue;
+      if(u.type==='attack' && u.soldiers) n+=u.soldiers.length;
+      else if(u.type==='soldierMove') n++;
+    }
+    return n+this.recruitTotal(p.id);
+  }
+  // Militaerbedarf: feindliche Posten dicht an der eigenen Grenze (Druck)
+  // plus ein Aufschlag, wenn im eigenen Gebiet kaum noch Bauplaetze frei
+  // sind - dann ist ein neuer Posten das einzige Mittel, an Land zu kommen.
+  // Kurz gemerkt; der Scan laeuft ueber alle Gebaeude.
+  aiMilBedarf(p){
+    if(this.t-(p._milBedT||-9999)<900) return p._milBedC||0;
+    p._milBedT=this.t;
+    const m=this.map;
+    const eigen=[];
+    for(const b of this.buildings.values())
+      if(b.player===p.id && (b.soldiers||b.type==='hq')) eigen.push(b.node);
+    let druck=0;
+    for(const b of this.buildings.values()){
+      if(b.player===p.id || b.player<0) continue;
+      if(!(BLD[b.type].mil||b.type==='hq')) continue;
+      for(const nd of eigen)
+        if(Math.hypot(m.X(b.node)-m.X(nd), m.Y(b.node)-m.Y(nd))<14){ druck++; break; }
+    }
+    let frei=0;
+    for(let i=0;i<m.owner.length && frei<4;i++)
+      if(m.owner[i]===p.id && this.canBuild(p.id,'guardhouse',i).ok) frei++;
+    p._milBedC=druck + (frei<3? 2 : 0);
+    return p._milBedC;
+  }
   aiCount(p, type, includeBuild=true){
     let n=0;
     for(const b of this.buildings.values())
@@ -3663,7 +3700,12 @@ export class Game {
     // sonst fror die KI im Niemandsland ein (Kalter-Krieg-Patt, F3).
     const AM=AI_MIL[lvl]||AI_MIL[2];
     const milN=c('barracks')+c('guardhouse')+c('watchtower')+c('fortress');
-    let milAllowed=Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow));
+    // Posten nach BEDARF, nicht nur nach Uhr: Feinddruck an der eigenen
+    // Grenze und Platznot im eigenen Gebiet erlauben zusaetzliche Posten.
+    // Der Bedarf kann nur DRAUFLEGEN - so bleibt das gemessene Wachstum aus
+    // v140 erhalten, reagiert aber auf die Lage.
+    let milAllowed=Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow)
+                            + Math.min(AM.milNeed||0, this.aiMilBedarf(p)));
     if(lvl>=2 && milN>=milAllowed
        && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
        && !this.aiContact(p)) milAllowed=Math.min(milN+1, AM.milMax*2);
@@ -3759,7 +3801,15 @@ export class Game {
     //    wachsenden Wellen (Drohung -> Scharmützel -> Entscheidung).
     //  - SCHWER: heutiges aggressives Verhalten ohne Rücksicht.
     const iv=1200*dm.atkMul/lvl;
+    // SOLDATEN-VORLAUF: erst sammeln, dann losziehen. Ohne diese Schwelle
+    // griff die KI an, sobald irgendwo zwei Mann abkoemmlich waren - ein
+    // Dauertroepfeln statt eines spuerbaren Feldzugs. Die Schwelle steigt
+    // mit der Stufe (5 / 12 / 20 Soldaten), und ein Teil davon bleibt immer
+    // zu Hause (heimwehr).
+    const staerke=this.aiStaerke(p);
+    const bleibt=Math.round((AM.vorlauf||0)*(AM.heimwehr||0));
     if(this.t>3000 && this.t-p.aiState.lastAttack > iv
+       && staerke >= (AM.vorlauf||0)
        && this.t >= (p.aiState.milLossT||0)+AM.lossPause){
       // Geduld am Ende? Wartet die KI ein Mehrfaches ihres Takts, greift sie
       // auch ohne klare Übermacht an – sonst saß sie vor einem vollen
@@ -3809,7 +3859,7 @@ export class Game {
           if(avail < need) continue;
           n=Math.min(avail, offensiv? avail : defN+3);
         }
-        n=Math.min(n, AM.grpMax);
+        n=Math.min(n, AM.grpMax, Math.max(2, staerke-bleibt));
         const d=Math.hypot(m.X(b.node)-m.X(hq.node), m.Y(b.node)-m.Y(hq.node));
         if(d<bs){ bs=d; best={b, n, hqWave}; }
       }
