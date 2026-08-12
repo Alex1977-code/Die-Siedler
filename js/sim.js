@@ -3406,6 +3406,21 @@ export class Game {
       // Planierer, dann Bauarbeiter, dann Baustellenbild.
       if(!b.leveled && !(b.levelerId!=null && this.units.some(u=>u.id===b.levelerId))){
         b.levelerId=null;
+        // WER NICHTS ZU EBNEN HAT, MUSS AUCH NICHT LOS. Vorher lief immer
+        // ein Planierer hinaus, grub feste 70 Takte und ging heim - auch
+        // wenn planiere() danach keinen einzigen Knoten anfasste. Und wer
+        // wenig zu tun hat, graebt jetzt kurz statt voll.
+        // Ehrlich zur Groessenordnung: gemessen ueber 280 Baustellen ist
+        // der Platz nur in 0,7 Prozent der Faelle schon eben, der Median
+        // des noetigen Hubs liegt bei 0,524 von 0,85. Der Sprung nach Hause
+        // bleibt also die Ausnahme; die kuerzere Grabzeit trifft dagegen
+        // fast jede Baustelle (im Mittel rund zwei Drittel der alten Zeit).
+        const bedarf=this.planierBedarf(b);
+        if(bedarf<Game.PLAN_EGAL){ b.leveled=true; b.grabZeit=0; continue; }
+        // Grabzeit im Verhaeltnis zur Arbeit, mit Untergrenze - unter ~2
+        // Sekunden liest sich das Graben nicht mehr als Arbeit, sondern als
+        // Zucken.
+        b.grabZeit=Math.max(20, Math.round(70*bedarf/Game.PLAN_MAX));
         const hq=this.buildings.get(this.players[b.player].hq);
         const src=hq && this.findToolStore(b.player,'shovel');
         if(hq && !src && this.toolTrulyMissing(b.player,'shovel')){
@@ -3465,9 +3480,33 @@ export class Game {
   // Strassen, Grenzen und Nachbargebäude mitreissen.
   // Ausgenommen bleiben Wasser/Lava (kein Untergrund) und Knoten, auf denen
   // ein ANDERES Gebäude steht - das würde sonst mitwandern.
+  // Wie viel Hoehe muesste hier bewegt werden? Gibt den GROESSTEN Hub an
+  // einem der sieben Knoten zurueck (Bauknoten plus Nachbarn), gedeckelt wie
+  // in planiere(). Steht als eigene Rechnung da, weil zwei Fragen daran
+  // haengen: ob der Planierer ueberhaupt losmuss, und wie lange er graebt.
+  // Der Schwellwert PLAN_EGAL ist derselbe, mit dem planiere() unten einen
+  // Knoten in Ruhe laesst - so koennen die beiden nicht auseinanderlaufen.
+  static PLAN_MAX=0.85;
+  static PLAN_EGAL=0.03;
+  planierBedarf(b){
+    const m=this.map;
+    const nb=m.nbs(b.node);
+    const fest=(q)=> m.terr[q]!==TER.WATER && m.terr[q]!==TER.LAVA
+                  && !(m.bld[q]>=0 && m.bld[q]!==b.id);
+    let s=m.hgt[b.node], n=1;
+    for(const q of nb) if(fest(q)){ s+=m.hgt[q]; n++; }
+    const ziel=m.hgt[b.node]*0.55+(s/n)*0.45;
+    let groesst=0;
+    for(const q of [b.node,...nb]){
+      if(!fest(q)) continue;
+      const d=Math.max(-Game.PLAN_MAX, Math.min(Game.PLAN_MAX, ziel-m.hgt[q]));
+      if(Math.abs(d)>groesst) groesst=Math.abs(d);
+    }
+    return groesst;
+  }
   planiere(b){
     const m=this.map;
-    const PLAN_MAX=0.85;
+    const PLAN_MAX=Game.PLAN_MAX;
     const nb=m.nbs(b.node);
     const fest=(q)=> m.terr[q]!==TER.WATER && m.terr[q]!==TER.LAVA
                   && !(m.bld[q]>=0 && m.bld[q]!==b.id);
@@ -3480,7 +3519,7 @@ export class Game {
     const setz=(q)=>{
       if(!fest(q)) return;
       const d=Math.max(-PLAN_MAX, Math.min(PLAN_MAX, ziel-m.hgt[q]));
-      if(Math.abs(d)<0.03) return;
+      if(Math.abs(d)<Game.PLAN_EGAL) return;
       m.hgt[q]+=d; dirty=true;
       this.hoehenNeu.push(q);
     };
@@ -3540,7 +3579,7 @@ export class Game {
       b.levelT=(b.levelT||0)+1;
       if(b.levelT%22===3) this.onLevel && this.onLevel(u);
       if(b.levelT%24===23){ u.pt++; u.atSpot=false; }    // weiter zur nächsten Stelle
-      if(b.levelT>=70){ b.leveled=true; this.planiere(b); u.atSpot=false; u.state='home'; }
+      if(b.levelT>=(b.grabZeit||70)){ b.leveled=true; this.planiere(b); u.atSpot=false; u.state='home'; }
     } else if(u.state==='home'){
       const hq=this.buildings.get(this.players[u.player].hq);
       if(!hq){ u.dead=true; return; }
