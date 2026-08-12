@@ -2110,7 +2110,24 @@ export class Game {
             }
           }
           else {
-            if(!b.depleted){ b.depleted=true; if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node); }
+            if(!b.depleted){
+              b.depleted=true;
+              if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node);
+              // Erz waechst nie nach (oreA wird nur bei der Kartenerzeugung
+              // gesetzt) - ein erschoepftes Bergwerk ist endgueltig tot.
+              // Die Spitzhacke darin waere sonst fuer immer gebunden; sie
+              // kehrt ins Lager zurueck (gleiches Prinzip wie beim
+              // erschoepften Steinbruch, s. Sammler-Erschoepfung unten).
+              if(b.toolGood){
+                const hqW=this.buildings.get(this.players[b.player].hq);
+                if(hqW && hqW.inv){
+                  hqW.inv[b.toolGood]=(hqW.inv[b.toolGood]||0)+1;
+                  if(b.player===0)
+                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node);
+                }
+                b.toolGood=null;
+              }
+            }
           }
         }
       }
@@ -2167,6 +2184,24 @@ export class Game {
               this.warn(b, 'exhausted', def.gather==='plant'
                 ? `${def.name}: keine freie Fläche zum Pflanzen in Reichweite!`
                 : `${def.name}: nichts mehr in Reichweite – Umgebung erschöpft!`, 6000);
+              // Spitzhacken-Todesspirale (Nutzerbefund v166: "Spiel direkt
+              // tot"): der Steinmetz eines erschoepften Bruchs sass fuer
+              // immer auf seiner Spitzhacke - zusammen mit dem Geologen und
+              // den Bergwerken (alle brauchen 'pick') waren die Starthacken
+              // schnell gebunden, und neue gibt es nur ueber Eisen, das ohne
+              // Geologe nie gefunden wird. STEINE wachsen nicht nach, die
+              // Erschoepfung eines Steinbruchs ist endgueltig - die Hacke
+              // kehrt deshalb ins Lager zurueck. Baeume/Fisch/Wild koennen
+              // sich erholen, deren Werkzeug bleibt im Haus.
+              if(def.gather==='stone' && b.toolGood){
+                const hqW=this.buildings.get(this.players[b.player].hq);
+                if(hqW && hqW.inv){
+                  hqW.inv[b.toolGood]=(hqW.inv[b.toolGood]||0)+1;
+                  if(b.player===0)
+                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node);
+                }
+                b.toolGood=null;
+              }
             }
           }
         }

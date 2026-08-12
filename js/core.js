@@ -135,7 +135,13 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 //     die ersten zwanzig Minuten schlicht keinen Grund zu existieren.
 // Die Kiste enthaelt deshalb jetzt mehr von dem, was die Eroeffnung
 // wirklich braucht, und weniger von dem, was nur im Lager lag.
-export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:6, pick:2, axe:2, saw:1, scythe:1, rod:1, cleaver:1, shovel:2 };
+// NACHTRAG (Testpartie v166): zwei Spitzhacken sind zu wenig. Steinbruch
+// UND jedes Bergwerk binden je eine dauerhaft, der Geologe leiht sich fuer
+// jede Tour eine weitere - mit Bruch + einer Mine war das Lager leer, der
+// Geologe blieb daheim, ohne Geologe kein Eisen, ohne Eisen keine neuen
+// Hacken: Todesspirale, Spiel tot. Vier Hacken tragen Bruch, erste Mine
+// und den Geologen gleichzeitig, mit einer in Reserve.
+export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:6, pick:4, axe:2, saw:1, scythe:1, rod:1, cleaver:1, shovel:2 };
 
 // ---------- Militär-Kennzahlen ----------
 // KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js
