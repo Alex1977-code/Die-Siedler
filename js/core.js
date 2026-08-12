@@ -166,9 +166,17 @@ export const AI_MIL = {
   //            dass die KI ihr eigenes Land entbloesst.
   // milNeed  = wie stark der BEDARF (Feinddruck an der Grenze, Platznot)
   //            zusaetzliche Posten erlaubt - ueber die reine Uhr hinaus.
-  1: { grpMax:3,  milBase:2, milGrow:2500, milMax:10,  lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25, vorlauf:5,  heimwehr:0.5, milNeed:1 },
-  2: { grpMax:6,  milBase:2, milGrow:1000, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000, edW:0.6,  vorlauf:9,  heimwehr:0.45, milNeed:3 },
-  3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0,     edW:0.6,  vorlauf:14, heimwehr:0.3,  milNeed:5 },
+  // bauMax   = Obergrenze gleichzeitiger Baustellen. Ohne Grenze faengt die
+  //            KI an, sobald das Material fuer das naechste Haus reicht, und
+  //            verzettelt sich: gemessen 176 Rohbauten gegen 289 fertige
+  //            Haeuser, bei 8 nur noch 91 Rohbauten und dabei ein Drittel
+  //            mehr Soldaten und ein Viertel mehr Gebiet. Die tatsaechliche
+  //            Grenze waechst mit der Siedlung (siehe aiStep), das hier ist
+  //            die Decke. Eine leichte KI baut behaebiger, eine schwere
+  //            haelt mehr Eisen im Feuer.
+  1: { grpMax:3,  milBase:2, milGrow:2500, milMax:10,  lossPause:3000, hqTabu:true,  hqIv:0,     edW:0.25, vorlauf:5,  heimwehr:0.5, milNeed:1, bauMax:6 },
+  2: { grpMax:6,  milBase:2, milGrow:1000, milMax:12,  lossPause:600,  hqTabu:false, hqIv:12000, edW:0.6,  vorlauf:9,  heimwehr:0.45, milNeed:3, bauMax:8 },
+  3: { grpMax:99, milBase:2, milGrow:1000, milMax:999, lossPause:0,    hqTabu:false, hqIv:0,     edW:0.6,  vorlauf:14, heimwehr:0.3,  milNeed:5, bauMax:10 },
 };
 // Schutzzone um ein Hauptquartier (Knotenabstand): das HQ und Posten in
 // diesem Umkreis gelten für die HQ-Regeln oben als "HQ-Angriff".

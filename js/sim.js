@@ -3809,8 +3809,42 @@ export class Game {
         else if(b.state==='build' && this.t-b._aiDiscT>3000) this.burnBuilding(b,false);
       }
     }
+    // WIE VIELE BAUSTELLEN GLEICHZEITIG? Bisher gar keine Grenze - die KI
+    // fing an, sobald Bretter und Steine fuer das naechste Haus reichten.
+    // Solange ihr Gebiet eng war, fiel das nicht auf. Seit der Abzweig
+    // (v146) ihr deutlich mehr erreichbare Plaetze verschafft, faengt sie
+    // mehr an, als ihr Material traegt: das Material verteilt sich duenn
+    // ueber viele Rohbauten, und fertig wird kaum etwas. Auf einer Saat
+    // standen 25 Baustellen und nur 20 fertige Haeuser.
+    // Gemessen ueber zwoelf Saaten, Stufe 2, 15 Spielminuten, Summen:
+    //   Grenze   fertig  Baustellen  Soldaten  Gebiet
+    //   keine       289         176       156   10253
+    //   3           175          36       169   10884
+    //   5           236          60       204   12872
+    //   8           296          91       211   12651
+    //   12          304         119       205   12549
+    //   16          280         157       168   10891
+    // Zwischen 8 und 12 schwanken die fertigen Bauten (296/274/304) - das
+    // ist Rauschen, kein Optimum. Robust ist nur, dass ohne Grenze und ab
+    // 16 die Siedlung deutlich abfaellt, waehrend zwischen 5 und 12 rund
+    // ein Drittel mehr Soldaten und ein Viertel mehr Gebiet herauskommen.
+    // Deshalb 8 als Mitte, mit der Siedlung wachsend: eine junge Siedlung
+    // mit fuenf Haeusern soll nicht acht Baustellen offen haben.
+    let bauSatt=false;
+    {
+      const AMb=AI_MIL[lvl]||AI_MIL[2];
+      let fertig=0, roh=0;
+      for(const b of this.buildings.values()){
+        if(b.player!==p.id) continue;
+        if(b.state==='build') roh++; else fertig++;
+      }
+      // Nur die BAUSCHLEIFE wird uebersprungen. Rekrutieren, Anschluss und
+      // Angriff laufen weiter - eine Siedlung, die gerade genug Baustellen
+      // hat, hoert nicht auf, Krieg zu fuehren.
+      bauSatt = roh >= Math.max(3, Math.min(AMb.bauMax||8, 2+((fertig/3)|0)));
+    }
     const boards=inv.board||0, stones=inv.stone||0;
-    for(const w of want){
+    for(const w of bauSatt? [] : want){
       // Ab NORMAL baut die KI grundsätzlich Wachhäuser (und wartet notfalls
       // auf den Stein): Baracken (Radius 8, Besatzung 2) können nach der
       // Reichweitenregel (r_eigen+r_ziel+2) ein Feind-HQ oft gar nicht
