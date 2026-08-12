@@ -1462,7 +1462,10 @@ export class Renderer {
         tex.globalCompositeOperation='destination-in';
         tex.drawImage(this._maskTmp,0,0);
         tex.globalCompositeOperation='source-over';
-        g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : 1;
+        // Kritik G3: Sumpf nicht voll deckend - bei 1,0 stand der Fleck wie
+        // aufgeklebt auf der Wiese (samt koernigem Rand aus dem Maskensaum);
+        // bei 0,75 scheint das Gras durch und der Rand verschmilzt.
+        g.globalAlpha= L.soft? 0.8 : L.key===TER.WATER? 0.72 : L.key===TER.SWAMP? 0.75 : 1;
         g.drawImage(this._texTmp1,0,0,w,h);
         g.globalAlpha=1;
       }
@@ -3892,9 +3895,21 @@ export class Renderer {
                 // steht es zwei Zeilen weiter fuer alle anderen Nachbarn
                 // auch schon.
                 if(t===TER.MOUNT || isMassif(i)) continue;
+                // Kritik G4: auch ANGEHOBENES Gras stempelt nicht. Ein
+                // Grasknoten auf der Massivschulter liegt gezeichnet bis zu
+                // 40 px UEBER seiner Knotenmitte - Sand und Schaum landeten
+                // dort quer auf der Klippenwand, mit Grasbuescheln mitten
+                // im "Schaum" (Kritikfoto g13). Gleiche Logik wie der
+                // Fels-Ausschluss von v101, nur ueber die Hebung erkannt.
+                if(this.liftAt && this.liftAt(i)>0.25) continue;
                 const jit=(hsh-0.5)*0.22;              // nur leicht kippen: der Saum folgt der Kante
-                if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.55, jit, 2.3); any=true; }
-                if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 21+hsh*6, 0.45, -jit, 2.5); any=true; }
+                if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.5, jit, 2.3); any=true; }
+                // Deckkraft 0,45 -> 0,26 und etwas schmaler: der Saum las
+                // sich als dicker Fell-/Raureifstreifen statt als Gischt
+                // (Kritik G4). An Kanten ueberlappen 2-3 Stempel benachbarter
+                // Knotenpaare - die effektive Deckung liegt also deutlich
+                // ueber dem Einzelwert, deshalb der grosse Schritt.
+                if(foamImg){ put(foamImg, mx2+(bx-ax)*0.22, my2+(by-ay)*0.22, ang, 17+hsh*5, 0.26, -jit, 2.5); any=true; }
               } else if(t!==TER.WATER && tn!==TER.WATER){
                 // Die GESAMTE Berggrenze gehört dem Geröllband unten – weder
                 // stempelt der Fels nach außen noch die Ebene auf den Fels
@@ -4955,8 +4970,22 @@ export class Renderer {
     if(!this._terPat) this._terPat={};
     const ck=t+'|'+variant;
     if(this._terPat[ck]) return this._terPat[ck];
-    const img=this.asset(e[0]);
+    let img=this.asset(e[0]);
     if(!img) return null;
+    // Kritik G3: die Sumpfkachel ist ein kraeftiges Braun - auf der Wiese
+    // lasen sich die Flecken als "Kaffeeflecken"/Schmutz statt als Moor.
+    // Eine Moosgruen-Glasur (source-atop, einmalig beim Musteraufbau)
+    // zieht den Ton Richtung dunkles Moor, die Zeichnung bleibt erhalten.
+    if(t===TER.SWAMP){
+      const c2=document.createElement('canvas');
+      c2.width=img.naturalWidth||img.width; c2.height=img.naturalHeight||img.height;
+      const g2=c2.getContext('2d');
+      g2.drawImage(img,0,0);
+      g2.globalCompositeOperation='source-atop';
+      g2.fillStyle='rgba(62,94,44,0.38)';
+      g2.fillRect(0,0,c2.width,c2.height);
+      img=c2;
+    }
     const pat=g.createPattern(img,'repeat');
     if(pat.setTransform){
       const mtx=variant
@@ -7549,7 +7578,13 @@ export class Renderer {
       // So bleibt das Ziehen ununterbrochen, und wer stehen bleibt, sieht das
       // Gebirge ueber ein, zwei Sekunden nachziehen.
       this._ruhig = this._grobBake? 0 : (this._ruhig||0)+1;
-      this._feinFrei = this._ruhig>15 && this._ruhig%8===0;
+      // Kritik G2: jedes 8. Bild hiess bei ~40 sichtbaren Chunks gut 5 s bis
+      // zur letzten Feinfassung. Jedes 5. Bild drueckt das auf ~3 s, und weil
+      // das Nachschaerfen jetzt von der Bildmitte nach aussen laeuft (siehe
+      // Bake-Durchgang unten), ist die Mitte schon nach ~1 s fein. Die
+      // 15-Bilder-Wartezeit bleibt: sie schuetzt kurze Denkpausen mitten im
+      // Schwenken vor dem vollen Gebirgspreis einer Feinfassung.
+      this._feinFrei = this._ruhig>15 && this._ruhig%5===0;
     }
     // Kritik G3: Bake-Aufloesung an devicePixelRatio*Zoom koppeln. Ueber
     // q=3.0 backen Chunks doppelt aufgeloest, unter q=2.3 wieder einfach –
@@ -7568,10 +7603,19 @@ export class Renderer {
     // Ab Zoom 1,5 (q=3,0) schaltet es weiter hoch - da schaut man wirklich
     // auf Einzelheiten, und es sind weniger Chunks im Bild.
     {
-      const q=this.dpr*cam.z;
+      // Kritik G1 (Nahzoom-Brei): die Schwelle hing an dpr*zoom. Auf dem
+      // Handy (dpr 2) hiess das S=2 ab Zoom 1,5 - auf einem dpr-1-Geraet
+      // aber erst ab Zoom 3,0, also praktisch nie: der Boden blieb dort
+      // bei z=2,2 eine hochgezerrte 1x-Backware, waehrend Baeume und
+      // Haeuser (je Bild gezeichnet) knackscharf daneben standen.
+      // Jetzt haengt die Schwelle am ZOOM: ab z>1,5 backen Chunks doppelt
+      // aufgeloest, unter z<1,15 wieder einfach (Hysterese gegen Pendeln
+      // beim Pinch). Fuer dpr 2 ist das exakt das alte Verhalten
+      // (q>3,0 <=> z>1,5); nur dpr-1-Geraete werden im Nahzoom schaerfer -
+      // und dort sind bei z>1,5 auch nur wenige Chunks im Bild.
       const cs=this._chunkScale||1;
-      if(cs===1 && q>3.0) this._chunkScale=2;
-      else if(cs===2 && q<2.3) this._chunkScale=1;
+      if(cs===1 && cam.z>1.5) this._chunkScale=2;
+      else if(cs===2 && cam.z<1.15) this._chunkScale=1;
       else if(!this._chunkScale) this._chunkScale=cs;
     }
     const halfW=this.vw/2/cam.z, halfH=this.vh/2/cam.z;
@@ -7579,17 +7623,41 @@ export class Renderer {
     const wy0=cam.y-halfH-ROWH*2, wy1=cam.y+halfH+ROWH*3;
     const cx0=Math.floor(wx0/(CHUNK*TILE)), cx1=Math.floor(wx1/(CHUNK*TILE));
     const cy0=Math.floor(wy0/(CHUNK*ROWH)), cy1=Math.floor(wy1/(CHUNK*ROWH));
+    // Kritik G2: Das Backen lief zeilenweise von oben links - mit dem Budget
+    // von einem Chunk je Bild ploppte nach jedem Schwenk zuletzt der UNTERE
+    // Bildrand scharf (gemessen 1,5 s Pixelstreifen, ~6 s bis alles fein
+    // war). Jetzt zwei Durchgaenge: GEBACKEN wird in Reihenfolge der Naehe
+    // zur Bildmitte - Budget und Nachschaerfen fliessen zuerst dorthin, wo
+    // der Spieler hinschaut; GEZEICHNET wird weiter zeilenweise, damit die
+    // Ueberlappungsordnung der Chunk-Raender stabil bleibt.
+    const sichtbar=[];
     for(let cy=Math.max(0,cy0); cy<=Math.min(Math.ceil(m.h/CHUNK)-1,cy1); cy++)
-      for(let cx=Math.max(0,cx0); cx<=Math.min(Math.ceil(m.w/CHUNK)-1,cx1); cx++){
+      for(let cx=Math.max(0,cx0); cx<=Math.min(Math.ceil(m.w/CHUNK)-1,cx1); cx++)
+        sichtbar.push([cx,cy]);
+    {
+      const kx=cam.x/(CHUNK*TILE)-0.5, ky=cam.y/(CHUNK*ROWH)-0.5;
+      const naeher=[...sichtbar].sort((a,b)=>
+        Math.hypot(a[0]-kx,a[1]-ky) - Math.hypot(b[0]-kx,b[1]-ky));
+      for(const [cx,cy] of naeher) this.getChunk(cx,cy);
+    }
+    for(const [cx,cy] of sichtbar){
         const c=this.getChunk(cx,cy);
         if(!c) continue;               // noch nicht gebacken, kommt im naechsten Bild
         // Nur den SICHTBAREN Ausschnitt zeichnen (Quellrechteck in
         // Bake-Pixeln, Ziel in Weltpixeln): das Herunterfiltern des ganzen
         // hochaufgeloesten Canvas (G3) kostete sonst ein Vielfaches des
         // Sichtfelds an Fuellrate – gerade auf dem Handy.
+        // Kritik G7 (harte Horizontal-Naehte): die aeussersten Pixel eines
+        // Chunk-Canvas tragen Rand-Artefakte der Weichzeichenpaesse
+        // (blurInto klemmt am Canvasrand). Beim zeilenweisen Uebermalen
+        // zeichnete der jeweils spaetere Chunk genau diese Randzeile ueber
+        // den sauberen Inhalt des Nachbarn - die "9-Sigma-Naht". Ein Saum
+        // von 3 px bleibt deshalb weg; die Nachbarn ueberlappen sich um
+        // 2x78 px, die Deckung bleibt lueckenlos.
+        const SAUM=3;
         const sc=c.scale||1;
-        const ix0=Math.max(c.ox, wx0-8), ix1=Math.min(c.ox+c.dw, wx1+8);
-        const iy0=Math.max(c.oy, wy0-8), iy1=Math.min(c.oy+c.dh, wy1+8);
+        const ix0=Math.max(c.ox+SAUM, wx0-8), ix1=Math.min(c.ox+c.dw-SAUM, wx1+8);
+        const iy0=Math.max(c.oy+SAUM, wy0-8), iy1=Math.min(c.oy+c.dh-SAUM, wy1+8);
         if(ix1<=ix0 || iy1<=iy0) continue;
         g.drawImage(c.cv, (ix0-c.ox)*sc, (iy0-c.oy)*sc, (ix1-ix0)*sc, (iy1-iy0)*sc,
                     ix0, iy0, ix1-ix0, iy1-iy0);
@@ -7816,9 +7884,20 @@ export class Renderer {
           // Felskante, der Saum landete also mitten auf der Wand. Ein See
           // im Fels braucht ohnehin keinen Sandsaum.
           if(m.terr[n]===TER.MOUNT || m.terr[n]===TER.SNOW) continue;
+          // Kritik G4: angehobene Landnachbarn (Massivschulter) stempeln
+          // nicht - der Fleck laege auf der Klippenwand, nicht am Ufer.
+          if(this.liftAt && this.liftAt(n)>0.25) continue;
           const hsh=hash01(i*5+kE*131+1);
           kE++;
-          const foamA=0.30+0.20*Math.sin(this.time/1900+hsh*6.283);
+          // Kritik G4: DIESER Stempelpass war der "Fell"-Saum - ein Fleck je
+          // Wasser-Land-Paar ergab eine geschlossene weisse Borte um jede
+          // Kueste (Gegenprobe: Stempel geleert -> Kueste sauber, nur der
+          // duenne Sandsaum aus dem Bake bleibt). Gischt sind AKZENTE:
+          // knapp die Haelfte der Kanten traegt gar keinen Fleck, der Rest
+          // kleiner und leiser, und das Atmen laesst ihn zeitweise ganz
+          // verschwinden.
+          if(hsh<0.45) continue;
+          const foamA=0.10+0.22*Math.sin(this.time/1900+hsh*6.283);
           if(foamA<=0.06) continue;
           const [px,py]=m.worldPos(i), [lx,ly]=m.worldPos(n);
           const dx=lx-px, dy=ly-py;
@@ -7829,8 +7908,8 @@ export class Renderer {
           g.save();
           g.translate(mx,my);
           g.rotate(Math.atan2(dy,dx)+Math.PI/2);   // längs zur Uferlinie
-          g.globalAlpha=Math.min(0.5,foamA);
-          const w2=44+hsh*14, h2=16+hsh*5;
+          g.globalAlpha=Math.min(0.32,foamA);
+          const w2=34+hsh*10, h2=13+hsh*4;
           g.drawImage(fcv,-w2/2,-h2/2,w2,h2);
           g.restore();
         }
@@ -9256,6 +9335,11 @@ export class Renderer {
       if(!this.asset(ovKey)) ovKey=null;
     } else {
       ov=this.asset(typeKey);
+      // Kritik G6: bld_hq traegt am unteren Rand eine helle Matte (gemessen:
+      // unterste Zeile 100 % helle Pixel, sieben Zeilen darueber 62 %) - der
+      // weisse Saum liess die Burg wie ausgeschnitten-aufgeklebt wirken.
+      // hqBild() liefert eine einmalig getonte Fassung.
+      if(b.type==='hq' && ov && ov.naturalWidth){ ov=this.hqBild()||ov; }
     }
     if(ov){
       // Bergwerke (Stilguide 11.11): alle sieben Bilder liegen auf 320x300,
@@ -9711,6 +9795,33 @@ export class Renderer {
       g.restore();
     }
     g.restore();
+  }
+  // Kritik G6: Burg-Sprite mit getontem Fusssaum. Die untersten ~10 % des
+  // Bildes werden per source-atop (malt nur auf vorhandene Pixel, keine
+  // dunkle Kante ins Transparente) mit einer Rampe in den Bodenton gezogen -
+  // die eingebackene helle Matte verschmilzt so mit der Wiese. Einmal
+  // gebaut, danach aus dem Cache; naturalWidth/-Height werden nachgeruestet,
+  // weil die Masslogik in drawBld sie vom Bild erwartet.
+  hqBild(){
+    const img=this.asset('bld_hq');
+    if(!img || !img.naturalWidth) return null;
+    if(this._hqFix && this._hqFixSrc===img.src) return this._hqFix;
+    const c=document.createElement('canvas');
+    c.width=img.naturalWidth; c.height=img.naturalHeight;
+    const g2=c.getContext('2d');
+    g2.drawImage(img,0,0);
+    // Rampe ab 85 %: die Messung zeigt helle Matte-Pixel ab ~86 % Bildhoehe
+    const y0=Math.floor(c.height*0.85);
+    const grad=g2.createLinearGradient(0,y0,0,c.height);
+    grad.addColorStop(0,'rgba(110,100,74,0)');
+    grad.addColorStop(0.5,'rgba(110,100,74,0.34)');
+    grad.addColorStop(1,'rgba(110,100,74,0.66)');
+    g2.globalCompositeOperation='source-atop';
+    g2.fillStyle=grad;
+    g2.fillRect(0,y0,c.width,c.height-y0);
+    c.naturalWidth=c.width; c.naturalHeight=c.height;
+    this._hqFix=c; this._hqFixSrc=img.src;
+    return c;
   }
   // Maße und Lage des gezeichneten Gebäudesprites (Weltkoordinaten), damit
   // Effekt-Anker aus BLD_FX in Bild-Bruchteilen umgerechnet werden können.
