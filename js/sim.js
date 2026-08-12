@@ -103,14 +103,30 @@ export class Game {
   // die Sammler-Erschöpfung nutzen eine LANGE Sperre – den Zustand zeigt das
   // Warnschild im Bild, der Toast soll nicht endlos wiederkehren (F5: 17
   // gleiche Erschöpfungs-Toasts in 50 min).
+  // R7: Die Sperre war fest bei einer Minute je Gebaeude und Grund. Bei einem
+  // Mangel, den der Spieler gerade NICHT beheben kann, wurde daraus eine
+  // Dauerbeschwerde: gemessen ueber drei Partien zu 45 Spielminuten kam
+  // allein "Jaeger: wartet auf Werkzeug (Bogen)!" 104 Mal - mit Abstand die
+  // haeufigste Meldung des Spiels, dreimal so oft wie alle Kriegsmeldungen
+  // zusammen. Die Sperre waechst deshalb jetzt: erste Erinnerung nach einer
+  // Minute, dann 2, 4, 8 Minuten, gedeckelt bei acht. Die ersten Hinweise
+  // bleiben, das Nagen hoert auf. Loest sich der Mangel, faengt die Zaehlung
+  // beim naechsten Mal wieder von vorn an (siehe warnGeloest).
   warn(b, reason, txt, cd=600){
     if(b.player!==0) return;
-    b._warnT=b._warnT||{};
-    if(b._warnT[reason]!==undefined && this.t-b._warnT[reason]<cd) return;    // Sperre je Gebäude
+    b._warnT=b._warnT||{}; b._warnN=b._warnN||{};
+    const stufe=Math.min(3, b._warnN[reason]||0);
+    if(b._warnT[reason]!==undefined && this.t-b._warnT[reason]<cd*(1<<stufe)) return;
     this._warnG=this._warnG||{};
     if(this._warnG[reason]!==undefined && this.t-this._warnG[reason]<300) return; // 30 s je Grund
     b._warnT[reason]=this.t; this._warnG[reason]=this.t;
+    b._warnN[reason]=(b._warnN[reason]||0)+1;
     this.msg(txt, 'warn', b.node);
+  }
+  // Mangel behoben: die Eskalation dieses Grundes zuruecksetzen, damit der
+  // naechste echte Engpass wieder zuegig gemeldet wird.
+  warnGeloest(b, reason){
+    if(b._warnN && b._warnN[reason]!==undefined){ b._warnN[reason]=0; b._warnT[reason]=undefined; }
   }
   // Fehlt ein Werkzeug WIRKLICH? Nicht warnen, solange eines nur unterwegs
   // ist: Planierer/Bauarbeiter bringen ihres zurück, Fachkräfte retten ihres
@@ -1924,7 +1940,17 @@ export class Game {
           for(const nn of [b.node, ...m.nbs(b.node)]){
             if(m.oreT[nn]===targetT && m.oreA[nn]>0){ m.oreA[nn]--; found=true; break; }
           }
-          if(found) this.wareAustragen(b);   // Bergmann bringt das Erz sichtbar zur Fahne
+          if(found){
+            this.wareAustragen(b);   // Bergmann bringt das Erz sichtbar zur Fahne
+            // R7: VORWARNUNG. Bisher erfuhr der Spieler von der Erschoepfung
+            // erst, wenn sie da war - und dann stand das Bergwerk. Ein Rest
+            // von fuenf Einheiten ist frueh genug, um einen Geologen
+            // loszuschicken und ein neues Bergwerk zu setzen.
+            if(!b._neigeMsg && b.player===0 && this.oreLeft(b)<=5){
+              b._neigeMsg=true;
+              this.msg(`${def.name}: das Vorkommen geht zur Neige.`, 'warn', b.node);
+            }
+          }
           else {
             if(!b.depleted){ b.depleted=true; if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node); }
           }
@@ -3242,6 +3268,7 @@ export class Game {
     const tool=TOOL_OF[b.type];
     if(tool && !b.toolGood){
       const src=this.findToolStore(b.player, tool);
+      if(src) this.warnGeloest(b, 'tool:'+tool);
       if(!src){
         // Warnung nur bei echtem Mangel (nichts im Lager, nichts unterwegs);
         // solange der Mangel anhält, erinnert warn() einmal pro Minute daran
