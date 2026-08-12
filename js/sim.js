@@ -592,6 +592,20 @@ export class Game {
   // Punkt unter dem gezeichneten Bild liegt. Der Zeichner meldet die
   // tatsächlichen Bildmaße über bldFoot; ohne ihn (Tests) greift die
   // Notmaße-Tabelle.
+  // HILFE FUER DIE KI: Schwellen, unter die ihr Lager nicht fallen soll.
+  // Das ist KEIN Zufluss, sondern ein Boden (siehe aiStep): nachgelegt wird
+  // nur die Luecke. Wer selbst produziert, bleibt darueber und bekommt
+  // nichts - die Hilfe erledigt sich damit von allein, sobald die eigene
+  // Werkzeugkette laeuft.
+  // Gestaffelt nach Stufe: die leichte KI soll nicht verhungern, die
+  // schwere soll moeglichst auf eigenen Beinen stehen. Werkzeuge sind
+  // hoeher angesetzt als Baustoff, weil die Messung zeigt, dass genau sie
+  // die Kruecke sind - Holz und Stein holt sich die KI selbst.
+  static AI_HILFE = {
+    1: { board:10, stone:8,  hammer:4, shovel:3, pick:3, werkzeug:2, beer:3, waffe:3 },
+    2: { board:8,  stone:7,  hammer:3, shovel:2, pick:2, werkzeug:1, beer:2, waffe:2 },
+    3: { board:6,  stone:5,  hammer:2, shovel:2, pick:2, werkzeug:1, beer:2, waffe:2 },
+  };
   static FOOT={ hq:[200,190], L:[126,112], M:[100,84], S:[84,66], MINE:[86,64] };
   // Die verdeckten Punkte werden EINMAL je Bauzustand gesammelt. Die
   // Wegsuche fragt sie tausendfach ab; jedesmal alle Häuser durchzugehen
@@ -3910,21 +3924,36 @@ export class Game {
     const dm=Game.diffMods(this.difficulty);
     if(this.t-(p.aiState.lastBonus||0)>=600/dm.bonusMul && hq.inv){
       p.aiState.lastBonus=this.t;
-      hq.inv.board=(hq.inv.board||0)+2*lvl;
-      // Stein großzügiger als früher (1*lvl): die Front braucht Wachhäuser
-      // (3 Stein) – mit dem alten Tropf blieb die KI dauerhaft unter der
-      // Schwelle und baute nur reichweitenschwache Baracken.
-      hq.inv.stone=(hq.inv.stone||0)+2*lvl;
-      hq.inv.hammer=(hq.inv.hammer||0)+3;   // Bauarbeiter-Hämmer
-      // Werkzeuge für die KI-Wirtschaft (Axt, Säge, Sense, Angel, Schaufel, Spitzhacke, Beil)
-      for(const t of ['axe','saw','scythe','rod','shovel','cleaver']) hq.inv[t]=(hq.inv[t]||0)+1;
-      hq.inv.pick=(hq.inv.pick||0)+2;
-      // Soldaten-Nachschub auf ALLEN Stufen: seit ein Militärgebäude erst
-      // mit Besatzung die Grenze verschiebt, braucht die KI stetig Rekruten
-      // zum Expandieren – ohne Bier/Waffen fror ihr Gebiet nach den vier
-      // Start-Rekruten ein (und auf großen Karten kam nie ein Angriff).
-      hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.sword=(hq.inv.sword||0)+1; hq.inv.shield=(hq.inv.shield||0)+1;
-      if(lvl>=2){ hq.inv.beer=(hq.inv.beer||0)+1; hq.inv.spear=(hq.inv.spear||0)+1; }
+      // BEDARFSDECKEL STATT DAUERTROPF.
+      // Vorher legte diese Stelle bei JEDEM Takt feste Mengen ins Lager,
+      // unabhaengig davon, ob die KI sie brauchte oder laengst selbst
+      // herstellte. Nachgemessen (zwoelf Saaten, 30 Spielminuten, Stufe 2)
+      // war das keine milde Nachhilfe, sondern der Boden, auf dem die KI
+      // stand - und zwar an EINER Stelle:
+      //             voll   ohne   nurBaustoff  nurMilitaer  nurWerkzeug
+      //   Gebaeude   360    139       140          143          301
+      //   Soldaten   344     77        82           98          101
+      // Mit blossen Werkzeugen erreicht sie 301 von 360 Gebaeuden, mit
+      // blossen Brettern und Steinen nur 140 - und hortet dabei 1329
+      // Bretter, die sie mangels Hammer und Schaufel nicht verbauen kann.
+      // Holz und Stein holt sie sich also selbst; was sie nicht kann, ist
+      // ihre Leute ausruesten.
+      // Deshalb ist die Hilfe jetzt ein BODEN, kein Zufluss: nachgelegt
+      // wird nur, was unter die Schwelle gefallen ist. Laeuft die eigene
+      // Werkzeugschmiede, bleibt der Bestand von selbst darueber und es
+      // kommt gar nichts mehr - die Hilfe verschwindet, ohne dass sie
+      // abgeschaltet werden muesste. Bricht die Kette weg, faengt sie
+      // wieder auf.
+      const HB=Game.AI_HILFE[lvl]||Game.AI_HILFE[2];
+      const auf=(gut,bis)=>{ if((hq.inv[gut]||0)<bis) hq.inv[gut]=bis; };
+      auf('board', HB.board); auf('stone', HB.stone);
+      auf('hammer', HB.hammer); auf('shovel', HB.shovel); auf('pick', HB.pick);
+      for(const t of ['axe','saw','scythe','rod','cleaver']) auf(t, HB.werkzeug);
+      // Bier und Waffen: ohne sie friert das Gebiet nach den vier
+      // Start-Rekruten ein, weil ein Posten erst MIT Besatzung die Grenze
+      // verschiebt. Auch hier nur bis zur Schwelle.
+      auf('beer', HB.beer); auf('sword', HB.waffe); auf('shield', HB.waffe);
+      if(lvl>=2) auf('spear', HB.waffe);
     }
     // Front-Nachschub: je Zug trägt die KI EIN fehlendes Bauteil aus dem
     // HQ-Lager direkt zu einer angeschlossenen Militär-Baustelle. Die
@@ -3996,12 +4025,28 @@ export class Game {
       if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
       if(g0('flour')>=3 && g0('bread')<8 && c('bakery')<1+Math.floor(tief/2)) want.push('bakery');
       if(g0('grain')>=5 && g0('beer')<6 && c('brewery')<1+Math.floor(tief/2)) want.push('brewery');
-      // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten)
-      if(g0('coal')<8    && c('coalmine')<1+tief   && this.aiErzBekannt(p,'coalmine'))  want.push('coalmine');
-      if(g0('ironore')<8 && c('ironmine')<1+tief   && this.aiErzBekannt(p,'ironmine'))  want.push('ironmine');
-      if(g0('ironore')>=3 && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
-      if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
       if(g0('iron')>=2 && (g0('sword')+g0('shield'))<16 && c('armory')<1+Math.floor(tief/2)) want.push('armory');
+    }
+    // --- WERKZEUGKETTE: auf ALLEN Stufen, und von der Werkzeugnot gezogen.
+    // Sie stand bisher komplett hinter tief>=2 - eine Stufe-1-KI konnte
+    // also nie eine Werkzeugschmiede bauen und haing fuer immer am
+    // Geschenk. Und ab Stufe 2 war der Schmied an iron>=2 gebunden, also
+    // an Huette, Erzmine, Kohlemine und einen Geologen, der das Vorkommen
+    // erst finden musste. Die Kette wurde damit nie aus dem BEDARF heraus
+    // gebaut, sondern nur, wenn ihr Material zufaellig schon dalag.
+    // Jetzt zieht der Mangel am ENDPRODUKT die ganze Kette: fehlen
+    // Werkzeuge, will die KI Schmied, Huette und Minen - in dieser
+    // Reihenfolge, jedes Glied sobald sein Vorprodukt reicht.
+    {
+      const werkzeugNot = (g0('hammer')+g0('shovel')+g0('pick')+g0('axe')+g0('saw')) < 8;
+      const willKette = werkzeugNot || tief>=2;
+      if(willKette){
+        if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
+        if(g0('ironore')>=3 && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
+        // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten)
+        if(g0('ironore')<8 && c('ironmine')<1+tief && this.aiErzBekannt(p,'ironmine')) want.push('ironmine');
+        if(g0('coal')<8    && c('coalmine')<1+tief && this.aiErzBekannt(p,'coalmine')) want.push('coalmine');
+      }
     }
     // --- Stufe C (nur Schwer): Gold, Muenze, Vorratshaltung
     if(tief>=3){
