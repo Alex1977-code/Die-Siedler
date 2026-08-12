@@ -10038,7 +10038,9 @@ export class Renderer {
     const b=this._doorMap && this._doorMap.get(i);
     if(b && b.type==='hq'){
       const [fx,fy]=this.game.map.worldPos(i);
-      return [p[0]+(fx-p[0])*0.72, p[1]+(fy-p[1])*0.72];
+      // 0,72 liess das Tuch bei z>=2 noch in die Torbogen-Silhouette
+      // ragen (Kritikbericht, Nachpruefung F5) - jetzt fast am Knoten
+      return [p[0]+(fx-p[0])*0.85, p[1]+(fy-p[1])*0.85];
     }
     return p;
   }
@@ -11136,7 +11138,10 @@ export class Renderer {
     // und die Schattierung des Holzes scheint per multiply durch - so
     // wirkt die Binde gewickelt statt aufgeklebt.
     try{
-      const y0=h*0.30, bh=h*0.15;
+      // Bandhoehe 28 statt 15 Prozent (Kritikbericht G10): bei Spielzoom
+      // z<=1 waren 15 Prozent nur 2-3 Bildschirmpixel - die Grenze las
+      // sich als Reihe weisser Stoerpunkte, der Besitzer blieb unklar.
+      const y0=h*0.26, bh=h*0.28;
       t.save();
       t.beginPath(); t.rect(0, y0, w, bh); t.clip();
       t.globalCompositeOperation='source-atop';
