@@ -3667,8 +3667,20 @@ export class Game {
   tickBuilder(u){
     const m=this.map;
     const b=this.buildings.get(u.bld);
-    // Baustelle weg oder fertig -> heim ins Hauptquartier (Hammer zurück)
-    if(u.state!=='home' && (!b || b.state!=='build')) u.state='home';
+    // Baustelle weg oder fertig -> heim ins Hauptquartier.
+    // DER HAMMER GEHT SOFORT ZURUECK, nicht erst nach dem Heimweg. Vorher
+    // blieb er die ganze Rueckreise gebunden - bei einer Siedlung, die
+    // staendig baut, hing damit ein guter Teil des Werkzeugbestands
+    // dauerhaft an Figuren, die nur noch nach Hause laufen. Der Mann
+    // laeuft weiter heim (er gehoert ins Bild), aber ohne Werkzeug.
+    if(u.state!=='home' && (!b || b.state!=='build')){
+      u.state='home';
+      if(!u.werkzeugAb){
+        const lager=this.buildings.get(this.players[u.player].hq);
+        if(lager && lager.inv) lager.inv.hammer=(lager.inv.hammer||0)+1;
+        u.werkzeugAb=true;
+      }
+    }
     if(u.state==='toSite'){
       // GEDULDSFADEN WIE BEIM PLANIERER. Hier stand bisher gar keiner: ein
       // Bauarbeiter, der seine Baustelle nicht erreicht, lief unbegrenzt
@@ -3731,7 +3743,9 @@ export class Game {
       const [tx,ty]=this.tuerPos(hq);                    // heim durch die HQ-Tür
       if(this.moveToward(u,tx,ty,WALK_SPEED) || u.heimT>WEG_GEDULD){
         u.dead=true;
-        if(hq.inv) hq.inv.hammer=(hq.inv.hammer||0)+1;   // Werkzeug zurück ins Lager
+        // Nur noch, wenn der Hammer nicht schon bei der Fertigstellung
+        // zurueckging (z.B. Baustelle abgerissen, Figur unterwegs).
+        if(hq.inv && !u.werkzeugAb) hq.inv.hammer=(hq.inv.hammer||0)+1;
       }
     }
   }

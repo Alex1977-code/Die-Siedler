@@ -1439,8 +1439,24 @@ export class Renderer {
             }
             mk.closePath();
           };
-          // weicher Saum direkt in der Form – funktioniert ohne ctx.filter
-          this.softShape(mk, path, px, py, L.soft? 7 : 5);
+          // DECKENDER KERN BIS AN DEN ZELLRAND (kern=1).
+          // Vorher deckte softShape nur die inneren rund 84 Prozent der
+          // Zelle voll ab; aussen lag ein Saum mit Alpha 0,30. Zwischen
+          // zwei Zellen DERSELBEN Flaeche trafen sich zwei solche Saeume,
+          // und source-over macht daraus 1-(0,7*0,7) = 0,51 statt 1,0.
+          // Diese knapp 50 Prozent Restdurchsicht liessen den dunklen
+          // Untergrund durch - als feines Zickzack entlang JEDER Zellgrenze,
+          // dem Sechseckgitter folgend. Auf der Wiese sah man es als Linien.
+          // Jetzt deckt der Kern bis zum Zellrand, und weil die Zellen sich
+          // ueberlappen (Radius 36 bei 52 Knotenabstand), schliesst die
+          // Vereinigung lueckenlos. Der Saum von 1,0 bis 1,18 bleibt und
+          // haelt die Kueste weich.
+          // NICHT gemacht: die Maske ganz deckend fuellen. Zwei Anlaeufe in
+          // diese Richtung (Innenzellen hart / alle Zellen hart) sahen
+          // deutlich schlechter aus - die teilweise Deckung ist gewollt,
+          // sie laesst die Flaeche mit dem Untergrund verschmelzen. Voll
+          // gedeckt entstanden helle Flecken mit harter Kante.
+          this.softShape(mk, path, px, py, L.soft? 7 : 5, 1.0);
         }
         mk.restore();
         tex.globalCompositeOperation='destination-in';
@@ -4778,7 +4794,11 @@ export class Renderer {
   }
   // Weiche Kante direkt in die Form gezeichnet: die Kontur wird mehrfach in
   // abnehmender Größe gefüllt. Braucht keinen Filter und keine Zwischenfläche.
-  softShape(g, path, cx, cy, steps=6){
+  // kern: Skalierung, bei der die Form VOLL deckt. Ohne Angabe bleibt es
+  // beim alten Verlauf (der deckende Kern liegt dann bei rund 0,84 der
+  // Form, aussen ein Saum bis 1,18). Die Gelaendemaske gibt 1.0 mit: dort
+  // muessen benachbarte Zellen lueckenlos aneinanderstossen, siehe dort.
+  softShape(g, path, cx, cy, steps=6, kern=null){
     // EIN save/restore fuer alle Stufen statt eines je Stufe. Gemessen wurde
     // softShape 358 Mal je Chunk-Backen gerufen - bei sechs Stufen waren das
     // 2148 Speicherpunkte, die allein 157 der 707 Millisekunden eines Backens
@@ -4792,7 +4812,8 @@ export class Renderer {
     g.save();
     let vor=0;
     for(let k=0;k<steps;k++){
-      const sc=1.18-k*(0.42/steps);
+      const sc = kern==null ? 1.18-k*(0.42/steps)
+                            : 1.18-k*((1.18-kern)/Math.max(1,steps-1));
       const f= k===0 ? sc : sc/vor;
       vor=sc;
       g.translate(cx,cy); g.scale(f,f); g.translate(-cx,-cy);
