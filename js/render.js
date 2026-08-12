@@ -8634,7 +8634,15 @@ export class Renderer {
     this.updatePigs(dtMs);
     // Auswahl-Marker
     if(ui.sel>=0){
-      const [x,y]=m.worldPos(ui.sel);
+      // Der Kreis sitzt DORT, WO DAS ANGETIPPTE DING GEZEICHNET wird
+      // (Telefonbild 12.08.): auf dem Massiv hing er eine ganze
+      // Klippenwand unter der Fahne, weil er den unangehobenen
+      // Gitterpunkt markierte. Fahnen werden an flagVisualPos gezeichnet
+      // und um die Felsanhebung gehoben - der Kreis jetzt genauso.
+      // liftAt ist abseits des Massivs null, das aendert dort nichts.
+      let [x,y]= m.flag[ui.sel] && this.flagVisualPos
+        ? this.flagVisualPos(ui.sel) : m.worldPos(ui.sel);
+      y-=(this.liftAt? this.liftAt(ui.sel):0)*HSCALE;
       const r=15+Math.sin(this.time/180)*2;
       g.strokeStyle='rgba(20,26,18,0.5)'; g.lineWidth=4;
       g.beginPath(); g.arc(x,y,r,0,7); g.stroke();
@@ -8740,7 +8748,11 @@ export class Renderer {
     // Fahnenmenü: drei schwebende Knöpfe an der angetippten Fahne
     // (Weg bauen / Geologe / Späher) statt des schwarzen Menüs am Rand.
     if(ui.flagSel>=0 && m.flag[ui.flagSel]){
-      const [fx,fy]=this.doorVisualPos(ui.flagSel);
+      // gleiche Korrektur wie beim Auswahlkreis: Menue an der GEZEICHNETEN
+      // Fahne verankern (Anhebung + Burg-Versatz), nicht am Gitterpunkt
+      const [fx,fyRoh]=this.flagVisualPos? this.flagVisualPos(ui.flagSel)
+                       : this.doorVisualPos(ui.flagSel);
+      const fy=fyRoh-(this.liftAt? this.liftAt(ui.flagSel):0)*HSCALE;
       const u=1/Math.max(0.25, cam.z);
       const R=21*u, sp=50*u;
       // Die Beschriftung steht UNTER den Knoepfen - sie zaehlt zum Platzbedarf,
