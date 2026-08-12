@@ -1,5 +1,5 @@
 // Neuland – Weltkarte: Hex-Punktgitter mit Höhen, Terrain, Objekten und Rohstoffen.
-import { TER, OBJ, mulberry32, clamp } from './core.js';
+import { TER, OBJ, mulberry32, clamp, BAUM_REIF } from './core.js';
 
 export const TILE = 52;      // horizontaler Knotenabstand (Weltpixel)
 export const ROWH = 44;      // Zeilenhöhe
@@ -802,6 +802,10 @@ export function genWorld(opts){
     const edge = 1-smooth(t0-0.06, t0+0.10, f);
     const r=rng();
     map.obj[i] = r < edge*0.42 ? OBJ.SAPLING : r < edge*0.78 ? OBJ.TREE2 : OBJ.TREE;
+    // Startalter streuen (R11): Setzlinge und Jungbaeume reifen ueber ihr
+    // Alter in map.amt. Alle mit Alter null zu starten hiesse, dass der
+    // ganze Startwald im Gleichschritt eine Stufe weiterspringt.
+    if(map.obj[i]!==OBJ.TREE) map.amt[i]=(rng()*BAUM_REIF)|0;
   }
   // Auslichten: kein Knoten behält mehr als 4 bewaldete Nachbarn
   for(let i=0;i<w*h;i++){

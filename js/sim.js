@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, AI_MIL, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -1524,10 +1524,8 @@ export class Game {
       if(o===OBJ.NONE && m.terr[i]===TER.GRASS && m.bld[i]<0 && !m.flag[i]
          && !this.roadAt(i) && this.rng()<0.012){
         let nb=0; for(const q of m.nbs(i)) if(Game.isTree(m.obj[q])) nb++;
-        if(nb>=2){ m.obj[i]=OBJ.SAPLING; this.changedNodes.push(i); }
+        if(nb>=2){ m.obj[i]=OBJ.SAPLING; m.amt[i]=0; this.changedNodes.push(i); }
       }
-      else if(o===OBJ.SAPLING && this.rng()<0.35){ m.obj[i]=OBJ.TREE2; this.changedNodes.push(i); }
-      else if(o===OBJ.TREE2 && this.rng()<0.3){ m.obj[i]=OBJ.TREE; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD0 && this.rng()<0.25){ m.obj[i]=OBJ.FIELD1; this.changedNodes.push(i); }
       else if(o===OBJ.FIELD1 && this.rng()<0.2){ m.obj[i]=OBJ.FIELD2; this.changedNodes.push(i); }
       else if(m.terr[i]===TER.WATER){
@@ -1542,6 +1540,40 @@ export class Game {
           if(this.rng()<p) m.fish[i]=1;
         }
       }
+    }
+    this.baeumeReifen(K);
+  }
+
+  // R11: SETZLINGE REIFEN NACH ALTER, NICHT NACH MUENZWURF.
+  // Vorher entschied bei jeder Stichprobe ein Wurf, ob der Setzling eine
+  // Stufe weiterkommt (35 bzw. 30 Prozent). Ein solcher Vorgang hat kein
+  // Gedaechtnis: der Mittelwert stimmte zwar, aber die Spannweite war
+  // sinnlos gross. Nachgemessen an 300 Setzlingen je Kartengroesse brauchte
+  // der schnellste 0,2 Spielminuten bis zum faellbaren Baum, der langsamste
+  // ueber 10 - und 25 von 300 standen nach zehn Minuten immer noch als
+  // Setzling da, direkt neben Nachbarn, die laengst ausgewachsen waren. Fuer
+  // den Spieler sieht das nicht nach Wachstum aus, sondern nach Willkuer.
+  // Jetzt zaehlt jeder Baum sein Alter in m.amt mit (dort ungenutzt - das
+  // Feld traegt sonst nur den Vorrat eines Felsbrockens) und wechselt die
+  // Stufe bei einem festen Alter. Der Mittelwert bleibt, die Ausreisser
+  // verschwinden.
+  // Eigene Stichprobe, VIERFACH so dicht wie die allgemeine: nur so ist das
+  // Alter fein genug aufgeloest. Die Feld- und Fischraten oben bleiben davon
+  // unberuehrt - haetten wir dort einfach K erhoeht, waeren Getreide und
+  // Fisch gleich mit viermal so schnell nachgewachsen.
+  baeumeReifen(K){
+    const m=this.map;
+    const REIF=BAUM_REIF;             // Stichproben je Wachstumsstufe
+    const KB=K*4;
+    for(let k=0;k<KB;k++){
+      const i=(this.rng()*m.terr.length)|0;
+      const o=m.obj[i]&127;
+      if(o!==OBJ.SAPLING && o!==OBJ.TREE2) continue;
+      const alt=(m.amt[i]||0)+1;
+      if(alt<REIF){ m.amt[i]=alt; continue; }
+      m.amt[i]=0;
+      m.obj[i]=(m.obj[i]&128) | (o===OBJ.SAPLING? OBJ.TREE2 : OBJ.TREE);
+      this.changedNodes.push(i);
     }
   }
 
@@ -1834,12 +1866,32 @@ export class Game {
       // Steine warten, standen vorher völlig stumm (Kritikbericht F4 – zehn
       // Baustellen >100 Spielminuten ohne eine einzige Meldung). Der Zähler
       // steuert die Sammelmeldung (checkMatWait) und das Warnschild im Bild.
-      if((b.stock.board||0)<needB || (b.stock.stone||0)<needS) b.matWaitT=(b.matWaitT||0)+1;
+      // R8: DER BAUARBEITER ARBEITET MIT DEM, WAS DA IST.
+      // Vorher verlangte diese Stelle das VOLLSTAENDIGE Material, bevor auch
+      // nur ein Takt Fortschritt zaehlte. Die Baustelle stand deshalb die
+      // ganze Lieferzeit auf null Prozent und war danach in Sekunden fertig.
+      // Nachgemessen ueber sechs Saaten war das echte Bauen nur 11 bis 24
+      // Prozent der Zeit, die eine Baustelle als Baustelle verbrachte - eine
+      // Muehle wartete im Schnitt 1022 Takte auf Material und wurde 199
+      // Takte gebaut. Die Bauzeit in der Gebaeudetabelle beschrieb also
+      // kaum etwas von dem, was der Spieler sieht.
+      // Jetzt traegt jede gelieferte Einheit ihren Anteil: der Sockel (80
+      // Takte Grube und Geruest) braucht kein Material, jedes Brett und
+      // jeder Stein gibt 30 weitere Takte frei. Die Gesamtzeit bleibt
+      // unveraendert, aber sie faellt jetzt IN die Lieferzeit statt danach -
+      // und weil der Renderer die Baustufen aus progress/total nimmt,
+      // waechst die Baustelle mit jeder Lieferung sichtbar.
+      const noetig = needB + needS;
+      const da = Math.min(needB, b.stock.board||0) + Math.min(needS, b.stock.stone||0);
+      const total = 80 + 30*noetig;
+      const grenze = 80 + 30*da;          // so weit traegt das gelieferte Material
+      // Warten zaehlt erst, wenn das fehlende Material den Bau WIRKLICH
+      // aufhaelt - sonst meldete das Warnschild eine Baustelle als wartend,
+      // an der gerade gehaemmert wird.
+      if(da<noetig && b.progress>=grenze) b.matWaitT=(b.matWaitT||0)+1;
       else b.matWaitT=0;
-      const haveAll=(b.stock.board||0)>=needB && (b.stock.stone||0)>=needS && builderThere;
-      if(!haveAll) continue;
+      if(!builderThere || b.progress>=grenze) continue;
       b.progress += 1;
-      const total = 80 + 30*((def.cost.board||0)+(def.cost.stone||0));
       if(b.progress>=total){
         b.state='done'; b.stock={};
         this.changedNodes.push(b.node);
@@ -2675,12 +2727,12 @@ export class Game {
           // Der Förster setzt je Gang ZWEI Setzlinge (Kritikbericht: einer
           // je Gang glich nicht einmal einen einzigen Holzfäller aus).
           if(u.actT===16){
-            if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.SAPLING; this.changedNodes.push(u.target); }
+            if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.SAPLING; m.amt[u.target]=0; this.changedNodes.push(u.target); }
             const zweit=m.nbs(u.target).find(n=> m.obj[n]===OBJ.NONE && m.terr[n]===TER.GRASS
               && m.bld[n]<0 && !m.flag[n] && m.owner[n]===b.player && !this.roadAt(n));
             if(zweit!==undefined) u.zweit=zweit; else u.state='back';
           } else if(done(30)){
-            if(u.zweit!==undefined && m.obj[u.zweit]===OBJ.NONE){ m.obj[u.zweit]=OBJ.SAPLING; this.changedNodes.push(u.zweit); }
+            if(u.zweit!==undefined && m.obj[u.zweit]===OBJ.NONE){ m.obj[u.zweit]=OBJ.SAPLING; m.amt[u.zweit]=0; this.changedNodes.push(u.zweit); }
             u.state='back';
           }
           break;
@@ -2949,6 +3001,9 @@ export class Game {
       return;
     }
     b.player=byPl;
+    // Merkmal fuer das Missionsziel 'capture' (R9). Es bleibt am Gebaeude
+    // haengen, auch wenn es spaeter wieder verloren geht - erobert war es.
+    if(byPl===0) b.erobert=true;
     b.coins=0; b.incoming={};
     const cap=BLD[b.type].mil.cap;
     b.soldiers=attackers.slice(0,cap);
@@ -3565,6 +3620,36 @@ export class Game {
         case 'destroyEnemies': {
           const alive=this.players.filter(p=>p.id!==0&&!p.defeated).length;
           o.prog=this.players.length-1-alive; o.done=alive===0; break;
+        }
+        // R9: Acht der zehn Missionen endeten mit "besiege alle Gegner" -
+        // die Geschichten sind verschieden, das Ziel war immer dasselbe.
+        // Die drei Typen hier geben den Missionen ein eigenes Ende, ohne
+        // dass eine davon unloesbar werden kann.
+        case 'capture': {
+          // Feindliche Militaergebaeude EROBERN statt niederbrennen.
+          let n=0;
+          for(const b of this.buildings.values()) if(b.player===0 && b.erobert) n++;
+          o.prog=n;
+          // Sicherheitsnetz: wer den Gegner lieber ganz ausloescht, statt zu
+          // erobern, darf nicht in einer unloesbaren Mission stecken
+          // bleiben - ohne lebende Feinde gibt es nichts mehr zu erobern.
+          const lebt=this.players.some(p=>p.id!==0 && !p.defeated);
+          o.done = n>=o.count || !lebt;
+          break;
+        }
+        case 'defeatPlayer': {
+          // Einen BESTIMMTEN Clan schlagen, nicht alle. o.wer ist der Name
+          // aus der Missionstabelle.
+          const ziel=this.players.find(p=>p.id!==0 && p.name===o.wer);
+          o.done = !ziel || ziel.defeated;
+          o.prog = o.done?1:0;
+          break;
+        }
+        case 'survive': {
+          // Sich o.count Spielminuten halten. 600 Takte = eine Spielminute.
+          o.prog=Math.floor(this.t/600);
+          o.done=o.prog>=o.count;
+          break;
         }
         case 'occupy': {
           o.done = this.gate!=null && this.map.owner[this.gate]===0;

@@ -54,7 +54,7 @@ export const CAMPAIGN = [
       +'\n\nDer Boden ist hart, Holz ist knapp. Befreie unsere Leute!',
     objectives:[
       {type:'build', bld:'forester', count:1, desc:'Baue einen Förster (Holz ist knapp!)'},
-      {type:'destroyEnemies', desc:'Besiege die Salzwölfe'},
+      {type:'capture', count:3, desc:'Befreie 3 Gefangenenlager (erobere sie)'},
     ],
     tips:'Im Winterland wachsen Bäume langsam – ein Förster sichert den Nachschub. Steinbergwerke '
       +'liefern Steine, wenn Felsbrocken fehlen.',
@@ -66,7 +66,8 @@ export const CAMPAIGN = [
       +'\n\n„Wasser ist hier mehr wert als Gold", flüstert die Kartographin. „Und sie wissen das."',
     objectives:[
       {type:'build', bld:'well', count:2, desc:'Sichere die Wasserversorgung (2 Brunnen)'},
-      {type:'destroyEnemies', desc:'Besiege den Dornenbund'},
+      {type:'capture', count:2, desc:'Nimm dem Dornenbund die Oase (2 Posten erobern)'},
+      {type:'survive', count:25, desc:'Halte die Handelsstraße 25 Minuten'},
     ],
     tips:'In der Wüste zählt jede Straße doppelt: Halte Wege kurz, baue früh ein zweites Lagerhaus.',
   },
@@ -77,7 +78,8 @@ export const CAMPAIGN = [
       +'\n\n„Wenn zwei Feuer brennen", sagt Rurik, „löscht man erst das nähere." '
       +'\n\nBehaupte dich gegen beide Clans.',
     objectives:[
-      {type:'destroyEnemies', desc:'Besiege beide Clans'},
+      {type:'defeatPlayer', wer:'Aschehand', desc:'Lösche das nähere Feuer: schlage die Aschehand'},
+      {type:'survive', count:30, desc:'Halte dich 30 Minuten gegen beide'},
     ],
     tips:'Sichere deine Grenzen mit Wachtürmen, bevor du angreifst. Münzen sind Sold: In '
       +'Militärgebäuden gelagert stärken sie deren Verteidiger spürbar.',
@@ -101,7 +103,7 @@ export const CAMPAIGN = [
       +'\n\nSchmale Pfade, wenig Baugrund: Hier entscheidet kluge Planung, nicht Masse.',
     objectives:[
       {type:'build', bld:'catapult', count:1, desc:'Baue ein Katapult'},
-      {type:'destroyEnemies', desc:'Besiege die Moorschatten'},
+      {type:'capture', count:4, desc:'Brich die Belagerung (4 Posten erobern)'},
     ],
     tips:'Katapulte beschießen feindliche Militärgebäude in Reichweite – perfekt für Engstellen im Moor.',
   },

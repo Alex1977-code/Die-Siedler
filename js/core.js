@@ -199,6 +199,12 @@ export const SAT_RESUME = 50;
 // Vorrat, 60 Haemmer sind Unsinn - so viele Baustellen hat niemand. Waren
 // mit eigener Schwelle bremsen frueher; alles ohne Eintrag bleibt bei
 // SAT_PAUSE. Wieder angeworfen wird bei 75 % der Schwelle.
+// R11: Alter (in Wachstums-Stichproben), das ein Setzling bzw. ein Jungbaum
+// erreichen muss, um eine Stufe weiterzukommen. Steht hier, weil der
+// Kartengenerator dem Startwald ein GESTREUTES Alter mitgeben muss - sonst
+// reift der ganze Wald im Gleichschritt. Siehe Game.baeumeReifen.
+export const BAUM_REIF = 10;
+
 export const SAT_OF = {
   hammer:12, pick:10, axe:10, saw:8, scythe:8, rod:8, cleaver:6, shovel:10,
   sword:24, shield:24, spear:24, bow:24,
