@@ -109,6 +109,13 @@ export class UI {
             <select id="f-res"><option value="0.7">Knapp</option><option value="1" selected>Normal</option><option value="1.5">Üppig</option></select></label>
           <label>Startkapital
             <select id="f-boost"><option value="1" selected>Normal</option><option value="1.6">Üppig</option></select></label>
+          <label>Spielziel
+            <select id="f-ziel">
+              <option value="sieg" selected>Alle Gegner besiegen</option>
+              <option value="land">Großmacht: 1500 Felder beherrschen</option>
+              <option value="heer">Feldherr: 25 Soldaten aufstellen</option>
+              <option value="frei">Nur bauen (ohne Ziel)</option>
+            </select></label>
           <label>Startpunkt (Seed)
             <input id="f-seed" type="number" placeholder="zufällig"></label>
         </div>
@@ -421,7 +428,16 @@ export class UI {
       difficulty:$('#f-diff')?.value || this.opts.diff || 'normal',
       players:[{name:'Du', ai:false},
         ...Array.from({length:ais},(_,i)=>({name:['Fürst Corvin','Fürstin Isra','Fürst Halvar'][i], ai:true, aiLevel:lvl}))],
-      objectives: ais>0? [{type:'destroyEnemies', desc:'Besiege alle Gegner'}]:[],
+      // KD5/F7: waehlbares Spielziel statt fest "Vernichtung". Die Zieltypen
+      // territory/soldiers existieren seit R9 in checkObjectives; ohne
+      // Gegner faellt "Alle besiegen" automatisch auf "Nur bauen" zurueck.
+      objectives: (()=>{
+        const z=$('#f-ziel')?.value || 'sieg';
+        if(z==='land') return [{type:'territory', count:1500, desc:'Beherrsche 1500 Felder'}];
+        if(z==='heer') return [{type:'soldiers', count:25, desc:'Stelle 25 Soldaten auf'}];
+        if(z==='frei' || ais===0) return [];
+        return [{type:'destroyEnemies', desc:'Besiege alle Gegner'}];
+      })(),
     };
     this.launch(new Game(setup));
   }

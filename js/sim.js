@@ -1425,6 +1425,26 @@ export class Game {
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
     if(this.t%300===41) this.notzimmerei();
+    if(this.t%300===97) this.schilderVerfall();
+  }
+
+  // ---------- Schilder-Verfall (KD5/G8) ----------
+  // "Kein Vorkommen"-Schilder (∅) verfallen nach 3 Spielminuten: nach einer
+  // halben Stunde standen sonst >10 davon dicht gestreut auf jedem Berg -
+  // visuelles Rauschen ohne Informationswert (Kritikbericht). Schilder MIT
+  // Vorkommen bleiben stehen, die Information ist dauerhaft nuetzlich.
+  // Die Alterstabelle ist bewusst fluechtig (nicht im Spielstand): nach dem
+  // Laden zaehlen alte ∅-Schilder einfach ab dem Ladezeitpunkt neu.
+  schilderVerfall(){
+    if(!this.signs || !this.signs.size) return;
+    this._signT=this._signT||new Map();
+    for(const [q,ore] of this.signs){
+      if(ore){ this._signT.delete(q); continue; }
+      const seit=this._signT.get(q);
+      if(seit===undefined) this._signT.set(q, this.t);
+      else if(this.t-seit>1800) this.signs.delete(q);
+    }
+    for(const q of [...this._signT.keys()]) if(!this.signs.has(q)) this._signT.delete(q);
   }
 
   // ---------- Notzimmerei (R1) ----------

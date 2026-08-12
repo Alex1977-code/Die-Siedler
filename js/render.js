@@ -1107,6 +1107,23 @@ export class Renderer {
     g.fillStyle=rad; g.fillRect(0,0,w,h);
     this.vignette=v;
   }
+  // KD5/F6: groesste Gebaeudeklasse, die auf diesem Knoten passt ('L'/'M'/
+  // 'S'/null). Repraesentanten: Bauernhof (L, mit Platzbedarf), Saegewerk
+  // (M), Holzfaeller (S). canBuild je Punkt und Bild waere zu teuer -
+  // gecacht, bis sich Gebaeude, Wege oder Gebiet aendern.
+  bauGroesseAt(i){
+    const g=this.game;
+    const ver=`${g.bldVer||0}|${g.routeVer||0}|${g.territoryVer||0}`;
+    if(this._dotVer!==ver){ this._dotVer=ver; this._dotG=new Map(); }
+    let s=this._dotG.get(i);
+    if(s===undefined){
+      s = g.canBuild(0,'farm',i).ok? 'L'
+        : g.canBuild(0,'sawmill',i).ok? 'M'
+        : g.canBuild(0,'woodcutter',i).ok? 'S' : null;
+      this._dotG.set(i, s);
+    }
+    return s;
+  }
   // ---------- Chunks (Terrain) ----------
   chunkKey(cx,cy){ return cx+cy*1000; }
   markDirtyNode(i){
@@ -7528,6 +7545,10 @@ export class Renderer {
     if(game.signs && game.signs.size!==this._signsSeen.size){
       for(const q of game.signs.keys())
         if(!this._signsSeen.has(q)){ this._signsSeen.add(q); this.markDirtyNode(q); }
+      // KD5/G8: auch ENTFERNTE Schilder (Verfall der ∅-Schilder) muessen
+      // ihren Chunk neu backen, sonst bleibt das Schild eingebacken stehen
+      for(const q of [...this._signsSeen])
+        if(!game.signs.has(q)){ this._signsSeen.delete(q); this.markDirtyNode(q); }
     }
     // Bergwerke glaetten die gemalte Terrassierung/Anhebung um ihren Knoten
     // (Minen-Verankerung, Nutzerfoto IMG_7989) – neu gebaute oder abgerissene
@@ -8756,10 +8777,30 @@ export class Renderer {
           continue;
         }
         const mine=m.terrOkMine(i);
+        if(mine){
+          g.fillStyle='rgba(20,26,18,0.4)';
+          g.beginPath(); g.arc(px,py+1,2.6,0,7); g.fill();
+          g.fillStyle='rgba(255,190,90,0.85)';
+          g.beginPath(); g.arc(px,py,2.2,0,7); g.fill();
+          continue;
+        }
+        // KD5/F6: GROESSENVORSCHAU wie im Vorbild. Alle Punkte waren gleich -
+        // ob dort eine Huette, ein grosses Gebaeude oder gar nichts passt,
+        // erfuhr man erst per Fehlversuch. Jetzt zeigt der Punkt die
+        // groesste Klasse, die hier baubar ist: gross mit Ring = L,
+        // mittel = M, klein = S; passt nicht einmal eine Huette, gibt es
+        // gar keinen Punkt mehr (ehrlicher als ein toter weisser Punkt).
+        const gr=this.bauGroesseAt(i);
+        if(!gr) continue;
+        const R= gr==='L'?4.4 : gr==='M'?3.2 : 2.2;
         g.fillStyle='rgba(20,26,18,0.4)';
-        g.beginPath(); g.arc(px,py+1,(mine?2.6:3.4),0,7); g.fill();
-        g.fillStyle=mine?'rgba(255,190,90,0.85)':'rgba(255,255,255,0.85)';
-        g.beginPath(); g.arc(px,py,(mine?2.2:3),0,7); g.fill();
+        g.beginPath(); g.arc(px,py+1,R+0.5,0,7); g.fill();
+        g.fillStyle='rgba(255,255,255,0.88)';
+        g.beginPath(); g.arc(px,py,R,0,7); g.fill();
+        if(gr==='L'){
+          g.strokeStyle='rgba(255,255,255,0.8)'; g.lineWidth=1.1;
+          g.beginPath(); g.arc(px,py,R+2.4,0,7); g.stroke();
+        }
       }
     }
     // halbtransparente Bau-Vorschau am gewählten Platz
@@ -9300,15 +9341,24 @@ export class Renderer {
       g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.fill();
       g.strokeStyle='rgba(90,66,40,0.4)'; g.lineWidth=1;
       g.beginPath(); g.ellipse(x,y+2, 14+t*10, (14+t*10)*0.42, 0, 0, 7); g.stroke();
-      // Absteckpfähle mit Schnur
-      g.strokeStyle='#6d4f2e'; g.lineWidth=1.6;
+      // Absteckpfähle mit Schnur. Kritik G9: die Schnur war ein
+      // durchgezogener heller Rechteckzug - aus der Uebersicht sind die
+      // Pfaehle Unterpixel, und uebrig blieb ein "Debug-Rahmen". Jetzt
+      // gestrichelt (liest sich als gespannte Schnur), waermer und leiser;
+      // die Pfaehle bekommen einen hellen Kopf, damit SIE das Bild machen.
+      g.strokeStyle='#6d4f2e'; g.lineWidth=1.8;
       for(const [px2,py2] of [[x-16,y-4],[x+16,y-4],[x-14,y+8],[x+14,y+8]]){
         g.beginPath(); g.moveTo(px2,py2); g.lineTo(px2,py2-8); g.stroke();
+        g.fillStyle='#c8a86a';
+        g.fillRect(px2-1.1,py2-9.2,2.2,2.2);
       }
-      g.strokeStyle='rgba(233,222,193,0.6)'; g.lineWidth=0.8;
+      g.save();
+      g.strokeStyle='rgba(196,172,128,0.55)'; g.lineWidth=0.9;
+      g.setLineDash([3,2.6]);
       g.beginPath();
       g.moveTo(x-16,y-10); g.lineTo(x+16,y-10); g.lineTo(x+14,y+2); g.lineTo(x-14,y+2); g.closePath();
       g.stroke();
+      g.restore();
       // Auch die noch unplanierte Baustelle zeigt ihr Warnschild, wenn sie
       // minutenlang auf Baumaterial wartet (F4/F5)
       const zu=this.bldZustand(b);
