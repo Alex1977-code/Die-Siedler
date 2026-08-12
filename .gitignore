@@ -6,3 +6,7 @@ package-lock.json
 # Kontrollbilder der Browser-Tests (ackertest, roadfloattest)
 acker.png
 roadfloat.png
+
+# Arbeits-Screenshots des Spielekritiker-Agenten (Mehr-MB-Bilder, nur zur
+# Befundaufnahme - der Bericht selbst (kritik_bericht.md) wird versioniert)
+kritik_*.png
