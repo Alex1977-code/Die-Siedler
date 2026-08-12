@@ -7668,14 +7668,19 @@ export class Renderer {
         // Bake-Pixeln, Ziel in Weltpixeln): das Herunterfiltern des ganzen
         // hochaufgeloesten Canvas (G3) kostete sonst ein Vielfaches des
         // Sichtfelds an Fuellrate – gerade auf dem Handy.
-        // Kritik G7 (harte Horizontal-Naehte): die aeussersten Pixel eines
-        // Chunk-Canvas tragen Rand-Artefakte der Weichzeichenpaesse
-        // (blurInto klemmt am Canvasrand). Beim zeilenweisen Uebermalen
-        // zeichnete der jeweils spaetere Chunk genau diese Randzeile ueber
-        // den sauberen Inhalt des Nachbarn - die "9-Sigma-Naht". Ein Saum
-        // von 3 px bleibt deshalb weg; die Nachbarn ueberlappen sich um
-        // 2x78 px, die Deckung bleibt lueckenlos.
-        const SAUM=3;
+        // Kritik G7 / Nutzerfoto v163 (Trennlinien im Gras, Streifen wirken
+        // unifarben): Beim zeilenweisen Uebermalen legte der spaetere Chunk
+        // seinen RANDBEREICH ueber den Kern des Nachbarn. Genau dort ist
+        // sein Bake-Kontext am schwaechsten (Weichzeichen- und Lasurpaesse
+        // klemmen am Canvasrand), und der leichte Tonversatz beider Bakes
+        // wird als durchgehende Linie sichtbar. Ein 3-px-Saum war zu wenig;
+        // der volle Kern-Schnitt (Saum = pad = 78) riss dafuer gebackene
+        // FELSOBJEKTE an den Kerngrenzen ab, deren Bild weiter in den
+        // Nachbarn ragt, als dessen Bake-Fenster Knoten mitnimmt (Felsnadel
+        // endete in senkrechter Kante). 24 px sind der Mittelweg: die Naht
+        // liegt klar hinter der Klemmzone der Weichzeichner (Radius 9),
+        // und der Nachbar deckt Objektueberhaenge weiter mit ab.
+        const SAUM=24;
         const sc=c.scale||1;
         const ix0=Math.max(c.ox+SAUM, wx0-8), ix1=Math.min(c.ox+c.dw-SAUM, wx1+8);
         const iy0=Math.max(c.oy+SAUM, wy0-8), iy1=Math.min(c.oy+c.dh-SAUM, wy1+8);
@@ -9119,8 +9124,15 @@ export class Renderer {
         g.save();
         g.translate(x, y+4-trunkY);
         g.transform(1,0,sway,1,0,0);
-        g.drawImage(img2, 0, 0, img2.width, img2.height*(1-0.36),
-                    -w/2, -(h-trunkY), w, h-trunkY);   // Krone: schwingt
+        // Naht Stamm/Krone: beide Streifen bluten am Schnitt bilinear in
+        // die Transparenz - quer durch jede Krone lief eine helle
+        // 1-px-Linie (Nutzerfoto v163: "Trennlinien"). Die Krone greift
+        // deshalb zwei Quellpixel in den Stammstreifen hinein und deckt
+        // die Naht ab; die Scherung ist am Schnitt verankert (lokales
+        // y=0), der Ueberlapp verschiebt sich also praktisch nicht.
+        const ovQ=2, ovZ=ovQ*(h/img2.height);
+        g.drawImage(img2, 0, 0, img2.width, img2.height*(1-0.36)+ovQ,
+                    -w/2, -(h-trunkY), w, (h-trunkY)+ovZ);   // Krone: schwingt
         g.restore();
         // Grasbüschel am Stammfuß: der Baum steht IM Gras, nicht darauf
         if(this.theme!=='winter' && this.theme!=='wueste'){

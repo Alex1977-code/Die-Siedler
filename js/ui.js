@@ -297,8 +297,12 @@ export class UI {
     volInit('#o-vol-sfx','volSfx','sfx');
     // Weichzeichner am Bildrand (Tilt-Shift). Er liest jedes Bild zweimal aus
     // dem Canvas zurueck; auf schwacher Grafik ist das der groesste einzelne
-    // Posten der Bildzeit. Wer lieber fluessig spielt, schaltet ihn ab.
-    const tiltAn=(this.opts.tilt!==false);
+    // Posten der Bildzeit.
+    // Seit v164 STANDARDMAESSIG AUS: der Nutzer hat die Randunschaerfe
+    // zweimal als stoerend gemeldet (oben am Massiv, unten am Bildrand) -
+    // die Diorama-Anmutung ist Geschmackssache und jetzt Opt-in. Wer sie
+    // frueher ausdruecklich angehakt hat (tilt===true), behaelt sie.
+    const tiltAn=(this.opts.tilt===true);
     $('#o-tilt').checked=tiltAn;
     if(this.renderer) this.renderer.tiltAus=!tiltAn;
     $('#o-tilt').onchange=(e)=>{ this.opts.tilt=e.target.checked;
