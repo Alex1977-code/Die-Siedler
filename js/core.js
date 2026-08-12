@@ -47,7 +47,7 @@ export const FOODS = ['fish','bread','meat'];
 
 // Gebäudedefinitionen. size: S/M/L/MINE. cat für das Baumenü.
 export const BLD = {
-  hq:         { name:'Hauptquartier', cat:'lager', size:'L', cost:{}, mil:{cap:0,radius:9}, store:true, desc:'Zentrum deiner Siedlung. Lager und Rekrutierung.' },
+  hq:         { name:'Hauptquartier', cat:'lager', size:'L', cost:{}, mil:{cap:0,radius:11}, store:true, desc:'Zentrum deiner Siedlung. Lager und Rekrutierung.' },
   storehouse: { name:'Lagerhaus', cat:'lager', size:'M', cost:{board:4,stone:3}, store:true, desc:'Zusätzliches Lager für alle Waren.' },
   woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:60, desc:'Fällt Bäume und liefert Stämme.' },
   // Förster: Radius wie der Holzfäller (sonst blieb der äußere Ring gerodeter

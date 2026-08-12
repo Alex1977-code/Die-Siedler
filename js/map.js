@@ -881,19 +881,82 @@ export function genWorld(opts){
     let free=0; for(const n of map.nbs(i)) if(map.terrOkBuild(n)) free++;
     if(free>=5) cand.push(i);
   }
+  // BEBAUBARES LAND IM STARTGEBIET. Der Kandidatenfilter oben prueft nur den
+  // Knoten selbst und seine sechs Nachbarn - wie viel davon im spaeteren
+  // Gebiet liegt, sah er nie an. Nachgemessen auf zwei Karten hatte eine
+  // Siedlung nach 30 Spielminuten NULL bebaubare Knoten: von 628 bzw. 271
+  // eigenen Knoten waren 376 bzw. 184 schlicht Wasser. Das Startgebiet ist
+  // der Radius des Hauptquartiers - auf einer seereichen Karte bleiben davon
+  // rund 84 Landknoten, und die sind nach elf Gebaeuden aufgebraucht.
+  // Jetzt zaehlt der Generator das Land im HQ-Radius und verlangt ein
+  // Mindestmass. Der Radius steht in core.js (BLD.hq.mil.radius); hier steht
+  // er als Zahl, damit map.js keine Abhaengigkeit auf die Gebaeudetabelle
+  // bekommt - beide Werte gehoeren zusammen.
+  const HQ_R=11, LAND_MIN=150;
+  // Gezaehlt wird mit DERSELBEN Entfernung, die das Spiel fuer die Grenze
+  // benutzt: Schritte von Nachbar zu Nachbar (sim.js gebietNeu). Ein Kreis in
+  // Gitterkoordinaten waere eine andere Form - die Zeilen stehen nur 0,846
+  // Spaltenbreiten auseinander, ein Gitterkreis ist also zu hoch und zu
+  // schmal. Statt zu suchen (BFS je Kandidat waere teuer) rechnet die
+  // Entfernung direkt: das versetzte Gitter laesst sich in Achsenkoordinaten
+  // umschreiben, dort ist die Entfernung eine Formel.
+  const aq=(x,y)=> x - ((y-(y&1))>>1);            // Spalte in Achsenkoordinaten
+  const hexDist=(x1,y1,x2,y2)=>{
+    const dq=aq(x1,y1)-aq(x2,y2), dr=y1-y2;
+    return (Math.abs(dq)+Math.abs(dq+dr)+Math.abs(dr))>>1;
+  };
+  // Gemerkt, weil die Kandidaten zufaellig gezogen werden und die drei
+  // Anlaeufe unten dieselben Knoten wiedersehen.
+  const landMemo=new Map();
+  const landImUmkreis=(i)=>{
+    const memo=landMemo.get(i); if(memo!==undefined) return memo;
+    const cx=map.X(i), cy=map.Y(i);
+    let n=0;
+    for(let y2=Math.max(0,cy-HQ_R); y2<=Math.min(h-1,cy+HQ_R); y2++)
+      for(let x2=Math.max(0,cx-HQ_R-1); x2<=Math.min(w-1,cx+HQ_R+1); x2++){
+        if(hexDist(x2,y2,cx,cy)>HQ_R) continue;
+        if(map.terrOkBuild(map.idx(x2,y2))) n++;
+      }
+    landMemo.set(i,n);
+    return n;
+  };
+  // Zwei Bedingungen muessen zusammen gelten, und sie ziehen gegeneinander:
+  // genug Bauland UND genug Abstand. Wird das Land nur in die Punktzahl
+  // gerechnet, sucht der Generator die groesste Wiese und setzt bei vier
+  // Spielern zwei Startplaetze neun Knoten nebeneinander (gemessen). Deshalb
+  // sind beide harte Bedingungen, und die Punktzahl entscheidet nur noch
+  // unter den Tauglichen. ABST_MIN=2*HQ_R+6: die Gebiete beruehren sich bei
+  // 2*HQ_R, sechs Knoten Niemandsland bleiben dazwischen.
+  const ABST_MIN=2*HQ_R+6;
   const starts=[];
   for(let p=0;p<nPl;p++){
-    let best=-1,bs=-1;
-    for(let t=0;t<260;t++){
-      const c=cand[(rng()*cand.length)|0]; if(c===undefined) break;
-      let score = rng()*4;
-      for(const s of starts){
-        const dx=map.X(c)-map.X(s), dy=map.Y(c)-map.Y(s);
-        score += Math.sqrt(dx*dx+dy*dy);
+    let best=-1, bestLand=-1, bestLandC=-1;
+    // Drei Anlaeufe, von streng nach nachgiebig. Auf einer kleinen Karte mit
+    // vier Spielern oder auf einer Inselkarte ist das Strenge nicht immer
+    // erfuellbar - dann wird gelockert statt aufzugeben.
+    for(const [landF, abstF] of [[1,1],[0.75,0.62],[0.5,0.35]]){
+      const lMin=LAND_MIN*landF, aMin=ABST_MIN*abstF;
+      let bs=-1;
+      for(let t=0;t<260;t++){
+        const c=cand[(rng()*cand.length)|0]; if(c===undefined) break;
+        const land=landImUmkreis(c);
+        if(land>bestLand){ bestLand=land; bestLandC=c; }
+        if(land<lMin) continue;                   // zu wenig Bauland
+        let score = rng()*4 + land*0.15, nah=false;
+        for(const s of starts){
+          const d=hexDist(map.X(c),map.Y(c),map.X(s),map.Y(s));
+          if(d<aMin){ nah=true; break; }          // zu dicht am Nachbarn
+          score += d;
+        }
+        if(nah) continue;
+        if(starts.length===0) score += Math.min(map.X(c), map.Y(c), w-map.X(c), h-map.Y(c))*0.15;
+        if(score>bs){ bs=score; best=c; }
       }
-      if(starts.length===0) score += Math.min(map.X(c), map.Y(c), w-map.X(c), h-map.Y(c))*0.15;
-      if(score>bs){ bs=score; best=c; }
+      if(best>=0) break;
     }
+    // Auch der nachgiebigste Anlauf leer (sehr seereiche Karte): dann gewinnt
+    // der Platz mit dem meisten Land - besser als ein zufaelliger.
+    if(best<0 && bestLandC>=0) best=bestLandC;
     if(best<0) best = cand[(rng()*cand.length)|0] ?? map.idx(w>>1,h>>1);
     // Umgebung säubern
     clearArea(map, best, 3);

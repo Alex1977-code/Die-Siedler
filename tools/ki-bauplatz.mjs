@@ -7,6 +7,12 @@
 //   Saat 23: 1478 eigene Knoten, 174 bebaubar - 491 Wasser, 174 Gebirge
 // Die festsitzenden Karten sind also zu 60 bis 68 Prozent See. Baeume waren
 // mit 50 bzw. 29 Knoten nur ein Nebenposten.
+//
+// NACHTRAG v145: behoben. Der Generator setzt Startplaetze jetzt nur noch
+// dort, wo im HQ-Radius genug BEBAUBARES Land liegt, und der Radius wuchs
+// von 9 auf 11. Die Zahlen oben stammen vom Stand v144 und sind nur noch
+// als Vergleichswert zu lesen - siehe tools/ki-startland.mjs (Bauland je
+// Startplatz) und tools/ki-startvergleich.mjs (Wirkung im Spiel).
 // Warum hat die KI keinen Bauplatz? Alle eigenen Knoten nach Ablehnungsgrund
 // aufschluesseln - und "Untergrund ungeeignet" nach der WAHREN Ursache.
 import { chromium } from 'playwright';
