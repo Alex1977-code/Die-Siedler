@@ -3782,10 +3782,20 @@ export class Game {
         // null Militärbauten, null Angriffe - die KI setzte Baustellen, die
         // nie ans Netz kamen, warf sie nach 3000 Ticks weg und begann von
         // vorn, während ihr Lager auf 135 Bretter anwuchs.
-        // Klappt der Anschluss nicht, wird SOFORT abgerissen: das Material
-        // ist zurück, der Militär-Deckel bleibt frei, und der nächste Zug
-        // probiert einen anderen Platz.
-        if(!this.aiConnect(p, r.b)){ this.demolish(r.b.id); continue; }
+        // NACHGEMESSEN (12.08., Stufe 2, 30 Spielminuten): von zehn
+        // begonnenen Militaerbauten wurden NEUN in derselben Sekunde wieder
+        // abgerissen, weil aiConnect beim ersten Versuch scheiterte - genau
+        // einer wurde fertig. Damit kam die KI nie in Angriffsreichweite
+        // (ihre fertigen Posten standen 47 bis 61 Knoten vom naechsten Ziel
+        // entfernt, noetig waeren rund 20).
+        // Der Sofortabriss war zu hart: canBuild hat vorher geprueft, dass
+        // eine Strasse ans Netz kommen KANN; dass roadPath im ersten Anlauf
+        // keinen Weg findet, heisst nur, dass es gerade eng ist. Die
+        // Baustelle bleibt deshalb stehen und wird vom Reconnect-Durchlauf
+        // (alle 150 Takte) weiter versucht. Hoffnungslose Faelle raeumt
+        // derselbe Durchlauf nach 3000 Takten ohnehin ab - dieser Schutz
+        // bleibt unveraendert.
+        if(!this.aiConnect(p, r.b)) r.b._aiDiscT=this.t;
         break; // ein Gebäude pro Zug
       }
     }
