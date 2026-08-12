@@ -1930,6 +1930,10 @@ export class Game {
         // (mit Werkzeug, sofern der Beruf eines braucht – sonst wartet das Gebäude)
         if(b.worker) this.trySettle(b);
         if(b.player===0) this.msg(`${def.name} fertiggestellt.`, 'ok', b.node);
+        // KD1: rueckt ein FREMDER Posten in Grenznaehe, bekommt der Spieler
+        // eine Vorwarnung - "Wir werden angegriffen!" kam bisher aus dem
+        // Nichts, ohne dass sich der Druckaufbau je angekuendigt haette.
+        else if(def.mil) this.vorpostenWarnung(b);
         this.onBuilt && this.onBuilt(b);
       }
     }
@@ -2539,10 +2543,33 @@ export class Game {
     if(t===TER.WATER || t===TER.LAVA) return false;
     if((m.obj[n]&127)===OBJ.ROCK) return false;
     if(this.unterHaus(n)){
+      // STRASSEN durch den Hausschatten sind BEGEHBAR. Das Wegenetz fuehrt
+      // voellig legal unter Hausbildern hindurch (Torstummel an jeder Tuer,
+      // Bestandswege unter spaeter gebauten Haeusern), und Traeger laufen
+      // dort seit jeher. Fuer FREI laufende Figuren war derselbe Knoten
+      // gesperrt - wessen Route (flagWaypoints!) ueber so einen Knoten
+      // fuehrte, der keilte davor ein und kam erst mit der Geduld-Notbremse
+      // (WEG_GEDULD*2 = 6 min) frei. Gemessen (Saat 3001, Stufe 2, KD1):
+      // JEDER spaetere KI-Militaerposten wartete uniform ~375 s auf seinen
+      // Planierer; alle Haenger vibrierten vor demselben Strassenknoten im
+      // Schatten eines Nachbarhauses (road:true, gehbar:false). Das war
+      // auch das vom Nutzer beobachtete "Haengenbleiben an einer Stelle".
+      if(this.strassenKnoten().has(n)) return true;
       const b=(bld!=null)? this.buildings.get(bld) : null;
       if(!b || !this.imBild(b,n)) return false;
     }
     return true;
+  }
+  // Alle Knoten, die auf einer LANDstrasse liegen, als Menge - gehbar()
+  // fragt das im heissesten Pfad ab (Kollisions-Sonden je Figur und Takt),
+  // und roadAt() scannt dafuer zu teuer alle Strassen linear. Der Cache
+  // haengt am routeVer, der bei jeder Strassen-/Fahnenaenderung steigt.
+  strassenKnoten(){
+    if(this._strKn && this._strKnVer===this.routeVer) return this._strKn;
+    const s=new Set();
+    for(const r of this.roads.values()){ if(!r.isSea) for(const n of r.path) s.add(n); }
+    this._strKn=s; this._strKnVer=this.routeVer;
+    return s;
   }
   // Liegt n unter dem Bild GENAU dieses Gebäudes? Dieselbe Formel wie in
   // bauSchatten(), nur ohne Mengenaufbau - die Prüfung läuft pro Takt.
@@ -3534,6 +3561,10 @@ export class Game {
   // Knoten in Ruhe laesst - so koennen die beiden nicht auseinanderlaufen.
   static PLAN_MAX=0.85;
   static PLAN_EGAL=0.03;
+  // KD1: ab diesem Takt (Minute 20) schaltet eine KI ab Stufe NORMAL ohne
+  // Feindkontakt in den Vorstoss-Modus - Militaerposten ruecken dann gezielt
+  // auf das naechste Feind-HQ zu statt gestreut zu wachsen.
+  static VORSTOSS_AB=12000;
   planierBedarf(b){
     const m=this.map;
     const nb=m.nbs(b.node);
@@ -4025,11 +4056,20 @@ export class Game {
     // Grenze und Platznot im eigenen Gebiet erlauben zusaetzliche Posten.
     // Der Bedarf kann nur DRAUFLEGEN - so bleibt das gemessene Wachstum aus
     // v140 erhalten, reagiert aber auf die Lage.
+    const kontakt=this.aiContact(p);
     let milAllowed=Math.min(AM.milMax, AM.milBase + Math.floor(this.t/AM.milGrow)
                             + Math.min(AM.milNeed||0, this.aiMilBedarf(p)));
+    // KD1: Die Ohne-Kontakt-Verlaengerung endete hart bei milMax*2. Gemessen
+    // (Saat 3001, Stufe 2, passiver Spieler): bei 24 Posten fror ALLES ein -
+    // Front bei Abstand 39 (noetig <=21), Land unveraendert ab Minute 50,
+    // null Angriffe in 60 Minuten. Solange ein Landweg zum Feind existiert,
+    // darf die Kette deshalb weiterwachsen (Notbremse milMax*3); nur wo kein
+    // Landweg hinfuehrt (Inselstart), bleibt die alte Wand - dort bringt
+    // jeder weitere Posten nichts.
     if(lvl>=2 && milN>=milAllowed
        && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
-       && !this.aiContact(p)) milAllowed=Math.min(milN+1, AM.milMax*2);
+       && !kontakt)
+      milAllowed=Math.min(milN+1, this.aiFeindErreichbar(p)? AM.milMax*3 : AM.milMax*2);
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
     if(tief>=2){
@@ -4133,10 +4173,36 @@ export class Game {
       const type = w==='@mil' ? (lvl>=2 ? 'guardhouse' : 'barracks') : w;
       const def=BLD[type];
       if(boards<(def.cost.board||0) || stones<(def.cost.stone||0)) continue;
-      const spot=this.aiFindSpot(p, type);
+      // KD1 VORSTOSS: Ohne Feindkontakt zaehlt bei einem Militaerposten nur
+      // eines - naeher an den Gegner. aiFindSpot streut 340 Zufallsknoten
+      // und wiegt die Richtung nur weich (edW); gemessen rueckte die Front
+      // damit 0,5-1,5 Knoten je Minute vor und kam auf einer von drei
+      // Saaten in 60 Minuten NIE in Angriffsreichweite. Ab Minute 20 wird
+      // deshalb gezielt der eigene Knoten bebaut, der dem Feind-HQ am
+      // naechsten liegt (aiVorstossSpot); findet der nichts, greift die
+      // alte Streuwahl.
+      const vorstoss = !!def.mil && lvl>=2 && !kontakt && this.t>=Game.VORSTOSS_AB;
+      let spot=-1;
+      if(vorstoss){
+        spot=this.aiVorstossSpot(p, type);
+        // Kein Platz an der Front? Dann fehlt dort fast immer der
+        // Weganschluss - erst das Netz RICHTUNG FEIND verlaengern, statt
+        // den Posten-Slot mit einem Streuposten zu verbrennen. (Auf den
+        // Messsaaten fand die Front-Suche immer einen Platz - dieser Zweig
+        // ist die Absicherung fuer verbaute Fronten, nicht der Normalfall;
+        // die gemessene Bremse war die Planierer-Warteschlange, siehe
+        // tickBuilderSpawn.) Solange der Fehlversuch gemerkt ist (-2) oder
+        // der Pionierweg gerade gebaut wurde, diesen Zug NICHT streuen -
+        // gestreut wird erst, wenn Front-Suche UND Pionierweg nichts hergeben.
+        if(spot===-2) continue;
+        if(spot<0 && this.aiPionierweg(p, true)) continue;
+      }
+      if(spot<0) spot=this.aiFindSpot(p, type);
       // R4/R10: Kein Platz? Dann liegt es fast immer daran, dass das eigene
       // Wegenetz nicht bis ans freie Land reicht - ein Pionierweg loest das.
-      if(spot<0){ this.aiPionierweg(p); continue; }
+      // Im Vorstoss-Modus zielt der Pionierweg RICHTUNG FEIND statt einfach
+      // ans entfernteste eigene Land.
+      if(spot<0){ this.aiPionierweg(p, vorstoss); continue; }
       // Wasser-Taschen-Wächter: Plätze ohne Landweg zum Hauptquartier bekommen
       // nie einen Straßenanschluss – die Baustelle stünde ewig, fräße Material
       // und verstopfte den Militär-Deckel (kompletter KI-Stillstand beobachtet:
@@ -4228,9 +4294,14 @@ export class Game {
         if(inHqZone && AM.hqIv){
           // NORMAL: HQ-Angriffe nur bei klarer Lage, in eigenem langsamem
           // Takt, und die Wellen wachsen von Sondierung zu Sturm an.
+          // KD1: +1 Mann je Welle alle 20 Minuten war keine Eskalation -
+          // gemessen kamen bei Kontakt ab Minute 30 genau zwei Wellen zu
+          // 2 und 3 Mann in einer ganzen Stunde, die "Entscheidung" laege
+          // rechnerisch bei Minute 100+. Jetzt verdoppelt sich die Welle
+          // (2/4/6...), und wer klar dominiert, wartet nur den halben Takt.
           if(!dom && milDone(b.player)>=2) continue;
-          if(this.t < (p.aiState.hqAtkT||0)+AM.hqIv) continue;
-          n=Math.min(avail, 2+(p.aiState.hqWaves||0));
+          if(this.t < (p.aiState.hqAtkT||0)+(dom? AM.hqIv/2 : AM.hqIv)) continue;
+          n=Math.min(avail, 2+2*(p.aiState.hqWaves||0));
           hqWave=true;
         } else {
           // Dominanz macht offensiver: wer doppelt so groß ist, wartet nicht
@@ -4273,6 +4344,93 @@ export class Game {
       }
     }
     return false;
+  }
+  // KD1: naechstes lebendes Feind-HQ (Knoten) zur eigenen Basis, -1 wenn keins.
+  aiFeindHq(p){
+    const m=this.map;
+    const hq=this.buildings.get(p.hq); if(!hq) return -1;
+    const hx=m.X(hq.node), hy=m.Y(hq.node);
+    let best=-1, bd=1e18;
+    for(const q of this.players){
+      if(q.id===p.id || q.defeated) continue;
+      const eh=this.buildings.get(q.hq); if(!eh) continue;
+      const d=Math.hypot(m.X(eh.node)-hx, m.Y(eh.node)-hy);
+      if(d<bd){ bd=d; best=eh.node; }
+    }
+    return best;
+  }
+  // KD1: fuehrt ueberhaupt ein Landweg von der eigenen Basis zu einem
+  // Feind-HQ? Nur dann lohnt es, die Postenkette ueber den Normal-Deckel
+  // hinaus zu verlaengern - auf einem Inselstart brächte jeder weitere
+  // Posten nichts und die alte Wand bleibt. Alle 5 Minuten neu geprueft.
+  aiFeindErreichbar(p){
+    if(this.t < (p._feindErrT??-1e9)+3000) return p._feindErr||false;
+    p._feindErrT=this.t; p._feindErr=false;
+    const m=this.map;
+    const hq=this.buildings.get(p.hq); if(!hq) return false;
+    const fz=this.aiFeindHq(p);
+    if(fz>=0){
+      const [hx,hy]=m.worldPos(hq.node), [ex,ey]=m.worldPos(fz);
+      if(this.landDetour({x:hx,y:hy}, ex, ey, 60000)) p._feindErr=true;
+    }
+    return p._feindErr;
+  }
+  // KD1 VORSTOSS: der eigene Knoten, der dem naechsten Feind-HQ am naechsten
+  // liegt und bebaubar ist. Anders als aiFindSpot (340 Zufallsknoten, weiche
+  // Richtungsgewichtung) wird hier AUFSTEIGEND nach Feindabstand geprueft -
+  // jeder Posten rueckt so weit vor, wie Netz und Bauregeln erlauben.
+  // Die Ruinen-Sperre und die Korridor-Bremse aus aiFindSpot gelten auch
+  // hier; Fehlversuche werden 30 Sekunden gemerkt (canBuild ist teuer).
+  // Rueckgabe: Knoten, -1 = frisch gesucht und nichts gefunden,
+  // -2 = Fehlversuch noch gemerkt (Front in Arbeit, nicht streuen).
+  aiVorstossSpot(p, type){
+    if(this.t < (p._vorCd||0)) return -2;
+    const m=this.map;
+    const fz=this.aiFeindHq(p);
+    if(fz<0) return -1;
+    const ex=m.X(fz), ey=m.Y(fz);
+    const own=[];
+    for(let i=0;i<m.owner.length;i++)
+      if(m.owner[i]===p.id) own.push([Math.hypot(m.X(i)-ex, m.Y(i)-ey), i]);
+    own.sort((a,b)=>a[0]-b[0]);
+    const ne=this.netzErreichbar(p.id);
+    let gepr=0;
+    for(const [,i] of own){
+      if(gepr>=90) break;
+      if(this.ruins.some(r=>{
+        const dx=m.X(r.node)-m.X(i), dy=m.Y(r.node)-m.Y(i);
+        return dx*dx+dy*dy<25;
+      })) continue;
+      gepr++;
+      if(!this.canBuild(p.id,type,i).ok) continue;
+      if(ne.R.size<40){
+        let frisst=0;
+        for(const q of this.schattenBand(type, i)) if(ne.R.has(q)) frisst++;
+        if(frisst) continue;         // letzte Korridore nicht selbst zubauen
+      }
+      return i;
+    }
+    p._vorCd=this.t+300;
+    return -1;
+  }
+  // KD1: Vorwarnung an den Spieler, wenn ein fremder Militaerposten in
+  // Grenznaehe fertig wird - Naehe heisst: sein Einfluss plus 6 Knoten
+  // Puffer beruehrt eine eigene Anlage (bei Militaer/HQ zaehlt deren
+  // Einfluss mit, das entspricht etwa der Angriffs-Reichweitenregel).
+  // Hoechstens eine Meldung alle 3 Minuten, sonst wird die Front zum Spam.
+  vorpostenWarnung(b){
+    if(this.t < (this._vorwarnT||0)+1800) return;
+    const m=this.map;
+    for(const e of this.buildings.values()){
+      if(e.player!==0) continue;
+      const zR=(BLD[e.type].mil||e.type==='hq') ? this.milRadius(e) : 0;
+      const d=Math.hypot(m.X(e.node)-m.X(b.node), m.Y(e.node)-m.Y(b.node));
+      if(d<=this.milRadius(b)+zR+6){
+        this._vorwarnT=this.t;
+        this.msg('Feindlicher Vorposten an unserer Grenze!', 'war', b.node);
+        return;
+      }
+    }
   }
   aiFindSpot(p, type){
     const m=this.map; const def=BLD[type];
@@ -4363,8 +4521,10 @@ export class Game {
   // eigenen Knoten, den das Netz noch nicht erreicht. Danach findet
   // aiFindSpot dort im naechsten Zug Plaetze. Hoechstens alle 600 Takte
   // einer, damit die KI nicht die Karte mit Strassen zupflastert.
-  aiPionierweg(p){
-    if(this.t-(p._pionierT||-9999)<600) return false;
+  aiPionierweg(p, richtungFeind=false){
+    // Im Vorstoss-Modus halber Takt: der Weg zur Front ist dort das einzige
+    // Mittel, ueberhaupt wieder bauen zu koennen.
+    if(this.t-(p._pionierT||-9999) < (richtungFeind? 300 : 600)) return false;
     const m=this.map;
     const hq=this.buildings.get(p.hq); if(!hq) return false;
     const ne=this.netzErreichbar(p.id);
@@ -4376,13 +4536,22 @@ export class Game {
     // Auf R selbst zu zielen wurde nachgemessen und war SCHLECHTER: die
     // Pionierwege frassen dann den letzten freien Korridor auf, statt neues
     // Land zu erschliessen (Stufe 1: 14 Gebaeude -> 11, Korridor 6 -> 0).
+    // KD1: im Vorstoss-Modus (richtungFeind) zielt der Weg stattdessen auf
+    // den eigenen Knoten, der dem naechsten FEIND-HQ am naechsten liegt -
+    // "irgendwo weit weg" erschliesst sonst regelmaessig die falsche Seite
+    // der Karte, waehrend die Front zum Spieler unerschlossen bleibt.
     const hx=m.X(hq.node), hy=m.Y(hq.node);
-    let ziel=-1, bd=-1;
+    let zx=hx, zy=hy;
+    if(richtungFeind){
+      const fz=this.aiFeindHq(p);
+      if(fz>=0){ zx=m.X(fz); zy=m.Y(fz); }else richtungFeind=false;
+    }
+    let ziel=-1, bd=richtungFeind? 1e18 : -1;
     for(let i=0;i<m.owner.length;i++){
       if(m.owner[i]!==p.id || ne.R.has(i)) continue;
       if(!m.terrOkRoad(i) || m.bld[i]>=0 || this.roadAt(i) || !this.roadObjOk(i)) continue;
-      const d=Math.hypot(m.X(i)-hx, m.Y(i)-hy);
-      if(d>bd){ bd=d; ziel=i; }
+      const d=Math.hypot(m.X(i)-zx, m.Y(i)-zy);
+      if(richtungFeind ? d<bd : d>bd){ bd=d; ziel=i; }
     }
     if(ziel<0) return false;
     const cands=[];
