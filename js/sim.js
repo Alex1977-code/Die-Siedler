@@ -3415,10 +3415,17 @@ export class Game {
         // der wartende Jaeger ging trotz Bogen-Nachschub leer aus (22 min
         // Stillstand im Messlauf). Existiert ein Jaeger, der sein Werkzeug
         // noch nicht hat, bleibt EIN Bogen im Hauptquartier fuer ihn liegen.
+        // Kritik R4 S1: das Tabu galt nur fuer FERTIGE Jaegerhaeuser. Bier
+        // liegt aber ab Takt 0 im Lager, und ein Jaegerhaus braucht Minuten
+        // bis zur Fertigstellung - bis dahin hatte die Rekrutierung die drei
+        // Startboegen laengst verbraucht. Gemessen wartete der Jaeger danach
+        // 30 Spielminuten (Meldung 6x bzw. 15x je Saat), weil Nachschub nur
+        // aus der Waffenschmiede kommt und die Eisen braucht. Ein Bogen wird
+        // deshalb schon reserviert, sobald das Haus IM BAU ist.
         let bogenTabu=0;
         for(const b9 of this.buildings.values())
           if(b9.player===p.id && TOOL_OF[b9.type]==='bow' && !b9.toolGood
-             && b9.state==='done'){ bogenTabu=1; break; }
+             && (b9.state==='done' || b9.state==='build')){ bogenTabu=1; break; }
         while(this.recruitTotal(p.id)<10 && (hq.inv.beer||0)>0 && guard-->0){
           // ausgewogen rekrutieren: den Typ mit der kleinsten Reserve zuerst
           const canDo=STYPE_LIST.filter(t=>{

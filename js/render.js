@@ -4713,7 +4713,22 @@ export class Renderer {
       // des Nachbarn blendet bis auf diesen Knoten herueber, und die
       // Schneewehe der Ebene weht ebenfalls hierher - gruene Bueschel,
       // Margeriten und Farbtupfer laesen sich dort als Stempel AUF dem Weiss.
-      const nahSchnee=m.nbs(i).some(n=>m.terr[n]===TER.SNOW);
+      // Kritik R4 G2: der Filter reichte nur EINEN Nachbarring weit und
+      // kannte nur TER.SNOW. Gemessen standen im Winterbild sechs Halm-
+      // buendel unstrittig auf reinem Schnee, mehrere Ringe von der
+      // Gruenkante entfernt (Messpunkt 177/189/164, also Gruenstich 25,
+      // gegen Schnee 215/214/207 mit 7). Jetzt zwei Ringe weit, und der
+      // FIRN auf Massivknoten zaehlt mit - dort liegt oben Weiss, obwohl
+      // der Knoten Gebirge ist.
+      const msn9=this.massifSnow();
+      const weiss=(n)=> m.terr[n]===TER.SNOW
+        || ((m.terr[n]===TER.MOUNT||m.terr[n]===TER.LAVA) && this.firnAt
+            && m.hgt[n]>=this.firnAt(n)-0.4);
+      let nahSchnee=false;
+      aussenD: for(const n of m.nbs(i)){
+        if(weiss(n) || msn9[n]){ nahSchnee=true; break; }
+        for(const n2 of m.nbs(n)) if(weiss(n2) || msn9[n2]){ nahSchnee=true; break aussenD; }
+      }
       // Wiesen-Deko aus dem Asset-Paket (Blumen, Pilze, Distel ...), sparsam gestreut
       if(h>0.97 && !nahSchnee){
         const water=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
