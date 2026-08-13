@@ -10851,6 +10851,11 @@ export class Renderer {
         this.drawFigure(g, u.x+(k%3)*9-9, u.y+Math.floor(k/3)*6.4, u.player, null, 'soldier', r,
           null, fighting ? k*1.9 : null, udir, !!u._mov, act);
       });
+      // Figurenplan Stufe 1 (Kritik R2): BANNERTRÄGER - jede Angriffs-
+      // gruppe führt eine Fahne in Spielerfarbe. Heerbewegungen sind
+      // damit über die halbe Karte lesbar (mildert S6 "Kriegsgeschehen
+      // im Nebel"); im Kampf bleibt sie gepflanzt stehen.
+      this.drawHeerbanner(g, u.x+11, u.y-2, u.player, !!u._mov);
       return;
     }
     if(u.type==='soldierMove'){ this.drawFigure(g,u.x,u.y,u.player,null,'soldier',u.stype||'sword',null,null,udir,!!u._mov); return; }
@@ -11134,6 +11139,33 @@ export class Renderer {
       g.fillRect(x-h/2,y-h/2,h,h*0.8);
       g.strokeStyle='rgba(20,15,10,0.5)'; g.lineWidth=0.9; g.strokeRect(x-h/2,y-h/2,h,h*0.8);
     }
+  }
+  // Heerbanner der Angriffsgruppen (Figurenplan Stufe 1): Stab mit
+  // wehendem Tuch in Spielerfarbe, dunkler Saum am Stab. Das Wehen läuft
+  // über die Figuren-Uhr (animTime) und friert in der Pause mit ein;
+  // beim Marsch weht es stärker als im Stand.
+  drawHeerbanner(g, x, y, pl, marsch){
+    const col=PLAYER_COLORS[pl]||'#888', dk=PLAYER_COLORS_DARK[pl]||'#555';
+    const wav=Math.sin(this.animTime/(marsch?230:420)+(pl*1.7))*(marsch?2.6:1.2);
+    g.save();
+    g.translate(x,y);
+    this.shadow(g, 0, 7, 3.2, 1.2, 0.18);
+    g.strokeStyle='#6b4e2a'; g.lineWidth=1.6;
+    g.beginPath(); g.moveTo(0,6); g.lineTo(0,-30); g.stroke();
+    g.fillStyle='#d9c98f';
+    g.beginPath(); g.arc(0,-31.4,1.7,0,7); g.fill();          // Knauf
+    g.beginPath();                                            // Tuch
+    g.moveTo(0.4,-29.5);
+    g.quadraticCurveTo(7,-31.5+wav, 14,-28.5+wav);
+    g.lineTo(12.6,-19.5+wav*0.6);
+    g.quadraticCurveTo(6.6,-22.5+wav*0.4, 0.4,-20.5);
+    g.closePath();
+    g.fillStyle=col; g.fill();
+    g.strokeStyle='rgba(30,22,14,0.55)'; g.lineWidth=0.9; g.stroke();
+    g.fillStyle=dk; g.globalAlpha=0.55;                       // Stabsaum
+    g.fillRect(0.4,-29.5,1.7,9.4);
+    g.globalAlpha=1;
+    g.restore();
   }
   // kind 'soldier': rank trägt den Truppentyp ('sword'|'spear'|'bow'),
   // fight!==null aktiviert die Kampfpose (Wert = Phasenversatz der Figur)
