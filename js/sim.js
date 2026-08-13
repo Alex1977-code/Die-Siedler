@@ -884,6 +884,43 @@ export class Game {
     this.dropItem(item);
     return false;
   }
+  // Baumaterial-Bestellungen aufloesen, sobald das Haus FERTIG ist.
+  // Nutzer-Report v191 ("die Wirtschaft waechst nicht"), Ursache gemessen:
+  // Waren, die noch zu einer inzwischen fertigen Baustelle unterwegs waren,
+  // blieben als Auftrag bestehen und lagen auf der QUELLfahne. Die Quelle war
+  // in jeder gemessenen Partie das Hauptquartier - und findSource ueberspringt
+  // eine Fahne mit FLAG_CAP (8) Waren. Acht solcher Ladenhueter genuegten
+  // damit, um das HQ als Quelle FUER ALLES stillzulegen: gemessen auf Saat
+  // 2024 lagen nach 35 Minuten 7x Stein fuer ein laengst fertiges Wachhaus
+  // auf der HQ-Fahne, waehrend sieben Baustellen (darunter beide Eisenminen)
+  // mit leerem Lager dastanden - kein Brett, kein Stein, kein Bauarbeiter,
+  // Fortschritt 0 seit 25 Minuten. Das Spiel fror lautlos ein.
+  bestellungenAufloesen(b){
+    for(const [f,items] of this.flagItems){
+      for(let k=items.length-1;k>=0;k--){
+        const it=items[k];
+        if(it.destB!==b.id) continue;
+        if(it.good!=='board' && it.good!=='stone') continue;
+        if(it.reserved) continue;              // ein Traeger hat sie schon
+        items.splice(k,1);
+        if(b.incoming[it.good]) b.incoming[it.good]--;
+        // woanders unterbringen: das naechste Lager nimmt sie auf
+        const lager=this.findStore(b.player, f);
+        if(lager){ it.destB=lager.id; lager.incoming[it.good]=(lager.incoming[it.good]||0)+1; }
+        this.umlagernOderAbbuchen(it, [f, ...this.map.nbs(f).filter(q=>this.map.flag[q])]);
+      }
+    }
+  }
+  // naechstes eigenes Lagergebaeude von einer Fahne aus (HQ oder Lagerhaus)
+  findStore(pl, vonFahne){
+    let best=null, bd=1e9;
+    for(const s of this.buildings.values()){
+      if(s.player!==pl || !s.inv || s.state!=='done') continue;
+      const d=this.flagDist(s.door, vonFahne);
+      if(d<bd){ bd=d; best=s; }
+    }
+    return best;
+  }
   // Alle Waren einer Fahne aufloesen, BEVOR die Fahne verschwindet. Vorher
   // stand an vier Stellen ein blankes flagItems.delete(): die Waren waren weg,
   // incoming beim Besteller blieb aber stehen, und requestsOf bestellte
@@ -1814,6 +1851,7 @@ export class Game {
   findSource(pl, good, destFlag, comp){
     // Quellen: Produktionsausstoß (b.out) oder Lager (inv)
     let best=null, bd=1e9;
+    let ersatz=null, ed=1e9;      // Lager mit voller Fahne, nur als Rückfall
     for(const b of this.buildings.values()){
       if(b.player!==pl || b.state!=='done') continue;
       let has=false, isStore=false;
@@ -1828,11 +1866,24 @@ export class Game {
       const f=b.door;
       if(this.compOf(f)===undefined || this.compOf(f)!==comp) continue;
       const items=this.flagItems.get(f);
-      if(items && items.length>=FLAG_CAP) continue;
+      if(items && items.length>=FLAG_CAP){
+        // Eine volle Fahne bremst - aber sie darf die einzige Quelle der
+        // Siedlung nicht STILLLEGEN. Gemessen (Saat 2024, 35 min): das HQ
+        // ist in der Regel das einzige Lager; stand auf seiner Fahne die
+        // Hoechstzahl, fand kein einziges Gebaeude mehr Nachschub - sieben
+        // Baustellen standen mit leerem Lager, waehrend im HQ 8 Bretter und
+        // 36 Steine lagen. Ein LAGER bleibt deshalb Ersatzquelle, bis die
+        // Fahne wirklich ueberlaeuft (der Traeger wirft erst ab CAP+4 ab).
+        if(isStore && items.length<FLAG_CAP+2){
+          const d2=this.flagDist(f, destFlag);
+          if(d2<ed){ ed=d2; ersatz=b; }
+        }
+        continue;
+      }
       const d=this.flagDist(f, destFlag);
       if(d<bd){ bd=d; best=b; }
     }
-    return best;
+    return best || ersatz;
   }
   dispatch(){
     const reqs=this.requestsOf();
@@ -2049,6 +2100,7 @@ export class Game {
       b.progress += 1;
       if(b.progress>=total){
         b.state='done'; b.stock={};
+        this.bestellungenAufloesen(b);
         this.changedNodes.push(b.node);
         if(def.mil){ this.recalcTerritory(); }
         // Einzugswanderung: die Fachkraft läuft sichtbar vom Hauptquartier her
