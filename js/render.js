@@ -5392,7 +5392,23 @@ export class Renderer {
         const y9=m.worldPos(q)[1];
         if(y9>tiefY) tiefY=y9;
       }
-      if(tiefY>py+12) g.rect(px-38, py, 76, tiefY-py+8);
+      // Der Rock war ein achsenparalleles RECHTECK - an Zellen ohne Wand
+      // endete die Körnung deshalb an einer kerzengeraden Kante mitten in
+      // der Fläche (im Nahzoom als scharf umrissenes Rechteck sichtbar,
+      // Nachmessung zu v185). Jetzt ein gezackter Schurz: die Seiten
+      // laufen schräg zusammen, der untere Saum pendelt je Zelle.
+      if(tiefY>py+12){
+        const tief=tiefY-py+8, br=42;
+        g.moveTo(px-br, py);
+        g.lineTo(px-br*0.72+hash01(i*7+3)*8, py+tief*0.55);
+        for(let k=0;k<4;k++){
+          const f=k/3;
+          g.lineTo(px-br*0.6+br*1.2*f, py+tief*(0.86+hash01(i*13+k*5)*0.2));
+        }
+        g.lineTo(px+br*0.72-hash01(i*19+5)*8, py+tief*0.55);
+        g.lineTo(px+br, py);
+        g.closePath();
+      }
       any=true;
     }
     if(!any){ g.restore(); return; }
@@ -6185,6 +6201,45 @@ export class Renderer {
   //   3) Kontrast gedeckelt (SPAN): der Auftrag verlangt Texturkontrast
   //      hoechstens 25 % des Schattierungskontrasts (1.3).
   // Farbe traegt die Kachel keine mehr: die kommt aus colAt/rockPal.
+  // Mauerkachel -> Felswand. Die Kachel wird in senkrechte Streifen von ein
+  // bis drei Quadern Breite zerlegt, jeder Streifen wandert vertikal um einen
+  // eigenen Betrag (umlaufend, die Kachel bleibt nahtlos). Damit endet jede
+  // Lagerfuge nach wenigen Quadern an einem Versatz - genau das, was echten
+  // Fels von einer Mauer unterscheidet. Die Stoßkanten werden anschließend
+  // als leicht wandernde dunkle Klüfte nachgezogen: aus dem Schnitt wird
+  // eine Kluftlinie statt einer sichtbaren Naht.
+  wandAusMauer(img, key){
+    const W=img.naturalWidth, H=img.naturalHeight;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t=cv.getContext('2d');
+    let s=0;                                    // Streifensaat aus dem Namen
+    for(let k=0;k<key.length;k++) s=(s*31+key.charCodeAt(k))>>>0;
+    const stoesse=[];
+    let x=0, k9=0;
+    while(x<W){
+      const bw=Math.min(W-x, Math.round(W*0.045+hash01(s+k9*13+1)*W*0.10));
+      const off=Math.round((hash01(s+k9*29+7)-0.5)*H*0.86);
+      // drei Züge: der Streifen läuft oben und unten aus der Kachel heraus
+      // und auf der Gegenseite wieder hinein
+      for(const dy of [off-H, off, off+H]) t.drawImage(img, x,0, bw,H, x,dy, bw,H);
+      if(x>0) stoesse.push(x);
+      x+=bw; k9++;
+    }
+    // Klüfte: an jedem Stoß eine schmale dunkle Linie, die um wenige Pixel
+    // pendelt - senkrecht, aber nicht schnurgerade
+    t.lineWidth=Math.max(2, W/300);
+    for(let j=0;j<stoesse.length;j++){
+      const bx=stoesse[j];
+      t.strokeStyle='rgba(52,48,44,'+(0.22+hash01(s+j*17+3)*0.20).toFixed(2)+')';
+      t.beginPath();
+      for(let y=0;y<=H;y+=Math.round(H/14)){
+        const px=bx+Math.sin(y/H*6.3*(1+hash01(s+j*7)*1.5)+j)*W*0.006;
+        if(y===0) t.moveTo(px,y); else t.lineTo(px,y);
+      }
+      t.stroke();
+    }
+    return cv;
+  }
   felsMaterial(key){
     if(!this._matC) this._matC=new Map();
     if(this._matC.has(key)) return this._matC.get(key);
@@ -6195,9 +6250,19 @@ export class Renderer {
     // (ter_rock_cliff lag auf 113/113/113, also genau dem Grau, das die
     // Palette ausschließt).
     if(key==='ter_rock_cliff' && this.asset('ter_rock_wall')) key='ter_rock_wall';
-    const img=this.asset(key);
-    if(!img||!img.naturalWidth){ this._matC.set(key,null); return null; }
-    const W=img.naturalWidth, H=img.naturalHeight;
+    const roh=this.asset(key);
+    if(!roh||!roh.naturalWidth){ this._matC.set(key,null); return null; }
+    // Kritik R3 G3, nachgemessen: die gelieferte Klippenkachel IST eine
+    // Mauer - lagerhaft gestapelte Quader mit durchgehenden Fugen. Im
+    // Nahzoom liest sich jede Steilwand deshalb als Mauerwerk, und keine
+    // Lasur der Welt macht daraus Fels. Die im Stilguide vorgesehene
+    // Ablösung (ter_rock_wall) liegt nicht im Paket; solange sie fehlt,
+    // wird die Wandfassung hier erzeugt: senkrechte Streifen gegeneinander
+    // versetzt (die Lagerfugen zerfallen) und die Streifenstöße als
+    // Kluftlinien nachgezogen.
+    const img=(key==='ter_rock_cliff'||key==='ter_rock_cliff2')
+      ? this.wandAusMauer(roh,key) : roh;
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
     const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
     const t=cv.getContext('2d');
     t.drawImage(img,0,0);
