@@ -1486,15 +1486,19 @@ export class UI {
         // Als Fortschritt dient die Zahl der FEINDPOSTEN (stehende Gebaeude
         // nicht besiegter Gegner) - sie sinkt sichtbar mit jeder Eroberung
         // und steigt, wenn der Feind expandiert.
-        let zusatz='';
+        // Kritik R3 S4: auf Handybreite wurde der Text abgeschnitten
+        // ("...(Feindposte..."). Unter 520 px die Kurzfassung.
+        const schmal=(window.innerWidth||9999)<520;
+        let zusatz='', desc9=o? o.desc : '';
         if(o && o.type==='destroyEnemies'){
           let fp=0;
           for(const b of g.buildings.values())
             if(b.player!==0 && b.state!=='burn' && !g.players[b.player].defeated) fp++;
-          zusatz=` <b>(Feindposten: ${fp})</b>`;
+          if(schmal){ desc9='Gegner besiegen'; zusatz=` <b>· Posten: ${fp}</b>`; }
+          else zusatz=` <b>(Feindposten: ${fp})</b>`;
         }
         chip.innerHTML = o
-          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${o.desc}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
+          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${desc9}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
           : '🎯 ✅ Alle Ziele erfüllt';
         chip.classList.remove('hidden');
       }
@@ -1547,7 +1551,14 @@ export class UI {
     while(this.state.msgSeen<g.msgs.length){
       const msg=g.msgs[this.state.msgSeen++];
       this.toast(msg.txt, msg.type, msg.node);
-      if(msg.type==='war') Sound.sfx('war');
+      if(msg.type==='war'){
+        Sound.sfx('war');
+        // Kritik R2 S6 / R3 S5: Kriegsgeschehen ausserhalb des Bildes war
+        // nur Text - jetzt zeigen ein Richtungspfeil am Bildrand und ein
+        // Puls auf der Minikarte, WO es brennt (7 Sekunden lang).
+        if(msg.node!=null && msg.node>=0)
+          this.renderer._warPing={node:msg.node, bis:Date.now()+7000};
+      }
       else if(msg.type==='ok') Sound.sfx('msg');
     }
   }

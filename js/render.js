@@ -4663,27 +4663,47 @@ export class Renderer {
       // ("Wabenmuster"). Unregelmaessige Schollen-Flicken ueber jeder
       // Schnee-Wasser-Kante brechen die Geometrie; die Grundidee
       // Eisschollen bleibt.
+      const scholle=(bx,by,r,seed9,blass)=>{
+        g.beginPath();
+        for(let e9=0;e9<7;e9++){
+          const a9=e9*0.897+hash01(seed9+e9*0)*0.8;
+          const rr=r*(0.6+hash01(seed9*3+e9*5)*0.55);
+          const ex=bx+Math.cos(a9)*rr, ey=by+Math.sin(a9)*rr*0.62;
+          if(e9===0) g.moveTo(ex,ey); else g.lineTo(ex,ey);
+        }
+        g.closePath();
+        g.fillStyle='rgba(224,232,240,'+(blass? 0.5 : 0.88)+')';
+        g.fill();
+        g.strokeStyle='rgba(140,165,190,'+(blass? 0.2 : 0.35)+')';
+        g.lineWidth=1.2; g.stroke();
+      };
+      let nahSchnee9=false;
       for(const n of m.nbs(i)){
         if(m.terr[n]!==TER.SNOW) continue;
+        nahSchnee9=true;
         const [qx,qy]=m.worldPos(n);
         const nf=1+((hash01(i*7+n*13)*1.9)|0);
         for(let k=0;k<nf;k++){
           const t9=0.40+hash01(i*11+n*3+k*17)*0.28;
           const bx=px+(qx-px)*t9+(hash01(i*23+n*7+k*5)-0.5)*18;
           const by=py+(qy-py)*t9+(hash01(i*29+n*11+k*9)-0.5)*12;
-          const r=7+hash01(i*31+n*5+k*3)*9;
-          g.beginPath();
-          for(let e9=0;e9<7;e9++){
-            const a9=e9*0.897+hash01(i*13+n+k*7)*0.8;
-            const rr=r*(0.6+hash01(i*17+n*3+e9*5+k)*0.55);
-            const ex=bx+Math.cos(a9)*rr, ey=by+Math.sin(a9)*rr*0.62;
-            if(e9===0) g.moveTo(ex,ey); else g.lineTo(ex,ey);
-          }
-          g.closePath();
-          g.fillStyle='rgba(224,232,240,0.88)';
-          g.fill();
-          g.strokeStyle='rgba(140,165,190,0.35)'; g.lineWidth=1.2;
-          g.stroke();
+          scholle(bx, by, 7+hash01(i*31+n*5+k*3)*9, i*13+n+k*7, false);
+        }
+      }
+      // Zweiter Ring (Kritik R3 G5): knapp hinter der Schollenkante noch
+      // vereinzelte BLASSE Schollen - die zellgrossen Tonstufen der halb
+      // gefrorenen Flaeche verlieren so ihre Sechseck-Silhouette.
+      if(!nahSchnee9 && hash01(i*41+9)<0.55){
+        let fern=-1;
+        aussen:
+        for(const n of m.nbs(i)) for(const n2 of m.nbs(n))
+          if(m.terr[n2]===TER.SNOW){ fern=n2; break aussen; }
+        if(fern>=0){
+          const [qx,qy]=m.worldPos(fern);
+          const d9=Math.hypot(qx-px,qy-py)||1;
+          scholle(px+(qx-px)/d9*14+(hash01(i*23+5)-0.5)*16,
+                  py+(qy-py)/d9*10+(hash01(i*29+3)-0.5)*10,
+                  5+hash01(i*31+7)*6, i*17+3, true);
         }
       }
       return;
@@ -5346,6 +5366,8 @@ export class Renderer {
     g.save();
     g.beginPath();
     let any=false;
+    const istMas=(q)=>{ const tq=m.terr[q];
+      return tq===TER.MOUNT||tq===TER.LAVA||(tq===TER.SNOW&&msn[q]); };
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y), t=m.terr[i];
       if(t!==TER.MOUNT && !(t===TER.SNOW && msn[i])) continue;
@@ -5359,6 +5381,18 @@ export class Renderer {
         if(k===0) g.moveTo(qx,qy); else g.lineTo(qx,qy);
       }
       g.closePath();
+      // WANDROCK (Kritik R3 G3): an Randknoten haengt die gezeichnete
+      // Flankenwand UNTER der Zelle bis zum Wiesenfuss - ohne den Rock
+      // blieb ihre Mauerwerks-Kachel als einzige Flaeche korn-los und
+      // las sich im Nahzoom wie gestapelte Quader. Der Rock reicht bis
+      // zum tiefsten Nicht-Massiv-Nachbarn (dort endet auch die Wand).
+      let tiefY=-1e9;
+      for(const q of m.nbs(i)){
+        if(istMas(q)) continue;
+        const y9=m.worldPos(q)[1];
+        if(y9>tiefY) tiefY=y9;
+      }
+      if(tiefY>py+12) g.rect(px-38, py, 76, tiefY-py+8);
       any=true;
     }
     if(!any){ g.restore(); return; }
@@ -9339,6 +9373,9 @@ export class Renderer {
     sun.addColorStop(1,'rgba(38,52,92,0.1)');
     g.fillStyle=sun;
     g.fillRect(0,0,this.vw,this.vh);
+    // Kriegs-Ping (Kritik R2 S6 / R3 S5): gemeldeter Angriff ausserhalb
+    // des Bildes -> pulsierender Richtungspfeil am Bildrand
+    this.warPingDraw(g, cam);
     // warmer Gesamtfarbton (painterly, keine Sterilität)
     g.globalCompositeOperation='soft-light';
     g.fillStyle='rgba(255,190,120,0.16)';
@@ -9507,16 +9544,23 @@ export class Renderer {
         const s=ovT?null:this.treeSprite(st,this.theme,species);
         const h=this.scaleOf(treeKey,74)*sc*(ovT?grow:1);
         const w=ovT? h*(ovT.width/ovT.height) : 56*sc;
-        // kühler Wiesenschatten unter der Krone statt grauem Fleck
+        // kühler Wiesenschatten unter der Krone statt grauem Fleck.
+        // Auf Schnee KALT und leiser (Kritik R3 G4): das warme Gruen
+        // multiplizierte ueber dem Sand-Schnee-Uebergang zu einem beigen
+        // Erdteller unter jedem Winterbaum.
+        const kalt9=this.theme==='winter' || m.terr[i]===TER.SNOW
+                 || m.nbs(i).some(q=>m.terr[q]===TER.SNOW);
+        const sc9=kalt9? '58,70,96' : '28,44,20';
+        const sa9=kalt9? 0.18 : 0.3;
         const shR=20*sc*(st/3)+7;
         const gr2=g.createRadialGradient(x+3*sc,y+2,2, x+3*sc,y+2, shR);
-        gr2.addColorStop(0,'rgba(28,44,20,0.3)');
-        gr2.addColorStop(0.7,'rgba(28,44,20,0.15)');
-        gr2.addColorStop(1,'rgba(28,44,20,0)');
+        gr2.addColorStop(0,'rgba('+sc9+','+sa9+')');
+        gr2.addColorStop(0.7,'rgba('+sc9+','+(sa9*0.5).toFixed(3)+')');
+        gr2.addColorStop(1,'rgba('+sc9+',0)');
         g.fillStyle=gr2;
         g.beginPath(); g.ellipse(x+3*sc,y+2, shR, shR*0.38, 0,0,7); g.fill();
         // gerichteter Kernschatten (goldene Stunde, nach Südost)
-        this.shadow(g,x+9*sc,y+3, 13*sc*(st/3), 3.6*sc, 0.14);
+        this.shadow(g,x+9*sc,y+3, 13*sc*(st/3), 3.6*sc, kalt9? 0.09 : 0.14);
         // Wind: Krone schwingt (Scherung, Fußpunkt bleibt fest)
         // Wind bewegt nur die Blätter – der Stamm bleibt fest verwurzelt
         const sway=Math.sin(this.time/1150 + i*0.73)*0.055 + Math.sin(this.time/451 + i*1.7)*0.014;
@@ -12117,6 +12161,48 @@ export class Renderer {
     g.strokeRect(x-W/2, y-H, W, H);
   }
   // ---------- Minimap ----------
+  // Pulsierender Richtungspfeil am Bildrand, solange ein gemeldeter
+  // Angriff ausserhalb des Sichtfelds liegt (Kritik R2 S6 / R3 S5).
+  // Gezeichnet in SCHIRM-Koordinaten nach allen Weltpaessen; im Bild
+  // selbst ist kein Pfeil noetig, dort sieht man das Geschehen.
+  warPingDraw(g, cam){
+    const p=this._warPing;
+    if(!p || !this.game) return;
+    if(Date.now()>p.bis){ this._warPing=null; return; }
+    const [wx,wy]=this.game.map.worldPos(p.node);
+    const sx=(wx-cam.x)*cam.z+this.vw/2;
+    const sy=(wy-cam.y)*cam.z+this.vh/2;
+    const M=34, TOP=96;                       // Randmarge; oben liegt das HUD
+    if(sx>M && sx<this.vw-M && sy>TOP && sy<this.vh-M) return;
+    const cx=this.vw/2, cy=this.vh/2;
+    const dx=sx-cx, dy=sy-cy;
+    const s=Math.min((this.vw/2-M)/Math.abs(dx||1e-9),
+                     (this.vh/2-M-30)/Math.abs(dy||1e-9), 1);
+    const px=cx+dx*s, py=Math.max(TOP, cy+dy*s);
+    const ang=Math.atan2(dy,dx);
+    const puls=0.55+0.45*Math.sin(this.time/130);
+    g.save();
+    g.globalAlpha=puls;
+    g.fillStyle='rgba(20,15,10,0.85)';
+    g.beginPath(); g.arc(px,py,15,0,7); g.fill();
+    g.strokeStyle='#c8402e'; g.lineWidth=2.5;
+    g.beginPath(); g.arc(px,py,15,0,7); g.stroke();
+    const md=this.asset('ui_tab_militaer');
+    if(md && md.naturalWidth){
+      const s2=18, w2=s2*(md.naturalWidth/md.naturalHeight);
+      g.drawImage(md, px-w2/2, py-s2/2, w2, s2);
+    } else {
+      g.strokeStyle='#e8e2d4'; g.lineWidth=2.4;
+      g.beginPath(); g.moveTo(px-6,py-6); g.lineTo(px+6,py+6);
+      g.moveTo(px+6,py-6); g.lineTo(px-6,py+6); g.stroke();
+    }
+    g.translate(px,py); g.rotate(ang);
+    g.fillStyle='#c8402e';
+    g.beginPath(); g.moveTo(27,0); g.lineTo(16,-7); g.lineTo(16,7);
+    g.closePath(); g.fill();
+    g.restore();
+    g.globalAlpha=1;
+  }
   drawMinimap(cv, cam){
     const m=this.game.map, g=cv.getContext('2d');
     const w=cv.width, h=cv.height;
@@ -12217,6 +12303,16 @@ export class Renderer {
         g.strokeStyle='rgba(255,240,210,0.9)'; g.lineWidth=1.2/k;
         g.beginPath(); g.arc(bx,by,2.4+pulse*2.6/k,0,7); g.stroke();
       }
+    }
+    // Kriegs-Ping (Kritik R3 S5): auch der GEMELDETE Angriffsort pulst,
+    // solange der Bildrand-Pfeil steht - nicht nur laufende Kaempfe
+    const wp9=this._warPing;
+    if(wp9 && Date.now()<wp9.bis){
+      const px9=m.X(wp9.node)+((m.Y(wp9.node)&1)*0.5), py9=m.Y(wp9.node)+0.5;
+      const pu9=0.5+0.5*Math.sin(this.time/140);
+      g.strokeStyle='rgba(230,70,45,'+(0.45+0.5*pu9).toFixed(3)+')';
+      g.lineWidth=1.6/k;
+      g.beginPath(); g.arc(px9,py9,(3+pu9*4)/k,0,7); g.stroke();
     }
     g.strokeStyle='#fff'; g.lineWidth=1.4/k;
     const vx=cam.x/TILE, vy=cam.y/ROWH;
