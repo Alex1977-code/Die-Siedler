@@ -1046,12 +1046,34 @@ export class Renderer {
     if(count===this._fogCount && this.fogDark) return;
     this._fogCount=count;
     const S=8;
-    const w=m.w*S, h=m.h*S;
+    // Kritik R2 N5 ("schwarze Baender am Kartenrand"): der alte Rahmen lag
+    // ALS 1-Knoten-Streifen AUF der aeussersten Kartenzeile und endete an
+    // der Nebel-Leinwandkante messerscharf - dreifach gestapelt (0.55 +
+    // 0.85 + 0.95) verschluckte er die Randzeilen als fast schwarzes Band
+    // mit harter Schnittlinie darueber. Jetzt bekommt die Leinwand RANDLUFT
+    // (RF Knoten), der Rahmen liegt VOR der Karte und laeuft nach aussen in
+    // einem Verlauf aus - die Spielflaeche bleibt frei, und es gibt keine
+    // harte Kante mehr, an der der helle Hintergrund dahinter aufblitzt.
+    const RF=4;
+    this._fogRand=RF;
+    const w=(m.w+2*RF)*S, h=(m.h+2*RF)*S;
     const tmp=document.createElement('canvas'); tmp.width=w; tmp.height=h;
     const tg=tmp.getContext('2d');
+    // Rand ausserhalb der Karte: Verlauf schwarz (Kartenkante) -> durch-
+    // sichtig (Leinwandkante), je Seite ein Band; die Ecken ueberlagern sich
+    const RB=RF*S;
+    const band=(x0,y0,x1,y1,gx0,gy0,gx1,gy1)=>{
+      const lg=tg.createLinearGradient(gx0,gy0,gx1,gy1);
+      lg.addColorStop(0,'rgba(0,0,0,1)');
+      lg.addColorStop(1,'rgba(0,0,0,0)');
+      tg.fillStyle=lg;
+      tg.fillRect(x0,y0,x1-x0,y1-y0);
+    };
+    band(0,0,w,RB,          0,RB, 0,0);      // oben
+    band(0,h-RB,w,h,        0,h-RB, 0,h);    // unten
+    band(0,0,RB,h,          RB,0, 0,0);      // links
+    band(w-RB,0,w,h,        w-RB,0, w,0);    // rechts
     tg.fillStyle='#000';
-    // Rand außerhalb der Karte gehört ebenfalls zum Unbekannten
-    tg.fillRect(0,0,w,S); tg.fillRect(0,h-S,w,S); tg.fillRect(0,0,S,h); tg.fillRect(w-S,0,S,h);
     // Unerforschtes als unregelmäßige Schwaden: je Knoten mehrere versetzte,
     // verschieden große Kleckse -> die Grenze franst aus statt halbrund zu sein
     tg.beginPath();
@@ -1060,7 +1082,7 @@ export class Renderer {
       for(let x=0;x<m.w;x++){
         const i=m.idx(x,y);
         if(m.explored[i]) continue;
-        const cx=x*S+off+S*0.5, cy=y*S+S*0.5;
+        const cx=(x+RF)*S+off+S*0.5, cy=(y+RF)*S+S*0.5;
         for(let k=0;k<3;k++){
           const hs=hash01(i*7+k*31);
           const rx=cx+(hash01(i*13+k)-0.5)*S*1.5;
@@ -9100,8 +9122,11 @@ export class Renderer {
     // Nebel des Unbekannten: Dunstsaum + dunkler Kern, leicht treibend
     if(this.time-this._fogT>600){ this._fogT=this.time; this.rebuildFog(); }
     if(this.fogDark){
-      const fx=-TILE*0.5, fy=-ROWH*0.5;
-      const fw=m.w*TILE, fh=m.h*ROWH;
+      // Randluft der Nebel-Leinwand (s. rebuildFog, Kritik R2 N5) beim
+      // Auflegen mitrechnen, sonst saesse der Rahmen wieder AUF der Karte
+      const RF=this._fogRand||0;
+      const fx=-TILE*0.5-RF*TILE, fy=-ROWH*0.5-RF*ROWH;
+      const fw=(m.w+2*RF)*TILE, fh=(m.h+2*RF)*ROWH;
       const drift=Math.sin(this.time/2600)*7;
       const drift2=Math.cos(this.time/3400)*5;
       g.globalAlpha=0.34; g.drawImage(this.fogMist, fx+drift, fy+drift2*0.5, fw, fh);
