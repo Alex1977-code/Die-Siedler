@@ -1711,7 +1711,12 @@ export class Renderer {
           // Zentren auf einem groben, je Zelle verwackelten Gitter in
           // Knotenkoordinaten – deterministisch aus der Gitterzelle gehasht
           // und damit chunkübergreifend stabil (keine Nähte).
-          const BQ=2.6;                       // Blockgröße in Knoten
+          // G5 (Spielekritik): 2.6 -> 2.0. Mit 2.6 Knoten je Block spannten
+          // sich einzelne Platten ueber ganze Bildschirmviertel - zusammen
+          // mit der weichen Schattierung las sich das Plateau als EINE
+          // beige Flaeche. Kleinere Bloecke geben mehr Fugen und damit
+          // feinere, lesbare Platten.
+          const BQ=2.0;                       // Blockgröße in Knoten
           const bctr=(bx,by)=>{
             const j1=hash01((Math.imul(bx,73856093)^Math.imul(by,19349663)^0x51ab)|0);
             const j2=hash01((Math.imul(bx,83492791)^Math.imul(by,29349673)^0x2cd1)|0);
@@ -2063,11 +2068,16 @@ export class Renderer {
               // Fleckigkeit echten Gesteins – das war bisher die Aufgabe
               // der Plattenkachel, und genau deren Wiederholung sah der
               // Nutzer als "Kacheln".
+              // G5: Amplituden 0.28/0.15/0.07 -> 0.36/0.20/0.10. Auf den
+              // ebenen Hochflaechen sind die Tonfelder der einzige
+              // Helligkeitsgeber (alle Gradienten ~0) - gemessen lag der
+              // Kontrast der Plateaus deutlich unter dem des Umlands, der
+              // Berg wirkte ausgewaschen.
               const tonAt=(q)=>{
                 const X9=m.X(q), Y9=m.Y(q);
-                return (tnoise(X9*0.17+401,Y9*0.17+59)-0.5)*0.28
-                     + (tnoise(X9*0.41+137,Y9*0.41+311)-0.5)*0.15
-                     + (tnoise(X9*0.93+29, Y9*0.93+197)-0.5)*0.07;
+                return (tnoise(X9*0.17+401,Y9*0.17+59)-0.5)*0.36
+                     + (tnoise(X9*0.41+137,Y9*0.41+311)-0.5)*0.20
+                     + (tnoise(X9*0.93+29, Y9*0.93+197)-0.5)*0.10;
               };
               // ECKHELLIGKEIT – WEICH interpoliert (Nutzerurteil zu v92:
               // "kacheloptik? wollten wir nicht etwas gleichmaessiges").
@@ -2097,8 +2107,10 @@ export class Renderer {
                 const d9=Math.max(-1,Math.min(1,dB+dL));
                 v=0.55+0.62*d9;
                 v+=(uAt(q)-0.44)*0.44;
+                // G5: Woelbungsanteil angehoben (0.5/0.95 -> 0.62/1.15) -
+                // Grate und Kessel setzen sich staerker von der Flaeche ab
                 const cu=curvOf(q);
-                v+= cu>0? cu*0.5 : cu*0.95;
+                v+= cu>0? cu*0.62 : cu*1.15;
                 if(cu>0.02 && d9>0.30)
                   v+=0.14*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
                 v+=tonAt(q);
@@ -2110,7 +2122,10 @@ export class Renderer {
                 // leise Blockvarianz: EIN Versatz je Block, damit die grossen
                 // Platten tonal auseinandergehen. Der Sprung liegt auf der
                 // gezeichneten Fuge.
-                const jb=(hash01(t3.blk*13+7)-0.5)*0.024;
+                // G5: Blockvarianz 0.024 -> 0.05 - mit den kleineren
+                // Bloecken (BQ 2.0) traegt erst ein spuerbarer Tonversatz
+                // je Platte die Plattenstruktur auf die ebene Hochflaeche
+                const jb=(hash01(t3.blk*13+7)-0.5)*0.05;
                 let sA=eckShade(t3.qa)+jb, sB=eckShade(t3.qb)+jb, sC=eckShade(t3.qc)+jb;
                 // Absturzwaende bleiben im Halbschatten - WEICH komprimiert
                 if(t3.wl){
@@ -3049,17 +3064,21 @@ export class Renderer {
                 // Kratzer. Es bleibt nur ein leiser AO-Hauch an echten
                 // Tonstufen, der die grossen Blockgrenzen erdet.
                 g.lineCap='butt'; g.lineJoin='round';
+                // G5: Fugen und Kantenlicht spuerbar angehoben - mit den
+                // kleineren Bloecken sind sie das Rueckgrat der
+                // Plattenzeichnung; auf den vorherigen Werten waren sie
+                // auf der hellen Flaeche praktisch unsichtbar.
                 const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
-                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=5.5; g.stroke(ao);
-                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=1.4; g.stroke(dark);
-                g.strokeStyle='rgba('+fug+',0.12)'; g.lineWidth=1.8; g.stroke(dark2);
+                g.strokeStyle='rgba('+fug+',0.07)'; g.lineWidth=5.5; g.stroke(ao);
+                g.strokeStyle='rgba('+fug+',0.08)'; g.lineWidth=1.4; g.stroke(dark);
+                g.strokeStyle='rgba('+fug+',0.17)'; g.lineWidth=1.8; g.stroke(dark2);
                 g.lineCap='round';
-                g.strokeStyle='rgba('+fug+',0.03)'; g.lineWidth=1.2; g.stroke(soft);
+                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=1.2; g.stroke(soft);
               }
               if(nL){
                 g.lineCap='round';
-                g.strokeStyle='rgba(255,250,238,0.05)'; g.lineWidth=1.0; g.stroke(lite);
-                g.strokeStyle='rgba(255,251,240,0.10)'; g.lineWidth=1.1; g.stroke(lite2);
+                g.strokeStyle='rgba(255,250,238,0.08)'; g.lineWidth=1.0; g.stroke(lite);
+                g.strokeStyle='rgba(255,251,240,0.15)'; g.lineWidth=1.1; g.stroke(lite2);
               }
             }
             // 4b) Gebirgsfuß-AO: entlang der ECHTEN Außensilhouette dunkelt
@@ -3279,7 +3298,21 @@ export class Renderer {
                 // gilt weiter die bewaehrte Ausaper-Logik samt leisem
                 // Steilheitsabzug (F9-Regression nicht wieder einreissen).
                 if(this.theme==='winter') sn -= Math.max(0, this.slopeOf(m,i2)-0.95)*0.35;
-                else if(m.terr[i2]!==TER.SNOW) sn *= 1-smT((slopeT(i2)-1.35)/1.25);
+                else if(m.terr[i2]!==TER.SNOW){
+                  sn *= 1-smT((slopeT(i2)-1.35)/1.25);
+                  // G5: FELSDURCHBRUECHE an der Schneegrenze. In der
+                  // Grenzzone (Decke noch nicht satt) stanzt ein feineres
+                  // Rauschen (~2 Knoten Wellenlaenge) Fels-Fenster in den
+                  // Firn - der Uebergang liest sich als Wechsel aus
+                  // Schneefeldern und blankem Fels statt als eine
+                  // durchgezogene Fransenkante. Die Schwelle steigt mit
+                  // der Deckung: tief im Eisfeld reisst nichts mehr auf,
+                  // und die Nachsorge unten deckt isolierte Splitter zu.
+                  if(sn>0 && sn<0.85){
+                    const rk=fnoise(m.X(i2)*2.1+613, m.Y(i2)*2.1+287);
+                    if(rk>0.58+sn*0.28) sn=0;
+                  }
+                }
                 // Schwelle nicht zu tief: knapp qualifizierte EINZELknoten
                 // ohne qualifizierte Nachbarn stünden als einzelne weiße
                 // Perlen im Abstand des Gitters auf dem Fels
