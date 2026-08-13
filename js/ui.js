@@ -1482,8 +1482,19 @@ export class UI {
         const offen=g.objectives.filter(o=>!o.done);
         const n=g.objectives.length, fertig=n-offen.length;
         const o=offen[0];
+        // Kritik S5: "Besiege alle Gegner" stand 45 Minuten unveraendert da.
+        // Als Fortschritt dient die Zahl der FEINDPOSTEN (stehende Gebaeude
+        // nicht besiegter Gegner) - sie sinkt sichtbar mit jeder Eroberung
+        // und steigt, wenn der Feind expandiert.
+        let zusatz='';
+        if(o && o.type==='destroyEnemies'){
+          let fp=0;
+          for(const b of g.buildings.values())
+            if(b.player!==0 && b.state!=='burn' && !g.players[b.player].defeated) fp++;
+          zusatz=` <b>(Feindposten: ${fp})</b>`;
+        }
         chip.innerHTML = o
-          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${o.desc}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}`
+          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${o.desc}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
           : '🎯 ✅ Alle Ziele erfüllt';
         chip.classList.remove('hidden');
       }

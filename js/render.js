@@ -3815,6 +3815,13 @@ export class Renderer {
                 g.save();
                 for(const f of flankeFuss){
                   if(f.hh<11) continue;
+                  // Liegt dieser Wandfuss auf der Firndecke? Dann kuehle,
+                  // schwache Kontaktschatten (Kritik N3: warme Weichschatten
+                  // standen als Schmutzflecken im Weiss)
+                  const sn26=this._firnDeck
+                    ? ((this._firnDeck.get(f.u)||0)>0.45
+                       || (this._firnDeck.get(f.v)||0)>0.45)
+                    : false;
                   // FEINER SAUM ueberall: ein paar kleine Brocken direkt an
                   // der Fusslinie. Er deckt die Gitterkante auch dort, wo
                   // kein Fächer liegt - ohne ihn stand die gerade Kante
@@ -3827,7 +3834,7 @@ export class Renderer {
                       f.x1+(f.x2-f.x1)*t+(hash01(f.u*5+k*11)-0.5)*9,
                       f.y1+(f.y2-f.y1)*t-1+(hash01(f.u*23+k*3)-0.5)*5,
                       2.4+hash01(f.u*41+k*13)*3.4,
-                      (f.u*31+f.v*5+k*7)|0, -0.14);
+                      (f.u*31+f.v*5+k*7)|0, -0.14, sn26);
                   }
                   if(f.hh<15) continue;                  // niedrige Stufe: kein Kegel
                   const X9=(m.X(f.u)+m.X(f.v))/2, Y9=(m.Y(f.u)+m.Y(f.v))/2;
@@ -3845,7 +3852,7 @@ export class Renderer {
                     this.felsGruppe(g,'halde', px9, py9-1,
                                     sc9*(0.78+hash01(f.u*11+k*31)*0.55),
                                     (f.u*101+f.v*7+k*13)|0, -0.12,
-                                    2+((hash01(f.u*61+k*17)*1.9)|0), false);
+                                    2+((hash01(f.u*61+k*17)*1.9)|0), false, sn26);
                   }
                 }
                 g.restore();
@@ -4648,8 +4655,13 @@ export class Renderer {
     const [px,py]=m.worldPos(i);
     const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
     if(t===TER.GRASS){
+      // An der Schneekante keine Sommer-Deko (Kritik N7): die Schneekachel
+      // des Nachbarn blendet bis auf diesen Knoten herueber, und die
+      // Schneewehe der Ebene weht ebenfalls hierher - gruene Bueschel,
+      // Margeriten und Farbtupfer laesen sich dort als Stempel AUF dem Weiss.
+      const nahSchnee=m.nbs(i).some(n=>m.terr[n]===TER.SNOW);
       // Wiesen-Deko aus dem Asset-Paket (Blumen, Pilze, Distel ...), sparsam gestreut
-      if(h>0.97){
+      if(h>0.97 && !nahSchnee){
         const water=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
         const POOL=water? ['deco_reed','deco_fern','deco_flowers']
           : ['deco_flowers','deco_fern','deco_mushroom','deco_moss','deco_thistle'];
@@ -4676,13 +4688,13 @@ export class Renderer {
         }
       }
       // weiche Farbtupfer (Wiesen-Sprenkelung)
-      if(h>0.82 && h<=0.955){
+      if(h>0.82 && h<=0.955 && !nahSchnee){
         g.fillStyle=h>0.91?'rgba(190,230,140,0.08)':'rgba(40,95,40,0.07)';
         g.beginPath(); g.ellipse(px+o1,py+o2,15,9,h*3,0,7); g.fill();
       }
       // dichte Grasbüschel in mehreren Tönen -> liest sich als echte Wiese
       const tones=['rgba(50,105,45,0.3)','rgba(88,150,70,0.28)','rgba(175,220,135,0.26)'];
-      for(let c2=0;c2<3;c2++){
+      for(let c2=0;c2<3 && !nahSchnee;c2++){
         const hh=hash01(i*53+c2*7);
         if(hh>0.62) continue;
         const bx0=px+(hash01(i*61+c2)-0.5)*40;
@@ -5256,6 +5268,79 @@ export class Renderer {
     this._massifSnow=out;
     return out;
   }
+  // ---------- Detail-Lasur fuer den Nahzoom (Kritik N4/N10) ----------
+  // Ab z≈2 zerfielen Steilwaende zu verschmierten Flaechen mit senkrechten
+  // Striemen ("Asphaltband"), die Firn-Weichkante zu Airbrush-Wolken, und
+  // die Anti-Alias-Naehte der Facettenfuellung standen als halbdurchsichtige
+  // Geister-Sechsecke im Bild. Die Backware traegt auch bei S=2 dort keine
+  // Zeichnung nach - darum legt sich beim Heranzoomen eine Koernungs-Lasur
+  // in SCHIRMaufloesung ueber alle Massivzellen: 'overlay' um Mittelgrau
+  // laesst Ton und Helligkeit im Mittel stehen und gibt der Flaeche nur
+  // Struktur. Das Muster ist am Weltursprung verankert (wandert beim
+  // Schwenken mit), behaelt aber seine Schirm-Frequenz.
+  kornMuster(g){
+    if(this._kornPat!==undefined) return this._kornPat;
+    const S=128;
+    const cv=document.createElement('canvas'); cv.width=cv.height=S;
+    const t=cv.getContext('2d');
+    t.fillStyle='rgb(128,128,128)'; t.fillRect(0,0,S,S);
+    // Koerner um Mittelgrau (overlay bleibt damit im Mittel neutral),
+    // dazu wenige kurze dunkle Risse als grobe Richtung
+    for(let k=0;k<1500;k++){
+      const v=104+((hash01(k*7+1)*48)|0);
+      t.fillStyle='rgb('+v+','+v+','+v+')';
+      const r=hash01(k*13+5)<0.85? 1 : 2;
+      t.fillRect((hash01(k*3+2)*S)|0, (hash01(k*11+9)*S)|0, r, r);
+    }
+    t.strokeStyle='rgba(96,96,96,0.8)'; t.lineWidth=1;
+    for(let k=0;k<26;k++){
+      const x=hash01(k*17+3)*S, y=hash01(k*23+7)*S;
+      const a=hash01(k*29+1)*Math.PI, l=4+hash01(k*31+5)*9;
+      t.beginPath(); t.moveTo(x,y);
+      t.lineTo(x+Math.cos(a)*l, y+Math.sin(a)*l*0.6); t.stroke();
+    }
+    this._kornPat= g.createPattern(cv,'repeat');
+    return this._kornPat;
+  }
+  felsLasur(g, cam, x0,x1,y0,y1, wx0,wy0,wx1,wy1){
+    const staerke=Math.min(0.5,(cam.z-1.9)*0.55);
+    if(staerke<=0.02 || !this.game) return;
+    if(typeof DOMMatrix==='undefined') return;   // ohne Muster-Transform keine Lasur
+    const pat=this.kornMuster(g);
+    if(!pat) return;
+    const m=this.game.map, msn=this.massifSnow();
+    g.save();
+    g.beginPath();
+    let any=false;
+    for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
+      const i=m.idx(x,y), t=m.terr[i];
+      if(t!==TER.MOUNT && !(t===TER.SNOW && msn[i])) continue;
+      const [px,py]=m.worldPos(i);
+      // Zellsechseck mit derselben Jitterformel wie der Kachel-Maskenpass -
+      // die Lasurkante liegt damit nie exakt auf einer Zellgrenze
+      for(let k=0;k<7;k++){
+        const a2=k*Math.PI/3 + hash01(i*11+1)*0.6;
+        const rr=36*(0.82+hash01(i*17+k*5)*0.46);
+        const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.86;
+        if(k===0) g.moveTo(qx,qy); else g.lineTo(qx,qy);
+      }
+      g.closePath();
+      any=true;
+    }
+    if(!any){ g.restore(); return; }
+    g.clip();
+    // Muster um 1/z gegenskaliert: konstante Koernung auf dem SCHIRM,
+    // verankert in der Welt (kein "Schneegestoeber" beim Schwenken)
+    try{ pat.setTransform(new DOMMatrix([1/cam.z,0,0,1/cam.z,0,0])); }
+    catch(_){ g.restore(); return; }
+    g.globalCompositeOperation='overlay';
+    g.globalAlpha=staerke;
+    g.fillStyle=pat;
+    g.fillRect(wx0,wy0,wx1-wx0,wy1-wy0);
+    g.globalCompositeOperation='source-over';
+    g.globalAlpha=1;
+    g.restore();
+  }
   // Erzader als weicher runder Bodenfleck: die Erz-Kachel wird unregelmäßig
   // ausgestanzt, damit im Massiv keine Dreiecks- oder Kachelkante entsteht
   oreBlob(key){
@@ -5451,10 +5536,15 @@ export class Renderer {
         this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.14, lz);
     } else {
       if(!this._felsPool){
+        // OHNE obj_blockstapel (Kritik N6): die lagenweise geschichtete
+        // Quader-Pyramide las sich als Ziggurat/Menschenwerk, besonders
+        // auf Gipfeln und an der Firnkante. Auch aus den felsVorrat-Pools
+        // genommen - als Ankerstueck einer Gruppe stand sie dort ebenso
+        // in voller Groesse. Das Blatt bleibt nur im Manifest.
         this._felsPool=['obj_rockspire_1','obj_rockspire_2',
           'obj_rockspire_3','obj_rockspire_4','obj_rockspire_5',
           'obj_findling_gross','obj_findling_mittel',
-          'obj_steingruppe','obj_blockstapel','obj_steinplatte']
+          'obj_steingruppe','obj_steinplatte']
           .filter(k9=>this.asset(k9));
       }
       const P9=this._felsPool;
@@ -5502,7 +5592,9 @@ export class Renderer {
     const L={
       halde:  ['obj_kieshaufen','obj_steinhaufen','obj_stein_1','obj_stein_2',
                'obj_stein_3','obj_stein_4','obj_steingruppe'],
-      block:  ['obj_findling_gross','obj_findling_mittel','obj_blockstapel',
+      // obj_blockstapel ueberall raus (Kritik N6): als Ankerstueck stand
+      // die geschichtete Quader-Pyramide in voller Groesse da - Ziggurat.
+      block:  ['obj_findling_gross','obj_findling_mittel',
                'obj_steinplatte','obj_steingruppe','obj_stein_2','obj_stein_4'],
       zinne:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
                'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
@@ -5510,7 +5602,7 @@ export class Renderer {
       misch:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
                'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
                'obj_findling_gross','obj_findling_mittel','obj_steingruppe',
-               'obj_blockstapel','obj_steinplatte','obj_steinhaufen',
+               'obj_steinplatte','obj_steinhaufen',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
     }[art] || [];
     v=L.filter(k=>this.asset(k));
@@ -5522,7 +5614,7 @@ export class Renderer {
   // saum=false: kein Stueck bekommt Kontaktschatten und Schuttsaum. Das ist
   // fuer Gruppen gedacht, die ohnehin in einem Schuttfeld stehen (Wandfuss);
   // dort ist der Saum doppelt und kostet nur Zeichenzeit.
-  felsGruppe(g, art, x, y, sc0, seed, lum, n, saum=true){
+  felsGruppe(g, art, x, y, sc0, seed, lum, n, saum=true, schnee=false){
     const pool=this.felsVorrat(art);
     if(!pool.length) return 0;
     const anz=n || Math.max(2, Math.min(5, 2+((hash01(seed*7+1)*3.2)|0)));
@@ -5555,19 +5647,22 @@ export class Renderer {
       const anker= saum && (t===teile[teile.length-1] || t.sc>=sc0*0.99);
       if(this.drawFelsObj(g, t.key, x+t.dx, y+t.dy, t.sc, t.sp,
                           anker? 0.26 : 0, lum,
-                          anker? t.sd : undefined)) nz++;
+                          anker? t.sd : undefined, schnee)) nz++;
     }
     return nz;
   }
-  rockChunklet(g,x,y,r,seed,lum){
+  rockChunklet(g,x,y,r,seed,lum,schnee=false){
     const P=this.rockPal();
     const st= lum===undefined? 0 : lum<-0.22? -1 : lum>0.34? 1 : 0;
     const C=(k)=>{
       const k2=Math.max(0,Math.min(4,k+st));
       return 'rgb('+(P[k2][0]|0)+','+(P[k2][1]|0)+','+(P[k2][2]|0)+')';
     };
-    // Bodenschatten zuerst – ohne ihn klebt der Block AUF dem Boden
-    g.fillStyle='rgba(28,25,21,0.28)';
+    // Bodenschatten zuerst – ohne ihn klebt der Block AUF dem Boden.
+    // Auf der Schneedecke KUEHL und schwach (Kritik N3): die warmgrauen
+    // Weichschatten standen dort als Schmutzflecken, waehrend die hellen
+    // Koerper selbst im Weiss fast verschwanden.
+    g.fillStyle= schnee? 'rgba(58,70,96,0.14)' : 'rgba(28,25,21,0.28)';
     g.beginPath(); g.ellipse(x+r*0.28,y+r*0.42,r*1.12,r*0.5,0,0,7); g.fill();
     // v99 - Nutzerurteil: "die objekte wirken teilweise noch dreieckig
     // speziell am rand". Der Block hatte FÜNF Ecken mit bis zu 0,5 rad
@@ -6572,7 +6667,13 @@ export class Renderer {
     if(st===1 && this.asset('tree_sapling')) return 'tree_sapling';
     const th=this.theme;
     const nearWater=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
-    if(nearWater && this.asset('tree_willow') && hsh<0.55) return 'tree_willow';
+    // Trauerweide nur auf Sommerwiese (Kritik N9): in ihr Blatt ist ein
+    // gruener Teich samt Seerosen eingebacken - auf Schnee, Strand oder in
+    // der Winterwelt stand der Baum mit seinem eigenen Sommerbiotop da.
+    if(nearWater && this.asset('tree_willow') && hsh<0.55
+       && th!=='winter' && m.terr[i]===TER.GRASS
+       && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT))
+      return 'tree_willow';
     const SETS={
       gruen:  ['tree_oak','tree_beech','tree_birch','tree_spruce','tree_conifer'],
       inseln: ['tree_oak','tree_beech','tree_palm','tree_birch'],
@@ -7593,6 +7694,9 @@ export class Renderer {
       }
       return;
     }
+    // An der Schneekante nur Kiesel - Beerenstrauch und gruene Bueschel
+    // stuenden auf dem heruebergeblendeten Weiss (Kritik N7)
+    if(h<0.2 && m.nbs(i).some(n=>m.terr[n]===TER.SNOW)) return;
     // Gemaltes Bluemchen und gemalter Pilz sind entfallen: dafuer gibt es
     // jetzt die Deko-Bilder (deco_flowers, deco_mushroom ...), die weiter
     // oben gestreut werden. Zwei Sorten Blumen nebeneinander sahen aus wie
@@ -7942,6 +8046,9 @@ export class Renderer {
     }
     const x0=Math.max(0,Math.floor(wx0/TILE)-1), x1=Math.min(m.w-1,Math.ceil(wx1/TILE)+1);
     const y0=Math.max(0,Math.floor(wy0/ROWH)-2), y1=Math.min(m.h-1,Math.ceil(wy1/ROWH)+6);
+    // Nahzoom: Koernungs-Lasur ueber dem Massiv (Kritik N4/N10), unter
+    // allen Objekten und Figuren
+    if(cam.z>1.92) this.felsLasur(g, cam, x0,x1,y0,y1, wx0,wy0,wx1,wy1);
     // Fischschwärme zeigen ergiebige Fanggründe an (Anzahl = Bestand)
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
@@ -9822,8 +9929,12 @@ export class Renderer {
     if(b.player===0){
       const zu=this.bldZustand(b);
       if(zu){
+        // Das Schild haengt AM Gebaeude (oberes Drittel des Sprites) statt
+        // 24 px darueber zu schweben - ueber kleinen Haeusern wie dem
+        // Brunnen las es sich sonst als frei ueber dem Gras haengende
+        // Tafel ohne Zugehoerigkeit (Kritik S7).
         const hh3=this.scaleOf(typeKey, big?96:64);
-        this.statusSchild(g, x, y-hh3-14, zu, b.id);
+        this.statusSchild(g, x, y-hh3*0.72, zu, b.id);
       }
     }
     // ---------- deutliche Arbeits-Effekte ----------
@@ -10009,19 +10120,14 @@ export class Renderer {
       if(bild && bild.naturalWidth){
         const hh=this.scaleOf('ui_status_'+kind, 22);
         const ww=hh*(bild.naturalWidth/bild.naturalHeight);
-        g.save();
-        g.fillStyle='rgba(15,20,12,0.30)';
-        g.beginPath(); g.ellipse(x, y+11, ww*0.36, 2.4, 0, 0, 7); g.fill();
+        // kein Bodenschatten mehr: das Schild haengt am Gebaeude, ein
+        // eigener Schattenwurf aufs Gras liess es losgeloest wirken (S7)
         g.drawImage(bild, x-ww/2, cy-hh/2, ww, hh);
-        g.restore();
         return;
       }
     }
     const w=19, h=15, r=3;
     g.save();
-    // weicher Schatten unterm Schild
-    g.fillStyle='rgba(15,20,12,0.30)';
-    g.beginPath(); g.ellipse(x, y+11, 7.5, 2.4, 0, 0, 7); g.fill();
     // Brett mit Holzverlauf
     const grad=g.createLinearGradient(x, cy-h/2, x, cy+h/2);
     grad.addColorStop(0,'#9a7a4e'); grad.addColorStop(1,'#6d5433');
@@ -11239,7 +11345,15 @@ export class Renderer {
         }
       }
       g.restore();
-      if(good) this.drawGood(g, good, x, y-15.5, 11);   // auf Schulterhöhe, gut erkennbar
+      // Ware in den HAENDEN statt frei ueber dem Kopf (Kritik N12): der
+      // feste Versatz -15,5 passte nur zur vollen Figurgroesse und ignorierte
+      // das Trage-Blatt. Jetzt haengt die Ware an der gezeichneten Figur:
+      // beim Trage-Blatt (Arme vor der Brust) auf Brusthoehe, sonst auf der
+      // Schulter - skaliert mit der Figur und folgt dem Last-Wippen.
+      if(good){
+        const gy=(y+7.4+hh*fit.f+bob) - hh*((act&&act.set==='trag')? 0.46 : 0.64);
+        this.drawGood(g, good, x, gy, 11);
+      }
       return;
     }
     let ovU=this.asset(baseKey) || (kind==='soldier'?this.asset('unit_soldier'):null);
