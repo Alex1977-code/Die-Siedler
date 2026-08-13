@@ -8974,6 +8974,13 @@ export class Renderer {
     // Objekte + Gebäude + Fahnen + Einheiten sammeln, nach y sortieren
     const items=[];
     const figs=[];                 // Figuren fürs gegenseitige Ausweichen
+    // Offene Tueren (#125): Haeuser, deren Bewohner gerade mit einer Ware
+    // aus- oder eingeht - drawBld blendet dort den offenen Fluegel ein und
+    // laesst ihn offen, bis die Figur wieder drin ist
+    const tueren=this._tuerOffen || (this._tuerOffen=new Set());
+    tueren.clear();
+    for(const u of game.units)
+      if((u.type==='austrag'||u.type==='einhol') && !u.dead) tueren.add(u.bld);
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
       const o=m.obj[i]&127;
@@ -9942,6 +9949,47 @@ export class Renderer {
         tips.forEach(([fx,fy],k)=>{
           this.drawTowerFlag(g, ox+fx*ww, oy+fy*hh+fs*0.10, fs, b.player, k*1.7+b.id);
         });
+      }
+      // ---------- Tuer (#125, Spielerwunsch): sie schwingt auf, wenn der
+      // Bewohner mit einer Ware aus- oder eingeht, und bleibt offen, bis
+      // er wieder drin ist. Gezeichnet als dunkle Toroeffnung mit
+      // aufgeschwungenem Holzfluegel an der Tuerschwelle (tuerPos) - dort
+      // treten die Figuren tatsaechlich aus, das trifft die gemalte Tuer.
+      if(b.state==='done' && this.game && b.door!=null && b.door>=0){
+        const soll9=(this._tuerOffen && this._tuerOffen.has(b.id))? 1 : 0;
+        b._tuerA=(b._tuerA||0)+(soll9-(b._tuerA||0))*0.16;
+        if(b._tuerA>0.03){
+          const a9=Math.min(1,b._tuerA);
+          // Anker = gemessene SCHWELLE wie beim Torstummel (TUER_X/Y +
+          // bldFoot): dort trifft der gemalte Tuerweg das Haus. tuerPos
+          // (Sim) liegt auf dem Vorplatz - die Tuer stand dort als freies
+          // Brett neben der Fahne.
+          const bf9=this.game.bldFoot && this.game.bldFoot[b.type];
+          const tx9=(TUER_X[b.type]!==undefined)? TUER_X[b.type] : 0.5;
+          const dx9= bf9? x+(tx9-0.5)*bf9[0] : x;
+          const ty9=TUER_Y[b.type];
+          const dy9= (ty9!==undefined && bf9)? y-bf9[1]+10+ty9*bf9[1] : y+7;
+          const H9=Math.max(9, hh*0.155), W9=H9*0.66;
+          // dunkle Toroeffnung mit Rundbogen
+          g.fillStyle='rgba(24,17,11,'+(0.6*a9).toFixed(3)+')';
+          g.beginPath();
+          g.moveTo(dx9-W9/2, dy9);
+          g.lineTo(dx9-W9/2, dy9-H9*0.74);
+          g.quadraticCurveTo(dx9, dy9-H9*1.08, dx9+W9/2, dy9-H9*0.74);
+          g.lineTo(dx9+W9/2, dy9);
+          g.closePath(); g.fill();
+          // Holzfluegel: links angeschlagen, schwenkt nach aussen - die
+          // Breite faellt mit dem Oeffnungswinkel (einfache Schwenk-Illusion)
+          const fw9=W9*(1-a9*0.72);
+          g.fillStyle='#7a5a34';
+          g.beginPath();
+          g.moveTo(dx9-W9/2, dy9);
+          g.lineTo(dx9-W9/2, dy9-H9*0.74);
+          g.lineTo(dx9-W9/2+fw9, dy9-H9*(0.74+0.10*a9));
+          g.lineTo(dx9-W9/2+fw9, dy9+H9*0.06*a9);
+          g.closePath(); g.fill();
+          g.strokeStyle='rgba(40,28,16,0.7)'; g.lineWidth=1; g.stroke();
+        }
       }
     } else {
       g.drawImage(s.cv, x-s.w/2, y-s.h+10, s.w, s.h);

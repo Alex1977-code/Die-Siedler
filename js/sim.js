@@ -1873,7 +1873,20 @@ export class Game {
             const dest=this.buildings.get(it.destB);
             if(!dest){ items.splice(k,1); k--; continue; }
             if(dest.door===f){
-              // Ziel direkt an dieser Fahne -> einliefern
+              // Ziel direkt an dieser Fahne. Spielerwunsch R3 (#125): die
+              // Ware wird nicht mehr lautlos eingebucht - sie bleibt an der
+              // Fahne LIEGEN, und der Bewohner kommt heraus und holt sie
+              // durch die Tuer herein (tickProduction stoesst den Gang an).
+              if(this.holtSelbst(dest)){
+                if(!it.wartet){ it.wartet=true; it.wartT=this.t; }
+                // Rueckfall: holt niemand (Fachkraft draussen, haengt,
+                // pausiert), wird nach 600 Takten doch direkt eingebucht -
+                // kein Betrieb verhungert an der eigenen Tuer
+                else if(this.t-(it.wartT||0)>600){
+                  items.splice(k,1); this.deliver(dest, it.good); k--;
+                }
+                continue;
+              }
               items.splice(k,1); this.deliver(dest, it.good); k--; continue;
             }
             if(it.reserved) continue;
@@ -1922,7 +1935,15 @@ export class Game {
           const dest=this.buildings.get(c.item.destB);
           if(!dest){ c.item=null; c.state='idle'; continue; }
           if(dest.door===f){
-            this.deliver(dest, c.item.good);
+            // Uebergabe an der Tuer (#125): ablegen statt einbuchen, der
+            // Bewohner holt die Ware herein. Hoechstens vier wartende
+            // Waren je Fahne - dahinter wird direkt eingebucht, damit die
+            // Fahne fuer den Durchgangsverkehr frei bleibt.
+            const items=this.flagItems.get(f)||[];
+            if(this.holtSelbst(dest) && items.filter(x=>x.wartet).length<4){
+              c.item.wartet=true; c.item.wartT=this.t;
+              items.push(c.item); this.flagItems.set(f,items);
+            } else this.deliver(dest, c.item.good);
           } else {
             const items=this.flagItems.get(f)||[];
             if(items.length>=FLAG_CAP+4){ this.dropItem(c.item); }
@@ -2073,8 +2094,24 @@ export class Game {
       // Ware zur Türfahne – solange ruht die Arbeit im Haus (der Weg wird
       // beim Wiedereintritt als Taktkredit in die Zykluszeit eingerechnet).
       if(b.worker && b.worker.state==='austrag'){
-        if(this.units.some(u=>u.type==='austrag' && u.bld===b.id)) continue;
+        if(this.units.some(u=>(u.type==='austrag'||u.type==='einhol') && u.bld===b.id)) continue;
         b.worker.state='in';   // Wächter: Figur fehlt (z.B. Altbestand) -> Betrieb weiter
+      }
+      // Warenannahme an der Tuer (#125, Spielerwunsch): liegt eine an
+      // DIESES Haus adressierte Ware wartend an der Tuerfahne, tritt die
+      // Fachkraft heraus, holt sie und traegt sie hinein - eine je Gang.
+      // Nur wenn sie gerade im Haus ist; sonst greift der Zeit-Rueckfall
+      // in tickCarriers.
+      if(b.worker && b.worker.present && b.worker.state==='in'
+         && b.door!=null && b.door>=0){
+        const wl9=this.flagItems.get(b.door);
+        if(wl9 && wl9.some(it=>it.wartet && it.destB===b.id)){
+          this.units.push({ id:NEXT_ID++, type:'einhol', player:b.player, bld:b.id,
+            ...this.tuerAustritt(b), wtype:PROF_OF[b.type]||'worker',
+            state:'zurFahne', _t0:this.t });
+          b.worker.state='austrag';
+          continue;
+        }
       }
       // Bedarfsbremse: bei Überfluss des eigenen Guts ruhen (siehe satHold)
       if(this.satHold(b)){ b.prodT=0; continue; }
@@ -2503,6 +2540,7 @@ export class Game {
     for(const u of this.units){
       if(u.type==='worker') this.tickWorker(u);
       else if(u.type==='austrag') this.tickAustrag(u);
+      else if(u.type==='einhol') this.tickEinhol(u);
       else if(u.type==='attack') this.tickAttack(u);
       else if(u.type==='geo') this.tickGeo(u);
       else if(u.type==='builder') this.tickBuilder(u);
@@ -2773,6 +2811,43 @@ export class Game {
     if(b.door==null || b.door<0 || !m.flag[b.door]) return [bx,by+10];
     const [fx,fy]=m.worldPos(b.door);
     return [bx+(fx-bx)*0.35, by+(fy-by)*0.35];
+  }
+  // Holt dieses Gebaeude ankommende Waren selbst von der Tuerfahne herein?
+  // (Spielerwunsch R3 #125.) Lager (inv) und Militaer buchen weiter sofort
+  // ein; ein Betrieb holt nur mit eingezogener Fachkraft und Tuerfahne.
+  holtSelbst(b){
+    return b.state==='done' && !!b.worker && !b.inv
+        && b.door!=null && b.door>=0;
+  }
+  // Der Bewohner holt eine wartende Ware von der Tuerfahne herein: Tuer ->
+  // Fahne -> aufnehmen -> Tuer -> einbuchen. Spiegelbild des Austrags;
+  // derselbe Waechter (nach 300 Takten wird von Hand eingebucht).
+  tickEinhol(u){
+    const b=this.buildings.get(u.bld);
+    if(!b || b.state!=='done'){ u.dead=true; return; }
+    const m=this.map;
+    if(this.t-(u._t0||this.t)>300){
+      if(u.carry){ this.deliver(b, u.carry); u.carry=null; }
+      u.dead=true;
+      if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+      return;
+    }
+    if(u.state==='zurFahne'){
+      const [fx,fy]=m.worldPos(b.door);
+      if(this.moveToward(u,fx,fy,WALK_SPEED)){
+        const items=this.flagItems.get(b.door)||[];
+        const ix=items.findIndex(it=>it.wartet && it.destB===b.id);
+        if(ix>=0){ u.carry=items[ix].good; items.splice(ix,1); }
+        u.state='zurTuer';
+      }
+    } else if(u.state==='zurTuer'){
+      const [tx,ty]=this.tuerPos(b);
+      if(this.moveToward(u,tx,ty,WALK_SPEED)){
+        if(u.carry){ this.deliver(b, u.carry); u.carry=null; }
+        u.dead=true;
+        if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+      }
+    }
   }
   // Startfelder für eine Figur, die aus einem Gebäude tritt: Position an der
   // Türschwelle, Blick Richtung Türfahne (nicht rückwärts durch die Wand).
