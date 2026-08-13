@@ -4488,13 +4488,15 @@ export class Renderer {
         bgS.globalCompositeOperation='source-over';
         bgS.clearRect(0,0,w,h);
         this.blurInto(bgS, this._castTmp, 8, 1, W2, H2);
-        if(this.theme==='winter'){
-          bgS.globalCompositeOperation='source-in';
-          bgS.fillStyle='rgb(70,84,110)';
-          bgS.fillRect(0,0,w,h);
-          bgS.globalCompositeOperation='source-over';
-        }
-        g.globalAlpha= this.theme==='winter'? 0.16 : 0.22;
+        // Kaltfassung in ALLEN Themen (Kritik R3 G2): der reine Schwarz-
+        // schatten las sich auf der Firndecke als warme Schmutzfahne.
+        // Aussenschatten sind himmelsbeleuchtet, also kuehl - im Winter
+        // wie gehabt am kuehlsten und leisesten.
+        bgS.globalCompositeOperation='source-in';
+        bgS.fillStyle= this.theme==='winter'? 'rgb(70,84,110)' : 'rgb(52,62,84)';
+        bgS.fillRect(0,0,w,h);
+        bgS.globalCompositeOperation='source-over';
+        g.globalAlpha= this.theme==='winter'? 0.16 : 0.21;
         if(sbw>0 && sbh>0)
           g.drawImage(this._blurTmp, sbx0*S, sby0*S, sbw*S, sbh*S,
                       c.ox+sbx0, c.oy+sby0, sbw, sbh);
@@ -6665,6 +6667,30 @@ export class Renderer {
     g.closePath(); g.fill();
     g.fillStyle='#c9a05a';
     g.beginPath(); g.arc(x, y-size*0.66, Math.max(0.9,size*0.07), 0, 7); g.fill();
+  }
+  // Transparenter Leerraum UNTER dem Bildinhalt (Anteil 0..1, einmal je
+  // Bild gemessen). Objektbilder mit Fussluft standen sonst ueber ihrem
+  // Bodenschatten - auf Wiese deckt es die Textur, auf dem Firn schwebte
+  // der Steinhaufen sichtbar (Kritik R3 G1: 36 % Luft in obj_stein_1..4).
+  bildFussLuft(key){
+    if(!this._fussLuft) this._fussLuft=new Map();
+    if(this._fussLuft.has(key)) return this._fussLuft.get(key);
+    const img=this.asset(key);
+    let luft=0;
+    try{
+      const cv=document.createElement('canvas');
+      cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+      const t=cv.getContext('2d',{willReadFrequently:true});
+      t.drawImage(img,0,0);
+      const d=t.getImageData(0,0,cv.width,cv.height).data;
+      let unten=-1;
+      for(let y=cv.height-1;y>=0&&unten<0;y--)
+        for(let x=0;x<cv.width;x++)
+          if(d[(y*cv.width+x)*4+3]>40){ unten=y; break; }
+      if(unten>=0) luft=(cv.height-1-unten)/cv.height;
+    }catch(_){ luft=0; }
+    this._fussLuft.set(key,luft);
+    return luft;
   }
   // Soldaten: Umhang/Helmbusch (blaue Flächen) als Maske, im Spiel eingefärbt
   unitMask(img){
@@ -9529,10 +9555,13 @@ export class Renderer {
         // sich eine Grundflaeche, deshalb genuegt EIN Anker.
         const amt9=m.amt? m.amt[i] : 0;
         const st9= amt9>11? 1 : amt9>7? 2 : amt9>3? 3 : 4;
-        const ovO=this.asset('obj_stein_'+st9) || this.asset('obj_stone');
+        const key9=this.asset('obj_stein_'+st9)? 'obj_stein_'+st9 : 'obj_stone';
+        const ovO=this.asset(key9);
         if(ovO){
+          // Fussluft ausgleichen: der sichtbare Haufenfuss landet auf dem
+          // Schatten statt eine Bildluft darueber (Kritik R3 G1)
           const hh=34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
-          g.drawImage(ovO, x-ww/2, y+8-hh, ww, hh);
+          g.drawImage(ovO, x-ww/2, y+8-hh+hh*this.bildFussLuft(key9), ww, hh);
           break;
         }
         const rock=(rx,ry,rr,c)=>{

@@ -1991,7 +1991,22 @@ export class Game {
         // Einzugswanderung: die Fachkraft läuft sichtbar vom Hauptquartier her
         // (mit Werkzeug, sofern der Beruf eines braucht – sonst wartet das Gebäude)
         if(b.worker) this.trySettle(b);
-        if(b.player===0) this.msg(`${def.name} fertiggestellt.`, 'ok', b.node);
+        // Kritik R3 S1: Fertigmeldungen waren 42 % des Meldungsstroms
+        // ("Wachhaus fertiggestellt." 15x in 30 min). Dasselbe Buendel-
+        // fenster wie bei den Angriffsmeldungen (R2 S1): die erste Meldung
+        // kommt sofort, weitere im 60-s-Fenster zaehlen still mit, und der
+        // naechste Durchlass traegt sie als Sammelzusatz nach. MILITAER-
+        // Bauten melden immer sofort - sie erweitern das Gebiet, das will
+        // man wissen; sie setzen das Fenster aber genauso neu.
+        if(b.player===0){
+          const still8=this.t-(this._bauMsgT??-1e9);
+          if(def.mil || still8>600){
+            const extra8=this._bauStumm||0;
+            this.msg(extra8>0? `${def.name} fertiggestellt (dazu ${extra8} weitere Gebäude).`
+                             : `${def.name} fertiggestellt.`, 'ok', b.node);
+            this._bauMsgT=this.t; this._bauStumm=0;
+          } else this._bauStumm=(this._bauStumm||0)+1;
+        }
         // KD1: rueckt ein FREMDER Posten in Grenznaehe, bekommt der Spieler
         // eine Vorwarnung - "Wir werden angegriffen!" kam bisher aus dem
         // Nichts, ohne dass sich der Druckaufbau je angekuendigt haette.
@@ -3206,10 +3221,19 @@ export class Game {
       const hq=this.buildings.get(p.hq);
       if(hq && hq.inv){
         let guard=30;
+        // Kritik R3 S2: die Rekrutierung frass jeden Bogen sofort weg -
+        // der wartende Jaeger ging trotz Bogen-Nachschub leer aus (22 min
+        // Stillstand im Messlauf). Existiert ein Jaeger, der sein Werkzeug
+        // noch nicht hat, bleibt EIN Bogen im Hauptquartier fuer ihn liegen.
+        let bogenTabu=0;
+        for(const b9 of this.buildings.values())
+          if(b9.player===p.id && TOOL_OF[b9.type]==='bow' && !b9.toolGood
+             && b9.state==='done'){ bogenTabu=1; break; }
         while(this.recruitTotal(p.id)<10 && (hq.inv.beer||0)>0 && guard-->0){
           // ausgewogen rekrutieren: den Typ mit der kleinsten Reserve zuerst
           const canDo=STYPE_LIST.filter(t=>{
-            for(const w in STYPES[t].weapons) if((hq.inv[w]||0)<STYPES[t].weapons[w]) return false;
+            for(const w in STYPES[t].weapons)
+              if((hq.inv[w]||0)-(w==='bow'? bogenTabu:0)<STYPES[t].weapons[w]) return false;
             return true;
           });
           if(!canDo.length) break;
@@ -3513,6 +3537,20 @@ export class Game {
     if(store.inv && (store.inv[good]||0)>0) store.inv[good]--;
     else if(store.out>0) store.out--;
   }
+  // Warum kommt kein Werkzeug? Fuer die Wartemeldung (Kritik R3 S2): der
+  // blosse Dauerton "wartet auf Werkzeug" nannte nie den behebbaren Grund -
+  // im Messlauf stand der Jaeger 22 Minuten, weil die Werkzeugschmiede kein
+  // Eisen hatte, und die Meldung liess einen raten.
+  werkzeugUrsache(pl){
+    let schmiede=null;
+    for(const b of this.buildings.values())
+      if(b.player===pl && b.type==='toolsmith' && b.state==='done'){ schmiede=b; break; }
+    if(!schmiede) return ' Es gibt keine Werkzeugschmiede.';
+    const imHaus=(schmiede.stock && (schmiede.stock.iron||0))||0;
+    if(imHaus<=0 && (this.invTotal(pl).iron||0)<=0)
+      return ' Der Werkzeugschmiede fehlt Eisen.';
+    return '';
+  }
   // Welches Werkzeug fehlt am dringendsten? (null = alles ausreichend vorhanden)
   toolsmithChoose(pl){
     const need={ hammer:2, shovel:2, pick:2 };            // Grundreserve; Rest 1
@@ -3566,7 +3604,8 @@ export class Game {
         // solange der Mangel anhält, erinnert warn() einmal pro Minute daran
         // statt wie früher nur ein einziges Mal (leicht zu übersehen).
         if(this.toolTrulyMissing(b.player, tool))
-          this.warn(b, 'tool:'+tool, `${BLD[b.type].name}: wartet auf Werkzeug (${GOODS[tool].name})!`);
+          this.warn(b, 'tool:'+tool,
+            `${BLD[b.type].name}: wartet auf Werkzeug (${GOODS[tool].name})!${this.werkzeugUrsache(b.player)}`);
         b.needTool=tool;
         return false;
       }
@@ -4595,9 +4634,19 @@ export class Game {
       else if(def.gather==='farm'||type==='pigfarm') s+=nearNodes.filter(n=>m.obj[n]===OBJ.NONE&&m.terr[n]===TER.GRASS).length*0.35;
       else if(def.mine){
         const targetT={coalmine:1,ironmine:2,goldmine:3,granitemine:4}[type];
-        s+=nearNodes.filter(n=>m.oreT[n]===targetT&&m.oreA[n]>0).length*4;
-        s+=[i,...m.nbs(i)].filter(n=>m.oreT[n]===targetT&&m.oreA[n]>0).length*8;
-        if(s<4) continue;
+        // Kritik R3 S3 (Minen-Karussell): gezaehlt wurden KNOTEN in
+        // Reichweite 5 - ein einzelner Erzknoten drei Felder weiter
+        // reichte zum Bauen, obwohl der FOERDERRING (Knoten + Nachbarn)
+        // fast leer war. Das Bergwerk lebte dann drei Minuten: Bau,
+        // Erschoepfung, Neubau im Takt. Jetzt zaehlt der ERZVORRAT im
+        // Ring; unter 36 Einheiten (rund 5 Foerderminuten) wird dort
+        // nicht gebaut, und mehr Vorrat schlaegt mehr Punkte.
+        let vorrat=0;
+        for(const n of [i,...m.nbs(i)])
+          if(m.oreT[n]===targetT) vorrat+=m.oreA[n];
+        if(vorrat<36) continue;
+        s+=vorrat*0.25
+          +nearNodes.filter(n=>m.oreT[n]===targetT&&m.oreA[n]>0).length*1.5;
       }
       else if(def.mil){
         // Kein Neubau auf frisch umkämpftem Boden: solange in der Nähe noch

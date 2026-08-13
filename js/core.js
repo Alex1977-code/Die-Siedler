@@ -141,7 +141,10 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 // Geologe blieb daheim, ohne Geologe kein Eisen, ohne Eisen keine neuen
 // Hacken: Todesspirale, Spiel tot. Vier Hacken tragen Bruch, erste Mine
 // und den Geologen gleichzeitig, mit einer in Reserve.
-export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:6, pick:4, axe:2, saw:1, scythe:1, rod:1, cleaver:1, shovel:2 };
+// scythe/rod je 2 (Kritik R3 S2): mit nur einem stand Hof bzw. Fischer
+// Nummer zwei still, bis die Eisenkette lief (Sense-Wartemeldung ab
+// Minute 4 im Messlauf)
+export const START_GOODS = { trunk:16, board:30, stone:20, fish:8, water:6, bread:6, beer:5, sword:3, shield:3, spear:2, bow:3, coal:4, iron:2, coin:2, grain:4, hammer:6, pick:4, axe:2, saw:1, scythe:2, rod:2, cleaver:1, shovel:2 };
 
 // ---------- Militär-Kennzahlen ----------
 // KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js
