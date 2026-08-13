@@ -4494,6 +4494,20 @@ export class Game {
         if(b._aiDiscT===undefined) b._aiDiscT=this.t;
         else if(b.state==='build' && this.t-b._aiDiscT>3000) this.burnBuilding(b,false);
       }
+      // Kritik R4 S2, zweite Haelfte: eine ANGESCHLOSSENE Baustelle, an der
+      // seit zehn Spielminuten kein einziges Brett und kein Stein liegt und
+      // die auch nichts unterwegs hat, ist keine Baustelle mehr, sondern ein
+      // besetzter Bauplatz. Sie wird geraeumt (das Material bekommt sie
+      // ohnehin nicht) - der Platz und der Baustellen-Deckel werden frei,
+      // und die KI faengt spaeter neu an, wenn das Lager es traegt.
+      for(const b of [...this.buildings.values()]){
+        if(b.player!==p.id || b.state!=='build') continue;
+        const leer=((b.stock.board||0)+(b.stock.stone||0)
+                   +(b.incoming.board||0)+(b.incoming.stone||0))===0;
+        if(!leer || b.bauerDa){ b._leerT=undefined; continue; }
+        if(b._leerT===undefined) b._leerT=this.t;
+        else if(this.t-b._leerT>6000) this.burnBuilding(b,false);
+      }
     }
     // WIE VIELE BAUSTELLEN GLEICHZEITIG? Bisher gar keine Grenze - die KI
     // fing an, sobald Bretter und Steine fuer das naechste Haus reichten.
@@ -4528,6 +4542,15 @@ export class Game {
       // Angriff laufen weiter - eine Siedlung, die gerade genug Baustellen
       // hat, hoert nicht auf, Krieg zu fuehren.
       bauSatt = roh >= Math.max(3, Math.min(AMb.bauMax||8, 2+((fertig/3)|0)));
+      // Kritik R4 S2: Die Stueckzahl allein reicht nicht. Gemessen hielt die
+      // KI acht Baustellen offen, waehrend im Lager 4-8 Bretter lagen -
+      // sechs bis sieben davon standen ueber 30 Spielminuten OHNE ein
+      // einziges Brett da, und die Siedlung wuchs nicht mehr (fertig 32 ->
+      // 32 zwischen Minute 30 und 40). Deshalb zaehlt jetzt auch, was die
+      // offenen Rohbauten noch KOSTEN: liegt im Lager nicht einmal die
+      // Haelfte davon, wird nichts Neues angefangen. Das Material sammelt
+      // sich dann auf den vorhandenen Baustellen, statt sich auf immer mehr
+      // zu verteilen.
     }
     const boards=inv.board||0, stones=inv.stone||0;
     for(const w of bauSatt? [] : want){
