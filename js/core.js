@@ -217,6 +217,10 @@ export const BAUM_REIF = 10;
 export const SAT_OF = {
   hammer:12, pick:10, axe:10, saw:8, scythe:8, rod:8, cleaver:6, shovel:10,
   sword:24, shield:24, spear:24, bow:24,
+  // Bier trinkt nur die Rekrutierung (1 je Rekrut, Reserve maximal 10) -
+  // ohne eigene Schwelle braute die Brauerei bis zur Allgemeinschwelle 60
+  // weiter, obwohl niemand mehr rekrutierte (Nutzer-Report v186).
+  beer:16,
   coin:20, water:40,
 };
 

@@ -2133,8 +2133,17 @@ export class Game {
           b.chosenTool = b.makeGood || this.toolsmithChoose(b.player);
           if(!b.chosenTool) continue;
         }
-        // Waffenschmiede: feste Waffenwahl des Spielers
-        if(b.type==='armory' && b.prodT===0 && b.makeGood) b.chosenTool=b.makeGood;
+        // Waffenschmiede: feste Waffenwahl des Spielers - oder nach Bedarf.
+        // Nutzer-Report v186: im Bedarf-Modus blieb chosenTool leer, damit
+        // gab brakeGood null zurueck und die Bedarfsbremse griff NIE - die
+        // Schmiede rotierte endlos durch alle vier Waffen, solange Eisen und
+        // Kohle kamen. Bei voller Reserve nahm der Waffenberg im HQ deshalb
+        // nur zu und nie ab (die Werkzeugschmiede hatte denselben Fehler,
+        // R6 hat ihn dort behoben - hier fehlte das Gegenstueck).
+        if(b.type==='armory' && b.prodT===0){
+          b.chosenTool = b.makeGood || this.armoryChoose(b.player);
+          if(!b.chosenTool) continue;
+        }
         // mit zugeteiltem Essen arbeitet ein Betrieb deutlich schneller
         const fed=(def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
         b.prodT += fed? 2 : 1;
@@ -2919,7 +2928,10 @@ export class Game {
           b.chosenTool = b.makeGood || this.toolsmithChoose(b.player);
           if(!b.chosenTool){ b.prodT=0; return; }   // kein Bedarf -> ruhen wie bisher
         }
-        if(b.type==='armory' && b.makeGood) b.chosenTool=b.makeGood;
+        if(b.type==='armory'){
+          b.chosenTool = b.makeGood || this.armoryChoose(b.player);
+          if(!b.chosenTool){ b.prodT=0; return; }   // alle Waffen gesättigt -> ruhen
+        }
         // Zykluszeit-Kompensation: der Austragsweg zählt als bereits
         // geleistete Arbeitszeit des nächsten Zyklus (Rate bleibt stabil)
         const dauer=this.t-(u._t0||this.t);
@@ -3659,6 +3671,22 @@ export class Game {
       if((inv[t]||0)>=deckel) continue;
       const short=need[t]-(inv[t]||0);
       if(short>bs){ bs=short; best=t; }
+    }
+    return best;
+  }
+  // Welche Waffe fehlt am dringendsten? (null = alle Vorräte gesättigt).
+  // Gegenstück zu toolsmithChoose: die knappste Waffe zuerst, Waffen über
+  // ihrer Sättigungsschwelle (SAT_OF) werden nicht mehr gewählt. So bleibt
+  // die Rekrutierung versorgt (Schwert+Schild gleichen sich von selbst aus),
+  // ohne dass Eisen und Kohle in einen endlosen Waffenberg wandern.
+  armoryChoose(pl){
+    const inv=this.invTotal(pl);
+    let best=null, bn=1e9;
+    for(const w of ['sword','shield','spear','bow']){
+      const deckel=SAT_OF[w]!==undefined? SAT_OF[w] : SAT_PAUSE;
+      const n=inv[w]||0;
+      if(n>=deckel) continue;
+      if(n<bn){ bn=n; best=w; }
     }
     return best;
   }

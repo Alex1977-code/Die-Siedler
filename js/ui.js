@@ -1125,7 +1125,12 @@ export class UI {
         rows.push('Lager: '+inv);
         if(b.type==='hq'){
           const r=g.players[0].recruits;
-          rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}`);
+          // Volle Reserve erklären: sonst wirkt der ruhende Waffenvorrat wie
+          // ein Fehler ("nimmt nie ab"), obwohl schlicht niemand rekrutiert
+          // werden muss, bis ein Posten Nachschub braucht.
+          const voll=g.recruitTotal(0)>=10;
+          rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}${
+            voll? ' <small>(voll – rekrutiert wird erst wieder, wenn Posten Nachschub brauchen)</small>':''}`);
         }
       }
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
