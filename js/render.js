@@ -307,7 +307,7 @@ export class Renderer {
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._firnMap=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
     this._firnDeck=null;                    // gezeichnete Firndeckung je Knoten
-    this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
+    this._palRock=null; this._spireTint=null; this._schneeHaube=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this._felsPool=null;                        // Formenvorrat haengt an den vorhandenen Bildern
     this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
@@ -5003,7 +5003,7 @@ export class Renderer {
              ||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
             this._screeTile=null; this._screePatC=null; this._fbr=null;
-            this._spireTint=null; this._lasurC=null; this._matC=null;
+            this._spireTint=null; this._schneeHaube=null; this._lasurC=null; this._matC=null;
             this._felsPool=null;
             this._felsBox=null;
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
@@ -5589,9 +5589,13 @@ export class Renderer {
   // zu hell, und genau das liest sich als "aufgesetzt" (Nutzerkritik v84:
   // "die gebirgsobjekte wirken wie aufgesetzt"). Drei Fassungen je Bild
   // reichen; sie werden wie die Grundfassung einmal je Bild gebacken.
-  tintedSpire(key, stufe){
+  // kalt=true: KALTFASSUNG fuer Objekte auf der Firndecke (Kritik R2 N2:
+  // "Wuestenstein auf Firn" - dieselbe warme Sandtoene wie am sonnigen
+  // Bergfuss). Entwaermt Richtung Blaugrau und hellt leicht auf; die
+  // Zeichnung des Blattes bleibt.
+  tintedSpire(key, stufe, kalt){
     const st= stufe===undefined? 0 : (stufe<-0.5? -1 : stufe>0.5? 1 : 0);
-    const ck=key+'|'+st;
+    const ck=key+'|'+st+(kalt?'|k':'');
     if(!this._spireTint) this._spireTint=new Map();
     if(this._spireTint.has(ck)) return this._spireTint.get(ck);
     const img=this.asset(key);
@@ -5640,6 +5644,18 @@ export class Renderer {
     t.globalAlpha=0.55;
     t.fillStyle='rgb(150,144,132)';
     t.fillRect(0,0,W,H);
+    if(kalt){
+      // Firnlicht: Farbton Richtung kuehles Graublau ziehen und leicht
+      // aufhellen - der Stein liegt im Reflexlicht der Schneedecke
+      t.globalCompositeOperation='color';
+      t.globalAlpha=0.38;
+      t.fillStyle='rgb(168,178,192)';
+      t.fillRect(0,0,W,H);
+      t.globalCompositeOperation='screen';
+      t.globalAlpha=0.10;
+      t.fillStyle='rgb(202,212,226)';
+      t.fillRect(0,0,W,H);
+    }
     t.globalAlpha=1;
     t.globalCompositeOperation='destination-in';
     t.drawImage(img,0,0);
@@ -5682,7 +5698,7 @@ export class Renderer {
       const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
       const t=cv.getContext('2d',{willReadFrequently:true});
       t.drawImage(img,0,0);
-      let x0=W, x1=-1, y0=H, y1=-1;
+      let x0=W, x1=-1, y0=H, y1=-1, fw=0, fcx=0;
       try{
         const d=t.getImageData(0,0,W,H).data;
         for(let y=0;y<H;y+=2){
@@ -5693,12 +5709,88 @@ export class Renderer {
             if(y<y0)y0=y; if(y>y1)y1=y;
           }
         }
+        // FUSSBREITE (Kritik R2 N1): der Kontaktschatten soll sich nach der
+        // SICHTBAREN Steinmasse am Boden richten, nicht nach dem
+        // Huellrechteck - das ist bei Haufen-Motiven mit Streupixel-Saum
+        // fast doppelt so breit. Je Bodenzeile wird der laengste DICHTE
+        // Lauf (Alpha>=120, Luecken bis 8 px erlaubt) vermessen; Median
+        // ueber das unterste Inhaltsband ergibt Breite und Mitte.
+        if(x1>=0){
+          const band0=Math.max(y0, y1-Math.max(6,Math.round((y1-y0)*0.12)));
+          const ws=[], cs=[];
+          for(let y=band0;y<=y1;y+=2){
+            const row=y*W;
+            let bestL=0, bestC=0, runX=-1, lastX=-1;
+            for(let x=x0;x<=x1+2;x+=2){
+              const dicht= x<=x1 && d[(row+x)*4+3]>=120;
+              if(dicht){ if(runX<0) runX=x; lastX=x; }
+              else if(runX>=0 && (x-lastX>8 || x>x1)){
+                const L=lastX-runX+1;
+                if(L>bestL){ bestL=L; bestC=(runX+lastX)/2; }
+                runX=-1;
+              }
+            }
+            if(bestL>0){ ws.push(bestL); cs.push(bestC); }
+          }
+          ws.sort((q,r)=>q-r); cs.sort((q,r)=>q-r);
+          if(ws.length){ fw=ws[ws.length>>1]; fcx=cs[cs.length>>1]-(x0+x1)/2; }
+        }
       }catch(e){ /* getImageData gesperrt -> Rueckfall unten */ }
-      b= x1>=0? {x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1}
-              : {x0:0,y0:0,x1:W-1,y1:H-1,w:W,h:H};
+      b= x1>=0? {x0,y0,x1,y1,w:x1-x0+1,h:y1-y0+1,fw:fw||x1-x0+1,fcx}
+              : {x0:0,y0:0,x1:W-1,y1:H-1,w:W,h:H,fw:W,fcx:0};
     }
     this._felsBox.set(key,b);
     return b;
+  }
+  // Schneehauben-Overlay je Felsbild (Kritik R2 N2): weiche weisse Kappen
+  // entlang der OBEREN Silhouette, einmal je Bild abgeleitet und gecacht.
+  // Steile Flanken (die Silhouette springt dort von Spalte zu Spalte)
+  // bleiben frei - wie beim echten Abrutschen des Schnees. Deckungsgleich
+  // ueber das getoente Blatt gezeichnet, Beschnitt auf die Bildalpha haelt
+  // die Kappen AUF dem Stein.
+  schneeHaube(key){
+    if(!this._schneeHaube) this._schneeHaube=new Map();
+    if(this._schneeHaube.has(key)) return this._schneeHaube.get(key);
+    const img=this.asset(key);
+    let cv=null;
+    if(img&&img.naturalWidth){
+      const W=img.naturalWidth, H=img.naturalHeight;
+      const t0=document.createElement('canvas'); t0.width=W; t0.height=H;
+      const q0=t0.getContext('2d',{willReadFrequently:true});
+      q0.drawImage(img,0,0);
+      try{
+        const d=q0.getImageData(0,0,W,H).data;
+        const top=new Int16Array(W).fill(-1);
+        for(let x=0;x<W;x++){
+          for(let y=0;y<H;y++){
+            if(d[(y*W+x)*4+3]>=120){ top[x]=y; break; }
+          }
+        }
+        cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+        const t=cv.getContext('2d');
+        t.fillStyle='rgba(240,245,251,0.92)';
+        const SCH=4;
+        for(let x=SCH;x<W-SCH;x+=2){
+          const ty=top[x];
+          if(ty<0) continue;
+          const dl=top[x-SCH], dr=top[x+SCH];
+          if(dl<0||dr<0) continue;
+          if(Math.max(Math.abs(ty-dl),Math.abs(ty-dr))>SCH*1.6) continue;
+          const h1=hash01(x*13+(key.length|0)*7);
+          const capH=6+h1*9;
+          t.globalAlpha=0.55+h1*0.35;
+          t.beginPath();
+          t.ellipse(x, ty+capH*0.35, 3.2+h1*2.6, capH*0.55, 0, 0, 7);
+          t.fill();
+        }
+        t.globalAlpha=1;
+        t.globalCompositeOperation='destination-in';
+        t.drawImage(img,0,0);
+        t.globalCompositeOperation='source-over';
+      }catch(e){ cv=null; }
+    }
+    this._schneeHaube.set(key,cv);
+    return cv;
   }
   // Felsobjekt zeichnen (Stilguide 11.11): EIN gemeinsamer Zeichenfaktor
   // FELS_F, Unterkante des Bildinhalts = Bodenlinie am Knoten. sc ist eine
@@ -5718,13 +5810,17 @@ export class Renderer {
   // kleine Wehen an der Unterkante.
   drawFelsObj(g, key, x, y, sc, spiegel, schatten, lum, seed, schnee=false){
     const L9= lum===undefined? 0 : Math.max(-1,Math.min(1,lum));
-    const img=this.tintedSpire(key, L9<-0.28? -1 : L9>0.28? 1 : 0);
+    const img=this.tintedSpire(key, L9<-0.28? -1 : L9>0.28? 1 : 0, schnee);
     if(!img) return null;
     const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
     const f=FELS_F*(sc||1);
     const dw=W*f, dh=H*f;
     const bx=this.felsBox(key);
     const cw=(bx? bx.w : W)*f, ch=(bx? bx.h : H)*f;
+    // Fussbreite/-mitte der sichtbaren Steinmasse (Kritik R2 N1): der
+    // Kontaktschatten haengt daran, nicht am Streupixel-Huellrechteck
+    const fwp=(bx? (bx.fw||bx.w) : W)*f;
+    const fcx=(bx? (bx.fcx||0) : 0)*f*(spiegel?-1:1);
     // KONTAKTSCHATTEN statt Bodenteller (Nutzerkritik v84 "aufgesetzt"):
     // die alte gleichmäßig gefüllte Ellipse lag als grauer Fleck UM den
     // Fels herum und schob ihn optisch nach oben vom Boden weg. Ein echter
@@ -5733,8 +5829,11 @@ export class Renderer {
     // Flanken fällt er kräftiger aus als im Schatten.
     // Auf Schnee schattet es KUEHL (Blaugrau) und deutlich leiser.
     if(schatten>0){
-      const kx=x+cw*0.08, ky=y+1.5;
-      const rx=Math.max(4,cw*0.52), ry=Math.max(1.6,cw*0.175);
+      // Sonne aus Nordwest -> Schatten nach SUEDOST versetzt; Radius aus
+      // der Fussbreite (vorher cw*0.52 auf dem Huellrechteck: fast doppelt
+      // so breit wie der Stein, mittig - "der Fels schwebt", Kritik R2 N1)
+      const kx=x+fcx+fwp*0.17, ky=y+2.2;
+      const rx=Math.max(4,fwp*0.60), ry=Math.max(1.6,fwp*0.20);
       const st=schatten*(1+L9*0.28)*(schnee?0.7:1);
       const sf=schnee? '58,70,96' : '26,23,19';
       const rg=g.createRadialGradient(kx,ky,Math.max(1,rx*0.10), kx,ky,rx);
@@ -5752,6 +5851,11 @@ export class Renderer {
     if(spiegel){ g.translate(x,0); g.scale(-1,1); g.translate(-x,0); }
     // die Bildunterkante liegt FELS_BODEN unter der Bodenlinie
     g.drawImage(img, x-dw/2, y-dh+FELS_BODEN*f, dw, dh);
+    if(schnee){
+      // Schneehaube: weisse Kappen entlang der oberen Silhouette
+      const hb=this.schneeHaube(key);
+      if(hb) g.drawImage(hb, x-dw/2, y-dh+FELS_BODEN*f, dw, dh);
+    }
     g.restore();
     if(schnee && cw>10){
       // SCHNEESOCKEL: weiche weisse Zungen VOR der Unterkante betten den
