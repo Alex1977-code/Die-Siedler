@@ -1463,6 +1463,7 @@ export class Game {
     this.tickRuins();
     if(this.t%2===0) this.tickAnimals();
     if(this.t%10===0) this.tickGrowth();
+    if(this.t%Game.FELD_TAKT===0) this.felderReifen();
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
@@ -1607,8 +1608,8 @@ export class Game {
         let nb=0; for(const q of m.nbs(i)) if(Game.isTree(m.obj[q])) nb++;
         if(nb>=2){ m.obj[i]=OBJ.SAPLING; m.amt[i]=0; this.changedNodes.push(i); }
       }
-      else if(o===OBJ.FIELD0 && this.rng()<0.25){ m.obj[i]=OBJ.FIELD1; this.changedNodes.push(i); }
-      else if(o===OBJ.FIELD1 && this.rng()<0.2){ m.obj[i]=OBJ.FIELD2; this.changedNodes.push(i); }
+      // Felder reifen NICHT mehr hier - sie haben seit v190 eine eigene Uhr
+      // (felderReifen). Erklaerung dort.
       else if(m.terr[i]===TER.WATER){
         // Fischgründe erholen sich spürbar: ein Fischer an gutem Grund fängt
         // dauerhaft (wenn auch langsamer) weiter, statt nach ~10 Minuten für
@@ -1642,6 +1643,47 @@ export class Game {
   // Alter fein genug aufgeloest. Die Feld- und Fischraten oben bleiben davon
   // unberuehrt - haetten wir dort einfach K erhoeht, waeren Getreide und
   // Fisch gleich mit viermal so schnell nachgewachsen.
+  // ---------- Felder reifen nach eigener Uhr ----------
+  // Nutzer-Report v190 ("die Farm erzeugt zu wenig Getreide"): das Korn wuchs
+  // ueber dieselbe Zufallsstichprobe wie Baeume und Fischgruende - je Stichprobe
+  // 25 % bzw. 20 % Aufstieg. Wie oft ein Feld drankommt, haengt damit an der
+  // KARTENGROESSE (die Stichprobe verteilt sich auf alle Knoten). Gemessen auf
+  // Karte M: 3377 Takte, also 5,6 Spielminuten je Feld. Drei Hoefe mit 24
+  // Ackerpunkten lieferten so rund 2 Getreide je Minute - eine einzige Muehle
+  // verbraucht 6,7. Folge: Getreidelager dauerhaft 0, Muehlen und Brauerei
+  // hungerten, kein Bier, keine Rekruten, und ab Minute 21 wuchs gar nichts
+  // mehr (41 Gebaeude, 130 Siedler, Stillstand bis Messende).
+  // Jetzt zaehlt jeder Ackerknoten seine eigenen Schritte: gleiche Reifezeit
+  // auf jeder Kartengroesse, und sie steht als Zahl da, statt sich aus drei
+  // Wahrscheinlichkeiten zu ergeben.
+  static FELD_TAKT=20;      // Takte zwischen zwei Wachstumsschritten
+  static FELD_STUFE=22;     // Schritte je Stufe -> 2*22*20 = 880 Takte = 88 s
+  felderReifen(){
+    const m=this.map;
+    if(!this.felder) this.felderSammeln();
+    for(const i of this.felder){
+      const o=m.obj[i]&127;
+      if(o!==OBJ.FIELD0 && o!==OBJ.FIELD1){
+        if(o!==OBJ.FIELD2) this.felder.delete(i);   // abgeerntet oder ueberbaut
+        continue;
+      }
+      const alt=(m.amt[i]||0)+1;
+      if(alt<Game.FELD_STUFE){ m.amt[i]=alt; continue; }
+      m.amt[i]=0;
+      m.obj[i]=(m.obj[i]&128) | (o===OBJ.FIELD0? OBJ.FIELD1 : OBJ.FIELD2);
+      this.changedNodes.push(i);
+    }
+  }
+  // Ackerknoten aus der Karte einsammeln - fuer Spielstaende, die noch ohne
+  // die Feldliste gespeichert wurden
+  felderSammeln(){
+    const m=this.map;
+    this.felder=new Set();
+    for(let i=0;i<m.obj.length;i++){
+      const o=m.obj[i]&127;
+      if(o===OBJ.FIELD0||o===OBJ.FIELD1||o===OBJ.FIELD2) this.felder.add(i);
+    }
+  }
   baeumeReifen(K){
     const m=this.map;
     const REIF=BAUM_REIF;             // Stichproben je Wachstumsstufe
@@ -3053,7 +3095,16 @@ export class Game {
           }
           break;
         case 'sow':
-          if(done(20)){ if(m.obj[u.target]===OBJ.NONE){ m.obj[u.target]=OBJ.FIELD0; this.changedNodes.push(u.target);} u.state='back'; }
+          if(done(20)){
+            if(m.obj[u.target]===OBJ.NONE){
+              m.obj[u.target]=OBJ.FIELD0;
+              m.amt[u.target]=0;                    // Felduhr beginnt bei Null
+              if(!this.felder) this.felderSammeln();
+              this.felder.add(u.target);
+              this.changedNodes.push(u.target);
+            }
+            u.state='back';
+          }
           break;
         case 'harvest':
           if(done(24)){ if(m.obj[u.target]===OBJ.FIELD2){ m.obj[u.target]=OBJ.NONE; this.changedNodes.push(u.target); u.carry='grain'; } u.state='back'; }
