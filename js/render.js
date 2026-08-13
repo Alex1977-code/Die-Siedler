@@ -1263,12 +1263,22 @@ export class Renderer {
     // Netzbereich MUSS die ganze Chunkflaeche decken, sonst bleibt oben ein
     // ungezeichneter Streifen stehen und der Nachbarchunk zeigt dort seine
     // Kante als Haarlinie. Die Flaeche beginnt bei cy*528-234 (pad 78 plus
-    // HSCALE*6=156 Kopffreiheit fuer hohe Knoten); Zeile cy*CHUNK-3 liegt
-    // aber erst bei cy*528-132. Sechs Zeilen Vorlauf reichen (-264), unten
-    // deckt cy*CHUNK+CHUNK+3 den Rand bei cy*528+658 ab (drei Zeilen hinter
-    // dem eigenen Chunkende - frueher als feste 15 geschrieben, was dasselbe
-    // ergibt, solange CHUNK 12 ist).
-    const x0=cx*CHUNK-3, y0=cy*CHUNK-6, x1=x0+CHUNK+6, y1=cy*CHUNK+CHUNK+3;
+    // HSCALE*6=156 Kopffreiheit fuer hohe Knoten).
+    //
+    // Aufgabe #114 ("Nadel endet an Kerngrenze"): das alte Fenster (-6/+3
+    // Zeilen, +-3 Spalten) war fuer HOHE BERGKNOTEN zu schmal. Ein Knoten
+    // der Hoehe 12 zeichnet seine Pixel 312 px (12*HSCALE) UEBER seiner
+    // Gitterzeile, Firnzellen laufen weitere ~100 px aus - Knoten bis zu
+    // ~9 Zeilen HINTER dem Chunkende ragen also noch in die eigene
+    // Leinwand. Mit +3 Zeilen blieben dort ungebackene weisse Keile, und
+    // der Massiv-Beschnitt (EIN Pfad aus den eingesammelten Dreiecken)
+    // endete mitten im Schneefeld auf einer geraden Dreieckskante - die
+    // "abgeschnittene Nadel" an der Naht. Das Fenster deckt jetzt alles,
+    // was in die Leinwand zeichnen kann: -9 Zeilen (Waende/Schlagschatten
+    // reichen bis ~420 px unter ihren Knoten), +9 Zeilen (312+100 px
+    // Aufwaertsreichweite hoher Knoten), +-4 Spalten (54 px Blitrand +
+    // Zellauslauf). Die Leinwand selbst beschneidet Ueberstand kostenlos.
+    const x0=cx*CHUNK-4, y0=cy*CHUNK-9, x1=x0+CHUNK+8, y1=cy*CHUNK+CHUNK+9;
     for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++){
       for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
         const i=m.idx(x,y);
