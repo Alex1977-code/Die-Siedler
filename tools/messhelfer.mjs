@@ -21,7 +21,7 @@
 export const SERVER='http://127.0.0.1:8901/';
 
 // Startet ein freies Spiel und gibt garantiert bei Takt 0 zurueck.
-export async function starteSpiel(page, {saat, groesse='M', gegner='1'}={}){
+export async function starteSpiel(page, {saat, groesse='M', gegner='1', thema=null}={}){
   await page.goto(SERVER, {waitUntil:'load'});
   // Riegel VOR dem Start setzen: ui existiert schon, das Spiel noch nicht.
   await page.evaluate(()=>{
@@ -36,6 +36,7 @@ export async function starteSpiel(page, {saat, groesse='M', gegner='1'}={}){
   });
   await page.click('#bt-free');
   await page.selectOption('#f-size', groesse);
+  if(thema) await page.selectOption('#f-theme', thema);
   await page.selectOption('#f-ais', String(gegner));
   await page.fill('#f-seed', String(saat));
   await page.click('#f-start');

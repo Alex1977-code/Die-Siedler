@@ -4654,6 +4654,38 @@ export class Renderer {
     const h=hash01(i*17+9);
     const [px,py]=m.worldPos(i);
     const o1=(hash01(i*23+2)-0.5)*30, o2=(hash01(i*41+4)-0.5)*24;
+    if(t===TER.WATER){
+      // Eisschollen an der Schneekante (Kritik N8): wo Schneezellen ans
+      // Wasser stossen, verriet das Zellsechseck den Unterbau - eine
+      // einzelne Wasserzelle im Eisfeld stand als sauberes Sechseck-Loch
+      // ("Wabenmuster"). Unregelmaessige Schollen-Flicken ueber jeder
+      // Schnee-Wasser-Kante brechen die Geometrie; die Grundidee
+      // Eisschollen bleibt.
+      for(const n of m.nbs(i)){
+        if(m.terr[n]!==TER.SNOW) continue;
+        const [qx,qy]=m.worldPos(n);
+        const nf=1+((hash01(i*7+n*13)*1.9)|0);
+        for(let k=0;k<nf;k++){
+          const t9=0.40+hash01(i*11+n*3+k*17)*0.28;
+          const bx=px+(qx-px)*t9+(hash01(i*23+n*7+k*5)-0.5)*18;
+          const by=py+(qy-py)*t9+(hash01(i*29+n*11+k*9)-0.5)*12;
+          const r=7+hash01(i*31+n*5+k*3)*9;
+          g.beginPath();
+          for(let e9=0;e9<7;e9++){
+            const a9=e9*0.897+hash01(i*13+n+k*7)*0.8;
+            const rr=r*(0.6+hash01(i*17+n*3+e9*5+k)*0.55);
+            const ex=bx+Math.cos(a9)*rr, ey=by+Math.sin(a9)*rr*0.62;
+            if(e9===0) g.moveTo(ex,ey); else g.lineTo(ex,ey);
+          }
+          g.closePath();
+          g.fillStyle='rgba(224,232,240,0.88)';
+          g.fill();
+          g.strokeStyle='rgba(140,165,190,0.35)'; g.lineWidth=1.2;
+          g.stroke();
+        }
+      }
+      return;
+    }
     if(t===TER.GRASS){
       // An der Schneekante keine Sommer-Deko (Kritik N7): die Schneekachel
       // des Nachbarn blendet bis auf diesen Knoten herueber, und die
@@ -6674,14 +6706,19 @@ export class Renderer {
        && th!=='winter' && m.terr[i]===TER.GRASS
        && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT))
       return 'tree_willow';
+    // tree_conifer nicht mehr NEBEN tree_spruce (Kritik N11): die glatte,
+    // hellgruene "Gummibaum"-Tanne und die detaillierte dunkle Fichte sind
+    // zwei Zeichensprachen - im selben Waldstueck beissen sie sich. Die
+    // Fichte bleibt als einzige Tanne; tree_conifer traegt nur noch den
+    // Vulkan (dort steht keine Fichte daneben).
     const SETS={
-      gruen:  ['tree_oak','tree_beech','tree_birch','tree_spruce','tree_conifer'],
+      gruen:  ['tree_oak','tree_beech','tree_birch','tree_spruce'],
       inseln: ['tree_oak','tree_beech','tree_palm','tree_birch'],
-      winter: ['tree_winter','tree_spruce','tree_conifer','tree_dead'],
+      winter: ['tree_winter','tree_spruce','tree_dead'],
       wueste: ['tree_palm','tree_dead','tree_stump'],
       vulkan: ['tree_dead','tree_conifer','tree_stump'],
       sumpf:  ['tree_willow','tree_birch','tree_dead','tree_beech'],
-      gebirge:['tree_spruce','tree_conifer','tree_birch'],
+      gebirge:['tree_spruce','tree_birch'],
     };
     const list=(SETS[th]||SETS.gruen).filter(k=>this.asset(k));
     if(!list.length) return this.asset('tree_leaf')?'tree_leaf':'tree_conifer';
