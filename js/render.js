@@ -8975,8 +8975,14 @@ export class Renderer {
       // GRAFISCH DURCH DAS FAHNENTUCH - die Fahne wurde hinter ihnen
       // gezeichnet, obwohl ihr Fuss im Bild tiefer steht.
       if(m.flag[i]){
-        const fy=this.flagVisualPos? this.flagVisualPos(i)[1] : m.worldPos(i)[1];
-        items.push({kind:'flag', i, y:fy+2});
+        const [fvx,fvy]=this.flagVisualPos? this.flagVisualPos(i) : m.worldPos(i);
+        items.push({kind:'flag', i, y:fvy+2});
+        // Fahnen sind FESTE Hindernisse im Ausweich-Pass (Nutzerbefund R3:
+        // "die Figuren laufen durch die Fahnen") - Laeufer machen jetzt
+        // denselben kleinen Bogen um den Stab wie um stehende Figuren.
+        // fest: der Pass darf die Fahne selbst nicht beiseite lehnen.
+        figs.push({o:this._fahnenDummy||(this._fahnenDummy={}), x:fvx, y:fvy,
+                   mov:false, fest:true});
       }
       if(game.signs && game.signs.has(i) && m.bld[i]<0) items.push({kind:'sign', i, ore:game.signs.get(i), y:m.worldPos(i)[1]+1});
     }
@@ -9888,9 +9894,12 @@ export class Renderer {
             for(const q of m.nbs(b.node)) if(m.terr[q]===TER.WATER){
               const [qx,qy]=m.worldPos(q); wx+=qx-x; wy+=qy-y; n2++;
             }
+            // 0,48/0,34 statt 0,34/0,24 (Nutzerbefund R3): mit dem alten
+            // Versatz stand die Stelzenhuette samt Steg noch komplett auf
+            // der Wiese - jetzt reichen die Stelzen bis an die Nasszone
             const L=n2? Math.hypot(wx,wy)||1 : 1;
-            b._wx=n2? (wx/L)*TILE*0.34 : 0;
-            b._wy=n2? (wy/L)*TILE*0.24 : 0;
+            b._wx=n2? (wx/L)*TILE*0.48 : 0;
+            b._wy=n2? (wy/L)*TILE*0.34 : 0;
           }
           sx=b._wx; sy=b._wy;
         }
@@ -10474,7 +10483,16 @@ export class Renderer {
           }
           break;
         case 'ripple': {
-          // stille Wasserringe (Fischer, Hafen)
+          // stille Wasserringe (Fischer, Hafen) - NUR wenn der Anker auch
+          // wirklich ueber Wasser liegt (Nutzerbefund R3: die Huette steht
+          // je nach Ufer ein Stueck an Land, und die weissen Ringe
+          // pulsierten dann auf der Wiese - "scheint weiss")
+          if(b._rippleOk===undefined){
+            const m9=this.game.map;
+            const n9=m9.nearestNode(ax, ay+4);
+            b._rippleOk = n9>=0 && m9.terr[n9]===TER.WATER;
+          }
+          if(!b._rippleOk) break;
           const ri=this.asset('fx_rings');
           if(ri){
             const asp=ri.naturalWidth/ri.naturalHeight;
@@ -10909,8 +10927,9 @@ export class Renderer {
           f._tx+=-ny*w; f._ty+=nx*w;             // Läufer weicht nach rechts aus
           // Wer STEHT (Bauarbeiter beim Hämmern, Planierer beim Graben),
           // macht dem Läufer zur Gegenseite hin Platz - vorher liefen
-          // Träger mitten durch stehende Figuren hindurch.
-          if(!q.mov){ q._tx+=ny*w; q._ty+=-nx*w; }
+          // Träger mitten durch stehende Figuren hindurch. Feste
+          // Hindernisse (Fahnen) lehnen sich natürlich NICHT beiseite.
+          if(!q.mov && !q.fest){ q._tx+=ny*w; q._ty+=-nx*w; }
           if(Math.hypot(f._tx,f._ty)>1.5) break outer;   // reicht - früh abbrechen
         }
       }
