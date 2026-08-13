@@ -9096,6 +9096,12 @@ export class Renderer {
       // alles außer Katapult-Geschossen weicht einander aus
       if(u.type!=='boulder') figs.push({o:u, it:null, x:u.x, y:u.y, mov:!!u._mov, dx:u._dx, dy:u._dy});
     }
+    // Wild (Reh/Hase/Wildschwein) ist ein FESTES Hindernis im Ausweich-Pass
+    // (Nutzerbefund: Figuren liefen mitten durch das Wildschwein und
+    // verschwanden hinter dessen Bild). tier: fuer die Jaeger-Ausnahme -
+    // der Pirschende darf seinem eigenen Beutetier nicht ausweichen.
+    if(game.animals) for(const a of game.animals)
+      figs.push({o:a, x:a.x, y:a.y, mov:false, fest:true, tier:a});
     // Weiches gegenseitiges Ausweichen: rein OPTISCHER Versatz nach rechts,
     // wenn eine andere Figur dicht voraus ist. Die Sim-Positionen bleiben
     // unangetastet (Ankommen/Reichweiten kippen nicht); der Versatz wird
@@ -11040,12 +11046,24 @@ export class Renderer {
         if(!b) continue;
         for(const q of b){
           if(q===f || q.o===f.o) continue;
+          // Jäger auf der Pirsch: sein eigenes Beutetier ist KEIN Hindernis,
+          // sonst schiebt ihn der Pass ewig seitlich am Ziel vorbei.
+          if(q.tier && f.o.animalId===q.tier.id) continue;
           const rx=q.x-f.x, ry=q.y-f.y;
           const d=Math.hypot(rx,ry);
           if(d>=R) continue;
           if(rx*nx+ry*ny < -4) continue;         // deutlich hinter mir: egal
           const w=1-d/R;
-          f._tx+=-ny*w; f._ty+=nx*w;             // Läufer weicht nach rechts aus
+          // Läufer weicht nach rechts aus. AUSNAHME feste Hindernisse
+          // (Fahne, Wild): dort zählt die freiere Seite - stur rechts schob
+          // z. B. den Westwärts-Läufer nach OBEN, also mitten HINTER das
+          // Fahnentuch bzw. den Tierrücken (Nutzerbefund "läuft durch die
+          // Grafik / optische Täuschung"). Bei Figur-gegen-Figur bleibt
+          // rechts-rechts, sonst weichen sich Entgegenkommende zur SELBEN
+          // Seite aus. sgn kippt nur beim frontalen Überqueren des
+          // Hindernisses; die weiche Einblendung (sm) fängt den Sprung ab.
+          const k=(q.fest && (rx*-ny + ry*nx)>0)? -1 : 1;
+          f._tx+=-ny*w*k; f._ty+=nx*w*k;
           // Wer STEHT (Bauarbeiter beim Hämmern, Planierer beim Graben),
           // macht dem Läufer zur Gegenseite hin Platz - vorher liefen
           // Träger mitten durch stehende Figuren hindurch. Feste
