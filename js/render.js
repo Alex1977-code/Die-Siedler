@@ -7491,9 +7491,15 @@ export class Renderer {
     return st;
   }
   // ================= Hauptzeichnung =================
-  draw(cam, ui, dtMs){
+  draw(cam, ui, dtMs, dtAnim){
     const g=this.ctx, game=this.game, m=game.map;
     this.time+=dtMs;
+    // Figuren-Uhr: läuft mit dem SPIELTEMPO (ui reicht dt*Tempofaktor
+    // herein, 0 bei Pause). Vorher tickten die Schritte immer in Echtzeit -
+    // bei 10-fach-Tempo glitten die Figuren über die Karte, in der Pause
+    // marschierten sie auf der Stelle weiter. Wasser, Falter und andere
+    // Kulisse bleiben bewusst an der Echtzeit (this.time).
+    this.animTime=(this.animTime||0)+(dtAnim!==undefined? dtAnim : dtMs);
     this._lastCam=cam;
     g.setTransform(this.dpr,0,0,this.dpr,0,0);
     // Hintergrund: Tiefwasser mit leichtem Verlauf
@@ -10748,7 +10754,7 @@ export class Renderer {
       // stehend: zuletzt gelaufene Richtung beibehalten
       dirKey=st.dirKey; flip=st.flip;
     }
-    const COLS={ walk:12, idle:12, atk:8, hit:8, die:10, flee:12, cheer:12 };
+    const COLS={ walk:12, idle:12, atk:8, hit:8, die:10, flee:12, cheer:12, trag:12 };
     let set= (act && this.asset(baseKey+'_'+act.set)) ? act.set
       : fight!=null && this.asset(baseKey+'_atk') ? 'atk'
       : mov? 'walk' : (this.asset(baseKey+'_idle')? 'idle':'walk');
@@ -10764,14 +10770,17 @@ export class Renderer {
       const pr=Math.max(0, Math.min(0.999, (act&&act.prog)||0));
       k= set==='die' ? Math.min(n-1, Math.floor(pr*n)) : Math.floor(pr*n)%n;
     } else if(set==='flee'){
-      k=Math.floor(this.time/46 + (this._animSeed||0))%n;   // schneller = Rennen
+      k=Math.floor(this.animTime/46 + (this._animSeed||0))%n;   // schneller = Rennen
     } else if(set==='cheer'){
-      k=Math.floor(this.time/95 + (this._animSeed||0))%n;
-    } else if(set==='walk'){
+      k=Math.floor(this.animTime/95 + (this._animSeed||0))%n;
+    } else if(set==='walk' || set==='trag'){
       // 12 Frames -> kürzere Frame-Zeit, damit der Schritt flüssig bleibt.
       // OHNE Bewegung (Lauf-Set nur als Rückfall, weil kein Warte-Set da
       // ist) wird Frame 0 eingefroren - niemand marschiert auf der Stelle.
-      k= mov ? Math.floor(this.time/62 + (this._animSeed||0))%n : 0;
+      // Wer FLIEHT, aber kein Flucht-Blatt hat, rennt im Lauf-Blatt mit
+      // Flucht-Takt weiter - vorher fiel er auf die gemütlichen 62 ms.
+      const takt=(act && act.set==='flee')? 46 : 62;
+      k= mov ? Math.floor(this.animTime/takt + (this._animSeed||0))%n : 0;
     } else if(set==='atk'){
       // Arbeitstakt je Beruf: schwere Schläge langsamer als flinkes Hämmern;
       // der Fischer wirft aus und HÄLT dann die Rute (deshalb am längsten).
@@ -10784,11 +10793,11 @@ export class Renderer {
         // Rueckfalls - fuer einen Bogenschuss bzw. das Buecken zum Pflanzen
         // viel zu hektisch. 150/140 ms je Bild = ruhige 1,2/1,1 s je Zyklus.
         unit_hunter:150, unit_forester:140 };
-      k=Math.floor(this.time/(ATK_MS[baseKey]||85) + (fight||0)*2.1)%n;
+      k=Math.floor(this.animTime/(ATK_MS[baseKey]||85) + (fight||0)*2.1)%n;
     } else {
       // Warten mit Leben: meist ruhige Grundpose, alle paar Sekunden eine
       // Geste (Fußtippen, Umschauen, Recken – aus dem Warte-Clip)
-      const T=this.time/1000 + (this._animSeed||0)*0.7;
+      const T=this.animTime/1000 + (this._animSeed||0)*0.7;
       const cyc=T%7.5;
       if(cyc<3.0) k=Math.floor(cyc/3.0*n)%n;   // Geste: Clip einmal durchspielen
       else k=0;                                 // ruhig stehen
@@ -10917,9 +10926,17 @@ export class Renderer {
     let baseKey= kind==='soldier'
       ? 'unit_'+(rank==='spear'||rank==='bow'?rank:'sword')
       : kind==='carrier' ? 'unit_carrier' : 'unit_'+(wtype||'worker');
-    // Berufe ohne eigenes Bild nutzen den generischen Siedler
-    if(kind==='worker' && !this.asset(baseKey) && !this.asset(baseKey+'_walk_r_0') && this.asset('unit_worker'))
+    // Berufe ohne eigenes Bild nutzen den generischen Siedler. Geprüft wird
+    // das LAUF-BLATT (unit_<typ>_walk) - der alte Check auf '_walk_r_0'
+    // stammte aus der Einzelbild-Zeit vor den Spritesheets und traf nie;
+    // ein Beruf mit Blättern, aber ohne Einzelbild, wäre fälschlich auf den
+    // generischen Siedler gefallen, sobald es unit_worker je gäbe.
+    if(kind==='worker' && !this.asset(baseKey) && !this.asset(baseKey+'_walk') && this.asset('unit_worker'))
       baseKey='unit_worker';
+    // Träger mit Last: eigenes Trage-Blatt (Arme halten die Kiste vor der
+    // Brust), gebacken über dem Geh-Zyklus - vorher schlenkerten die Arme
+    // frei, während die Ware daneben schwebte.
+    if(kind==='carrier' && good && !act && this.asset(baseKey+'_trag')) act={set:'trag'};
     // Gebackene 3D-Animation (aus GLB): unit_<typ>_walk/idle_<r|f|b>_<n>.png
     const anim=this.animFrame(baseKey, dir, mov, fight, act);
     if(anim){
@@ -10939,7 +10956,7 @@ export class Renderer {
       // schwerer – Last soll man der Figur ansehen
       const heavy= good==='trunk'||good==='stone'||good==='board'||good==='pig';
       const load= good? (heavy?1:0.55) : 0;
-      const bob= load? Math.sin(this.time/(heavy?260:210)+(this._animSeed||0))*load*0.7 : 0;
+      const bob= load? Math.sin(this.animTime/(heavy?260:210)+(this._animSeed||0))*load*0.7 : 0;
       g.translate(x, y+7.4+hh*fit.f+bob);
       if(anim.flip) g.scale(-1,1);
       if(load) g.rotate((anim.flip?-1:1)*0.045*load);

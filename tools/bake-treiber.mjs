@@ -27,7 +27,9 @@ const ASSETS=path.join(HIER,'..','assets');
 const URL_BASIS=process.env.BAKE_URL||'http://localhost:8901';
 const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const CELL=88;
-const SPALTEN={ walk:12, idle:12, atk:8 };
+// 'trag' = Geh-Zyklus mit konstanter Zusatzpose (Traeger haelt die Last
+// vor der Brust, die Beine laufen aus dem Clip weiter)
+const SPALTEN={ walk:12, idle:12, atk:8, trag:12 };
 
 const modell=process.argv[2];
 const sets=(process.argv[3]&&!process.argv[3].startsWith('--')? process.argv[3] : 'atk').split(',');
@@ -94,6 +96,7 @@ function spaltenPlan(set){
   const plan=[];
   for(let k=0;k<n;k++){
     if(set==='atk') plan.push({clip:idle.name, t:0, pose:atkPose(P.atk,k)});
+    else if(set==='trag') plan.push({clip:walk.name, t:walk.duration*k/n, pose:P.trag});
     else {
       const clip= set==='walk'? walk : idle;
       plan.push({clip:clip.name, t:clip.duration*k/n, pose:null});

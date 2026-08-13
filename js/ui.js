@@ -1420,7 +1420,12 @@ export class UI {
           flagSel:this.state.mode==='view'? (this.state.flagSel??-1) : -1,
           flagGeoOk:this.state.flagGeoOk!==false,
         };
-        this.renderer.draw(this.cam, this.uiRenderState, dt);
+        // Figuren-Uhr des Renderers: Echtzeit x Tempofaktor RELATIV zu 1x
+        // (0.45 ist die Basis) - bei "Test" (10-fach) schreiten die Figuren
+        // also wirklich 10-mal so schnell, statt über die Karte zu gleiten;
+        // in der Pause frieren sie ein statt auf der Stelle zu marschieren.
+        const tempoRel=this.paused? 0 : (SPEED_MULT[this.opts.speed]||SPEED_MULT[1])/SPEED_MULT[1];
+        this.renderer.draw(this.cam, this.uiRenderState, dt, dt*tempoRel);
         if(!this._mmT||now-this._mmT>500){ this._mmT=now; this.renderer.drawMinimap($('#minimap'), this.cam); }
         if(!this._resT||now-this._resT>600){ this._resT=now; this.updateHud(); }
         if(!this._ambT||now-this._ambT>2000){ this._ambT=now; this.klangKulisse(); }

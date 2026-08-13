@@ -53,6 +53,15 @@ export const POSEN = {
               L_Upperarm:[14,0,4],   L_Forearm:[-20,0,0],  Spine01:[0,0,0], Head:[2,0,0] }],
     ],
   },
+  carrier: {
+    // Tragepose (Set 'trag'): beide Haende halten die Kiste vor der Brust
+    // (drawGood zeichnet die Ware mittig auf Schulterhoehe), leichtes
+    // Zuruecklehnen als Gegengewicht. KONSTANT ueber dem Geh-Zyklus -
+    // die Beine laufen aus dem Clip weiter, nur die Arme sind ersetzt.
+    trag: { L_Upperarm:[58,0,8], L_Forearm:[-98,0,0], L_Hand:[-10,0,0],
+            R_Upperarm:[58,0,-8], R_Forearm:[-98,0,0], R_Hand:[-10,0,0],
+            Spine01:[4,0,0] },
+  },
   forester: {
     // Der Setzling steckt sauber geskinnt in der linken Hand des Meshes -
     // nichts zu entfernen, kein Zusatzwerkzeug.
