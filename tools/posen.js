@@ -23,8 +23,50 @@
 // Stützhand-Kürzel wie in den agentS-Posen: ruhig vor der Brust
 const FRAMES_ATK = 8;
 
+// ---------- Koerperbau (Asterix-Silhouetten, Spielerwunsch) ----------------
+// 'koerper' skaliert Knochen statisch [sx,sy,sz] - Y bleibt 1 (Hoehe und
+// UNIT_FIT unveraendert), nur die SILHOUETTE aendert sich (der Kritiker:
+// ±20 % Breite liest sich auf Spielzoom klar). Kinder erben die Skalierung:
+// wer Waist/Spine verbreitert, gibt dem Hals den Kehrwert zurueck, damit
+// der Kopf normal bleibt. Hierarchie: Hip -> {Pelvis -> Thighs,
+// Waist -> Spine01 -> Spine02 -> {NeckTwist01 -> Head, Clavicles -> Arme}}.
+const DICK={     // runder Bauch, stramme Beine (Fischer, Metzger)
+  Waist:[1.45,1,1.50], Spine01:[0.94,1,0.94],       // Bauch breit, Brust verjuengt
+  NeckTwist01:[0.74,1,0.72],                        // Kopf bleibt normal
+  L_Thigh:[1.14,1,1.14], R_Thigh:[1.14,1,1.14],
+};
+const RUNDLICH={ // gemuetlicher Ansatz (Mueller, Baecker)
+  Waist:[1.28,1,1.32], Spine01:[0.97,1,0.97],
+  NeckTwist01:[0.81,1,0.79],
+  L_Thigh:[1.08,1,1.08], R_Thigh:[1.08,1,1.08],
+};
+const STAEMMIG={ // breite Schultern, kraeftige Arme (Schmied)
+  // erste Fassung (Spine02 1,26 + Arme 1,14) wirkte als Gorilla-Klotz -
+  // eine Stufe zurueckgenommen liest er sich als stark, nicht aufgeblasen
+  Waist:[1.12,1,1.12], Spine02:[1.16,1,1.08],       // Schulterpartie breit
+  NeckTwist01:[0.82,1,0.86],
+  L_Upperarm:[1.07,1.02,1.07], R_Upperarm:[1.07,1.02,1.07],
+  L_Thigh:[1.08,1,1.08], R_Thigh:[1.08,1,1.08],
+};
+const SCHLANK={  // hager (Foerster)
+  Waist:[0.85,1,0.86], Spine01:[0.96,1,0.96],
+  NeckTwist01:[1.20,1,1.19],
+  L_Thigh:[0.92,1,0.92], R_Thigh:[0.92,1,0.92],
+};
+const DRAHTIG={  // sehnig-duenn (Jaeger)
+  Waist:[0.80,1,0.82], Spine01:[0.95,1,0.95],
+  NeckTwist01:[1.28,1,1.25],
+  L_Thigh:[0.88,1,0.88], R_Thigh:[0.88,1,0.88],
+};
+
 export const POSEN = {
+  fisher:  { koerper: DICK },
+  butcher: { koerper: DICK },
+  miller:  { koerper: RUNDLICH },
+  baker:   { koerper: RUNDLICH },
+  smith:   { koerper: STAEMMIG },
   hunter: {
+    koerper: DRAHTIG,
     // eingebauter (zerreißender) Bogen samt Streufragmenten
     entfernen: [49,93,94,97,101,105,114,115,117,118,124,126,129,130,132,136,140,141,166,169,170,179,183,186,192,194,195,200,205,206,213,216,217,221,224,235,245,249,259,267,270,273,278,282,292,297,298,300,320,321,327,328,333,338,347,350,355,360,364,368,370,374,375,376,385,387,388,391,394,401,403,408,414,420,440,467,473,478,490,495,502,505,509,518,519,521,538,598,601,602,603,643,644,839,1552,1742,1855,1889,1890,1891,1899,1904,2973,3111,3254,3255,3807,3808,3809,3810,4919,4921,5142,5143,5147,5613,5614,5617,5622,6101,6102,6168,6169,6171,6174,6178,6200,6217,6222,6224,6225,6226,6230,6239,6243,6244,6245,6258,6265,6280,6284,6286,6287,6288,6289,6291,6298,6304,6306,6309,6322,6323],
     // Werkzeug je Blatt: getragen (Gehen/Warten) hängt der Bogen längs der
@@ -63,6 +105,7 @@ export const POSEN = {
             Spine01:[4,0,0] },
   },
   forester: {
+    koerper: SCHLANK,
     // Der Setzling steckt sauber geskinnt in der linken Hand des Meshes -
     // nichts zu entfernen, kein Zusatzwerkzeug.
     // Pflanzen: bücken - Setzling in den Boden (Spalte 4) - andrücken - aufrichten.

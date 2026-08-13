@@ -92,6 +92,28 @@ window.poseAdd=(rots)=>{
   root.updateMatrixWorld(true);
 };
 window.bones=()=>[...boneMap.keys()];
+// ---- Koerperbau (Asterix-Silhouetten) ------------------------------------
+// Statische Knochen-Skalierung ueber der Clip-Pose: dick, drahtig, breit.
+// Die Tripo-Clips fuehren eigene Scale-Spuren (konstant 1) - der Mixer
+// ueberschreibt eine einmalig gesetzte Skalierung bei jedem setTime. Darum
+// merkt sich koerper() nur die Faktoren, und bake()/center() multiplizieren
+// sie NACH dem Stellen des Clips je Frame auf. Y bleibt ueberall 1, damit
+// Koerperhoehe und UNIT_FIT unveraendert bleiben; Kinder erben die
+// Skalierung (wer den Bauch verbreitert, gibt dem Hals den Kehrwert).
+let KOERPER=null;
+window.koerper=(scales)=>{
+  for(const n in scales) if(!boneMap.get(n)) return 'FEHLT '+n;
+  KOERPER=scales;
+  return 'ok';
+};
+function koerperAnwenden(){
+  if(!KOERPER) return;
+  for(const n in KOERPER){
+    const b=boneMap.get(n), s=KOERPER[n];
+    b.scale.x*=s[0]; b.scale.y*=s[1]; b.scale.z*=s[2];
+  }
+  root.updateMatrixWorld(true);
+}
 // Weltposition eines Knochens in der AKTUELLEN Pose (nach bake/center/poseAdd)
 // – für numerische Achsen-Kalibrierung statt Augenmaß
 window.bonePos=(name)=>{
@@ -390,6 +412,7 @@ window.center=(clipName, t, yawDeg, extra=null)=>{
   mixer.stopAllAction();
   if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
   if(extra) window.poseAdd(extra);
+  koerperAnwenden();
   root.rotation.y=yawDeg*Math.PI/180;
   root.position.set(0,0,0);
   const bb=skinnedBox();
@@ -403,6 +426,7 @@ window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null, extra=null)=>{
   mixer.stopAllAction();
   if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
   if(extra) window.poseAdd(extra);
+  koerperAnwenden();
   root.rotation.y=yawDeg*Math.PI/180;
   if(ox!=null){
     root.position.set(-ox,0,-(oz||0));

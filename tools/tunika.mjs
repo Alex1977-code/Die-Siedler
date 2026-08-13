@@ -35,13 +35,17 @@ const BERUFE={
   // Erhaltung ergaebe "dunkle Figur mit blauer Kapuze". hell zieht die
   // Helligkeit ein Stueck zur Zielfarbe, damit das Taubenblau auf
   // Spielzoom traegt; 60 % der Schattierung bleiben erhalten.
+  // Fenster nach dem Dick-Bake (v180) geweitet: die frische Backware
+  // streut den Tunika-Ton breiter - das enge Fenster ergab Tarnflecken.
   fisher:  { sets:['walk','idle','atk'], ziel:[113,134,156],  // taubenblau
-             fenster:{h0:44,h1:95, s0:0.18,s1:0.75, l0:20,l1:200}, hell:0.4 },
-  // Schmied: die Lederkluft liegt tiefer im Braun (um 30 Grad) - das Fenster
-  // reicht darum weiter hinunter, dafuer nur bis Luma 120, damit beschattete
-  // Gesichtsraender (gleicher Ton, aber heller) nicht ergraut werden.
+             fenster:{h0:32,h1:100, s0:0.12,s1:0.85, l0:20,l1:205}, hell:0.4 },
+  // Schmied: die DUNKLE Kluft wird anthrazit (Ton ab 26, aber nur bis
+  // Luma 95) - hellere Lederteile (Schurz, Riemen, Handschuhe) bleiben
+  // braun und geben die Binnenzeichnung. Das breite v177-Fenster (bis
+  // Luma 120) faerbte den staemmigen Neu-Bake zum schwarzen Klotz, das
+  // enge (ab Ton 40) liess ihn ganz braun.
   smith:   { sets:['walk','idle'], ziel:[63,67,71],           // anthrazit
-             fenster:{h0:22,h1:95, s0:0.18,s1:1, l0:8,l1:120} },
+             fenster:{h0:26,h1:95, s0:0.15,s1:1, l0:8,l1:95} },
   // Mueller: bewusst dunkler als der weisse Baecker - "hellgrau", nicht weiss
   miller:  { sets:['walk','idle'], ziel:[168,172,178],        // hellgrau
              fenster:{h0:20,h1:70, s0:0,s1:0.36, l0:110,l1:255} },

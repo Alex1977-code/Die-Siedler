@@ -62,6 +62,14 @@ if(P.entfernen && P.entfernen.length){
   await page.evaluate('window.toolDiscard()');
   console.log('Mesh:', P.entfernen.length, 'Inseln entfernt');
 }
+// 2b. Koerperbau (Asterix-Silhouetten): Knochen-Skalierung je Beruf.
+// NACH setFrame - der Bildausschnitt bleibt der der schlanken Grundfigur,
+// damit alle Berufe denselben Massstab behalten (UNIT_FIT).
+if(P.koerper){
+  const r=await page.evaluate((k)=>window.koerper(k),P.koerper);
+  if(r!=='ok') throw new Error('koerper '+r);
+  console.log('Koerper:', Object.keys(P.koerper).join(' '));
+}
 // 3. Richtungs-Yaws über die Drift des Geh-Clips
 const drift=async(yaw)=>{
   const cs=[];
