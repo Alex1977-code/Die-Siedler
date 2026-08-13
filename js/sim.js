@@ -451,7 +451,7 @@ export class Game {
       for(const g in waren) s0.inv[g]=(s0.inv[g]||0)+waren[g];
     }
   }
-  burnBuilding(b, byWar=true){
+  burnBuilding(b, byWar=true, stumm=false){
     if(!this.buildings.has(b.id)) return;
     this.bldVer=(this.bldVer||0)+1;
     this.map.bld[b.node] = -1;
@@ -522,7 +522,10 @@ export class Game {
     for(const bt of this.battles) if(bt.bldId===b.id) bt.doneFlag=true;
     if(BLD[b.type].mil || b.type==='hq') this.recalcTerritory();
     if(b.type==='hq') this.checkPlayerDefeat(b.player);
-    if(byWar && b.player===0) this.msg(`${BLD[b.type].name} wurde zerstört!`, 'warn', b.node);
+    // stumm: der Aufrufer hat bereits eine SPEZIFISCHERE Meldung abgesetzt
+    // (Kritik R2 S1: "Baustelle vom Feind zerstoert!" und "wurde zerstoert!"
+    // kamen stets im selben Atemzug - EIN Ereignis, zwei Meldungen)
+    if(byWar && !stumm && b.player===0) this.msg(`${BLD[b.type].name} wurde zerstört!`, 'warn', b.node);
   }
   checkPlayerDefeat(pl){
     const p=this.players[pl];
@@ -1262,7 +1265,14 @@ export class Game {
         if(ore) this.onGeoFind && this.onGeoFind(u);   // Jubelruf des Geologen
         if(u.player===0 && ore){
           const name=['','Kohle','Eisenerz','Golderz','Granit'][ore];
-          this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target);
+          // Kritik R2 S3: je Fund eine Meldung ergab 5 gleiche Meldungen
+          // in 90 s auf demselben Feld. Je Erzart hoechstens alle 600
+          // Takte - weitere Funde derselben Art sind dasselbe Feld.
+          this._geoMsgT=this._geoMsgT||{};
+          if(this.t-(this._geoMsgT[ore]??-1e9)>600){
+            this._geoMsgT[ore]=this.t;
+            this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target);
+          }
         }
         u.state='seek';
       }
@@ -1399,7 +1409,18 @@ export class Game {
     // Spähwissen durch den Angriffsbefehl: ein kleiner Sichtkreis ums Ziel
     // lüftet den Nebel – das Kampfgeschehen spielt nicht mehr im Schwarzen (F8)
     if(pl===0) this.exploreAround(target.node, 4);
-    if(target.player===0) this.msg('Wir werden angegriffen!', 'war', target.node);
+    if(target.player===0){
+      // Kritik R2 S1: im offenen Schlagabtausch kam die Meldung im
+      // Minutentakt. 45-s-Fenster; was darin untergeht, zaehlt der
+      // naechste Durchlass als Sammelzusatz mit.
+      const still9=this.t-(this._atkMsgT??-1e9);
+      if(still9>450){
+        const extra9=this._atkStumm||0;
+        this.msg(extra9>0? `Wir werden angegriffen! (dazu ${extra9} weitere Angriffe)`
+                         : 'Wir werden angegriffen!', 'war', target.node);
+        this._atkMsgT=this.t; this._atkStumm=0;
+      } else this._atkStumm=(this._atkStumm||0)+1;
+    }
     return true;
   }
 
@@ -3033,7 +3054,7 @@ export class Game {
         if(target.state==='build'){
           if(target.player===0) this.msg(`${BLD[target.type].name}-Baustelle vom Feind zerstört!`, 'war', target.node);
           if(u.player===0) this.msg('Feindliche Baustelle zerstört!', 'ok', target.node);
-          this.burnBuilding(target);
+          this.burnBuilding(target, true, true);
           this.returnSoldiers(u.player, u.soldiers);
           u.dead=true;
           return;
@@ -3197,6 +3218,7 @@ export class Game {
           hq.inv.beer--;
           for(const w in STYPES[t].weapons) hq.inv[w]-=STYPES[t].weapons[w];
           p.recruits[t]=(p.recruits[t]||0)+1;
+          p._rekrutT=this.t;      // fuer den Bier-Tipp: die Kette LAEUFT
           this.onRecruit && p.id===0 && this.onRecruit();
         }
         // R3: Das Bier ist ein hartes Tor - ohne Bier kein Rekrut, egal wie
@@ -3207,7 +3229,13 @@ export class Game {
         // es war unsichtbar: Waffen im Lager, Reserve nicht voll, und nichts
         // sagte einem, woran es liegt. Jetzt sagt es einer - hoechstens alle
         // 3000 Takte, damit es keine Dauerbeschwerde wird.
-        if(p.id===0 && this.recruitTotal(p.id)<10 && !(hq.inv.beer>0)){
+        // Kritik R2 S2: der Tipp kam 7x in 35 Minuten, obwohl zwei
+        // Brauereien liefen - das Bier wird oft im selben Takt verbraucht,
+        // in dem es ankommt (Lagerstand 0 heisst NICHT Kette kaputt).
+        // Solange in den letzten 5 Minuten ein Rekrut entstand, schweigt
+        // der Tipp: die Kette arbeitet sichtbar.
+        if(p.id===0 && this.recruitTotal(p.id)<10 && !(hq.inv.beer>0)
+           && this.t-(p._rekrutT||-1e9)>3000){
           const waffeDa=((hq.inv.sword||0)>0&&(hq.inv.shield||0)>0)
                         ||(hq.inv.spear||0)>0||(hq.inv.bow||0)>0;
           if(waffeDa && this.t-(p._bierMsgT||-9999)>3000){
