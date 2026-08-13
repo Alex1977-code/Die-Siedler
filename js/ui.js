@@ -1125,12 +1125,18 @@ export class UI {
         rows.push('Lager: '+inv);
         if(b.type==='hq'){
           const r=g.players[0].recruits;
-          // Volle Reserve erklären: sonst wirkt der ruhende Waffenvorrat wie
-          // ein Fehler ("nimmt nie ab"), obwohl schlicht niemand rekrutiert
-          // werden muss, bis ein Posten Nachschub braucht.
+          // Ruhende Waffenvorräte erklären: Waffen werden beim REKRUTIEREN
+          // verbraucht (1 Bier + Waffe -> Rekrut), nicht beim Einzug in den
+          // Posten - der zieht fertige Soldaten aus der Reserve. Ohne den
+          // Hinweis wirkt der eingefrorene Schwertstapel wie ein Fehler
+          // (Nutzer-Report v186/v187), denn die Bier-Meldung ist flüchtig,
+          // das Lager hat man dagegen direkt vor Augen.
           const voll=g.recruitTotal(0)>=10;
-          rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}${
-            voll? ' <small>(voll – rekrutiert wird erst wieder, wenn Posten Nachschub brauchen)</small>':''}`);
+          const waffeDa=((b.inv.sword||0)>0&&(b.inv.shield||0)>0)||(b.inv.spear||0)>0||(b.inv.bow||0)>0;
+          const hinweis= voll? ' <small>(voll – rekrutiert wird erst wieder, wenn Posten Nachschub brauchen)</small>'
+            : (!(b.inv.beer>0)&&waffeDa)? ' <small>(kein Bier – je Rekrut wird 1 Bier + Waffe verbraucht, die Waffen bleiben solange liegen)</small>'
+            : '';
+          rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}${hinweis}`);
         }
       }
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
