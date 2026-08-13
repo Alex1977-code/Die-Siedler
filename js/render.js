@@ -306,6 +306,7 @@ export class Renderer {
     this.fogDark=null; this.fogMist=null;
     this._snowLine=null; this._massifSnow=null; this._firnLine=null; this._firnMap=null; this._hiLo=null; this._tips=null; this._bTint=null;
     this._liftC=null; this._liftFld=null;   // Anhebung (G1) haengt an Karte+Minen
+    this._firnDeck=null;                    // gezeichnete Firndeckung je Knoten
     this._palRock=null; this._spireTint=null;   // Fels-Palette/Nadeltönung hängen am Thema
     this._felsPool=null;                        // Formenvorrat haengt an den vorhandenen Bildern
     this._lasurC=null; this._felsBox=null;      // Fels-Lasurkacheln hängen am Thema
@@ -3384,10 +3385,16 @@ export class Renderer {
                     if(!open && comp.length<400) for(const q of comp) iceHole.add(q);
                   }
               }
+              if(!this._firnDeck) this._firnDeck=new Map();
               for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
                 for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
                   const i=m.idx(x,y);
                   let sn=snOf(i);
+                  // Deckungsgrad hinterlegen: drawFelsFormation entscheidet
+                  // damit den Schneemodus nach der GEZEICHNETEN Decke statt
+                  // nach der reinen Hoehenregel (die feuerte auch auf
+                  // blankem Fels, wo Rauschen/Steilheit die Decke aufreisst)
+                  this._firnDeck.set(i, sn<0? 0 : sn);
                   if(sn<0) continue;
                   if(sn===0){
                     // Winter-Sonderfall (Kritikbericht F9): eine EINZELNE
@@ -5384,6 +5391,13 @@ export class Renderer {
     const msn=this.massifSnow();
     const isMas=(q)=>{ const t=m.terr[q];
       return t===TER.MOUNT||t===TER.LAVA||(t===TER.SNOW&&msn[q]); };
+    // Steht die Formation AUF der Firndecke bzw. im Schnee? Dann bekommen
+    // alle Stuecke den Schneemodus (kuehler Schatten, Schneesockel statt
+    // Kiesel-Schuttsaum) - s. drawFelsObj.
+    const deck9=this._firnDeck? this._firnDeck.get(i) : undefined;
+    const schnee9 = this.theme==='winter' || m.terr[i]===TER.SNOW
+                 || (deck9!==undefined? deck9>0.45
+                                      : m.hgt[i]>this.firnAt(i)-0.4);
     // Gipfel? Der höchste Knoten der Umgebung bekommt die Kuppe.
     const hi=m.hgt[i];
     let top=true;
@@ -5398,20 +5412,20 @@ export class Renderer {
     if(top && sp<0.55 && m.hgt[i]<=this.firnAt(i)-0.6){
       this.drawFelsObj(g,'obj_summit_1', px+ox2, py+oy2+3,
                        0.92+hash01(i*67+5)*0.22,
-                       hash01(i*11+9)>0.5, 0.28, lz, i*11+3);
+                       hash01(i*11+9)>0.5, 0.28, lz, i*11+3, schnee9);
     } else if(best8>=0 && bd8>1.25 && sp<0.70){
       const [qx8,qy8]=this.felsFormPos(best8);
       const mx8=px*0.62+qx8*0.38, my8=py*0.62+qy8*0.38;
       const KANT9=['obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4']
         .filter(k9=>this.asset(k9));
       const kk9=KANT9.length? KANT9[(sp*211|0)%KANT9.length] : 'obj_crag_1';
-      this.drawFelsObj(g, kk9, mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7);
+      this.drawFelsObj(g, kk9, mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7, schnee9);
     } else if(sp<0.30){
       // Stein-/Kieshaufen: gemalte Gruppe, sonst prozedurale Brocken
       const art= sp<0.14? 'obj_steinhaufen' : 'obj_kieshaufen';
       const gr= sp<0.14? 0.30 : 0.24;
       if(!this.drawFelsObj(g, art, px+ox2, py+oy2+2, gr*sc7,
-                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2))
+                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2, schnee9))
         this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.14, lz);
     } else {
       if(!this._felsPool){
@@ -5424,7 +5438,7 @@ export class Renderer {
       const P9=this._felsPool;
       const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_1';
       const box=this.drawFelsObj(g,key9, px+ox2, py+oy2+3, sc7,
-                                 hash01(i*7+1)>0.5, 0.26, lz, i*3+1);
+                                 hash01(i*7+1)>0.5, 0.26, lz, i*3+1, schnee9);
       if(!box) this.felsHaufen(g, px+ox2, py+oy2+2, i, true, lz);
     }
   }
@@ -5695,7 +5709,14 @@ export class Renderer {
   // Kontaktschatten – der Fels sitzt damit im selben Licht wie der Hang.
   // seed (optional): ohne ihn gibt es keinen Schuttsaum (der braucht eine
   // ortsfeste Streuung).
-  drawFelsObj(g, key, x, y, sc, spiegel, schatten, lum, seed){
+  // schnee=true: das Objekt steht AUF der Firndecke (Nutzerfoto v171:
+  // "der Fels im Schnee sieht noch nicht realistisch aus"). Der warme
+  // braune Kontaktschatten und der Kiesel-Schuttsaum lasen sich dort wie
+  // Schmutz auf dem Weiss, und der Fels sass ohne Schneeansatz wie ein
+  // Aufkleber auf der Decke. Im Schneemodus: kuehler, leiserer Schatten,
+  // ein Schneesockel bettet den Fuss ein, und statt der Kiesel liegen
+  // kleine Wehen an der Unterkante.
+  drawFelsObj(g, key, x, y, sc, spiegel, schatten, lum, seed, schnee=false){
     const L9= lum===undefined? 0 : Math.max(-1,Math.min(1,lum));
     const img=this.tintedSpire(key, L9<-0.28? -1 : L9>0.28? 1 : 0);
     if(!img) return null;
@@ -5710,15 +5731,17 @@ export class Renderer {
     // Kontaktschatten ist am Berührungspunkt fast schwarz und verliert
     // sich nach außen; er klebt das Objekt an den Grund. Auf besonnten
     // Flanken fällt er kräftiger aus als im Schatten.
+    // Auf Schnee schattet es KUEHL (Blaugrau) und deutlich leiser.
     if(schatten>0){
       const kx=x+cw*0.08, ky=y+1.5;
       const rx=Math.max(4,cw*0.52), ry=Math.max(1.6,cw*0.175);
-      const st=schatten*(1+L9*0.28);
+      const st=schatten*(1+L9*0.28)*(schnee?0.7:1);
+      const sf=schnee? '58,70,96' : '26,23,19';
       const rg=g.createRadialGradient(kx,ky,Math.max(1,rx*0.10), kx,ky,rx);
-      rg.addColorStop(0,   'rgba(26,23,19,'+(st*1.35).toFixed(3)+')');
-      rg.addColorStop(0.38,'rgba(26,23,19,'+(st*0.78).toFixed(3)+')');
-      rg.addColorStop(0.72,'rgba(26,23,19,'+(st*0.26).toFixed(3)+')');
-      rg.addColorStop(1,   'rgba(26,23,19,0)');
+      rg.addColorStop(0,   'rgba('+sf+','+(st*1.35).toFixed(3)+')');
+      rg.addColorStop(0.38,'rgba('+sf+','+(st*0.78).toFixed(3)+')');
+      rg.addColorStop(0.72,'rgba('+sf+','+(st*0.26).toFixed(3)+')');
+      rg.addColorStop(1,   'rgba('+sf+',0)');
       g.save();
       g.translate(kx,ky); g.scale(1,ry/rx); g.translate(-kx,-ky);
       g.fillStyle=rg;
@@ -5730,6 +5753,28 @@ export class Renderer {
     // die Bildunterkante liegt FELS_BODEN unter der Bodenlinie
     g.drawImage(img, x-dw/2, y-dh+FELS_BODEN*f, dw, dh);
     g.restore();
+    if(schnee && cw>10){
+      // SCHNEESOCKEL: weiche weisse Zungen VOR der Unterkante betten den
+      // Fels in die Decke ein - der Bildrand verschwindet im Schnee statt
+      // auf ihm zu stehen. Drei ueberlappende Radialflecken, leicht
+      // versetzt, dazu je Seed zwei kleine Wehen.
+      const s0= seed===undefined? (x*7+y*13)|0 : seed;
+      for(let k=0;k<3;k++){
+        const wx=x+(hash01(s0*17+k*29)-0.5)*cw*0.9;
+        const wy=y+2+(hash01(s0*23+k*11)-0.35)*Math.max(2,cw*0.10);
+        const wr=Math.max(5,Math.min(26,cw*(0.30+hash01(s0*31+k*7)*0.22)));
+        const rg2=g.createRadialGradient(wx,wy,1, wx,wy,wr);
+        rg2.addColorStop(0,'rgba(238,243,249,0.85)');
+        rg2.addColorStop(0.55,'rgba(234,240,247,0.55)');
+        rg2.addColorStop(1,'rgba(234,240,247,0)');
+        g.save();
+        g.translate(wx,wy); g.scale(1,0.40); g.translate(-wx,-wy);
+        g.fillStyle=rg2;
+        g.beginPath(); g.arc(wx,wy,wr,0,7); g.fill();
+        g.restore();
+      }
+      return {w:cw, h:ch};
+    }
     // SCHUTTSAUM: ein paar kantige Brocken über der Unterkante. Sie
     // durchbrechen die messerscharfe Silhouette des Bildrands – ohne sie
     // endet der Fels wie ein ausgeschnittener Aufkleber. Zwei davon liegen
