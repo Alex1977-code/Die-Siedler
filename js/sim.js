@@ -3517,6 +3517,14 @@ export class Game {
   toolsmithChoose(pl){
     const need={ hammer:2, shovel:2, pick:2 };            // Grundreserve; Rest 1
     for(const t of TOOLS) need[t]=need[t]||1;
+    // Kritik R2 S4: der Jagdbogen kam NUR aus der Waffenschmiede, und dort
+    // frisst die Rekrutierung jeden Bogen sofort weg - der Jaeger stand im
+    // Messlauf 25 Minuten still ("wartet auf Werkzeug (Bogen)!" im
+    // Dauerton). Wartet ein Jaeger, darf die Werkzeugschmiede einen Bogen
+    // fertigen; ohne wartenden Jaeger bleibt der Bedarf 0, kein Eisen
+    // wandert in Bogen-Vorraete (Militaerbögen bleiben Sache der
+    // Waffenschmiede).
+    need.bow=0;
     for(const b of this.buildings.values()){
       if(b.player!==pl) continue;
       if(b.state==='build') need[b.leveled?'hammer':'shovel']+=1;
@@ -3527,7 +3535,7 @@ export class Game {
     }
     const inv=this.invTotal(pl);
     let best=null, bs=0;
-    for(const t of TOOLS){
+    for(const t of (need.bow>0? [...TOOLS,'bow'] : TOOLS)){
       // R6: Deckel je Werkzeug. Der Bedarf waechst mit jeder Baustelle
       // (+1 Hammer je Stelle, +2 je wartendem Haus) und kannte nach oben
       // keine Grenze - gemessen lagen deshalb 138 Haemmer und 89
