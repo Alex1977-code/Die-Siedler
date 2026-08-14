@@ -4575,6 +4575,11 @@ export class Game {
     if(g0('stone')<14 && c('quarry')<1+tief) want.push('quarry');
     if(essen<12 && c('fisher')<1+tief) want.push('fisher');
     if(essen<12 && c('hunter')<1+Math.floor(tief/2)) want.push('hunter');
+    // Bis hierher steht die MATERIALBASIS: Holz, Bretter, Stein, Nahrung.
+    // Vor sie darf sich nichts draengen - ohne Bretter wird auch das
+    // dringendste Bergwerk nicht fertig. Der Engpass der Eisenhuette wird
+    // deshalb genau HIER eingereiht (siehe unten), nicht ganz vorn.
+    const nachGrund = want.length;
     // --- Militaerposten. Deckel je Stufe (AI_MIL): LEICHT waechst gemuetlich
     // und deckelt frueh; ab NORMAL greift der Deckel erst MIT Feindkontakt,
     // sonst fror die KI im Niemandsland ein (Kalter-Krieg-Patt, F3).
@@ -4655,19 +4660,29 @@ export class Game {
       if(g0('gold')>=2 && c('mint')<1) want.push('mint');
       if(c('storehouse')<1 && this.aiBautenGesamt(p)>=12) want.push('storehouse');
     }
-    // ENGPASS DER EISENHUETTE GANZ NACH VORN (v197).
+    // ENGPASS DER EISENHUETTE VOR MILITAER UND VERARBEITUNG (v197).
     // Bergwerke stehen am Ende der Wunschliste; Militaerposten, Muehlen und
     // Baeckereien haben die Bretter vorher aufgebraucht. Fehlt einer
     // bestehenden Huette dauerhaft eine Haelfte, ist dieses Bergwerk aber
     // das Wichtigste, was die Siedlung bauen kann - ohne es steht die ganze
-    // Waffen- und Werkzeugkette. Nur wenn noch KEINE Baustelle dieses Typs
-    // offen ist: sonst entstuende ein Karussell aus Bauplaetzen, statt dass
-    // der angefangene fertig wird (dafuer sorgt der Nachschub oben).
+    // Waffen- und Werkzeugkette.
+    //
+    // ABER NICHT VOR DIE MATERIALBASIS. Eine erste Fassung setzte das
+    // Bergwerk an Position 0, also vor Holzfaeller, Saegewerk und Steinmetz.
+    // Ueber sechs Saaten gemessen kostete das die Siedlung: Saat 7 fiel von
+    // 25 auf 13 Gebaeude, Saat 777 von 37 auf 27, und auf Saat 2024 sank die
+    // Kohlefoerderung von 169 auf NULL - bei gleicher Zahl Bergwerke, weil
+    // ohne Bretter auch das dringendste Bergwerk nicht fertig wird. Es wird
+    // deshalb hinter der Grundversorgung eingereiht (nachGrund).
+    //
+    // Nur wenn noch KEINE Baustelle dieses Typs offen ist: sonst entstuende
+    // ein Karussell aus Bauplaetzen, statt dass der angefangene fertig wird
+    // (dafuer sorgt der Nachschub oben).
     {
       const eng=this.aiEngpassMine(p);
       if(eng){
         const offen=c(eng)-this.aiCount(p,eng,false);
-        if(offen===0 && c(eng)<1+tief) want.unshift(eng);
+        if(offen===0 && c(eng)<1+tief) want.splice(nachGrund, 0, eng);
       }
     }
 
