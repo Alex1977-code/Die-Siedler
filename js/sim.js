@@ -2939,6 +2939,29 @@ export class Game {
     return b.state==='done' && !!b.worker && !b.inv
         && b.door!=null && b.door>=0;
   }
+  // TAKTKREDIT fuer jeden Gang der Fachkraft vor die Tuer.
+  //
+  // Solange die Fachkraft draussen ist, ruht die Arbeit im Haus
+  // (tickProduction springt ueber den Betrieb). Diese Zeit ist reine
+  // Wegzeit und darf die Ausbringung nicht druecken - sie wird deshalb dem
+  // naechsten Zyklus gutgeschrieben. Frueher galt das nur fuer den Austrag;
+  // der Einholgang aus v184 kostete Takte, ohne welche zurueckzugeben, und
+  // hat Muehle und Baeckerei gemessen 12 bis 21 Prozent Ausstoss gekostet
+  // (Muehle 6,6 -> 5,28, Baeckerei 6,6 -> 4,46 Stueck je Spielminute).
+  //
+  // Aufaddiert, nicht ueberschrieben: eine Baeckerei holt Mehl UND Wasser,
+  // das sind zwei Gaenge je Zyklus. Gedeckelt auf zeit-1, damit ein Gang
+  // niemals allein einen Zyklus fertigstellt.
+  taktKredit(b, dauer){
+    if(!(dauer>0)) return;
+    const def=BLD[b.type];
+    const zeit=def.prod? def.prod.time : def.time;
+    if(!zeit) return;
+    // dasselbe Tempo wie in tickProduction (v194: Essen ist Tempo)
+    const satt=FOODS.some(f=>(b.stock[f]||0)>0);
+    const schnell=satt && (def.mine || def.foodBoost || b.foodPrio);
+    b.prodT=Math.min(zeit-1, (b.prodT||0) + dauer*(schnell?ESSEN_TEMPO:1));
+  }
   // Der Bewohner holt eine wartende Ware von der Tuerfahne herein: Tuer ->
   // Fahne -> aufnehmen -> Tuer -> einbuchen. Spiegelbild des Austrags;
   // derselbe Waechter (nach 300 Takten wird von Hand eingebucht).
@@ -2950,6 +2973,7 @@ export class Game {
       if(u.carry){ this.deliver(b, u.carry); u.carry=null; }
       u.dead=true;
       if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+      this.taktKredit(b, this.t-(u._t0||this.t));
       return;
     }
     if(u.state==='zurFahne'){
@@ -2966,6 +2990,9 @@ export class Game {
         if(u.carry){ this.deliver(b, u.carry); u.carry=null; }
         u.dead=true;
         if(b.worker && b.worker.state==='austrag') b.worker.state='in';
+        // Wegzeit zurueckgeben (siehe taktKredit) - der Holgang darf die
+        // Ausbringung nicht druecken.
+        this.taktKredit(b, this.t-(u._t0||this.t));
       }
     }
   }
@@ -3045,10 +3072,7 @@ export class Game {
         }
         // Zykluszeit-Kompensation: der Austragsweg zählt als bereits
         // geleistete Arbeitszeit des nächsten Zyklus (Rate bleibt stabil)
-        const dauer=this.t-(u._t0||this.t);
-        const zeit=def.prod? def.prod.time : def.time;
-        const fed=def.prod && (def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
-        if(zeit) b.prodT=Math.max(b.prodT||0, Math.min(zeit-1, dauer*(fed?2:1)));
+        this.taktKredit(b, this.t-(u._t0||this.t));
       }
     }
   }
