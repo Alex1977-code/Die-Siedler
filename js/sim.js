@@ -4704,10 +4704,39 @@ export class Game {
        && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
        && !kontakt)
       milAllowed=Math.min(milN+1, this.aiFeindErreichbar(p)? AM.milMax*3 : AM.milMax*2);
+    // MILITAER WAECHST NUR MIT DER WIRTSCHAFT (v202).
+    //
+    // Gemessen (Saat 11, 45 Spielminuten, ohne Materialhilfe) baute die KI
+    // 30 Wachhaeuser - gegen 1 Waffenschmiede, 3 Kohlebergwerke, 1
+    // Eisenbergwerk und 0 Eisenhuetten. Die Posten stehen frueh in der
+    // Wunschliste und sind billig; sie haben die Bretter aufgebraucht, bevor
+    // die Industrie an die Reihe kam. Dreissig Posten bei einer einzigen
+    // Waffenschmiede ergeben in keiner Lesart Sinn: besetzen kann sie die
+    // KI ohnehin nicht, denn dafuer braucht sie Waffen und Bier.
+    //
+    // Neue Regel: ein Sockel ist immer erlaubt - ohne Posten verschiebt sich
+    // keine Grenze, und eine eingemauerte KI war schon einmal das Problem
+    // (KD1). Darueber hinaus kommt je ZWEI fertigen Wirtschaftsgebaeuden ein
+    // Posten dazu. Wer Land will, muss also auch bauen.
+    //
+    // Der erste Versuch erlaubte einen Posten je Wirtschaftsgebaeude - und
+    // traf damit exakt die 30, die vorher schon gebaut wurden: die Regel war
+    // wirkungslos. Ein Posten je zwei Gebaeuden deckelt dieselbe Partie bei
+    // 17 statt 30 und gibt der Industrie dreizehn Haeuser Baumaterial frei.
+    {
+      const wirtschaft=[...this.buildings.values()].filter(b=>
+        b.player===p.id && b.state==='done' && b.type!=='hq' && !BLD[b.type].mil).length;
+      milAllowed=Math.min(milAllowed, 4 + Math.floor(wirtschaft/2));
+    }
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
     if(tief>=2){
-      if(g0('water')<6 && c('well')<1+Math.floor(tief/2)) want.push('well');
+      // BRUNNENSCHLUESSEL VERDOPPELT (v202). Ein Brunnen liefert nominal
+      // 7,5 Wasser je Spielminute, eine Brauerei verbraucht 5,4 und eine
+      // Schweinezucht noch einmal so viel - mit EINEM Brunnen (der alte
+      // Deckel bei Normal) stand die Brauerei gemessen zu 35 bis 61 Prozent
+      // ohne Wasser da. Deckel und Schwelle sind deshalb verdoppelt.
+      if(g0('water')<12 && c('well')<2*(1+Math.floor(tief/2))) want.push('well');
       if(c('farm')<1 || (g0('grain')<6 && c('farm')<1+tief)) want.push('farm');
       // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
       if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
@@ -4730,7 +4759,23 @@ export class Game {
       const willKette = werkzeugNot || tief>=2;
       if(willKette){
         if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
-        if(g0('ironore')>=3 && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
+        // DIE HUETTE FOLGT DEM BERGWERK, NICHT DEM LAGER (v202).
+        //
+        // Bisher wurde sie erst ab drei Eisenerz IM LAGER gewuenscht. Damit
+        // musste die Kette zufaellig schon laufen, bevor ihr Herzstueck
+        // gebaut wurde - und weil frisches Erz sofort weiterwandert oder
+        // (bis v201) unterwegs verloren ging, stand das Lager praktisch nie
+        // bei drei. Gemessen ueber vier Saaten und je 60 Spielminuten wurde
+        // deshalb NIE eine Eisenhuette auch nur gesetzt, in 240 Minuten kein
+        // Gramm Eisen erschmolzen und keine einzige eigene Waffe geschmiedet.
+        // Es war eine Henne-Ei-Sperre: ohne Huette kein Eisen, ohne Eisen im
+        // Lager keine Huette.
+        //
+        // Jetzt zaehlt die FOERDERUNG: wer ein Eisenbergwerk hat, will eine
+        // Huette - Erz im Lager taugt weiter als Ausloeser, ist aber nicht
+        // mehr die einzige Tuer.
+        const erzQuelle = this.aiCount(p,'ironmine',false)>0 || g0('ironore')>=3;
+        if(erzQuelle && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
         // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten).
         // v197: die knappere Haelfte der Eisenhuette zuerst. Vorher stand
         // das Eisenbergwerk immer vorn, und weil die KI je Zug nur EIN Haus
