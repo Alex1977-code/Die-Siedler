@@ -1614,6 +1614,12 @@ export class Game {
   // Geteilt wird nur bei KI-Spielern. Beim Menschen waere eine Fahne, die
   // von selbst in seiner Strasse auftaucht, eine Ueberraschung - er hat den
   // Knopf dafuer selbst.
+  // Ab wie vielen Waren an der ZIELfahne der Traeger nichts mehr aufnimmt
+  // (v211, siehe pick()). Die Abwurfgrenze liegt bei FLAG_CAP+4 = 12; ein
+  // Wert daueber schaltet die Pruefung praktisch ab. Als Konstante
+  // herausgezogen, damit die Messsonden sie variieren koennen - der Wert 8
+  // war geraten und ist damit nachpruefbar statt geglaubt.
+  static ZIEL_FREI=FLAG_CAP;
   static WEG_TEILUNG=7;      // ab dieser Knotenzahl wird geteilt
   wegeTeilen(){
     for(const pl of this.players){
@@ -2172,7 +2178,7 @@ export class Game {
           // ausgenommen - die gehen durch die Tuer, nicht auf den Stapel.
           const zielF = r.path[endIx===0 ? lastIx : 0];
           const zielItems = this.flagItems.get(zielF);
-          const zielVoll = !!zielItems && zielItems.length>=FLAG_CAP;
+          const zielVoll = !!zielItems && zielItems.length>=Game.ZIEL_FREI;
           let bestIt=null, bestPr=99, bestRang=1e9;
           for(let k=0;k<items.length;k++){
             const it=items[k];
