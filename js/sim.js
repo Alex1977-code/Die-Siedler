@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -1829,8 +1829,12 @@ export class Game {
           if(have<2) reqs.push({b, good:'@food', prio:2});
         }
         if(def.mine){
+          // Seit v194 ist Essen im Bergwerk kein Muss mehr, sondern Tempo.
+          // Deshalb steht es auch in der Warteschlange nicht mehr vor dem
+          // Baumaterial (Stufe 1), sondern gleichauf mit dem Essen der
+          // uebrigen Betriebe (Stufe 2) - und nur noch einmal statt zweimal.
           let have=0; for(const f of FOODS) have+=(b.stock[f]||0)+(b.incoming[f]||0);
-          if(have<2){ reqs.push({b, good:'@food', prio:1}); if(have<1) reqs.push({b, good:'@food', prio:1}); }
+          if(have<2) reqs.push({b, good:'@food', prio:2});
         }
         if(def.cata){
           const need=2-(b.stock.stone||0)-(b.incoming.stone||0);
@@ -2238,9 +2242,15 @@ export class Game {
           b.chosenTool = b.makeGood || this.armoryChoose(b.player);
           if(!b.chosenTool) continue;
         }
-        // mit zugeteiltem Essen arbeitet ein Betrieb deutlich schneller
+        // ESSEN IST NIE PFLICHT, ESSEN IST TEMPO (Entscheidung v194).
+        // Vorher verdoppelte eine Mahlzeit den Takt; zusammen mit dem
+        // Bergbau, der ohne Essen GAR NICHTS foerderte, hing die halbe
+        // Wirtschaft an der Getreidekette: der gemessene Erzverbund aus
+        // sieben Bergwerken verlangte 45,5 Mahlzeiten je Minute, also rund
+        // 31 Bauernhoefe. Jetzt gilt ueberall dieselbe einfache Regel -
+        // ohne Essen laeuft der Betrieb, mit Essen um die Haelfte schneller.
         const fed=(def.foodBoost||b.foodPrio) && FOODS.some(f=>(b.stock[f]||0)>0);
-        b.prodT += fed? 2 : 1;
+        b.prodT += fed? ESSEN_TEMPO : 1;
         if(b.prodT>=def.prod.time){
           b.prodT=0;
           for(const g in def.prod.inputs) b.stock[g]-=def.prod.inputs[g];
@@ -2256,13 +2266,20 @@ export class Game {
       }
       if(def.mine){
         if(b.out>=4) continue;
-        b.prodT++;
+        // Bergleute arbeiten auch mit leerem Bauch - Essen macht sie nur
+        // schneller (v194). Die alte Regel "keine Mahlzeit, keine Foerderung"
+        // machte aus jedem Erz eine Mahlzeit und koppelte damit den ganzen
+        // Bergbau an den Bauernhof: gemessen brauchte ein Verbund aus vier
+        // Kohle-, zwei Eisen- und einem Goldbergwerk 45,5 Essen je Minute,
+        // das sind rund sieben Baeckereien und 31 Hoefe. Diese Kette hat nie
+        // jemand gebaut - also lief auch die Erzkette nie.
+        const satt=FOODS.some(f=>(b.stock[f]||0)>0);
+        b.prodT += satt? ESSEN_TEMPO : 1;
         if(b.prodT>=def.time){
           b.prodT=0;
-          // Essen verbrauchen
-          let fed=false;
-          for(const f of FOODS) if((b.stock[f]||0)>0){ b.stock[f]--; fed=true; break; }
-          if(!fed) continue;
+          // Essen verbrauchen, wenn welches da ist (sonst wird eben langsamer
+          // gefoerdert)
+          if(satt) for(const f of FOODS) if((b.stock[f]||0)>0){ b.stock[f]--; break; }
           // Erz in Umgebung suchen
           // EIN Ring statt zwei (v99). Über zwei Ringe erreichte das
           // Bergwerk 19 Knoten; zusammen mit dem flächendeckenden Erz lag

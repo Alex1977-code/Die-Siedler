@@ -68,14 +68,14 @@ export const BLD = {
   pigfarm:    { name:'Schweinezucht', cat:'nahrung', size:'L', cost:{board:3,stone:3}, prod:{out:'pig', inputs:{grain:1,water:1}, time:140}, space:2, desc:'Züchtet Schweine.' },
   butcher:    { name:'Schlachterei', cat:'nahrung', size:'M', cost:{board:2,stone:2}, prod:{out:'meat', inputs:{pig:1}, time:80}, desc:'Verarbeitet Schweine zu Fleisch.' },
   brewery:    { name:'Brauerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'beer', inputs:{grain:1,water:1}, time:110}, desc:'Braut Bier für neue Rekruten.' },
-  coalmine:   { name:'Kohlebergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'coal', time:90, desc:'Fördert Kohle. Bergleute brauchen Essen.' },
-  ironmine:   { name:'Eisenbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'ironore', time:90, desc:'Fördert Eisenerz. Bergleute brauchen Essen.' },
-  goldmine:   { name:'Goldbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'gold', time:100, desc:'Fördert Golderz. Bergleute brauchen Essen.' },
+  coalmine:   { name:'Kohlebergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'coal', time:90, desc:'Fördert Kohle. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
+  ironmine:   { name:'Eisenbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'ironore', time:90, desc:'Fördert Eisenerz. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
+  goldmine:   { name:'Goldbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'gold', time:100, desc:'Fördert Golderz. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
   granitemine:{ name:'Steinbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'stone', time:90, desc:'Fördert Steine aus dem Berg.' },
   smelter:    { name:'Eisenhütte', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'iron', inputs:{ironore:1,coal:1}, time:100}, desc:'Schmilzt Erz zu Eisen.' },
   mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Als Sold machen sie Verteidiger stärker.' },
   armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
-  toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet alle Werkzeuge (Hammer, Spitzhacke, Axt, Säge, Sense, Angel, Beil, Schaufel) – bevorzugt das, was gerade fehlt. Mit Essen doppelt so schnell.' },
+  toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet alle Werkzeuge (Hammer, Spitzhacke, Axt, Säge, Sense, Angel, Beil, Schaufel) – bevorzugt das, was gerade fehlt. Mit Essen deutlich schneller.' },
   donkeyfarm: { name:'Eselzucht', cat:'industrie', size:'M', cost:{board:3,stone:1}, prod:{out:'@donkey', inputs:{grain:1,water:1}, time:200}, space:1, desc:'Züchtet Esel. Sie verstärken stark befahrene Straßen – der Transport wird schneller.' },
   harbor:     { name:'Hafen', cat:'lager', size:'M', cost:{board:3,stone:3}, store:true, coastal:true, desc:'Küstenlager. Zwei Häfen und ein Schiff eröffnen einen Seeweg für Waren.' },
   shipyard:   { name:'Werft', cat:'industrie', size:'M', cost:{board:4,stone:2}, coastal:true, prod:{out:'@ship', inputs:{board:2}, time:240}, desc:'Der Werftarbeiter baut Schiffe, die Waren zwischen Häfen befördern.' },
@@ -202,6 +202,13 @@ export const MUSTER_WAIT = 600;
 // unter SAT_RESUME wieder an (Hysterese, damit nichts an der Schwelle
 // flattert). Kein hartes Abschalten der Kette: sobald Verbraucher das Gut
 // abrufen, sinkt der Bestand und die Produktion springt von selbst an.
+// ESSEN IST TEMPO, NICHT PFLICHT (v194). Ein Betrieb mit zugeteiltem Essen
+// arbeitet um diesen Faktor schneller - vorher war es glatt das Doppelte,
+// und Bergwerke foerderten ohne Mahlzeit ueberhaupt nicht. Gemessen kostete
+// das den Erzverbund 45,5 Mahlzeiten je Minute (rund 31 Bauernhoefe); die
+// Kette hat deshalb nie jemand zu Ende gebaut. 1,5 laesst dem Essen einen
+// spuerbaren Wert, ohne dass ohne Essen alles stillsteht.
+export const ESSEN_TEMPO = 1.5;
 export const SAT_PAUSE = 60;
 export const SAT_RESUME = 50;
 // R6: EINE Schwelle fuer alles war zu grob. 60 Bretter auf Halde sind
