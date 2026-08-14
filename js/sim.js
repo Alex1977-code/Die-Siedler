@@ -4874,33 +4874,26 @@ export class Game {
       // bisher hoechstens drei Hoefe bauen - bei zwei Muehlen und zwei
       // Brauereien braeuchte sie 7,6. Gemessen stand die Brauerei deshalb
       // auf drei von vier Saaten zu 89 bis 95 Prozent ohne Getreide.
-      const getreideBedarf = c('mill')*6.6 + c('brewery')*5.4
-                           + c('pigfarm')*4.2 + c('donkeyfarm')*3.0;
-      const wasserBedarf   = c('brewery')*5.4 + c('pigfarm')*4.2
-                           + c('donkeyfarm')*3.0;
-      // Deckel, damit eine einzelne Muehle nicht das halbe Land zupflastert;
-      // er waechst mit der Planungstiefe.
-      // DECKEL ZURUECK AUF DEN STAND VON v203 (v207). Der weite Deckel aus
-      // v204 (bis sieben Hoefe) hat sich ueber vier Messlaeufe als schaedlich
-      // erwiesen: ein Hof ist gross, kostet drei Bretter und drei Steine und
-      // frisst Platz - er verdraengte genau die Brauereien, die das Getreide
-      // abnehmen sollten. Auf zwei Saaten stand danach gar keine Brauerei
-      // mehr, das Bier fiel von 74 auf 9. Die Bedarfsrechnung bleibt, aber
-      // nur noch als OBERGRENZE: mehr als noetig wird nicht gebaut, mehr als
-      // drei aber auch nicht.
-      const hoefeSoll   = Math.min(Math.ceil(getreideBedarf/3.1), 1+tief);
-      // BODEN VON ZWEI BRUNNEN (v205). Die reine Bedarfsrechnung war eine
-      // selbstgebaute Henne-Ei-Falle: bei EINER Brauerei ergab sie genau
-      // einen Brunnen, dann fehlte der Brauerei Wasser, sie produzierte
-      // nichts, es entstand keine zweite Brauerei - also blieb es fuer immer
-      // bei einem Brunnen. Gemessen fiel die Bierproduktion ueber vier
-      // Saaten von 74 auf 17 und die Brunnenzahl auf allen vier Saaten von
-      // zwei bis drei auf eins. Die Bedarfsrechnung darf deshalb nur nach
-      // OBEN korrigieren; unten steht ein fester Boden, wie ihn v202 mit der
-      // pauschalen Verdopplung hatte.
-      const brunnenSoll = Math.min(Math.max(2, Math.ceil(wasserBedarf/7.4)), 1+2*tief);
-      if(c('well')<brunnenSoll) want.push('well');
-      if(c('farm')<Math.max(1,hoefeSoll)) want.push('farm');
+      // ZURUECK AUF v203 (v208). Nach v204 bis v207 habe ich die Hoefe und
+      // Brunnen dreimal nach Bedarf umgerechnet - und dreimal gemessen
+      // VERLOREN: Bier 74 -> 17 -> 9 -> 31 -> 16, Rekruten 34 -> 20. Auch
+      // die Ruecknahme des Getreidedeckels holte v203 nicht zurueck; meine
+      // Erklaerungen waren also alle drei falsch.
+      //
+      // Beim Nachrechnen faellt auf, was ich dabei uebersehen hatte: v203
+      // erlaubte bis zu VIER Brunnen, meine "Bedarfsformel" gab ab v205
+      // praktisch immer nur zwei. Sie hat also nicht ergaenzt, sondern
+      // unbemerkt gedeckelt - und dasselbe gilt fuer die Hoefe, deren
+      // Bedarf ohne Muehle und Brauerei bei null steht, obwohl genau die
+      // erst aus dem Getreide entstehen. Beides waren Henne-Ei-Sperren.
+      //
+      // Es gilt deshalb wieder woertlich die Regel aus v203. Die gemessenen
+      // Raten bleiben als Kommentar stehen, weil sie richtig sind - nur als
+      // Steuergroesse taugen sie nicht:
+      //   Bauernhof 3,1 Getreide/min | Brunnen 7,4 Wasser/min
+      //   Muehle 6,6 | Brauerei 5,4 | Schweinezucht 4,2 | Eselzucht 3,0
+      if(g0('water')<12 && c('well')<2*(1+Math.floor(tief/2))) want.push('well');
+      if(c('farm')<1 || (g0('grain')<6 && c('farm')<1+tief)) want.push('farm');
       // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
       if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
       if(g0('flour')>=3 && g0('bread')<8 && c('bakery')<1+Math.floor(tief/2)) want.push('bakery');
