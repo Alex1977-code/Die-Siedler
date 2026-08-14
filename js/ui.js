@@ -1,5 +1,5 @@
 // Neuland – UI: Bildschirme, HUD, Baumenü, Dialoge, Spielschleife.
-import { BLD, GOODS, GOOD_LIST, STYPES, STYPE_LIST, PLAYER_COLORS, OBJ, TER } from './core.js';
+import { BLD, GOODS, GOOD_LIST, STYPES, STYPE_LIST, PLAYER_COLORS, OBJ, TER, RANG_STD } from './core.js';
 import { TILE, ROWH } from './map.js';
 import { Game, TICK_MS } from './sim.js';
 import { Renderer, goodColor } from './render.js';
@@ -39,7 +39,7 @@ export class UI {
     this.buildDOM();
     this.showScreen('title');
     this.cam={x:0,y:0,z:1};
-    this.state={ sel:-1, mode:'view', roadFrom:-1, roadPath:null, buildCat:'basis', msgSeen:0 };
+    this.state={ sel:-1, mode:'view', roadFrom:-1, roadPath:null, buildCat:'basis', msgSeen:0, msgUngelesen:0 };
     this.renderer=new Renderer($('#cv'));
     setupInput($('#cv'), {
       cam:this.cam,
@@ -249,6 +249,12 @@ export class UI {
         <button id="g-menu" class="hbtn" title="Menü"></button>
         <button id="g-pause" class="hbtn"></button>
         <button id="g-speed" class="hbtn">1×</button>
+        <!-- Nutzerbefund: bei mehreren Ereignissen kurz hintereinander
+             ueberschreibt eine Meldung die naechste, man kommt nicht zum
+             Klicken und weiss danach nicht mehr, wo etwas los war. Der
+             Knopf oeffnet das Meldungsbuch mit der ganzen Historie; die
+             Zahl daneben zeigt, wie viel man verpasst hat. -->
+        <button id="g-msgs" class="hbtn" title="Meldungen">🔔<i id="msg-badge" class="hidden"></i></button>
       </div>
       <div id="minimap-wrap"><canvas id="minimap" width="220" height="220"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
       <div id="sheet" class="hidden"></div>
@@ -259,12 +265,16 @@ export class UI {
           <button id="gm-save" class="mbtn">💾 Speichern</button>
           <button id="gm-objectives" class="mbtn">🎯 Missionsziele</button>
           <button id="gm-stats" class="mbtn">📊 Statistik</button>
+          <button id="gm-transport" class="mbtn">🚚 Transport-Rangfolge</button>
+          <button id="gm-msgs" class="mbtn">🔔 Meldungen</button>
           <button id="gm-export" class="mbtn">📤 Spielstand exportieren</button>
           <button id="gm-quit" class="mbtn back">Zum Hauptmenü</button>
           <p class="note" id="gm-build" style="text-align:center;opacity:0.5">Fassung –</p>
         </div>
       </div>
       <div id="stats" class="hidden"></div>
+      <div id="transport" class="hidden"></div>
+      <div id="msglog" class="hidden"></div>
       <div id="dlg" class="hidden"></div>
     </div>`;
     // Navigation
@@ -334,6 +344,9 @@ export class UI {
     $('#gm-export').onclick=()=>{ if(this.game) SAVE.exportSave(this.game); };
     $('#gm-objectives').onclick=()=>{ this.pauseMenu(false); this.toggleObjectives(true); };
     $('#gm-stats').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openStats(); };
+    $('#gm-transport').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openTransport(); };
+    $('#gm-msgs').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openMsgLog(); };
+    $('#g-msgs').onclick=()=>{ Sound.sfx('tap'); this.openMsgLog(); };
     $('#gm-quit').onclick=()=>{
       Sound.sfx('tap');
       if(this.game && !this.game.over) SAVE.saveSlot('auto',this.game,'Autosave');
@@ -407,6 +420,7 @@ export class UI {
         ...mi.ais.map(a=>({name:a.name, ai:true, aiLevel:a.lvl}))],
       level:{id:mi.id, title:mi.title},
       objectives:mi.objectives,
+      rang:this.opts.transportRang,      // zuletzt gewaehlte Transport-Rangfolge
     };
     $('#story-title').textContent=`Mission ${mi.id}: ${mi.title}`;
     // Missions-Tafel (Landschaftsbild der Karte)
@@ -442,6 +456,7 @@ export class UI {
         if(z==='frei' || ais===0) return [];
         return [{type:'destroyEnemies', desc:'Besiege alle Gegner'}];
       })(),
+      rang:this.opts.transportRang,      // zuletzt gewaehlte Transport-Rangfolge
     };
     this.launch(new Game(setup));
   }
@@ -457,6 +472,7 @@ export class UI {
     this.paused=false;
     this._goHandled=false;
     this.state.sel=-1; this.state.mode='view'; this.state.msgSeen=0;
+    this.state.msgUngelesen=0; this.syncMsgBadge();
     this.renderer.setGame(game);
     this.renderer.onAmbient=(name,scale)=>Sound.sfx(name,scale);
     this.hookSounds(game);
@@ -1347,6 +1363,105 @@ export class UI {
       t.onclick=()=>{ Sound.sfx('tap'); this.openStats(t.dataset.f); });
     this.zeichneKurve($('#st-kurve'), akt);
   }
+  // ================= Transport-Rangfolge =================
+  // Vorbild ist die Warenverteilung aus Die Siedler II: der Spieler legt
+  // fest, welche Ware ein Traeger zuerst aufnimmt, wenn an einer Fahne
+  // mehrere liegen. Der ANLASS bleibt das staerkere Argument (eine
+  // Baustelle geht weiter vor einem Produktionseingang) - die Rangfolge
+  // entscheidet innerhalb dieser Stufe.
+  openTransport(){
+    const g=this.game; if(!g) return;
+    const liste=(g.players[0] && g.players[0].rang) ? g.players[0].rang : RANG_STD;
+    const inv=g.invTotal(0);
+    const zeilen=liste.map((k,i)=>`<div class="tr-zeile">
+        <span class="tr-platz">${i+1}</span>
+        <span class="tr-ic">${this.goodIcon(k)}</span>
+        <span class="tr-name">${GOODS[k]?GOODS[k].name:k}</span>
+        <span class="tr-menge">${inv[k]||0}</span>
+        <button class="hbtn tr-hoch" data-g="${k}" ${i===0?'disabled':''}>▲</button>
+        <button class="hbtn tr-runter" data-g="${k}" ${i===liste.length-1?'disabled':''}>▼</button>
+        <button class="hbtn tr-top" data-g="${k}" ${i===0?'disabled':''} title="ganz nach oben">⇈</button>
+      </div>`).join('');
+    $('#transport').innerHTML=`<div class="panel">
+      <div class="sh-head"><b>🚚 Transport-Rangfolge</b>
+        <button class="hbtn" id="tr-x">✕</button></div>
+      <p class="note">Liegen an einer Fahne mehrere Waren, nimmt der Träger die
+      oberste zuerst. Baustellen haben weiterhin Vorrang vor allem anderen.</p>
+      <div class="tr-liste">${zeilen}</div>
+      <button class="mbtn" id="tr-std">Voreinstellung wiederherstellen</button>
+    </div>`;
+    $('#transport').classList.remove('hidden');
+    $('#tr-x').onclick=()=>{ Sound.sfx('tap'); $('#transport').classList.add('hidden'); };
+    // Umsortieren: Liste aendern, an die Simulation UND in die Optionen
+    // geben, Panel neu zeichnen (Muster der Lager-Favoriten).
+    const setze=(neu)=>{
+      g.setzeRang(0, neu);
+      this.opts.transportRang=neu;
+      SAVE.setOptions(this.opts);
+      Sound.sfx('tap');
+      this.openTransport();
+    };
+    const schieben=(k, ziel)=>{
+      const l=liste.slice();
+      const ix=l.indexOf(k);
+      if(ix<0) return;
+      l.splice(ix,1);
+      l.splice(Math.max(0, Math.min(l.length, ziel)), 0, k);
+      setze(l);
+    };
+    document.querySelectorAll('#transport .tr-hoch').forEach(b=>
+      b.onclick=()=>schieben(b.dataset.g, liste.indexOf(b.dataset.g)-1));
+    document.querySelectorAll('#transport .tr-runter').forEach(b=>
+      b.onclick=()=>schieben(b.dataset.g, liste.indexOf(b.dataset.g)+1));
+    document.querySelectorAll('#transport .tr-top').forEach(b=>
+      b.onclick=()=>schieben(b.dataset.g, 0));
+    $('#tr-std').onclick=()=>setze(RANG_STD.slice());
+  }
+
+  // ================= Meldungsbuch =================
+  // Nutzerbefund: kommen mehrere Ereignisse kurz hintereinander, ueberschreibt
+  // die naechste Meldung die vorige, bevor man sie antippen kann - und danach
+  // ist nicht mehr auffindbar, WO etwas passiert ist. Die Simulation hebt
+  // ohnehin die letzten 120 Meldungen samt Kartenknoten auf; hier werden sie
+  // sichtbar und anklickbar.
+  openMsgLog(){
+    const g=this.game; if(!g) return;
+    this.state.msgUngelesen=0;
+    this.syncMsgBadge();
+    const ic={war:'⚔️', warn:'⚠️', ok:'✅', info:'ℹ️'};
+    const liste=g.msgs.slice(-60).reverse();
+    const zeilen=liste.length? liste.map((m)=>{
+      const min=Math.floor(m.t/600), sek=Math.floor(m.t/10)%60;
+      const sprung=(m.node!=null && m.node>=0);
+      return `<div class="ml-zeile ${m.type||'info'}${sprung?' klick':''}" data-node="${sprung?m.node:-1}">
+        <span class="ml-ic">${ic[m.type]||ic.info}</span>
+        <span class="ml-txt">${m.txt}</span>
+        <span class="ml-zeit">${min}:${String(sek).padStart(2,'0')}</span>
+        ${sprung?'<span class="ml-go">Hinsehen ▸</span>':''}
+      </div>`;
+    }).join('') : '<p class="note">Noch nichts passiert.</p>';
+    $('#msglog').innerHTML=`<div class="panel">
+      <div class="sh-head"><b>🔔 Meldungen</b>
+        <button class="hbtn" id="ml-x">✕</button></div>
+      <p class="note">Neueste zuerst. Meldungen mit Ortsangabe lassen sich antippen –
+      die Karte springt hin.</p>
+      <div class="ml-liste">${zeilen}</div>
+    </div>`;
+    $('#msglog').classList.remove('hidden');
+    $('#ml-x').onclick=()=>{ Sound.sfx('tap'); $('#msglog').classList.add('hidden'); };
+    document.querySelectorAll('#msglog .ml-zeile.klick').forEach(z=>
+      z.onclick=()=>{
+        const n=+z.dataset.node;
+        if(n>=0){ this.jumpTo(n); Sound.sfx('tap'); $('#msglog').classList.add('hidden'); }
+      });
+  }
+  // Zahl am Glockenknopf: wie viele Meldungen seit dem letzten Blick kamen
+  syncMsgBadge(){
+    const b=$('#msg-badge'); if(!b) return;
+    const n=this.state.msgUngelesen||0;
+    b.textContent = n>99? '99+' : String(n);
+    b.classList.toggle('hidden', n<=0);
+  }
   zeichneKurve(cv, feld){
     const g=this.game, s=g.stats, c=cv.getContext('2d');
     const W=cv.width, H=cv.height, L=42, Rr=10, O=10, U=24;
@@ -1396,9 +1511,12 @@ export class UI {
     const war=type==='war';
     t.className=war?'war':'';
     if(war && this.renderer.asset('ui_warframe')) t.classList.add('framed');
-    t.innerHTML= war
-      ? `<span class="toast-ic">⚔️</span><span>${txt}</span>${node>=0?'<span class="toast-go">Hinsehen ▸</span>':''}`
-      : `<span>${txt}</span>`;
+    // "Hinsehen" gab es bisher NUR bei Kriegsmeldungen. Bei allen anderen war
+    // der Klick zwar aktiv, aber unbeschriftet - man sah nicht, dass man
+    // hinspringen kann. Jetzt zeigt jede Meldung mit Ortsangabe den Hinweis.
+    t.innerHTML= (war?'<span class="toast-ic">⚔️</span>':'')
+      + `<span>${txt}</span>`
+      + (node>=0? '<span class="toast-go">Hinsehen ▸</span>' : '');
     t.classList.remove('hidden');
     t.onclick=()=>{
       if(node>=0){ this.jumpTo(node); Sound.sfx('tap'); }
@@ -1559,6 +1677,7 @@ export class UI {
   }
   pollMsgs(){
     const g=this.game;
+    const vorher=this.state.msgSeen;
     while(this.state.msgSeen<g.msgs.length){
       const msg=g.msgs[this.state.msgSeen++];
       this.toast(msg.txt, msg.type, msg.node);
@@ -1571,6 +1690,14 @@ export class UI {
           this.renderer._warPing={node:msg.node, bis:Date.now()+7000};
       }
       else if(msg.type==='ok') Sound.sfx('msg');
+    }
+    // Was der Toast nicht mehr zeigen konnte, zaehlt der Glockenknopf mit -
+    // sonst rauschen bei mehreren Ereignissen alle bis auf die letzte
+    // Meldung ungesehen durch.
+    const neu=this.state.msgSeen-vorher;
+    if(neu>0 && $('#msglog') && $('#msglog').classList.contains('hidden')){
+      this.state.msgUngelesen=(this.state.msgUngelesen||0)+neu;
+      this.syncMsgBadge();
     }
   }
   // springt zur Stelle auf der Karte, zu der eine Meldung gehört

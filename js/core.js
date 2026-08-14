@@ -43,6 +43,43 @@ export const GOODS = {
 // Werkzeuge (Werkzeugschmiede); Bogen des Jägers kommt aus der Waffenschmiede
 export const TOOLS = ['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'];
 export const GOOD_LIST = Object.keys(GOODS);
+
+// TRANSPORT-RANGFOLGE (v196), wie in Die Siedler II.
+//
+// Bisher entschied allein der ANLASS, was zuerst befoerdert wird: Baustelle
+// vor Produktionseingang vor Essen vor Sold. Innerhalb einer Stufe zaehlte
+// nur, was zufaellig zuerst in der Liste stand. Der Spieler konnte nichts
+// daran drehen - wer Nachschub fuer die Waffenschmiede wollte, musste
+// warten, bis der Zufall es so wollte.
+//
+// Jetzt gibt es zusaetzlich eine Rangfolge JE WARE, die der Spieler selbst
+// umsortieren kann. Sie greift als Zweitkriterium: der Anlass bleibt das
+// staerkere Argument, aber bei gleichem Anlass gewinnt die Ware, die weiter
+// oben steht - und dasselbe gilt fuer den Traeger, der an einer Fahne
+// zwischen mehreren Waren waehlt.
+//
+// Die Voreinstellung bildet ab, was eine Siedlung in dieser Reihenfolge
+// braucht: erst Baustoff, dann die Holz- und Nahrungskette, dann Erz und
+// Metall, zuletzt Waffen, Werkzeug und Sold.
+export const RANG_STD = [
+  'board','stone','trunk',
+  'bread','fish','meat','grain','flour','water','pig',
+  'coal','ironore','iron','gold',
+  'beer','coin',
+  'hammer','pick','axe','saw','scythe','rod','cleaver','shovel',
+  'sword','shield','spear','bow',
+];
+// Sicherheitsnetz: neue Waren, die noch nicht in RANG_STD stehen, haengen
+// hinten an, statt aus der Rangfolge zu fallen.
+export function rangListe(gespeichert){
+  const raus=[];
+  const gesehen=new Set();
+  for(const k of (Array.isArray(gespeichert)? gespeichert : RANG_STD)){
+    if(GOODS[k] && !gesehen.has(k)){ gesehen.add(k); raus.push(k); }
+  }
+  for(const k of GOOD_LIST) if(!gesehen.has(k)) raus.push(k);
+  return raus;
+}
 export const FOODS = ['fish','bread','meat'];
 
 // Gebäudedefinitionen. size: S/M/L/MINE. cat für das Baumenü.

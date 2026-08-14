@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, RANG_STD, rangListe, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -60,7 +60,11 @@ export class Game {
       defeated:false,
       recruits: {sword:2, spear:1, bow:1},   // Reserve im HQ, je Truppentyp
       aiState:{phase:0, lastAttack:0, wait:0},
+      // Transport-Rangfolge je Ware (v196). Der Mensch darf sie im
+      // Transportbildschirm umsortieren; die KI faehrt die Voreinstellung.
+      rang: rangListe(i===0 ? setup.rang : null),
     }));
+    this.rangIx = this.players.map(p=>Game.rangIndex(p.rang));
     this.level = setup.level || null;
     this.objectives = (setup.objectives||[]).map(o=>({...o, done:false, prog:0}));
     // Startaufstellung
@@ -75,6 +79,30 @@ export class Game {
     this.recalcTerritory();
     this.exploreAll(0);
     this.spawnAnimals();
+  }
+  // Aus der Rangliste eine Nachschlagetabelle Ware -> Platz machen. Sie wird
+  // in dispatch() und bei jeder Traegerwahl gelesen, also einmal gebaut statt
+  // jedes Mal indexOf() ueber 28 Waren laufen zu lassen.
+  static rangIndex(liste){
+    const ix={};
+    (liste||RANG_STD).forEach((k,i)=>{ ix[k]=i; });
+    return ix;
+  }
+  // Platz einer Ware in der Rangfolge dieses Spielers (kleiner = wichtiger).
+  // Unbekanntes landet hinten.
+  rangVon(pl, good){
+    const ix=this.rangIx && this.rangIx[pl];
+    if(!ix) return 99;
+    const r=ix[good];
+    return r===undefined? 99 : r;
+  }
+  // Neue Rangfolge uebernehmen (Transportbildschirm).
+  setzeRang(pl, liste){
+    const p=this.players[pl];
+    if(!p) return;
+    p.rang=rangListe(liste);
+    if(!this.rangIx) this.rangIx=this.players.map(q=>Game.rangIndex(q.rang));
+    this.rangIx[pl]=Game.rangIndex(p.rang);
   }
   // Schwierigkeitsgrad: Startwaren des Spielers, KI-Stärke, Angriffstakt, KI-Materialhilfe
   static diffMods(diff){
@@ -1852,6 +1880,27 @@ export class Game {
     }
     return reqs;
   }
+  // DER DECKEL ZAEHLT NUR EIGENE WAREN (v196).
+  //
+  // Auf einer Tuerfahne liegen dreierlei Posten: was das Haus selbst
+  // hinausgestellt hat, was fuer das Haus angeliefert wurde - und
+  // DURCHGANGSVERKEHR, der hier nur zwischengelegt wurde, weil die Fahne
+  // auf einer fremden Route liegt. Bisher zaehlte der Deckel alles drei.
+  // Gemessen war das der schwerste Bremsklotz der ganzen Logistik: ein
+  // Saegewerk an einer stark befahrenen Fahne lieferte 0,45 statt 6,6
+  // Bretter je Spielminute - nicht weil es voll war, sondern weil fremde
+  // Ladung seinen eigenen Ausgang blockierte. Ein Haus soll aber nur an
+  // dem gemessen werden, was ihm gehoert.
+  //
+  // Der Durchgangsverkehr bleibt nicht ungedeckelt: er faellt unter die
+  // harte Obergrenze FLAG_CAP+4, ab der ein Traeger seine Ladung abwirft.
+  eigeneAnFahne(b){
+    const items=this.flagItems.get(b.door);
+    if(!items || !items.length) return 0;
+    let n=0;
+    for(const it of items) if(it.srcB===b.id || it.destB===b.id) n++;
+    return n;
+  }
   findSource(pl, good, destFlag, comp){
     // Quellen: Produktionsausstoß (b.out) oder Lager (inv)
     let best=null, bd=1e9;
@@ -1870,7 +1919,10 @@ export class Game {
       const f=b.door;
       if(this.compOf(f)===undefined || this.compOf(f)!==comp) continue;
       const items=this.flagItems.get(f);
-      if(items && items.length>=FLAG_CAP){
+      const eigene=this.eigeneAnFahne(b);
+      // voll ist nur, wer mit EIGENER Ladung voll ist - oder wessen Fahne
+      // insgesamt ueberlaeuft (dann wuerde der Traeger ohnehin abwerfen)
+      if(eigene>=FLAG_CAP || (items && items.length>=FLAG_CAP+4)){
         // Eine volle Fahne bremst - aber sie darf die einzige Quelle der
         // Siedlung nicht STILLLEGEN. Gemessen (Saat 2024, 35 min): das HQ
         // ist in der Regel das einzige Lager; stand auf seiner Fahne die
@@ -1878,7 +1930,7 @@ export class Game {
         // Baustellen standen mit leerem Lager, waehrend im HQ 8 Bretter und
         // 36 Steine lagen. Ein LAGER bleibt deshalb Ersatzquelle, bis die
         // Fahne wirklich ueberlaeuft (der Traeger wirft erst ab CAP+4 ab).
-        if(isStore && items.length<FLAG_CAP+2){
+        if(isStore && eigene<FLAG_CAP+2){
           const d2=this.flagDist(f, destFlag);
           if(d2<ed){ ed=d2; ersatz=b; }
         }
@@ -1891,7 +1943,13 @@ export class Game {
   }
   dispatch(){
     const reqs=this.requestsOf();
-    reqs.sort((a,b)=>a.prio-b.prio);
+    // Erst der Anlass (Baustelle vor Eingang vor Essen vor Sold), dann die
+    // Rangfolge des Spielers. Bei @food entscheidet der Rang des besten
+    // Nahrungsmittels - welches es am Ende wird, klaert erst die Quelle.
+    const rang=(rq)=> rq.good==='@food'
+      ? Math.min(...FOODS.map(f=>this.rangVon(rq.b.player, f)))
+      : this.rangVon(rq.b.player, rq.good);
+    reqs.sort((a,b)=> (a.prio-b.prio) || (rang(a)-rang(b)));
     // faires Budget je Spieler, damit KI-Baustellen den Menschen nicht verdrängen
     const budgets=this.players.map(()=>10);
     for(const rq of reqs){
@@ -1923,7 +1981,10 @@ export class Game {
     for(const b of this.buildings.values()){
       if(budgets[b.player]<=0) continue;
       if(b.state!=='done' || (b.out|0)<2 || b.inv) continue;
-      if((this.flagItems.get(b.door)?.length||0)>=4) continue;
+      // nur die EIGENE Ladung zaehlt (v196) - fremder Durchgangsverkehr auf
+      // der Tuerfahne hat einem Saegewerk gemessen 0,45 statt 6,6 Bretter
+      // je Spielminute eingebracht, weil dieser Riegel dauerhaft zu war
+      if(this.eigeneAnFahne(b)>=4) continue;
       const g=this.prodGood(b); if(!g) continue;
       const comp=this.compOf(b.door); if(comp===undefined) continue;
       // gibt es offene Konsumenten? wenn nein -> Lager
@@ -1936,7 +1997,7 @@ export class Game {
       }
       if(!store) continue;
       const items=this.flagItems.get(b.door)||[];
-      if(items.length>=FLAG_CAP) continue;
+      if(this.eigeneAnFahne(b)>=FLAG_CAP || items.length>=FLAG_CAP+4) continue;
       b.out--;
       items.push({good:g, destB:store.id, srcB:b.id});
       this.flagItems.set(b.door, items);
@@ -1964,7 +2025,7 @@ export class Game {
           const f=r.path[endIx];
           const items=this.flagItems.get(f);
           if(!items || !items.length) return false;
-          let bestIt=null, bestPr=99;
+          let bestIt=null, bestPr=99, bestRang=1e9;
           for(let k=0;k<items.length;k++){
             const it=items[k];
             const dest=this.buildings.get(it.destB);
@@ -1989,7 +2050,13 @@ export class Game {
             if(it.reserved) continue;
             if(this.nextRoad(f, dest.door)!==r.id) continue;
             const pr = dest.state==='build' ? 0 : (dest.inv ? 2 : 1);
-            if(pr<bestPr){ bestPr=pr; bestIt=it; if(pr===0) break; }
+            // Bei gleichem Anlass entscheidet die Rangfolge des Spielers,
+            // welche Ware der Traeger zuerst aufnimmt (v196). Vorher gewann
+            // schlicht, was zufaellig weiter vorne in der Liste lag.
+            const rg = this.rangVon(dest.player, it.good);
+            if(pr<bestPr || (pr===bestPr && rg<bestRang)){
+              bestPr=pr; bestRang=rg; bestIt=it;
+            }
           }
           if(bestIt){
             bestIt.reserved=true;
@@ -5108,6 +5175,11 @@ export class Game {
     g.hoehenNeu=[];
     g.territoryVer=1; g.routeVer=1; g._routeCache=new Map(); g._compVer=0; g._comp=new Map();
     g.players=data.players;
+    // Transport-Rangfolge (v196): alte Spielstaende kennen sie nicht und
+    // bekommen die Voreinstellung. rangListe() fuellt ausserdem Waren nach,
+    // die in einem alten Stand noch nicht vorkamen.
+    for(const p of g.players) p.rang=rangListe(p.rang);
+    g.rangIx=g.players.map(p=>Game.rangIndex(p.rang));
     g.buildings=new Map();
     for(const b of data.buildings){ g.buildings.set(b.id,b); m.bld[b.node]=b.id; }
     g.roads=new Map();
