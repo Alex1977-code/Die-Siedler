@@ -4880,7 +4880,15 @@ export class Game {
                            + c('donkeyfarm')*3.0;
       // Deckel, damit eine einzelne Muehle nicht das halbe Land zupflastert;
       // er waechst mit der Planungstiefe.
-      const hoefeSoll   = Math.min(Math.ceil(getreideBedarf/3.1), 2+3*tief);
+      // DECKEL ZURUECK AUF DEN STAND VON v203 (v207). Der weite Deckel aus
+      // v204 (bis sieben Hoefe) hat sich ueber vier Messlaeufe als schaedlich
+      // erwiesen: ein Hof ist gross, kostet drei Bretter und drei Steine und
+      // frisst Platz - er verdraengte genau die Brauereien, die das Getreide
+      // abnehmen sollten. Auf zwei Saaten stand danach gar keine Brauerei
+      // mehr, das Bier fiel von 74 auf 9. Die Bedarfsrechnung bleibt, aber
+      // nur noch als OBERGRENZE: mehr als noetig wird nicht gebaut, mehr als
+      // drei aber auch nicht.
+      const hoefeSoll   = Math.min(Math.ceil(getreideBedarf/3.1), 1+tief);
       // BODEN VON ZWEI BRUNNEN (v205). Die reine Bedarfsrechnung war eine
       // selbstgebaute Henne-Ei-Falle: bei EINER Brauerei ergab sie genau
       // einen Brunnen, dann fehlte der Brauerei Wasser, sie produzierte
