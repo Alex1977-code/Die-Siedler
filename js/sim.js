@@ -4860,45 +4860,50 @@ export class Game {
     }
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
+    // ZIELAUSBAU STATT DECKEL (v209).
+    //
+    // Bisher stand hinter jedem Betrieb eine feste Obergrenze, und der
+    // Bedarf wurde aus den VORHANDENEN Abnehmern gerechnet. Das war die
+    // eigentliche Sperre: ohne Muehle kein Getreidebedarf, ohne
+    // Getreidebedarf kein Hof - obwohl die Kette von vornherein feststeht.
+    // Ein Soldat braucht eine Waffe UND Bier; Bier braucht Getreide und
+    // Wasser. Man muss nicht auf die Muehle warten, um zu wissen, dass
+    // Hoefe und Brunnen gebraucht werden.
+    //
+    // Jetzt wird die ganze Kette aus EINEM Ziel abgeleitet: wie viele
+    // Waffenschmieden und Brauereien die Siedlung am Ende betreiben soll.
+    // Diese eine Zahl haengt am Schwierigkeitsgrad - sonst gibt es keine
+    // Deckel mehr. Alles andere folgt aus den gemessenen Raten
+    // (Pruefstand Saat 11, je zehn Spielminuten):
+    //   Bauernhof 3,1 Getreide/min   Brunnen   7,4 Wasser/min
+    //   Muehle    6,6 Mehl           Baeckerei 6,6 Brot
+    //   Brauerei  5,4 Bier           Eisenhuette 5,9 Eisen
+    //   Waffensch. 5,9 Waffen        Bergwerk  6,6 (mit Essen 9,0)
+    //
+    // Essen ist dabei ausdruecklich austauschbar: ob Brot, Fisch oder
+    // Fleisch die Bergwerke und Schmieden schneller macht, ist gleich -
+    // deshalb zaehlt die Nahrungsbilanz und nicht die einzelne Sorte.
+    const ziel = tief;              // 1 = Leicht, 2 = Normal, 3 = Schwer
+    const soll = {
+      armory:  ziel,
+      brewery: ziel,
+      smelter: Math.ceil(ziel*5.9/5.9),
+      ironmine:Math.ceil(ziel*5.9/6.6),
+      coalmine:Math.ceil(ziel*(5.9+5.9)/6.6),
+      bakery:  ziel,
+      mill:    ziel,
+      // Getreide: Brauerei 5,4 + Muehle 6,6 je Einheit des Ziels
+      farm:    Math.ceil(ziel*(5.4+6.6)/3.1),
+      // Wasser: nur die Brauerei ist Pflicht, Zuchten kommen obendrauf
+      well:    Math.ceil((ziel*5.4 + c('pigfarm')*4.2 + c('donkeyfarm')*3.0)/7.4),
+    };
+    // Gebaut wird in der Reihenfolge der Kette von unten nach oben: erst
+    // die Rohstoffe, dann die Verarbeitung. Fehlt etwas weiter unten, steht
+    // es weiter vorn in der Wunschliste.
     if(tief>=2){
-      // SCHLUESSEL NACH GEMESSENEN RATEN (v204), Pruefstand Saat 11, je zehn
-      // Spielminuten mit Eingaengen im Ueberfluss:
-      //   Bauernhof   3,1 Getreide/min   (nominal 12 - der Bauer laeuft zum
-      //                                   Saeen und Ernten, Wirkungsgrad 0,26)
-      //   Brunnen     7,4 Wasser/min
-      //   Muehle      6,6 Mehl/min   -> 6,6 Getreide
-      //   Brauerei    5,4 Bier/min   -> 5,4 Getreide + 5,4 Wasser
-      //   Schweine    4,2 Schwein/min-> 4,2 Getreide + 4,2 Wasser
-      //   Eselzucht   3,0 (nur auf Anforderung)
-      // Ein Bauernhof traegt also nur eine halbe Muehle. Die KI durfte
-      // bisher hoechstens drei Hoefe bauen - bei zwei Muehlen und zwei
-      // Brauereien braeuchte sie 7,6. Gemessen stand die Brauerei deshalb
-      // auf drei von vier Saaten zu 89 bis 95 Prozent ohne Getreide.
-      // ZURUECK AUF v203 (v208). Nach v204 bis v207 habe ich die Hoefe und
-      // Brunnen dreimal nach Bedarf umgerechnet - und dreimal gemessen
-      // VERLOREN: Bier 74 -> 17 -> 9 -> 31 -> 16, Rekruten 34 -> 20. Auch
-      // die Ruecknahme des Getreidedeckels holte v203 nicht zurueck; meine
-      // Erklaerungen waren also alle drei falsch.
-      //
-      // Beim Nachrechnen faellt auf, was ich dabei uebersehen hatte: v203
-      // erlaubte bis zu VIER Brunnen, meine "Bedarfsformel" gab ab v205
-      // praktisch immer nur zwei. Sie hat also nicht ergaenzt, sondern
-      // unbemerkt gedeckelt - und dasselbe gilt fuer die Hoefe, deren
-      // Bedarf ohne Muehle und Brauerei bei null steht, obwohl genau die
-      // erst aus dem Getreide entstehen. Beides waren Henne-Ei-Sperren.
-      //
-      // Es gilt deshalb wieder woertlich die Regel aus v203. Die gemessenen
-      // Raten bleiben als Kommentar stehen, weil sie richtig sind - nur als
-      // Steuergroesse taugen sie nicht:
-      //   Bauernhof 3,1 Getreide/min | Brunnen 7,4 Wasser/min
-      //   Muehle 6,6 | Brauerei 5,4 | Schweinezucht 4,2 | Eselzucht 3,0
-      if(g0('water')<12 && c('well')<2*(1+Math.floor(tief/2))) want.push('well');
-      if(c('farm')<1 || (g0('grain')<6 && c('farm')<1+tief)) want.push('farm');
-      // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
-      if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
-      if(g0('flour')>=3 && g0('bread')<8 && c('bakery')<1+Math.floor(tief/2)) want.push('bakery');
-      if(g0('grain')>=5 && g0('beer')<6 && c('brewery')<1+Math.floor(tief/2)) want.push('brewery');
-      if(g0('iron')>=2 && (g0('sword')+g0('shield'))<16 && c('armory')<1+Math.floor(tief/2)) want.push('armory');
+      for(const typ of ['well','farm','mill','bakery','brewery'])
+        if(c(typ)<soll[typ]) want.push(typ);
+      if(c('armory')<soll.armory) want.push('armory');
     }
     // --- WERKZEUGKETTE: auf ALLEN Stufen, und von der Werkzeugnot gezogen.
     // Sie stand bisher komplett hinter tief>=2 - eine Stufe-1-KI konnte
@@ -4930,15 +4935,17 @@ export class Game {
         // Jetzt zaehlt die FOERDERUNG: wer ein Eisenbergwerk hat, will eine
         // Huette - Erz im Lager taugt weiter als Ausloeser, ist aber nicht
         // mehr die einzige Tuer.
-        const erzQuelle = this.aiCount(p,'ironmine',false)>0 || g0('ironore')>=3;
-        if(erzQuelle && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
+        // Auch die Erzkette folgt jetzt dem Ziel statt dem Lagerbestand:
+        // die Waffenschmiede braucht Eisen, das Eisen braucht Huette, Erz
+        // und Kohle - das steht von Anfang an fest.
+        if(c('smelter')<soll.smelter) want.push('smelter');
         // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten).
         // v197: die knappere Haelfte der Eisenhuette zuerst. Vorher stand
         // das Eisenbergwerk immer vorn, und weil die KI je Zug nur EIN Haus
         // anfaengt, bekam die Kohle bei knappen Brettern nie ihre Chance -
         // gemessen 390 Eisenerz gegen 88 Kohle auf Saat 99.
-        const willEisen = g0('ironore')<8 && c('ironmine')<1+tief && this.aiErzBekannt(p,'ironmine');
-        const willKohle = g0('coal')<8    && c('coalmine')<1+tief && this.aiErzBekannt(p,'coalmine');
+        const willEisen = c('ironmine')<soll.ironmine && this.aiErzBekannt(p,'ironmine');
+        const willKohle = c('coalmine')<soll.coalmine && this.aiErzBekannt(p,'coalmine');
         // Entscheidend ist die FOERDERKAPAZITAET, nicht der Lagerstand: ein
         // Lagerstand sagt nur, was gerade verbraucht wird. Nach dem Lager zu
         // sortieren kippte die Kette ins Gegenteil - gemessen auf Saat 7:
