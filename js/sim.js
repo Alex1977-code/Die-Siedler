@@ -4729,16 +4729,60 @@ export class Game {
     p._milBedC=druck + (frei<3? 2 : 0);
     return p._milBedC;
   }
+  // EIN TOTER BETRIEB IST KEIN BETRIEB (v212).
+  //
+  // Endgueltig tot ist nur, wo der Rohstoff NICHT nachwaechst: das Bergwerk
+  // (oreA wird einmal bei der Kartenerzeugung gesetzt) und der Steinbruch
+  // (Steine wachsen nicht nach). Baeume, Fisch und Wild erholen sich - ein
+  // Holzfaeller oder Fischer mit b.exhausted ist nur gerade arbeitslos und
+  // zaehlt weiter voll mit.
+  // Beim Steinbruch reicht das exhausted-Flag als Todesurteil NICHT: es wird
+  // schon nach 600 Takten ohne Auftrag gesetzt, und ein Auftrag kann auch
+  // nur voruebergehend fehlen, weil ein Nachbar-Steinbruch den Brocken
+  // gerade reserviert hat (Bit 128 in m.obj). Abgerissen wird deshalb erst,
+  // wenn in Reichweite wirklich kein Fels mehr steht.
+  totBetrieb(b){
+    if(b.depleted) return true;                     // Bergwerk: Erz waechst nie nach
+    const def=BLD[b.type];
+    if(!b.exhausted || !def || def.gather!=='stone') return false;
+    const un=(o)=>o&127;
+    for(const n of this.nodesInRange(b.node, def.range||10))
+      if(un(this.map.obj[n])===OBJ.STONE) return false;
+    return true;
+  }
+  // GEMESSEN (Saat 99, Foerderring in Minute 11,9 geleert, 90 Spielminuten):
+  // das erschoepfte Eisenbergwerk stand bis zum Schluss da, aiCount meldete
+  // unveraendert 2 - genau das Soll -, und die KI baute in 77 Spielminuten
+  // KEIN einziges Ersatzbergwerk, obwohl nur noch eines foerderte. Die Leiche
+  // erfuellte das Ziel. Der Bergmann blieb dabei bis Minute 90 im toten Haus
+  // gebunden ("besetzt: ja").
+  //
+  // Auf Saat 7 wurde trotzdem Ersatz gebaut - dort starb das Bergwerk in
+  // Minute 8, als die Siedlung noch UNTER dem Soll lag. Die Sperre greift
+  // also erst, sobald das Soll nominell erreicht ist; dann aber dauerhaft.
   aiCount(p, type, includeBuild=true){
     let n=0;
     for(const b of this.buildings.values())
-      if(b.player===p.id && b.type===type && (includeBuild || b.state==='done')) n++;
+      if(b.player===p.id && b.type===type && (includeBuild || b.state==='done')
+         && !this.totBetrieb(b)) n++;
     return n;
   }
   aiStep(p){
     const m=this.map;
     const hq=this.buildings.get(p.hq);
     if(!hq) return;
+    // TOTE BETRIEBE ABREISSEN (v212). Bisher gab es dafuer keinen Weg:
+    // demolish() wurde einzig aus der Oberflaeche gerufen, die KI riss nie
+    // etwas ab. Ein erschoepftes Bergwerk band deshalb bis Spielende einen
+    // Bauplatz UND seine Fachkraft. Der Abriss erstattet die halben Baukosten
+    // und macht beides wieder frei; die Spitzhacke ist zu diesem Zeitpunkt
+    // laengst ins Lager zurueckgekehrt (v166).
+    // Eines je Zug genuegt - die KI ist ohnehin alle drei Sekunden dran.
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id || b.state!=='done' || !this.totBetrieb(b)) continue;
+      this.demolish(b.id);
+      break;
+    }
     const inv=this.invTotal(p.id);
     const lvl=p.aiLevel;
     // KI-Bonus: leichte Materialhilfe je Level (hält das Spiel spannend, KI "mogelt" milde)
