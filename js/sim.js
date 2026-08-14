@@ -4827,8 +4827,17 @@ export class Game {
       // Deckel, damit eine einzelne Muehle nicht das halbe Land zupflastert;
       // er waechst mit der Planungstiefe.
       const hoefeSoll   = Math.min(Math.ceil(getreideBedarf/3.1), 2+3*tief);
-      const brunnenSoll = Math.min(Math.ceil(wasserBedarf/7.4),   1+2*tief);
-      if(c('well')<Math.max(1,brunnenSoll)) want.push('well');
+      // BODEN VON ZWEI BRUNNEN (v205). Die reine Bedarfsrechnung war eine
+      // selbstgebaute Henne-Ei-Falle: bei EINER Brauerei ergab sie genau
+      // einen Brunnen, dann fehlte der Brauerei Wasser, sie produzierte
+      // nichts, es entstand keine zweite Brauerei - also blieb es fuer immer
+      // bei einem Brunnen. Gemessen fiel die Bierproduktion ueber vier
+      // Saaten von 74 auf 17 und die Brunnenzahl auf allen vier Saaten von
+      // zwei bis drei auf eins. Die Bedarfsrechnung darf deshalb nur nach
+      // OBEN korrigieren; unten steht ein fester Boden, wie ihn v202 mit der
+      // pauschalen Verdopplung hatte.
+      const brunnenSoll = Math.min(Math.max(2, Math.ceil(wasserBedarf/7.4)), 1+2*tief);
+      if(c('well')<brunnenSoll) want.push('well');
       if(c('farm')<Math.max(1,hoefeSoll)) want.push('farm');
       // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
       if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
