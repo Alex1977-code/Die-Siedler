@@ -4496,6 +4496,47 @@ export class Game {
     p._erzC[minetype]=da; p._erzT[minetype]=this.t;
     return da;
   }
+  // DIE KI LEGT KONKURRENTEN VORUEBERGEHEND STILL (v206).
+  //
+  // Bisher war die einzige Antwort auf einen Engpass: MEHR BAUEN. Bei
+  // Getreide ging das nach hinten los - der Schluessel aus v204 hob die
+  // Bauernhoefe von drei auf fuenf bis sieben, und weil ein Hof gross ist,
+  // drei Bretter und drei Steine kostet und Platz frisst, verdraengte er
+  // genau die Betriebe, die das Getreide abnehmen sollten. Gemessen ueber
+  // vier Saaten fiel das Bier von 74 auf 9, auf zwei Saaten stand am Ende
+  // gar keine Brauerei mehr.
+  //
+  // Der billigere Weg ist, den Verbrauch umzulenken statt die Erzeugung
+  // aufzublasen: fehlt Bier, ruhen die anderen Getreideabnehmer, bis wieder
+  // welches da ist. Das kostet kein Brett und keinen Bauplatz, wirkt sofort
+  // und ist rueckgaengig - genau das, was ein Mensch im Gebaeudemenue mit
+  // dem Stilllegen-Knopf macht.
+  //
+  // Gestillgelegt wird nur, was die KI selbst stillgelegt hat (_kiPause) -
+  // ein vom Spieler pausiertes Haus bleibt pausiert.
+  aiEngpassSteuern(p){
+    const inv=this.invCached(p.id);
+    const g0=(k)=>inv[k]||0;
+    const waffen=g0('sword')+g0('shield')+g0('spear')+g0('bow');
+    const essen=g0('fish')+g0('bread')+g0('meat');
+    // Ohne Bier kein Rekrut - egal wie viele Waffen im Lager liegen. Das ist
+    // der teuerste Stillstand, den die Siedlung haben kann.
+    const bierNot = waffen>0 && g0('beer')<3 && g0('grain')<8;
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id || b.state!=='done') continue;
+      let ruhen=false;
+      if(bierNot){
+        // Schweine- und Eselzucht sind Nebenketten - die duerfen immer warten.
+        if(b.type==='pigfarm' || b.type==='donkeyfarm') ruhen=true;
+        // Die Muehle nur, wenn die Siedlung satt ist: Brot ist Nahrung, und
+        // eine hungernde Siedlung baut gar nichts mehr.
+        else if(b.type==='mill' && essen>=10) ruhen=true;
+      }
+      if(ruhen && !b.paused){ b.paused=true; b._kiPause=true; }
+      else if(!ruhen && b.paused && b._kiPause){ b.paused=false; b._kiPause=false; }
+    }
+  }
+
   // DIE KI STELLT IHRE TRANSPORT-RANGFOLGE NACH (v204).
   //
   // Der Mensch sortiert seine Rangfolge im Transportbildschirm selbst; die
@@ -4723,6 +4764,11 @@ export class Game {
       p.aiState.rangT=this.t;
       this.aiRangAnpassen(p);
     }
+    // Engpass-Steuerung haeufiger: Stilllegen wirkt sofort und kostet nichts
+    if(this.t-(p.aiState.engpassT||-9999)>=600){
+      p.aiState.engpassT=this.t;
+      this.aiEngpassSteuern(p);
+    }
     // ================= BAUPLAN DER KI (R4) =================
     // Vorher war das eine feste Einkaufsliste: ein Bauernhof, eine Muehle,
     // eine Baeckerei, egal ob Getreide liegen blieb oder Mehl fehlte. Jetzt
@@ -4802,7 +4848,15 @@ export class Game {
     {
       const wirtschaft=[...this.buildings.values()].filter(b=>
         b.player===p.id && b.state==='done' && b.type!=='hq' && !BLD[b.type].mil).length;
-      milAllowed=Math.min(milAllowed, 4 + Math.floor(wirtschaft/2));
+      let deckel=4 + Math.floor(wirtschaft/2);
+      // PLATZNOT (v206): Findet die KI fuer ein Wirtschaftsgebaeude keinen
+      // Platz mehr und hat sie Soldaten, dann ist ein Posten das einzige
+      // Mittel, an Bauland zu kommen - dann darf der Wirtschaftsdeckel
+      // kurzzeitig ueberschritten werden. Der Merker verfaellt nach zwei
+      // Spielminuten, sonst waere die Bremse dauerhaft ausgehebelt.
+      if(this.t-(p.aiState.platzNot||-9999)<1200 && this.recruitTotal(p.id)>0)
+        deckel+=2;
+      milAllowed=Math.min(milAllowed, deckel);
     }
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
@@ -4961,6 +5015,17 @@ export class Game {
         if(offen===0 && c(eng)<1+tief) want.splice(nachGrund, 0, eng);
       }
     }
+    // KEIN PLATZ UND KEIN SOLDAT (v206): dann bringt neues Land nichts, denn
+    // ein Posten liesse sich gar nicht besetzen. Was der Siedlung fehlt, ist
+    // dann das, was Rekruten macht - eine Waffe oder das Bier dazu. Der beim
+    // gescheiterten Bauversuch gesetzte Merker zieht das entsprechende Haus
+    // nach vorn; gebaut wird es nach denselben Regeln wie alles andere
+    // (Material frei, Bauarbeiter frei, Bauplatz vorhanden).
+    if(p.aiState.rekrutMangel){
+      const wunsch = p.aiState.rekrutMangel==='bier'? 'brewery' : 'armory';
+      if(c(wunsch)<2+Math.floor(tief/2)) want.splice(nachGrund, 0, wunsch);
+      p.aiState.rekrutMangel=null;
+    }
 
     // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
     // Baustelle ohne Anschluss bekommt nie Material und stünde für immer.
@@ -5101,7 +5166,32 @@ export class Game {
       // Wegenetz nicht bis ans freie Land reicht - ein Pionierweg loest das.
       // Im Vorstoss-Modus zielt der Pionierweg RICHTUNG FEIND statt einfach
       // ans entfernteste eigene Land.
-      if(spot<0){ this.aiPionierweg(p, vorstoss); continue; }
+      if(spot<0){
+        this.aiPionierweg(p, vorstoss);
+        // KEIN PLATZ MEHR (v206). Ein Pionierweg hilft nur, wenn ueberhaupt
+        // freies eigenes Land da ist. Ist das Gebiet dicht, gibt es genau
+        // zwei ehrliche Auswege, und welcher gilt, entscheidet die Besatzung:
+        //   Soldaten da  -> ein Militaerposten schiebt die Grenze und schafft
+        //                   neues Bauland (der Posten selbst braucht Platz,
+        //                   deshalb wird er wie jeder Bau geprueft).
+        //   keine da     -> Land bringt nichts, weil kein Posten besetzt
+        //                   werden kann. Dann fehlt der Siedlung das, was
+        //                   Rekruten macht: Waffen oder Bier. Das wird
+        //                   vorgemerkt und beim naechsten Zug nach den
+        //                   bekannten Regeln gebaut.
+        if(!def.mil){
+          const frei=this.recruitTotal(p.id);
+          if(frei>0){
+            p.aiState.platzNot=this.t;      // milAllowed liest das (aiMilBedarf)
+          } else {
+            const g1=(k)=>(inv[k]||0);
+            const waffen=g1('sword')+g1('shield')+g1('spear')+g1('bow');
+            // Was fehlt zuerst? Ohne Waffe nuetzt Bier nichts und umgekehrt.
+            p.aiState.rekrutMangel = waffen<2? 'waffe' : (g1('beer')<2? 'bier' : null);
+          }
+        }
+        continue;
+      }
       // Wasser-Taschen-Wächter: Plätze ohne Landweg zum Hauptquartier bekommen
       // nie einen Straßenanschluss – die Baustelle stünde ewig, fräße Material
       // und verstopfte den Militär-Deckel (kompletter KI-Stillstand beobachtet:
