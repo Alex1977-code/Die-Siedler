@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, RANG_STD, rangListe, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, RANG_STD, rangListe, meldeKat, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -114,7 +114,11 @@ export class Game {
   }
 
   // ---------- Nachrichten ----------
-  msg(txt, type='info', node=-1, player=0){
+  // `kat` ist die Meldungssparte (siehe MELDE_KATS in core.js). Der Spieler
+  // schaltet Sparten in den Optionen ab; abgeschaltet heisst nur, dass die
+  // Meldung nicht mehr eingeblendet wird - hier laeuft sie weiter auf, damit
+  // sie im Meldungsbuch auffindbar bleibt.
+  msg(txt, type='info', node=-1, player=0, kat=null){
     if(player!==0) return; // nur menschlicher Spieler (id 0) bekommt Meldungen
     // Wortgleiche Meldung im SELBEN Tick nur einmal: beim HQ-Fall brennt die
     // Kaskade (recalcTerritory -> burnBuilding -> recalcTerritory ...) mehrere
@@ -125,7 +129,7 @@ export class Game {
       if(p.t!==this.t) break;
       if(p.txt===txt) return;
     }
-    this.msgs.push({ t:this.t, txt, type, node });
+    this.msgs.push({ t:this.t, txt, type, node, kat:meldeKat(kat, type) });
     if(this.msgs.length>120) this.msgs.shift();
   }
   // Entdoppelte Warnung: je Gebäude+Grund höchstens einmal pro Minute, je
@@ -154,7 +158,7 @@ export class Game {
     if(this._warnG[reason]!==undefined && this.t-this._warnG[reason]<300) return; // 30 s je Grund
     b._warnT[reason]=this.t; this._warnG[reason]=this.t;
     b._warnN[reason]=(b._warnN[reason]||0)+1;
-    this.msg(txt, 'warn', b.node);
+    this.msg(txt, 'warn', b.node, 0, 'warnung');
   }
   // Mangel behoben: die Eskalation dieses Grundes zuruecksetzen, damit der
   // naechste echte Engpass wieder zuegig gemeldet wird.
@@ -553,7 +557,7 @@ export class Game {
     // stumm: der Aufrufer hat bereits eine SPEZIFISCHERE Meldung abgesetzt
     // (Kritik R2 S1: "Baustelle vom Feind zerstoert!" und "wurde zerstoert!"
     // kamen stets im selben Atemzug - EIN Ereignis, zwei Meldungen)
-    if(byWar && !stumm && b.player===0) this.msg(`${BLD[b.type].name} wurde zerstört!`, 'warn', b.node);
+    if(byWar && !stumm && b.player===0) this.msg(`${BLD[b.type].name} wurde zerstört!`, 'warn', b.node, 0, 'kampf');
   }
   checkPlayerDefeat(pl){
     const p=this.players[pl];
@@ -565,7 +569,7 @@ export class Game {
     this.roadsCleanupForPlayer(pl);
     // korrekte Anrede: der menschliche Spieler heißt im freien Spiel "Du" –
     // die Namens-Schablone machte daraus "Du ist besiegt!" (Kritikbericht F6)
-    this.msg(p.name==='Du' ? 'Du bist besiegt!' : `${p.name} ist besiegt!`, 'war');
+    this.msg(p.name==='Du' ? 'Du bist besiegt!' : `${p.name} ist besiegt!`, 'war', -1, 0, 'ziel');
     this.recalcTerritory();
     const alive=this.players.filter(q=>!q.defeated);
     if(alive.length===1 && !this.over && !this.objectives.length){
@@ -1336,7 +1340,7 @@ export class Game {
           this._geoMsgT=this._geoMsgT||{};
           if(this.t-(this._geoMsgT[ore]??-1e9)>600){
             this._geoMsgT[ore]=this.t;
-            this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target);
+            this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target, 0, 'erz');
           }
         }
         u.state='seek';
@@ -1482,7 +1486,7 @@ export class Game {
       if(still9>450){
         const extra9=this._atkStumm||0;
         this.msg(extra9>0? `Wir werden angegriffen! (dazu ${extra9} weitere Angriffe)`
-                         : 'Wir werden angegriffen!', 'war', target.node);
+                         : 'Wir werden angegriffen!', 'war', target.node, 0, 'kampf');
         this._atkMsgT=this.t; this._atkStumm=0;
       } else this._atkStumm=(this._atkStumm||0)+1;
     }
@@ -1590,7 +1594,7 @@ export class Game {
       if(p===0 && !pl._notzMsg){
         pl._notzMsg=true;
         this.msg('Keine Bretter mehr! Im Hauptquartier werden Notbretter geschnitzt – '
-                +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node);
+                +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node, 0, 'wirtschaft');
       }
     }
   }
@@ -2189,7 +2193,7 @@ export class Game {
           if(def.mil || still8>600){
             const extra8=this._bauStumm||0;
             this.msg(extra8>0? `${def.name} fertiggestellt (dazu ${extra8} weitere Gebäude).`
-                             : `${def.name} fertiggestellt.`, 'ok', b.node);
+                             : `${def.name} fertiggestellt.`, 'ok', b.node, 0, 'bau');
             this._bauMsgT=this.t; this._bauStumm=0;
           } else this._bauStumm=(this._bauStumm||0)+1;
         }
@@ -2366,13 +2370,13 @@ export class Game {
             // loszuschicken und ein neues Bergwerk zu setzen.
             if(!b._neigeMsg && b.player===0 && this.oreLeft(b)<=5){
               b._neigeMsg=true;
-              this.msg(`${def.name}: das Vorkommen geht zur Neige.`, 'warn', b.node);
+              this.msg(`${def.name}: das Vorkommen geht zur Neige.`, 'warn', b.node, 0, 'erz');
             }
           }
           else {
             if(!b.depleted){
               b.depleted=true;
-              if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node);
+              if(b.player===0) this.msg(`${def.name}: Vorkommen erschöpft!`, 'warn', b.node, 0, 'erz');
               // Erz waechst nie nach (oreA wird nur bei der Kartenerzeugung
               // gesetzt) - ein erschoepftes Bergwerk ist endgueltig tot.
               // Die Spitzhacke darin waere sonst fuer immer gebunden; sie
@@ -2383,7 +2387,7 @@ export class Game {
                 if(hqW && hqW.inv){
                   hqW.inv[b.toolGood]=(hqW.inv[b.toolGood]||0)+1;
                   if(b.player===0)
-                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node);
+                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node, 0, 'erz');
                 }
                 b.toolGood=null;
               }
@@ -2458,7 +2462,7 @@ export class Game {
                 if(hqW && hqW.inv){
                   hqW.inv[b.toolGood]=(hqW.inv[b.toolGood]||0)+1;
                   if(b.player===0)
-                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node);
+                    this.msg(`${def.name}: die Spitzhacke kehrt ins Lager zurück.`, 'info', b.node, 0, 'erz');
                 }
                 b.toolGood=null;
               }
@@ -2747,7 +2751,7 @@ export class Game {
           this.fx.push({type:'impact', x:u.tx, y:u.ty, t0:this.t});
           const b=this.buildings.get(u.targetB);
           if(b){
-            if(b.soldiers && b.soldiers.length>0){ b.soldiers.pop(); if(b.player===0) this.msg('Katapultbeschuss auf unser Gebäude!', 'war', b.node); }
+            if(b.soldiers && b.soldiers.length>0){ b.soldiers.pop(); if(b.player===0) this.msg('Katapultbeschuss auf unser Gebäude!', 'war', b.node, 0, 'kampf'); }
             else if(b.type!=='hq'){ this.burnBuilding(b); }
             else { b.hqHits=(b.hqHits||0)+1; if(b.hqHits>6) this.burnBuilding(b); }
           }
@@ -3365,8 +3369,8 @@ export class Game {
       if(this.moveToward(u,tx,ty,WALK_SPEED*ATK_MARCH)){
         // Baustellen werden niedergerissen, nicht erobert
         if(target.state==='build'){
-          if(target.player===0) this.msg(`${BLD[target.type].name}-Baustelle vom Feind zerstört!`, 'war', target.node);
-          if(u.player===0) this.msg('Feindliche Baustelle zerstört!', 'ok', target.node);
+          if(target.player===0) this.msg(`${BLD[target.type].name}-Baustelle vom Feind zerstört!`, 'war', target.node, 0, 'kampf');
+          if(u.player===0) this.msg('Feindliche Baustelle zerstört!', 'ok', target.node, 0, 'kampf');
           this.burnBuilding(target, true, true);
           this.returnSoldiers(u.player, u.soldiers);
           u.dead=true;
@@ -3490,7 +3494,7 @@ export class Game {
       // HQ wird niedergebrannt
       this.burnBuilding(b);
       this.returnSoldiers(byPl, attackers);
-      if(byPl===0) this.msg('Feindliches Hauptquartier gefallen!', 'ok');
+      if(byPl===0) this.msg('Feindliches Hauptquartier gefallen!', 'ok', -1, 0, 'ziel');
       this.checkPlayerDefeat(oldPl);
       return;
     }
@@ -3503,8 +3507,8 @@ export class Game {
     b.soldiers=attackers.slice(0,cap);
     b.besetztWar=true;               // Eroberer übernehmen mit Besatzung
     this.returnSoldiers(byPl, attackers.slice(cap));
-    if(byPl===0) this.msg(`${BLD[b.type].name} erobert!`, 'ok', b.node);
-    if(oldPl===0) this.msg(`${BLD[b.type].name} an den Feind verloren!`, 'war', b.node);
+    if(byPl===0) this.msg(`${BLD[b.type].name} erobert!`, 'ok', b.node, 0, 'kampf');
+    if(oldPl===0) this.msg(`${BLD[b.type].name} an den Feind verloren!`, 'war', b.node, 0, 'kampf');
     this.recalcTerritory();
     this.onCapture && this.onCapture(b);
   }
@@ -3580,7 +3584,7 @@ export class Game {
               break;
             }
             this.msg(`Waffen liegen bereit, aber es fehlt das Bier – ${tipp}, sonst gibt es keine Rekruten.`,
-                     'warn', hq.node);
+                     'warn', hq.node, 0, 'wirtschaft');
           }
         }
       }
@@ -3718,7 +3722,7 @@ export class Game {
     const u={ id:NEXT_ID++, type:'donkey', player:b.player, ...this.tuerAustritt(b), road:r.id };
     r.donkeyEnroute=u.id;
     this.units.push(u);
-    if(b.player===0) this.msg('Ein Esel verstärkt eine Straße.', 'ok', b.node);
+    if(b.player===0) this.msg('Ein Esel verstärkt eine Straße.', 'ok', b.node, 0, 'wirtschaft');
   }
   tickDonkey(u){
     const r=this.roads.get(u.road);
@@ -3789,12 +3793,12 @@ export class Game {
     }
     if(!best) return;
     const path=this.seaPath(best[0], best[1]);
-    if(!path){ if(sy.player===0) this.msg('Werft: kein Seeweg zwischen den Häfen gefunden.', 'warn', sy.node); return; }
+    if(!path){ if(sy.player===0) this.msg('Werft: kein Seeweg zwischen den Häfen gefunden.', 'warn', sy.node, 0, 'wirtschaft'); return; }
     const r={ id:NEXT_ID++, player:sy.player, path, isSea:true,
       carrier:{ pos:0, state:'idle', item:null, job:null } };
     this.roads.set(r.id, r);
     this.routeVer++;
-    if(sy.player===0) this.msg('Ein Schiff nimmt den Seeweg zwischen zwei Häfen auf!', 'ok', sy.node);
+    if(sy.player===0) this.msg('Ein Schiff nimmt den Seeweg zwischen zwei Häfen auf!', 'ok', sy.node, 0, 'wirtschaft');
     this.onShip && this.onShip(sy);
   }
 
@@ -4337,7 +4341,7 @@ export class Game {
           o.prog=n; o.done=n>=o.count; break;
         }
       }
-      if(o.done) this.msg(`Ziel erreicht: ${o.desc}`, 'ok');
+      if(o.done) this.msg(`Ziel erreicht: ${o.desc}`, 'ok', -1, 0, 'ziel');
       if(!o.done) all=false;
     }
     if(all){ this.over=true; this.winner=0; }
@@ -4373,6 +4377,31 @@ export class Game {
       if(m.owner[i]===p.id && m.oreT[i]===ziel && m.oreA[i]>0) da=true;
     p._erzC[minetype]=da; p._erzT[minetype]=this.t;
     return da;
+  }
+  // WELCHE HAELFTE FEHLT DER EISENHUETTE? (v197)
+  //
+  // Eine Huette braucht Erz UND Kohle zu gleichen Teilen. Gemessen ueber 35
+  // Spielminuten (Stufe 2, mittlere Karte) erzeugte die KI:
+  //   Saat 42:  66 Eisenerz,   0 Kohle  ->  0 Eisen
+  //   Saat 99: 390 Eisenerz,  88 Kohle  -> 24 Eisen
+  // Beide Huetten standen am Ende mit Erz im Haus und leerem Kohlefach, im
+  // Lager 56-61 Erz gegen 0 Kohle. Die Ursache lag nicht am Vorkommen (auf
+  // beiden Saaten lag Kohle im eigenen Gebiet, ein Bauplatz war da), sondern
+  // an der Reihenfolge: Bergwerke stehen am Ende der Wunschliste, das
+  // Kohlebergwerk noch hinter dem Eisenbergwerk. Bei knappen Brettern kam es
+  // nie an die Reihe.
+  //
+  // Gezaehlt werden nur FERTIGE Bergwerke - eine Baustelle foerdert nichts.
+  aiEngpassMine(p){
+    if(this.aiCount(p,'smelter')<1) return null;
+    const kohle=this.aiCount(p,'coalmine',false);
+    const eisen=this.aiCount(p,'ironmine',false);
+    if(kohle<eisen && this.aiErzBekannt(p,'coalmine')) return 'coalmine';
+    if(eisen<kohle && this.aiErzBekannt(p,'ironmine')) return 'ironmine';
+    // Gleichstand (meist beide bei null): ohne Kohle ist Erz wertlos, denn
+    // Erz laesst sich lagern, die Huette ohne Kohle aber nicht betreiben.
+    if(kohle===0 && this.aiErzBekannt(p,'coalmine')) return 'coalmine';
+    return null;
   }
   // R4: Geologen losschicken. Ohne Erkundung kennt die KI nur, was zufaellig
   // im eigenen Gebiet liegt - Bergwerke entstanden entsprechend selten. Ab
@@ -4488,11 +4517,28 @@ export class Game {
     // Minuten-Brachen und hebelte die ganze Druck-Dosierung (milGrow) aus.
     // Das milde Mogeln der KI ist etabliert (Materialbonus oben) – hier
     // wird es nur zielgenau statt pauschal.
+    // v197: Der Nachschub half bisher AUSSCHLIESSLICH Militaerbaustellen.
+    // Ein Bergwerk bekam nie ein Brett - und genau daran ist die Erzkette
+    // gestorben: auf Saat 42 stand der Bauplatz des Kohlebergwerks nach 35
+    // Spielminuten noch bei Fortschritt 0, obwohl sein Foerderring 92
+    // Einheiten Kohle hielt und beide Eisenhuetten mit leerem Kohlefach
+    // dastanden. Jetzt bekommt auch das FEHLENDE Bergwerk der Eisenhuette
+    // ein Teil je Zug - und zwar vor den Militaerbaustellen, weil ohne
+    // Kohle die ganze Waffenkette stillsteht. Die Menge bleibt gleich: ein
+    // Bauteil je Zug, nicht mehr.
     if(hq.inv){
       const hqC2=this.compOf(hq.door);
+      const eng=this.aiEngpassMine(p);
+      const bau=[];
       for(const b of this.buildings.values()){
-        if(b.player!==p.id || b.state!=='build' || !BLD[b.type].mil) continue;
+        if(b.player!==p.id || b.state!=='build') continue;
+        const istEng = !!eng && b.type===eng;
+        if(!istEng && !BLD[b.type].mil) continue;
         if(b.door==null || b.door<0 || this.compOf(b.door)!==hqC2) continue;
+        bau.push({b, istEng});
+      }
+      bau.sort((x,y)=>(y.istEng?1:0)-(x.istEng?1:0));   // Engpass zuerst
+      for(const {b} of bau){
         const def2=BLD[b.type];
         const nB=(def2.cost.board||0)-(b.stock.board||0), nS=(def2.cost.stone||0)-(b.stock.stone||0);
         if(nB>0 && (hq.inv.board||0)>0){ hq.inv.board--; b.stock.board=(b.stock.board||0)+1; break; }
@@ -4579,9 +4625,28 @@ export class Game {
       if(willKette){
         if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
         if(g0('ironore')>=3 && g0('iron')<8 && c('smelter')<1+Math.floor(tief/2)) want.push('smelter');
-        // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten)
-        if(g0('ironore')<8 && c('ironmine')<1+tief && this.aiErzBekannt(p,'ironmine')) want.push('ironmine');
-        if(g0('coal')<8    && c('coalmine')<1+tief && this.aiErzBekannt(p,'coalmine')) want.push('coalmine');
+        // Bergwerke nur auf BEKANNTEM Vorkommen (Geologe, siehe unten).
+        // v197: die knappere Haelfte der Eisenhuette zuerst. Vorher stand
+        // das Eisenbergwerk immer vorn, und weil die KI je Zug nur EIN Haus
+        // anfaengt, bekam die Kohle bei knappen Brettern nie ihre Chance -
+        // gemessen 390 Eisenerz gegen 88 Kohle auf Saat 99.
+        const willEisen = g0('ironore')<8 && c('ironmine')<1+tief && this.aiErzBekannt(p,'ironmine');
+        const willKohle = g0('coal')<8    && c('coalmine')<1+tief && this.aiErzBekannt(p,'coalmine');
+        // Entscheidend ist die FOERDERKAPAZITAET, nicht der Lagerstand: ein
+        // Lagerstand sagt nur, was gerade verbraucht wird. Nach dem Lager zu
+        // sortieren kippte die Kette ins Gegenteil - gemessen auf Saat 7:
+        // 114 Kohle, aber null Eisenerz und kein einziges Eisenbergwerk,
+        // weil Kohle bei Gleichstand immer wieder zuerst drankam. Verglichen
+        // werden deshalb die FERTIGEN Bergwerke; bei Gleichstand faengt die
+        // Kohle an, weil sich Erz lagern laesst, eine Huette ohne Kohle aber
+        // gar nicht arbeitet.
+        if(this.aiCount(p,'coalmine',false) <= this.aiCount(p,'ironmine',false)){
+          if(willKohle) want.push('coalmine');
+          if(willEisen) want.push('ironmine');
+        } else {
+          if(willEisen) want.push('ironmine');
+          if(willKohle) want.push('coalmine');
+        }
       }
     }
     // --- Stufe C (nur Schwer): Gold, Muenze, Vorratshaltung
@@ -4589,6 +4654,21 @@ export class Game {
       if(c('goldmine')<1 && this.aiErzBekannt(p,'goldmine')) want.push('goldmine');
       if(g0('gold')>=2 && c('mint')<1) want.push('mint');
       if(c('storehouse')<1 && this.aiBautenGesamt(p)>=12) want.push('storehouse');
+    }
+    // ENGPASS DER EISENHUETTE GANZ NACH VORN (v197).
+    // Bergwerke stehen am Ende der Wunschliste; Militaerposten, Muehlen und
+    // Baeckereien haben die Bretter vorher aufgebraucht. Fehlt einer
+    // bestehenden Huette dauerhaft eine Haelfte, ist dieses Bergwerk aber
+    // das Wichtigste, was die Siedlung bauen kann - ohne es steht die ganze
+    // Waffen- und Werkzeugkette. Nur wenn noch KEINE Baustelle dieses Typs
+    // offen ist: sonst entstuende ein Karussell aus Bauplaetzen, statt dass
+    // der angefangene fertig wird (dafuer sorgt der Nachschub oben).
+    {
+      const eng=this.aiEngpassMine(p);
+      if(eng){
+        const offen=c(eng)-this.aiCount(p,eng,false);
+        if(offen===0 && c(eng)<1+tief) want.unshift(eng);
+      }
     }
 
     // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
@@ -4932,7 +5012,7 @@ export class Game {
       const d=Math.hypot(m.X(e.node)-m.X(b.node), m.Y(e.node)-m.Y(b.node));
       if(d<=this.milRadius(b)+zR+6){
         this._vorwarnT=this.t;
-        this.msg('Feindlicher Vorposten an unserer Grenze!', 'war', b.node);
+        this.msg('Feindlicher Vorposten an unserer Grenze!', 'war', b.node, 0, 'kampf');
         return;
       }
     }

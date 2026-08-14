@@ -1,5 +1,5 @@
 // Neuland – UI: Bildschirme, HUD, Baumenü, Dialoge, Spielschleife.
-import { BLD, GOODS, GOOD_LIST, STYPES, STYPE_LIST, PLAYER_COLORS, OBJ, TER, RANG_STD } from './core.js';
+import { BLD, GOODS, GOOD_LIST, STYPES, STYPE_LIST, PLAYER_COLORS, OBJ, TER, RANG_STD, MELDE_KATS, MELDE_STD, MELDE_IMMER } from './core.js';
 import { TILE, ROWH } from './map.js';
 import { Game, TICK_MS } from './sim.js';
 import { Renderer, goodColor } from './render.js';
@@ -155,6 +155,10 @@ export class UI {
         <label class="opt">Musik-Pegel <input type="range" id="o-vol-music" min="0" max="100" step="5"></label>
         <label class="opt">Effekt-Pegel <input type="range" id="o-vol-sfx" min="0" max="100" step="5"></label>
         <label class="opt"><input type="checkbox" id="o-tilt"> Weichzeichner am Bildrand</label>
+        <h3 class="opt-h">Meldungen</h3>
+        <p class="note">Abgeschaltete Sparten werden nicht mehr eingeblendet. Im Meldungsbuch
+        (🔔) stehen sie weiter – samt Sprung zum Ort.</p>
+        <div id="o-melde"></div>
         <p class="note">Tipp: Füge das Spiel über das Browser-Menü zum Startbildschirm hinzu, um es
         wie eine App im Vollbild zu spielen – auch offline.</p>
         <button class="mbtn back" data-back>Zurück</button>
@@ -289,6 +293,23 @@ export class UI {
     $('#m-vs1').onclick=()=>this.startMulti(1);
     $('#m-vs2').onclick=()=>this.startMulti(2);
     $('#m-vs3').onclick=()=>this.startMulti(3);
+    // Meldungssparten (v197): je Sparte ein Kaestchen. Die Voreinstellung
+    // steht in core.js; gespeichert wird nur, was der Spieler geaendert hat.
+    {
+      const box=$('#o-melde');
+      if(box){
+        const st={...MELDE_STD, ...(this.opts.meldungen||{})};
+        box.innerHTML=MELDE_KATS.map(k=>
+          `<label class="opt melde"><input type="checkbox" data-k="${k.key}" ${st[k.key]!==false?'checked':''}>`
+          +`<span class="melde-ic">${k.ic}</span><b>${k.name}</b><i>${k.hilfe}</i></label>`).join('');
+        box.querySelectorAll('input').forEach(cb=>cb.onchange=()=>{
+          const m={...MELDE_STD, ...(this.opts.meldungen||{})};
+          m[cb.dataset.k]=cb.checked;
+          this.opts.meldungen=m;
+          SAVE.setOptions(this.opts);
+        });
+      }
+    }
     $('#o-sfx').checked=this.opts.sfx;
     $('#o-music').checked=this.opts.music;
     $('#o-sfx').onchange=(e)=>{ this.opts.sfx=e.target.checked; Sound.setSfx(this.opts.sfx); SAVE.setOptions(this.opts); };
@@ -915,18 +936,37 @@ export class UI {
       const sy=(wy-this.cam.y)*this.cam.z + vh/2;
       if(sy>=oben && sy<=unten) return;               // liegt schon frei
       const ziel=(oben+unten)/2;
-      this._camZug={ von:this.cam.y, nach: wy-(ziel-vh/2)/this.cam.z, t0:performance.now(), ms:190 };
+      this._camZug={ vonX:this.cam.x, nachX:this.cam.x,
+        vonY:this.cam.y, nachY: wy-(ziel-vh/2)/this.cam.z,
+        vonZ:this.cam.z, nachZ:this.cam.z, t0:performance.now(), ms:190 };
     });
+  }
+  // Weiches Gleiten zu einem Kartenpunkt (v197). Der Sprung aus dem
+  // Meldungsbuch war ein harter Schnitt: das Bild stand woanders, ohne dass
+  // man erkennen konnte, WOHIN es gesprungen ist. Beim Gleiten sieht man die
+  // Richtung. Die Dauer waechst mit der Entfernung, bleibt aber gedeckelt -
+  // ueber die halbe Karte will niemand eine Sekunde lang fliegen.
+  gleiteZu(x, y, zoom){
+    const d=Math.hypot(x-this.cam.x, y-this.cam.y);
+    const ms=Math.max(220, Math.min(620, 180+d*0.22));
+    this._camZug={ vonX:this.cam.x, nachX:x, vonY:this.cam.y, nachY:y,
+      vonZ:this.cam.z, nachZ: zoom!=null? zoom : this.cam.z,
+      t0:performance.now(), ms };
   }
   kameraZiehen(now){
     const z=this._camZug; if(!z) return;
-    // Wer waehrenddessen selbst schiebt, hat Vorrang: hat sich cam.y seit dem
-    // letzten Bild von aussen geaendert, bricht der Zug ab.
-    if(z.zuletzt!==undefined && Math.abs(this.cam.y-z.zuletzt)>0.5){ this._camZug=null; return; }
+    // Wer waehrenddessen selbst schiebt, hat Vorrang: hat sich die Kamera seit
+    // dem letzten Bild von aussen geaendert, bricht der Zug ab.
+    if(z.zuletztY!==undefined
+       && (Math.abs(this.cam.y-z.zuletztY)>0.5 || Math.abs(this.cam.x-z.zuletztX)>0.5)){
+      this._camZug=null; return;
+    }
     const f=Math.min(1,(now-z.t0)/z.ms);
     const e=f<0.5? 2*f*f : 1-Math.pow(-2*f+2,2)/2;    // weich rein, weich raus
-    this.cam.y = z.von + (z.nach-z.von)*e;
-    z.zuletzt = this.cam.y;
+    this.cam.x = z.vonX + (z.nachX-z.vonX)*e;
+    this.cam.y = z.vonY + (z.nachY-z.vonY)*e;
+    this.cam.z = z.vonZ + (z.nachZ-z.vonZ)*e;
+    z.zuletztX = this.cam.x; z.zuletztY = this.cam.y;
     if(f>=1) this._camZug=null;
   }
   closeSheet(){ $('#sheet').classList.add('hidden'); this.state.showBuildDots=false; }
@@ -1428,13 +1468,16 @@ export class UI {
     const g=this.game; if(!g) return;
     this.state.msgUngelesen=0;
     this.syncMsgBadge();
-    const ic={war:'⚔️', warn:'⚠️', ok:'✅', info:'ℹ️'};
+    const katIc=Object.fromEntries(MELDE_KATS.map(k=>[k.key, k.ic]));
+    katIc[MELDE_IMMER]='🎯';
     const liste=g.msgs.slice(-60).reverse();
+    const stumm=liste.filter(m=>!this.meldungAn(m)).length;
     const zeilen=liste.length? liste.map((m)=>{
       const min=Math.floor(m.t/600), sek=Math.floor(m.t/10)%60;
       const sprung=(m.node!=null && m.node>=0);
-      return `<div class="ml-zeile ${m.type||'info'}${sprung?' klick':''}" data-node="${sprung?m.node:-1}">
-        <span class="ml-ic">${ic[m.type]||ic.info}</span>
+      const aus=!this.meldungAn(m);
+      return `<div class="ml-zeile ${m.type||'info'}${sprung?' klick':''}${aus?' aus':''}" data-node="${sprung?m.node:-1}">
+        <span class="ml-ic">${katIc[m.kat]||'ℹ️'}</span>
         <span class="ml-txt">${m.txt}</span>
         <span class="ml-zeit">${min}:${String(sek).padStart(2,'0')}</span>
         ${sprung?'<span class="ml-go">Hinsehen ▸</span>':''}
@@ -1444,7 +1487,8 @@ export class UI {
       <div class="sh-head"><b>🔔 Meldungen</b>
         <button class="hbtn" id="ml-x">✕</button></div>
       <p class="note">Neueste zuerst. Meldungen mit Ortsangabe lassen sich antippen –
-      die Karte springt hin.</p>
+      die Karte gleitet hin.${stumm? ` <b>${stumm}</b> davon sind abgeschaltet und wurden
+      nicht eingeblendet (Optionen → Meldungen).` : ''}</p>
       <div class="ml-liste">${zeilen}</div>
     </div>`;
     $('#msglog').classList.remove('hidden');
@@ -1675,11 +1719,21 @@ export class UI {
       setPins(list);
     });
   }
+  // Zeigt der Spieler diese Sparte ueberhaupt sehen? Missionsziele immer.
+  meldungAn(msg){
+    const kat=msg.kat||'wirtschaft';
+    if(kat===MELDE_IMMER) return true;
+    const st={...MELDE_STD, ...(this.opts.meldungen||{})};
+    return st[kat]!==false;
+  }
   pollMsgs(){
     const g=this.game;
     const vorher=this.state.msgSeen;
     while(this.state.msgSeen<g.msgs.length){
       const msg=g.msgs[this.state.msgSeen++];
+      // Abgeschaltete Sparte: keine Einblendung, kein Ton, kein Kriegspuls -
+      // die Meldung bleibt aber im Meldungsbuch stehen (v197).
+      if(!this.meldungAn(msg)) continue;
       this.toast(msg.txt, msg.type, msg.node);
       if(msg.type==='war'){
         Sound.sfx('war');
@@ -1704,8 +1758,10 @@ export class UI {
   jumpTo(node){
     if(!this.game || node==null || node<0) return;
     const [x,y]=this.game.map.worldPos(node);
-    this.cam.x=x; this.cam.y=y;
-    this.cam.z=Math.max(this.cam.z, 1.4);
+    // v197: gleiten statt springen. Beim harten Schnitt stand das Bild
+    // ploetzlich woanders, ohne dass erkennbar war, WOHIN es gesprungen ist -
+    // gerade aus dem Meldungsbuch heraus verlor man dabei die Orientierung.
+    this.gleiteZu(x, y, Math.max(this.cam.z, 1.4));
   }
   onGameOver(){
     if(this._goHandled) { return; }

@@ -69,6 +69,29 @@ export const RANG_STD = [
   'hammer','pick','axe','saw','scythe','rod','cleaver','shovel',
   'sword','shield','spear','bow',
 ];
+// MELDUNGSARTEN (v197). Der Spieler soll selbst entscheiden, was ihn
+// unterbricht: wer zum zwanzigsten Mal "Wachhaus fertiggestellt" nicht mehr
+// lesen will, schaltet die Sparte ab. Abgeschaltet heisst NICHT geloescht -
+// die Meldung wird nur nicht mehr eingeblendet, im Meldungsbuch steht sie
+// weiter samt Sprung zum Ort. Missionsziele lassen sich nicht abschalten;
+// ohne sie waere nicht mehr erkennbar, warum eine Partie endet.
+export const MELDE_KATS = [
+  { key:'bau',        ic:'🏠', name:'Fertigstellung',   hilfe:'Gebäude fertig, Bauarbeiten' },
+  { key:'erz',        ic:'⛏️', name:'Erz und Geologen', hilfe:'Fundmeldungen, erschöpfte Vorkommen, Werkzeug' },
+  { key:'kampf',      ic:'⚔️', name:'Angriff und Kampf', hilfe:'Angriffe, Verluste, Eroberungen' },
+  { key:'wirtschaft', ic:'📦', name:'Wirtschaft',       hilfe:'Nachschub, Esel, Schiffe, Tipps' },
+  { key:'warnung',    ic:'⚠️', name:'Warnungen',        hilfe:'fehlendes Werkzeug, stockende Betriebe' },
+];
+export const MELDE_STD = Object.fromEntries(MELDE_KATS.map(k=>[k.key, true]));
+// Immer sichtbar, egal was eingestellt ist.
+export const MELDE_IMMER = 'ziel';
+// Welche Sparte gilt, wenn eine Meldung keine mitbringt?
+export function meldeKat(kat, type){
+  if(kat) return kat;
+  if(type==='war') return 'kampf';
+  if(type==='warn') return 'warnung';
+  return 'wirtschaft';
+}
 // Sicherheitsnetz: neue Waren, die noch nicht in RANG_STD stehen, haengen
 // hinten an, statt aus der Rangfolge zu fallen.
 export function rangListe(gespeichert){

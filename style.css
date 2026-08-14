@@ -617,3 +617,18 @@ h1::after{
   font-size:10.5px; line-height:17px; text-align:center; font-style:normal;
   font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.5);
 }
+
+/* ---------- Meldungssparten in den Optionen (v197) ---------- */
+.opt-h{ margin:10px 0 2px; font-size:14px; color:#f2d98c; font-weight:700; }
+.opt.melde{ display:grid; grid-template-columns:auto auto 1fr; align-items:center;
+  gap:4px 8px; padding:5px 6px; border-radius:9px; margin:3px 0;
+  background:rgba(20,30,44,0.55); border:1px solid rgba(201,160,90,0.18); }
+.opt.melde .melde-ic{ font-size:15px; }
+.opt.melde b{ font-weight:700; }
+/* Der Hilfstext steht unter dem Namen, nicht daneben - auf 360 px ist rechts
+   sonst kein Platz mehr. */
+.opt.melde i{ grid-column:2 / -1; font-style:normal; font-size:11.5px;
+  color:#95a3b6; line-height:1.25; }
+/* abgeschaltete Meldung im Buch: sichtbar, aber zurueckgenommen */
+.ml-zeile.aus{ opacity:0.55; }
+.ml-zeile.aus .ml-ic{ filter:grayscale(1); }
