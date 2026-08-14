@@ -1537,6 +1537,7 @@ export class Game {
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
     if(this.t%300===41) this.notzimmerei();
+    if(this.t%300===83) this.notschmiede();
     if(this.t%300===97) this.schilderVerfall();
   }
 
@@ -1595,6 +1596,69 @@ export class Game {
         pl._notzMsg=true;
         this.msg('Keine Bretter mehr! Im Hauptquartier werden Notbretter geschnitzt – '
                 +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node, 0, 'wirtschaft');
+      }
+    }
+  }
+
+  // NOTSCHMIEDE: das Gegenstueck zur Notzimmerei, fuer Werkzeug.
+  //
+  // GEMESSENER SPIELSTOPPER. Der Foerster bindet dauerhaft eine SCHAUFEL
+  // (TOOL_OF), die Startkiste enthaelt genau zwei. Stehen zwei Foerster,
+  // ist keine Schaufel mehr im Land - und ohne Schaufel planiert kein
+  // Planierer mehr einen Bauplatz. Ohne planierten Platz wird nichts mehr
+  // fertig, also auch keine Werkzeugschmiede, die neue Schaufeln macht.
+  // Das ist kein Engpass, das ist eine Sackgasse ohne Ausgang.
+  //
+  // Gemessen (Saat 42, Stufe 2, ohne KI-Materialhilfe): ab Spielminute 10
+  // steht die Siedlung fuer immer. Bei Minute 40 lagen 60 Bretter, 73
+  // Steine und 61 Staemme im Lager, sechs Baustellen hatten Material UND
+  // Bauarbeiter - und alle sechs standen bei Fortschritt 0, weil keine
+  // einzige planiert war. Zwei Schaufeln steckten in zwei Foerstern, die
+  // sechs Haemmer in sechs Bauarbeitern, die auf unplanierten Plaetzen
+  // warteten. In 60 Minuten entstand kein Getreide, kein Erz, kein Bier
+  // und keine Waffe. Nur die KI kam davon, weil ihre Materialhilfe
+  // Schaufeln nachlegt - ein Mensch bekommt diese Hilfe nicht.
+  //
+  // Gegenmittel wie bei den Notbrettern: fehlt ein GRUNDWERKZEUG restlos
+  // und gibt es keine Werkzeugschmiede, die es machen koennte, fertigt das
+  // Hauptquartier von Hand eines an - langsam genug, dass es ein
+  // schmerzhafter Rueckschlag bleibt, aber die Partie geht weiter.
+  // Abgedeckt sind die Werkzeuge, an denen die GRUNDVERSORGUNG haengt:
+  // Schaufel (planieren), Hammer (bauen), Spitzhacke (Stein und Erz), Axt
+  // (Holz), Saege (Bretter), Sense (Getreide). Geht eines davon restlos aus,
+  // steht die ganze Kette. Angel, Beil und Bogen fehlen bewusst - Fischer,
+  // Schlachter und Jaeger sind Wahlberufe, kein Nadeloehr.
+  // Der erste Messlauf deckte nur Schaufel, Hammer und Spitzhacke ab; danach
+  // meldete der Holzfaeller zehnmal "wartet auf Werkzeug (Axt)" - derselbe
+  // Riegel eine Tuer weiter.
+  static NOTWERKZEUG=['shovel','hammer','pick','axe','saw','scythe'];
+  notschmiede(){
+    for(let p=0;p<this.players.length;p++){
+      const pl=this.players[p];
+      if(pl.defeated) continue;
+      const hq=this.buildings.get(pl.hq);
+      if(!hq || hq.state!=='done' || !hq.inv) continue;
+      // Eine fertige Werkzeugschmiede macht die Nothilfe ueberfluessig.
+      const schmiede=[...this.buildings.values()].some(x=>
+        x.player===p && x.type==='toolsmith' && x.state==='done');
+      if(schmiede){ pl._notwT=0; pl._notwMsg=false; continue; }
+      const inv=this.invTotal(p);
+      // Was fehlt restlos? toolTrulyMissing zaehlt auch Werkzeug mit, das
+      // gerade unterwegs ist - sonst schmiedet das HQ, waehrend ein
+      // Planierer mit der Schaufel nur noch heimlaeuft.
+      const fehlt=Game.NOTWERKZEUG.find(t=>
+        (inv[t]||0)===0 && this.toolTrulyMissing(p, t));
+      if(!fehlt){ pl._notwT=0; pl._notwMsg=false; continue; }
+      pl._notwT=(pl._notwT||0)+300;
+      if(pl._notwT<1800) continue;        // rund drei Spielminuten je Stueck
+      pl._notwT=0;
+      hq.inv[fehlt]=(hq.inv[fehlt]||0)+1;
+      if(p===0){
+        const N={shovel:['Keine Schaufel','eine neue'], hammer:['Kein Hammer','einer'],
+                 pick:['Keine Spitzhacke','eine neue'], axe:['Keine Axt','eine neue'],
+                 saw:['Keine Säge','eine neue'], scythe:['Keine Sense','eine neue']}[fehlt];
+        this.msg(`${N[0]} mehr im Land! Im Hauptquartier wird von Hand ${N[1]} `
+          +`gefertigt – bau eine Werkzeugschmiede.`, 'warn', hq.node, 0, 'warnung');
       }
     }
   }
