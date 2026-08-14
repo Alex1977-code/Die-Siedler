@@ -2176,12 +2176,35 @@ export class Game {
               c.item.wartet=true; c.item.wartT=this.t;
               items.push(c.item); this.flagItems.set(f,items);
             } else this.deliver(dest, c.item.good);
+            c.item=null; c.state='idle'; c.stau=0;
           } else {
             const items=this.flagItems.get(f)||[];
-            if(items.length>=FLAG_CAP+4){ this.dropItem(c.item); }
-            else { items.push(c.item); this.flagItems.set(f,items); }
+            if(items.length<FLAG_CAP+4){
+              items.push(c.item); this.flagItems.set(f,items);
+              c.item=null; c.state='idle'; c.stau=0;
+            } else {
+              // WAREN VERSCHWINDEN NICHT MEHR (v201).
+              //
+              // Bisher warf der Traeger seine Ladung weg, sobald die
+              // Zielfahne ueberlief. Gemessen (Saat 11, 45 Spielminuten,
+              // ohne KI-Materialhilfe) traf das 277 Waren in einer einzigen
+              // Partie - und es traf vor allem Erz und Kohle, deren Weg vom
+              // Gebirge zum Lager am laengsten ist. Das Lager stand deshalb
+              // die ganze Partie bei null Erz, obwohl vier Bergwerke
+              // foerderten; die Eisenhuette wurde nie auch nur gewuenscht,
+              // und ohne Eisen entstand in vier Saaten und 240 Spielminuten
+              // keine einzige eigene Waffe.
+              //
+              // Jetzt haelt der Traeger die Ware und wartet, bis an der
+              // Fahne wieder Platz ist. Wird es nach einer Spielminute
+              // nicht frei, dreht er um und bringt sie ans andere Ende
+              // seiner Strasse zurueck. Das kann sichtbar hin und her
+              // gehen - genau so soll ein Stau aussehen -, aber verloren
+              // geht nichts mehr.
+              c.stau=(c.stau||0)+1;
+              if(c.stau>600){ c.targetIx = c.targetIx===0? lastIx : 0; c.stau=0; }
+            }
           }
-          c.item=null; c.state='idle';
         }
       }
     }
@@ -4732,11 +4755,22 @@ export class Game {
         }
       }
     }
-    // --- Stufe C (nur Schwer): Gold, Muenze, Vorratshaltung
+    // MEHRERE LAGERHAEUSER (v201). Bisher baute die KI hoechstens EINES, und
+    // das erst auf Schwer - in der Praxis lief damit die ganze Siedlung ueber
+    // die eine Fahne des Hauptquartiers. Gemessen (Saat 11, 45 Spielminuten)
+    // war das der Grund, warum Erz und Kohle nie ankamen: alle Routen endeten
+    // an derselben Fahne, sie lief ueber, und der Traeger warf seine Ladung
+    // weg. Ein Lagerhaus je zwoelf Gebaeude verteilt die Last auf mehrere
+    // Ziele - und weil dispatch() immer das NAECHSTE Lager waehlt, werden die
+    // Wege damit auch kuerzer. Ab Normal, nicht erst auf Schwer.
+    if(tief>=2){
+      const soll=Math.floor(this.aiBautenGesamt(p)/12);
+      if(c('storehouse')<soll) want.push('storehouse');
+    }
+    // --- Stufe C (nur Schwer): Gold, Muenze
     if(tief>=3){
       if(c('goldmine')<1 && this.aiErzBekannt(p,'goldmine')) want.push('goldmine');
       if(g0('gold')>=2 && c('mint')<1) want.push('mint');
-      if(c('storehouse')<1 && this.aiBautenGesamt(p)>=12) want.push('storehouse');
     }
     // ENGPASS DER EISENHUETTE VOR MILITAER UND VERARBEITUNG (v197).
     // Bergwerke stehen am Ende der Wunschliste; Militaerposten, Muehlen und
