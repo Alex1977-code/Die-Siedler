@@ -1669,11 +1669,28 @@ export class Game {
       if(pl.defeated) continue;
       const hq=this.buildings.get(pl.hq);
       if(!hq || hq.state!=='done' || !hq.inv) continue;
-      // Eine fertige Werkzeugschmiede macht die Nothilfe ueberfluessig.
-      const schmiede=[...this.buildings.values()].some(x=>
-        x.player===p && x.type==='toolsmith' && x.state==='done');
-      if(schmiede){ pl._notwT=0; pl._notwMsg=false; continue; }
       const inv=this.invTotal(p);
+      // Eine Werkzeugschmiede macht die Nothilfe nur ueberfluessig, wenn sie
+      // auch ARBEITEN kann - und dafuer braucht sie Eisen.
+      //
+      // ZWEITE SACKGASSE, gemessen auf Saat 7 (60 Spielminuten, ohne
+      // Materialhilfe): drei fertige Eisenbergwerke, angeschlossen, nicht
+      // erschoepft, mit 156, 241 und 44 Einheiten Erz im Foerderring - und
+      // alle drei UNBESETZT UND OHNE SPITZHACKE. Die Spitzhacke braucht
+      // jedes Bergwerk und zusaetzlich der Steinmetz; die Startkiste hat
+      // vier. Drei Steinmetze und vier Kohlebergwerke hatten sie
+      // aufgebraucht.
+      //
+      // Die Notschmiede haette Spitzhacken gemacht - aber sie schaltet sich
+      // ab, sobald eine Werkzeugschmiede EXISTIERT. Auf Saat 7 stand eine,
+      // die ohne Eisen nichts schmieden konnte, und Eisen gab es nicht, weil
+      // dem Eisenbergwerk die Spitzhacke fehlte. Dieselbe Falle wie bei der
+      // Schaufel in v200, nur eine Tuer weiter: ich hatte sie damals nur
+      // fuer den Fall "gar keine Werkzeugschmiede" geschlossen.
+      const schmiede=[...this.buildings.values()].some(x=>
+        x.player===p && x.type==='toolsmith' && x.state==='done'
+        && ((inv.iron||0)>0 || (x.stock.iron||0)>0 || (x.incoming.iron||0)>0));
+      if(schmiede){ pl._notwT=0; pl._notwMsg=false; continue; }
       // Was fehlt restlos? toolTrulyMissing zaehlt auch Werkzeug mit, das
       // gerade unterwegs ist - sonst schmiedet das HQ, waehrend ein
       // Planierer mit der Schaufel nur noch heimlaeuft.
