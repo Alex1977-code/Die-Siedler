@@ -1538,6 +1538,7 @@ export class Game {
     if(this.t%300===23) this.statistikTakt();
     if(this.t%300===41) this.notzimmerei();
     if(this.t%300===83) this.notschmiede();
+    if(this.t%300===167) this.wegeTeilen();
     if(this.t%300===97) this.schilderVerfall();
   }
 
@@ -1596,6 +1597,36 @@ export class Game {
         pl._notzMsg=true;
         this.msg('Keine Bretter mehr! Im Hauptquartier werden Notbretter geschnitzt – '
                 +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node, 0, 'wirtschaft');
+      }
+    }
+  }
+
+  // WEGTEILUNG (v203): lange Strassen bekommen eine Fahne in der Mitte.
+  //
+  // Zwischen je zwei Fahnen laeuft GENAU EIN Traeger. Eine Strasse ueber
+  // zwoelf Knoten hat also denselben einen Traeger wie eine ueber drei - sie
+  // ist nur viermal so lang. Genau das ist in Die Siedler II die
+  // Standardantwort auf einen Warenstau: mehr Fahnen setzen, dann stehen
+  // mehr Traeger auf der Strecke. Die KI hat das nie getan; ihre Wege ins
+  // Gebirge waren die laengsten der Karte, und dort blieben Erz und Kohle
+  // liegen.
+  //
+  // Geteilt wird nur bei KI-Spielern. Beim Menschen waere eine Fahne, die
+  // von selbst in seiner Strasse auftaucht, eine Ueberraschung - er hat den
+  // Knopf dafuer selbst.
+  static WEG_TEILUNG=7;      // ab dieser Knotenzahl wird geteilt
+  wegeTeilen(){
+    for(const pl of this.players){
+      if(pl.defeated || !pl.ai) continue;
+      for(const r of [...this.roads.values()]){
+        if(r.player!==pl.id || r.isSea) continue;
+        if(r.path.length < Game.WEG_TEILUNG) continue;
+        // Mitte nehmen: beide Haelften werden dadurch etwa gleich lang
+        const mitte=r.path[Math.floor(r.path.length/2)];
+        if(mitte==null || this.map.flag[mitte]) continue;
+        if(this.map.bld[mitte]>=0) continue;
+        this.addFlag(mitte);   // teilt die Strasse an dieser Stelle
+        return;                // eine Teilung je Aufruf genuegt
       }
     }
   }
@@ -4808,8 +4839,20 @@ export class Game {
     // weg. Ein Lagerhaus je zwoelf Gebaeude verteilt die Last auf mehrere
     // Ziele - und weil dispatch() immer das NAECHSTE Lager waehlt, werden die
     // Wege damit auch kuerzer. Ab Normal, nicht erst auf Schwer.
+    // Zwei Ausloeser: die Siedlungsgroesse - und der STAU. Stapeln sich auf
+    // den eigenen Fahnen Waren, ist ein weiteres Lager das wirksamste
+    // Gegenmittel (in Die Siedler II ist genau das der Rat bei Warenstau:
+    // Lagerhaus in die Naehe bauen oder mehr Fahnen setzen; das zweite macht
+    // wegeTeilen). Der Bau selbst haengt weiter an Material und freiem
+    // Bauarbeiter - das prueft die Bauschleife weiter unten fuer alle
+    // Wuensche gleichermassen.
     if(tief>=2){
-      const soll=Math.floor(this.aiBautenGesamt(p)/12);
+      let gestapelt=0;
+      for(const [f,items] of this.flagItems){
+        if(this.map.owner[f]===p.id) gestapelt+=items.length;
+      }
+      const soll=Math.max(Math.floor(this.aiBautenGesamt(p)/12),
+                          gestapelt>=24? c('storehouse')+1 : 0);
       if(c('storehouse')<soll) want.push('storehouse');
     }
     // --- Stufe C (nur Schwer): Gold, Muenze
@@ -4925,8 +4968,31 @@ export class Game {
       // sich dann auf den vorhandenen Baustellen, statt sich auf immer mehr
       // zu verteilen.
     }
-    const boards=inv.board||0, stones=inv.stone||0;
-    for(const w of bauSatt? [] : want){
+    // ERST BAUEN, WENN MATERIAL UND BAUARBEITER WIRKLICH FREI SIND (v203).
+    //
+    // Bisher genuegte es, dass genug Bretter und Steine IM LAGER lagen -
+    // ohne Ruecksicht darauf, dass die offenen Baustellen davon schon das
+    // meiste bestellt hatten. Gemessen (Saat 99, 45 Spielminuten): acht
+    // Baustellen offen, acht Bretter und 19 Steine im Lager, und drei
+    // Bergwerke standen planiert und ohne Bauarbeiter bei Fortschritt 0 -
+    // mit 145, 123 und 36 Einheiten Erz im Foerderring. Das Material war
+    // auf acht Rohbauten verteilt, statt einen fertigzustellen.
+    //
+    // Jetzt zaehlt, was NACH Abzug der offenen Bestellungen uebrig ist, und
+    // ob ueberhaupt noch ein Hammer fuer den naechsten Bauarbeiter da ist.
+    // Ohne freien Hammer bekommt die neue Baustelle sowieso keinen - sie
+    // wuerde nur einen Bauplatz und einen Baustellen-Slot blockieren.
+    let offenBrett=0, offenStein=0;
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id || b.state!=='build') continue;
+      const d2=BLD[b.type];
+      offenBrett+=Math.max(0,(d2.cost.board||0)-(b.stock.board||0)-(b.incoming.board||0));
+      offenStein+=Math.max(0,(d2.cost.stone||0)-(b.stock.stone||0)-(b.incoming.stone||0));
+    }
+    const boards=Math.max(0,(inv.board||0)-offenBrett);
+    const stones=Math.max(0,(inv.stone||0)-offenStein);
+    const hammerFrei=!!this.findToolStore(p.id,'hammer');
+    for(const w of (bauSatt || !hammerFrei)? [] : want){
       // Ab NORMAL baut die KI grundsätzlich Wachhäuser (und wartet notfalls
       // auf den Stein): Baracken (Radius 8, Besatzung 2) können nach der
       // Reichweitenregel (r_eigen+r_ziel+2) ein Feind-HQ oft gar nicht
