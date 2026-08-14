@@ -2141,6 +2141,38 @@ export class Game {
           const f=r.path[endIx];
           const items=this.flagItems.get(f);
           if(!items || !items.length) return false;
+          // ERST SEHEN, OB DIE WARE ANKOMMT - DANN AUFNEHMEN (v211).
+          //
+          // Der Traeger hat sich bisher blind verpflichtet: er nahm die Ware
+          // auf, lief ans andere Ende und stellte dort fest, dass die Fahne
+          // voll ist. Seit v201 wirft er sie nicht mehr weg, sondern wartet -
+          // und blockiert damit seine ganze Strasse, auch fuer die
+          // Gegenrichtung. Das ergibt einen Ringschluss: Fahne A wird nur
+          // leer, wenn ihre Waren nach B koennen, B nur, wenn sie nach C
+          // koennen, und C wartet auf A.
+          //
+          // GEMESSEN (Saat 11, 60 Spielminuten, ohne Materialhilfe): die
+          // Zahl der Waren auf Fahnen waechst monoton von 22 auf 420 und
+          // faellt nie; 28 von 42 Fahnen liegen bei genau zwoelf Stueck, der
+          // Abwurfgrenze; 42 Traeger halten eine Ware und kommen sie nicht
+          // los. In der ganzen Partie wurde KEIN EINZIGES Stueck Eisenerz
+          // irgendwo zugestellt, obwohl sieben Bergwerke besetzt waren und
+          // foerderten. Auch die Eisenhuette bekam in 28 Minuten kein Brett:
+          // ein Lager mit voller Fahne faellt in findSource als Quelle aus,
+          // also verhungern die Baustellen mitten im vollen Lager.
+          //
+          // Siedler 2 loest das an genau dieser Stelle: dort nimmt der
+          // Traeger gar nicht erst auf, wenn die Zielfahne voll ist. Die Ware
+          // bleibt liegen, der Traeger bleibt frei - und kann die
+          // Gegenrichtung bedienen, die vielleicht Platz hat.
+          //
+          // Geprueft wird gegen FLAG_CAP (8), nicht gegen die Abwurfgrenze
+          // (12): die vier Plaetze Luft nehmen die Waren auf, die schon
+          // unterwegs sind. Waren fuer das Haus AN dieser Fahne sind
+          // ausgenommen - die gehen durch die Tuer, nicht auf den Stapel.
+          const zielF = r.path[endIx===0 ? lastIx : 0];
+          const zielItems = this.flagItems.get(zielF);
+          const zielVoll = !!zielItems && zielItems.length>=FLAG_CAP;
           let bestIt=null, bestPr=99, bestRang=1e9;
           for(let k=0;k<items.length;k++){
             const it=items[k];
@@ -2165,6 +2197,9 @@ export class Game {
             }
             if(it.reserved) continue;
             if(this.nextRoad(f, dest.door)!==r.id) continue;
+            // Zielfahne voll? Dann liegen lassen (v211, siehe oben) - es sei
+            // denn, das Ziel steht selbst an dieser Fahne.
+            if(zielVoll && dest.door!==zielF) continue;
             const pr = dest.state==='build' ? 0 : (dest.inv ? 2 : 1);
             // Bei gleichem Anlass entscheidet die Rangfolge des Spielers,
             // welche Ware der Traeger zuerst aufnimmt (v196). Vorher gewann
