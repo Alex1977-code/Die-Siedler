@@ -4496,6 +4496,46 @@ export class Game {
     p._erzC[minetype]=da; p._erzT[minetype]=this.t;
     return da;
   }
+  // DIE KI STELLT IHRE TRANSPORT-RANGFOLGE NACH (v204).
+  //
+  // Der Mensch sortiert seine Rangfolge im Transportbildschirm selbst; die
+  // KI fuhr bisher stur die Voreinstellung. Dort stehen Kohle und Eisenerz
+  // auf Platz 11 und 12 - hinter der ganzen Nahrungskette. Gemessen (vier
+  // Saaten, je 60 Spielminuten, ohne Materialhilfe) standen fertige
+  // Eisenhuetten deshalb zu 100 Prozent OHNE BEIDES da, obwohl 84 Kohle und
+  // 94 Erz gefoerdert worden und im Lager waren: die Auftragsvergabe hat je
+  // Runde nur ein begrenztes Kontingent, und die Nahrung raeumte es ab.
+  //
+  // Jetzt zaehlt die KI alle zwei Spielminuten zusammen, was ihren Gebaeuden
+  // JETZT fehlt - fehlende Eingaenge fertiger Betriebe, fehlendes
+  // Baumaterial offener Baustellen, fehlendes Essen in Bergwerken - und
+  // sortiert danach um. Waren mit gleichem Bedarf behalten ihre bisherige
+  // Reihenfolge (die Sortierung ist stabil), es entsteht also kein Flattern.
+  aiRangAnpassen(p){
+    const bedarf={};
+    const plus=(g,n)=>{ if(n>0) bedarf[g]=(bedarf[g]||0)+n; };
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id) continue;
+      const def=BLD[b.type];
+      if(b.state==='build'){
+        plus('board', (def.cost.board||0)-(b.stock.board||0)-(b.incoming.board||0));
+        plus('stone', (def.cost.stone||0)-(b.stock.stone||0)-(b.incoming.stone||0));
+        continue;
+      }
+      if(b.state!=='done' || b.inv) continue;
+      if(def.prod) for(const g in def.prod.inputs)
+        plus(g, def.prod.inputs[g]-(b.stock[g]||0)-(b.incoming[g]||0));
+      // Bergwerke und Betriebe mit Essensbonus wollen Nahrung; welche,
+      // entscheidet die Quelle - der Bedarf zaehlt auf alle drei.
+      if((def.mine || def.foodBoost || b.foodPrio)
+         && !FOODS.some(f=>(b.stock[f]||0)>0))
+        for(const f of FOODS) plus(f, 1);
+    }
+    const alt=this.players[p.id].rang || RANG_STD;
+    const neu=[...alt].sort((x,y)=>(bedarf[y]||0)-(bedarf[x]||0));
+    this.setzeRang(p.id, neu);
+  }
+
   // WELCHE HAELFTE FEHLT DER EISENHUETTE? (v197)
   //
   // Eine Huette braucht Erz UND Kohle zu gleichen Teilen. Gemessen ueber 35
@@ -4678,6 +4718,11 @@ export class Game {
       }
     }
     this.aiGeologe(p, lvl);
+    // Rangfolge alle zwei Spielminuten an den tatsaechlichen Bedarf nachziehen
+    if(this.t-(p.aiState.rangT||-9999)>=1200){
+      p.aiState.rangT=this.t;
+      this.aiRangAnpassen(p);
+    }
     // ================= BAUPLAN DER KI (R4) =================
     // Vorher war das eine feste Einkaufsliste: ein Bauernhof, eine Muehle,
     // eine Baeckerei, egal ob Getreide liegen blieb oder Mehl fehlte. Jetzt
@@ -4762,13 +4807,29 @@ export class Game {
     if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
     if(tief>=2){
-      // BRUNNENSCHLUESSEL VERDOPPELT (v202). Ein Brunnen liefert nominal
-      // 7,5 Wasser je Spielminute, eine Brauerei verbraucht 5,4 und eine
-      // Schweinezucht noch einmal so viel - mit EINEM Brunnen (der alte
-      // Deckel bei Normal) stand die Brauerei gemessen zu 35 bis 61 Prozent
-      // ohne Wasser da. Deckel und Schwelle sind deshalb verdoppelt.
-      if(g0('water')<12 && c('well')<2*(1+Math.floor(tief/2))) want.push('well');
-      if(c('farm')<1 || (g0('grain')<6 && c('farm')<1+tief)) want.push('farm');
+      // SCHLUESSEL NACH GEMESSENEN RATEN (v204), Pruefstand Saat 11, je zehn
+      // Spielminuten mit Eingaengen im Ueberfluss:
+      //   Bauernhof   3,1 Getreide/min   (nominal 12 - der Bauer laeuft zum
+      //                                   Saeen und Ernten, Wirkungsgrad 0,26)
+      //   Brunnen     7,4 Wasser/min
+      //   Muehle      6,6 Mehl/min   -> 6,6 Getreide
+      //   Brauerei    5,4 Bier/min   -> 5,4 Getreide + 5,4 Wasser
+      //   Schweine    4,2 Schwein/min-> 4,2 Getreide + 4,2 Wasser
+      //   Eselzucht   3,0 (nur auf Anforderung)
+      // Ein Bauernhof traegt also nur eine halbe Muehle. Die KI durfte
+      // bisher hoechstens drei Hoefe bauen - bei zwei Muehlen und zwei
+      // Brauereien braeuchte sie 7,6. Gemessen stand die Brauerei deshalb
+      // auf drei von vier Saaten zu 89 bis 95 Prozent ohne Getreide.
+      const getreideBedarf = c('mill')*6.6 + c('brewery')*5.4
+                           + c('pigfarm')*4.2 + c('donkeyfarm')*3.0;
+      const wasserBedarf   = c('brewery')*5.4 + c('pigfarm')*4.2
+                           + c('donkeyfarm')*3.0;
+      // Deckel, damit eine einzelne Muehle nicht das halbe Land zupflastert;
+      // er waechst mit der Planungstiefe.
+      const hoefeSoll   = Math.min(Math.ceil(getreideBedarf/3.1), 2+3*tief);
+      const brunnenSoll = Math.min(Math.ceil(wasserBedarf/7.4),   1+2*tief);
+      if(c('well')<Math.max(1,brunnenSoll)) want.push('well');
+      if(c('farm')<Math.max(1,hoefeSoll)) want.push('farm');
       // Muehle nur, wenn Getreide DA ist und Mehl fehlt - nicht auf Vorrat
       if(g0('grain')>=5 && g0('flour')<5 && c('mill')<1+Math.floor(tief/2)) want.push('mill');
       if(g0('flour')>=3 && g0('bread')<8 && c('bakery')<1+Math.floor(tief/2)) want.push('bakery');
