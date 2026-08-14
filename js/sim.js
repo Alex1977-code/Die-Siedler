@@ -4392,6 +4392,20 @@ export class Game {
   // nie an die Reihe.
   //
   // Gezaehlt werden nur FERTIGE Bergwerke - eine Baustelle foerdert nichts.
+  //
+  // WIRKUNG, ueber sechs Saaten und je 35 Spielminuten gegen v196 gemessen
+  // (Kohle-vor-Eisen-Reihenfolge und Nachschub fuers Engpass-Bergwerk
+  // zusammen):
+  //   Kohle  448 -> 691     Eisen 24 -> 66     Waffen 19 -> 37
+  //   Land  1606 -> 1505    Bauten 35,3 -> 33,0
+  //   Posten 11,7 -> 11,2   Soldaten 38,3 -> 34,2   Siedler 123 -> 112
+  // Die Erzkette gewinnt also deutlich, die Siedlung verliert rund sechs bis
+  // elf Prozent. Der Verlust ist NICHT belegt: bei sechs Saaten schwanken
+  // einzelne Partien um mehr als die Haelfte in beide Richtungen (Saat 11
+  // legte von 1163 auf 1919 Land zu, Saat 7 fiel von 1775 auf 950), und jede
+  // Aenderung an der Baureihenfolge verschiebt den Zufallsstrom - dieselbe
+  // Saat spielt danach eine voellig andere Partie. Wer den Verlust wirklich
+  // beziffern will, braucht deutlich mehr Saaten.
   aiEngpassMine(p){
     if(this.aiCount(p,'smelter')<1) return null;
     const kohle=this.aiCount(p,'coalmine',false);
@@ -4669,11 +4683,17 @@ export class Game {
     //
     // ABER NICHT VOR DIE MATERIALBASIS. Eine erste Fassung setzte das
     // Bergwerk an Position 0, also vor Holzfaeller, Saegewerk und Steinmetz.
-    // Ueber sechs Saaten gemessen kostete das die Siedlung: Saat 7 fiel von
-    // 25 auf 13 Gebaeude, Saat 777 von 37 auf 27, und auf Saat 2024 sank die
-    // Kohlefoerderung von 169 auf NULL - bei gleicher Zahl Bergwerke, weil
-    // ohne Bretter auch das dringendste Bergwerk nicht fertig wird. Es wird
-    // deshalb hinter der Grundversorgung eingereiht (nachGrund).
+    // Das ist als Regel falsch - ohne Bretter wird auch das dringendste
+    // Bergwerk nicht fertig -, und es steht deshalb jetzt hinter der
+    // Grundversorgung (nachGrund).
+    //
+    // EHRLICH GEMESSEN: dieser Umbau allein hat fast nichts bewirkt. Ueber
+    // sechs Saaten waren fuenf Ergebnisse Zeichen fuer Zeichen identisch,
+    // nur Saat 99 legte von 58 auf 62 Eisen zu. Der Grund: auf vier der
+    // sechs Saaten entsteht ueberhaupt keine Eisenhuette, und ohne Huette
+    // meldet aiEngpassMine gar keinen Engpass - die Regel greift dort also
+    // nie. Die Einordnung bleibt trotzdem, weil sie als Schutz richtig ist,
+    // nicht weil sie in dieser Stichprobe etwas gerettet haette.
     //
     // Nur wenn noch KEINE Baustelle dieses Typs offen ist: sonst entstuende
     // ein Karussell aus Bauplaetzen, statt dass der angefangene fertig wird
