@@ -1187,6 +1187,66 @@ export function genWorld(opts){
     }
   }
 
+  // STARTGARANTIE ERZ (v216, Nutzerbefund aus dem Spieltest): ohne
+  // Eisenerz und Kohle in Reichweite ist die Partie von Beginn an
+  // verloren - kein Eisen, keine Waffen, keine Soldaten, kein Landgewinn.
+  // Und seit die Muenze den Rekruten macht (v215), gilt dasselbe fuer
+  // Gold. VERMESSEN (30 Saaten, 60 Startlagen, Breitensuche ueber Land):
+  //   Kohle  Median 13 Knoten, 4/60 weiter als 25
+  //   Eisen  Median 14 Knoten, 10/60 weiter als 25
+  //   Gold   Median 21 Knoten, 22/60 weiter als 25, Ausreisser bis 61
+  // Unerreichbar ist nie etwas - es ist eine Entfernungsfrage. Deshalb:
+  // liegt die naechste Lagerstaette einer Sorte weiter als LIMIT Knoten
+  // vom Start, wird in den naechstgelegenen unvererzten Gebirgsknoten ein
+  // Nest gepflanzt - gleiches Wuchsmuster und gleiche Mengen wie die
+  // natuerlichen Nester, der Geologe muss es weiterhin finden.
+  {
+    const LIMIT=22;
+    const istBerg=(q)=>map.terr[q]===TER.MOUNT;
+    const menge=(t)=> t===1? 26+((rng()*30)|0)
+                    : t===2? 22+((rng()*26)|0)
+                    :        16+((rng()*18)|0);
+    for(const s of starts){
+      // Distanzfeld ueber Land - Wasser sperrt, ein Nest jenseits des Sees
+      // ist keine Hilfe
+      const d=new Int32Array(w*h).fill(-1);
+      const q=[s]; d[s]=0;
+      for(let qi=0; qi<q.length; qi++){
+        const cur=q[qi];
+        for(const nb of map.nbs(cur)){
+          if(d[nb]>=0 || map.terr[nb]===TER.WATER) continue;
+          d[nb]=d[cur]+1; q.push(nb);
+        }
+      }
+      for(const sorte of [1,2,3]){          // Kohle, Eisen, Gold
+        let nah=1e9;
+        for(let i=0;i<w*h;i++)
+          if(map.oreT[i]===sorte && map.oreA[i]>0 && d[i]>=0 && d[i]<nah) nah=d[i];
+        if(nah<=LIMIT) continue;
+        // naechstgelegenen unvererzten Gebirgsknoten nehmen - im Limit,
+        // wenn moeglich; sonst den naechsten ueberhaupt (besser ein fernes
+        // Nest als gar keines)
+        let ziel=-1, zd=1e9;
+        for(let i=0;i<w*h;i++){
+          if(!istBerg(i) || map.oreT[i] || d[i]<0) continue;
+          if(d[i]<zd){ zd=d[i]; ziel=i; }
+        }
+        if(ziel<0) continue;                // kein Gebirge erreichbar
+        const soll=5+((rng()*6)|0);
+        const q2=[ziel]; const drin=new Set([ziel]);
+        map.oreT[ziel]=sorte; map.oreA[ziel]=menge(sorte);
+        for(let qi=0; qi<q2.length && drin.size<soll; qi++){
+          for(const nb of map.nbs(q2[qi])){
+            if(drin.size>=soll) break;
+            if(drin.has(nb) || !istBerg(nb) || map.oreT[nb]) continue;
+            drin.add(nb); q2.push(nb);
+            map.oreT[nb]=sorte; map.oreA[nb]=menge(sorte);
+          }
+        }
+      }
+    }
+  }
+
   // Garantierte Ressourcen nahe Start: Bäume + Steine
   for(const s of starts) ensureStartResources(map, s, rng);
 
