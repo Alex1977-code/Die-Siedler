@@ -1330,11 +1330,25 @@ export class Game {
         // und sein Schild staende mitten im Block
         if(m.terr[n]!==TER.MOUNT || this.signs.has(n) || m.bld[n]>=0) continue;
         if((m.obj[n]&127)===OBJ.ROCK) continue;
+        if(u.meide && u.meide.has(n)) continue;   // als unerreichbar erkannt
         best=n; break;
       }
       if(best<0 || u.probes<=0){ u.state='home'; return; }
-      u.target=best; u.state='walk';
+      u.target=best; u.walkT=0; u.state='walk';
     } else if(u.state==='walk'){
+      // WEGBUDGET (v222): seek prueft nur das GELAENDE des Ziels, nicht
+      // die Erreichbarkeit - vor einer Steilwand zappelte der Geologe
+      // dann ewig auf der Stelle. GEMESSEN (Saat 7): Geologe #287 hing 55
+      // Spielminuten 22 Einheiten vor einem Gratknoten und band die
+      // letzte Spitzhacke, waehrend die fertige Kohlegrube genau auf sie
+      // wartete - keine Kohle, keine Muenze, Partie fest. Wer nach 900
+      // Takten nicht ankommt, meidet den Knoten und sucht den naechsten.
+      u.walkT=(u.walkT||0)+1;
+      if(u.walkT>900){
+        (u.meide=u.meide||new Set()).add(u.target);
+        u.state='seek';
+        return;
+      }
       const [tx,ty]=m.worldPos(u.target);
       if(this.moveToward(u,tx,ty,WALK_SPEED)){ u.state='probe'; u.actT=0; }
     } else if(u.state==='probe'){
@@ -4716,17 +4730,25 @@ export class Game {
     // Waffenschmiede fehlte. Zwei gleichzeitig reichen vollkommen.
     if(this.units.filter(u=>u.player===p.id && !u.dead && u.type==='geo').length>=2)
       return false;
-    if((this.invCached(p.id).pick||0)<1) return false;
     // BERGWERK VOR PROSPEKTION (v222). Der Geologe bringt seine Hacke
     // zwar zurueck, aber der naechste holte sie sich sofort wieder -
     // GEMESSEN (Saat 11) rotierten so zwei Hacken fuer immer durch die
     // Geologie, waehrend Eisen- und Goldbergwerk 60 Minuten auf genau
-    // diese Hacken warteten. Ein Vorkommen zu SUCHEN ist sinnlos, solange
-    // ein gefundenes nicht einmal abgebaut werden kann: wartet ein
-    // fertiges Bergwerk auf seine Spitzhacke, bleibt der Geologe daheim.
-    for(const b of this.buildings.values())
-      if(b.player===p.id && b.state==='done' && b.worker && !b.worker.present
-         && !b.toolGood && TOOL_OF[b.type]==='pick') return false;
+    // diese Hacken warteten. Der Geologe geht deshalb nur los, wenn nach
+    // Abzug aller wartenden Ansprueche noch eine Hacke UEBRIG ist.
+    // NICHT pauschal "daheim bleiben, solange irgendwer wartet": das
+    // wuergte die Prospektion fuer den Rest der Partie ab - GEMESSEN
+    // (Saat 99) standen am Ende null Kohlegruben, weil die erschoepften
+    // nie durch neue ersetzt werden konnten (kein Geologe, kein neues
+    // Vorkommen), und ohne Kohle praegte die Muenzerei nie und der
+    // Werkzeugschmied schmiedete nie die Hacke, auf die alle warteten.
+    {
+      let anspruch=0;
+      for(const b of this.buildings.values())
+        if(b.player===p.id && b.state==='done' && b.worker && !b.worker.present
+           && !b.toolGood && TOOL_OF[b.type]==='pick') anspruch++;
+      if((this.invCached(p.id).pick||0) <= anspruch) return false;
+    }
     const m=this.map;
     // Fahne mit moeglichst viel unerkundetem Fels in der Naehe
     let best=-1, bs=0;
@@ -5768,7 +5790,20 @@ export class Game {
         let vorrat=0;
         for(const n of [i,...m.nbs(i)])
           if(m.oreT[n]===targetT) vorrat+=m.oreA[n];
-        if(vorrat<36) continue;
+        // NOTBERGBAU (v222): Der Mindestvorrat 36 verhindert das Minen-
+        // Karussell - aber er kann eine Partie auch toeten. GEMESSEN
+        // (Saat 99): ab Minute 30 lagen 7 freie Hacken im Lager, Gold und
+        // Kohle waren "bekannt" (Restkruemel mit oreA>0), und trotzdem
+        // wurde 30 Minuten lang KEIN Bergwerk mehr gesetzt, weil kein
+        // Ring mehr 36 erreichte - keine Kohle, keine Muenze, keine
+        // Rekruten, und ohne Rekruten verschiebt kein Posten die Grenze
+        // zum naechsten grossen Nest (Besatzung kommt nur aus der
+        // Reserve). Deshalb: arbeitet KEIN fertiges Bergwerk dieses Typs
+        // mehr, darf die KI auch ein Kruemelnest anfahren - drei Minuten
+        // Foerderung sind besser als nie wieder. Sobald wieder eines
+        // arbeitet, gilt die strenge Schwelle.
+        const mindest = this.aiCount(p,type,false)===0 ? 8 : 36;
+        if(vorrat<mindest) continue;
         s+=vorrat*0.25
           +nearNodes.filter(n=>m.oreT[n]===targetT&&m.oreA[n]>0).length*1.5;
       }
