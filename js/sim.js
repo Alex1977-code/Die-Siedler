@@ -1999,7 +1999,22 @@ export class Game {
             reqs.push({b, good:'beer', prio:3});
         }
         if(b.type==='hq'){
-          // Rekrutierungsgüter zieht das HQ aus eigenem Lager (kein Transport nötig)
+          // REKRUTIERUNGSGUETER INS HQ BESTELLEN (v219). Der alte Kommentar
+          // hier lautete "zieht das HQ aus eigenem Lager, kein Transport
+          // noetig" - das stimmte, solange ALLES im HQ landete. Seit v214
+          // verteilen sich die Waren auf mehrere Lagerhaeuser, und die
+          // Rekrutierung liest nur hq.inv. GEMESSEN (Saat 7): die Praegerei
+          // lief, 20 Muenzen lagen im Lagerhaus - und die Rekruten blieben
+          // bei den sechs Startmuenzen stehen, weil nie eine Muenze ins HQ
+          // fand. Jetzt bestellt das HQ wie jeder Betrieb: Muenzen und je
+          // Waffentyp ein Stueck, solange die Reserve nicht voll ist.
+          if(this.recruitTotal(b.player)<10){
+            const soll={coin:2, sword:1, shield:1, spear:1, bow:1};
+            for(const g9 in soll){
+              const need=soll[g9]-(b.inv[g9]||0)-(b.incoming[g9]||0);
+              for(let k=0;k<need;k++) reqs.push({b, good:g9, prio:2});
+            }
+          }
         }
       }
     }
@@ -2169,9 +2184,12 @@ export class Game {
     const def=BLD[b.type];
     // Bier als Sold (v215). Muenzen, die aus alten Spielstaenden noch zu
     // einem Posten unterwegs sind, werden weiter angenommen und zaehlen im
-    // Kampf mit - es verfaellt nichts.
-    if(good==='beer' && def.mil){ b.bier=(b.bier||0)+1; return; }
-    if(good==='coin' && def.mil){ b.coins++; return; }
+    // Kampf mit - es verfaellt nichts. NUR fuer echte Posten: das HQ ist
+    // formal auch mil (Miliz-Radius), aber ein LAGER - dort gehoeren Bier
+    // und Muenzen ins Inventar, sonst fraesse der Sold-Zweig die Muenzen,
+    // die das HQ seit v219 fuer die Rekrutierung bestellt.
+    if(good==='beer' && def.mil && !b.inv){ b.bier=(b.bier||0)+1; return; }
+    if(good==='coin' && def.mil && !b.inv){ b.coins++; return; }
     if(b.state==='build'){ b.stock[good]=(b.stock[good]||0)+1; return; }
     if(b.inv){ b.inv[good]=(b.inv[good]||0)+1; return; }
     b.stock[good]=(b.stock[good]||0)+1;
@@ -5176,8 +5194,19 @@ export class Game {
       for(const [f,items] of this.flagItems){
         if(this.map.owner[f]===p.id) gestapelt+=items.length;
       }
-      const soll=Math.max(Math.floor(this.aiBautenGesamt(p)/12),
-                          gestapelt>=24? c('storehouse')+1 : 0);
+      // LAGERHAUS-SCHLEIFE GEDECKELT (v219). Der Stau-Zuschlag war
+      // selbstfuetternd: bei 24+ gestapelten Waren lautete das Ziel
+      // "Lagerhaeuser + 1" - jedes gebaute hob sein eigenes Ziel mit an.
+      // GEMESSEN (Saat 7, 60 Spielminuten): 24 Lagerhaeuser in 26 Minuten,
+      // rund 96 Bretter, Baupipeline dauerhaft satt (8/8 Rohbauten) - kein
+      // anderes Haus kam mehr an die Reihe, auch das Goldbergwerk nicht,
+      // dessen Wunsch jede Runde vorn stand (aiFindSpot in 60 Minuten nur
+      // zweimal erreicht). Der Stau-Zuschlag darf das Grundmass (eines je
+      // zwoelf Gebaeude) jetzt um hoechstens ZWEI uebersteigen - staut es
+      // dann immer noch, ist der Stau kein Lagerproblem.
+      const grundSoll=Math.floor(this.aiBautenGesamt(p)/12);
+      const soll=Math.max(grundSoll,
+                          gestapelt>=24? Math.min(c('storehouse')+1, grundSoll+2) : 0);
       if(c('storehouse')<soll) want.push('storehouse');
     }
     // --- Goldkette: auf ALLEN Stufen (v215). Sie stand hinter tief>=3 -
@@ -5237,6 +5266,17 @@ export class Game {
         : 'armory';
       if(c(wunsch)<2+Math.floor(tief/2)) want.splice(nachGrund, 0, wunsch);
       p.aiState.rekrutMangel=null;
+    }
+    // MUENZNOT ZIEHT DIE GOLDKETTE VOR (v219). Der rekrutMangel-Merker oben
+    // feuert nur bei PLATZNOT - auf Saat 7 war Gold ab Minute 5 im eigenen
+    // Gebiet bekannt, und das Goldbergwerk wurde trotzdem erst in Minute 38
+    // gesetzt, weil es hinten in der Wunschliste stand und je Zug nur EIN
+    // Haus beginnt. Ohne Muenze kein Rekrut, ohne Rekrut kein Posten, ohne
+    // Posten kein Land: sind die Muenzen aufgebraucht und die Reserve nicht
+    // voll, gehoert das fehlende Kettenglied nach vorn.
+    if((g0('coin')||0)<1 && this.recruitTotal(p.id)<10){
+      const wunsch9 = c('goldmine')>0 || g0('gold')>=1 ? 'mint' : 'goldmine';
+      if(c(wunsch9)<2 && !want.includes(wunsch9)) want.splice(nachGrund, 0, wunsch9);
     }
 
     // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
@@ -5359,7 +5399,14 @@ export class Game {
       // alte Streuwahl.
       const vorstoss = !!def.mil && lvl>=2 && !kontakt && this.t>=Game.VORSTOSS_AB;
       let spot=-1;
-      if(vorstoss){
+      // Muenznot ohne Gold im Gebiet: der Posten zielt aufs naechste
+      // Goldvorkommen statt auf den Feind (v219, s. aiErzRichtungSpot) -
+      // ohne Muenze gibt es keine Rekruten, und ohne Rekruten auch keinen
+      // Feldzug, den der Feind-Vorstoss vorbereiten koennte.
+      if(def.mil && (inv.coin||0)<1 && this.recruitTotal(p.id)<10
+         && !this.aiErzBekannt(p,'goldmine'))
+        spot=this.aiErzRichtungSpot(p, type, 3);
+      if(vorstoss && spot<0){
         spot=this.aiVorstossSpot(p, type);
         // Kein Platz an der Front? Dann fehlt dort fast immer der
         // Weganschluss - erst das Netz RICHTUNG FEIND verlaengern, statt
@@ -5584,6 +5631,44 @@ export class Game {
   // hier; Fehlversuche werden 30 Sekunden gemerkt (canBuild ist teuer).
   // Rueckgabe: Knoten, -1 = frisch gesucht und nichts gefunden,
   // -2 = Fehlversuch noch gemerkt (Front in Arbeit, nicht streuen).
+  // EXPANSION RICHTUNG FEHLENDEM ERZ (v219). aiErzBekannt zaehlt nur das
+  // EIGENE Gebiet - die Startgarantie (v216) legt Gold binnen 22 Knoten,
+  // aber der HQ-Radius ist 9-11, und die Grenze wuchs bisher nur Richtung
+  // Feind. GEMESSEN (Saat 42, 60 Spielminuten): "Gold bekannt: NEIN" von
+  // Anfang bis Ende, kein Goldbergwerk, Rekruten eingefroren bei den sechs
+  // Startmuenzen. Fehlt die Muenze und liegt kein Gold im Gebiet, zielt der
+  // naechste Militaerposten deshalb auf den eigenen Knoten, der dem
+  // naechsten fremden Goldvorkommen am naechsten liegt - dieselbe Mechanik
+  // wie der Feind-Vorstoss (aiVorstossSpot), nur mit anderem Ziel. Dass die
+  // KI die Erzlage der Karte kennt, ist derselbe milde Vorteil, den
+  // aiFindSpot fuer Bergwerke laengst nutzt.
+  aiErzRichtungSpot(p, type, oreT){
+    if(this.t < (p._erzVorCd||0)) return -1;
+    const m=this.map;
+    const hq=this.buildings.get(p.hq); if(!hq) return -1;
+    const hx=m.X(hq.node), hy=m.Y(hq.node);
+    let ziel=-1, zd=1e9;
+    for(let i=0;i<m.oreT.length;i++){
+      if(m.oreT[i]!==oreT || !(m.oreA[i]>0) || m.owner[i]===p.id) continue;
+      const d=Math.hypot(m.X(i)-hx, m.Y(i)-hy);
+      if(d<zd){ zd=d; ziel=i; }
+    }
+    if(ziel<0) return -1;
+    const ex=m.X(ziel), ey=m.Y(ziel);
+    const own=[];
+    for(let i=0;i<m.owner.length;i++)
+      if(m.owner[i]===p.id) own.push([Math.hypot(m.X(i)-ex, m.Y(i)-ey), i]);
+    own.sort((a,b)=>a[0]-b[0]);
+    let gepr=0;
+    for(const [,i] of own){
+      if(gepr>=60) break;
+      gepr++;
+      if(!this.canBuild(p.id,type,i).ok) continue;
+      return i;
+    }
+    p._erzVorCd=this.t+300;
+    return -1;
+  }
   aiVorstossSpot(p, type){
     if(this.t < (p._vorCd||0)) return -2;
     const m=this.map;
