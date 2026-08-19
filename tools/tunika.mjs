@@ -49,6 +49,25 @@ const BERUFE={
   // Mueller: bewusst dunkler als der weisse Baecker - "hellgrau", nicht weiss
   miller:  { sets:['walk','idle'], ziel:[168,172,178],        // hellgrau
              fenster:{h0:20,h1:70, s0:0,s1:0.36, l0:110,l1:255} },
+
+  // --- ASTERIX-RUNDE (T5, Nutzerwunsch: Farbstil an den Asterix-Figuren
+  // orientiert - hell, klar, comichaft statt Erdton-Einheitsbrei). Die
+  // haeufigsten Figuren zuerst; VERMESSEN liegen ihre Tuniken alle im
+  // Fenster 20-50 Grad (Olive/Braun), mittel bis dunkel. Alle vier tragen
+  // kopfSchutz: die oberste Kopfzone bleibt unangetastet, denn dort sitzt
+  // das Braunfenster, aus dem die Laufzeit-Haarmaske (render.haarMaske)
+  // die Haare erkennt - eine umgefaerbte Tunika-Runde ohne diesen Schutz
+  // wuerde die Haarfarben von v218 zerstoeren.
+  // Die Ziele halten Abstand zu den vier Spielerfarben (Blau, Rostrot,
+  // Gelbocker, Violett) und den vier alten Kennfarben.
+  carrier: { sets:['walk','idle','trag','flee'], ziel:[201,108,46],  // Zinnober-Orange (haeufigste Figur)
+             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.3, kopfSchutz:true },
+  farm:    { sets:['walk','idle','atk'], ziel:[58,132,120],         // Petrol - NICHT gruen: der Bauer steht auf gruener Wiese, Wiesengruen war Tarnfarbe (Sichtpruefung)
+             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.25, kopfSchutz:true },
+  worker:  { sets:['walk','idle'], ziel:[190,172,138],               // helles Leinen
+             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.35, kopfSchutz:true },
+  miner:   { sets:['walk','idle','atk'], ziel:[104,116,134],         // Schieferblau
+             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.2, kopfSchutz:true },
 };
 
 const luma=(r,g,b)=> 0.299*r+0.587*g+0.114*b;
@@ -64,11 +83,37 @@ function hsv(r,g,b){
   return [h, mx? d/mx : 0, mx];
 }
 
+// Kopfzone je 88er-Zelle markieren (oberste 24 Prozent der deckenden
+// Figur) - dieselbe Ortsregel wie render.haarMaske. Die Asterix-Runde
+// muss sie schuetzen, sonst faerbt das Tunika-Fenster (20-50 Grad) die
+// braunen Haare mit um und die Laufzeit-Haarmaske findet nichts mehr.
+function kopfZone(png){
+  const CELL=88, W=png.width, H=png.height, d=png.data;
+  const schutz=new Uint8Array(W*H);
+  const cols=Math.max(1,Math.floor(W/CELL)), rows=Math.max(1,Math.floor(H/CELL));
+  for(let cy=0;cy<rows;cy++) for(let cx=0;cx<cols;cx++){
+    const x0=cx*CELL, y0=cy*CELL;
+    let top=CELL, bot=-1;
+    for(let y=0;y<CELL && y0+y<H;y++){
+      for(let x=0;x<CELL && x0+x<W;x++){
+        if(d[((y0+y)*W+x0+x)*4+3]>120){ if(y<top)top=y; if(y>bot)bot=y; break; }
+      }
+    }
+    if(bot<0) continue;
+    const kopf=top+Math.max(3, Math.round((bot-top)*0.24));
+    for(let y=top;y<=kopf && y0+y<H;y++)
+      for(let x=0;x<CELL && x0+x<W;x++) schutz[(y0+y)*W+x0+x]=1;
+  }
+  return schutz;
+}
+
 function faerbe(png, cfg){
   const d=png.data, F=cfg.fenster, T=cfg.ziel, LT=Math.max(24,luma(T[0],T[1],T[2]));
+  const schutz=cfg.kopfSchutz? kopfZone(png) : null;
   let n=0;
   for(let i=0;i<d.length;i+=4){
     if(d[i+3]<40) continue;
+    if(schutz && schutz[i>>2]) continue;
     const r=d[i], g=d[i+1], b=d[i+2];
     // Haut-Schutz unabhaengig vom Fenster: sattes helles Orange
     if(r>150 && (r-b)>60 && g>r*0.42 && g<r*0.78) continue;
@@ -84,7 +129,12 @@ function faerbe(png, cfg){
 }
 
 const modus=process.argv[2]||'preview';
+// Optional: nur bestimmte Berufe bearbeiten (Komma-Liste als drittes
+// Argument). Die v122-Berufe sind auf den Blaettern schon umgefaerbt -
+// wer nur die Asterix-Runde anwenden will, laesst sie damit unangetastet.
+const nur=(process.argv[3]||'').split(',').filter(Boolean);
 for(const beruf in BERUFE){
+  if(nur.length && !nur.includes(beruf)) continue;
   const cfg=BERUFE[beruf];
   for(const set of cfg.sets){
     const f=path.join(ASSETS,`unit_${beruf}_${set}.png`);
