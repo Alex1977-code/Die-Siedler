@@ -173,7 +173,20 @@ export class Game {
   toolTrulyMissing(pl, tool){
     if(this.findToolStore(pl, tool)) return false;
     if(tool==='shovel' && this.units.some(u=>u.player===pl && u.type==='leveler')) return false;
-    if(tool==='hammer' && this.units.some(u=>u.player===pl && u.type==='builder')) return false;
+    if(tool==='hammer'){
+      // Ein Hammer fehlt auch dann WIRKLICH, wenn zwar Bauarbeiter
+      // existieren, aber eine planierte Baustelle auf ihren wartet - die
+      // vorhandenen halten ihre Haemmer ja fest. GEMESSEN (Saat 23, 60
+      // Spielminuten): 25 Minuten ohne freien Hammer bei 5-8 wartenden
+      // Baustellen, die Notschmiede schmiedete nie einen nach, und die
+      // ganze Bauschleife (samt Goldkette) stand. Die alte Regel "es gibt
+      // einen Bauarbeiter, also fehlt nichts" stammt aus der Zeit, als
+      // hoechstens zwei Baustellen offen waren.
+      const wartet=[...this.buildings.values()].some(b=>
+        b.player===pl && b.state==='build' && b.leveled && !b.bauerDa);
+      if(wartet) return true;
+      if(this.units.some(u=>u.player===pl && u.type==='builder')) return false;
+    }
     if(this.units.some(u=>u.player===pl && u.tool===tool)) return false;
     return true;
   }
@@ -4769,6 +4782,15 @@ export class Game {
     if(lvl<2) return false;
     if(this.t-(p.aiState.geoT||-9999)<1500) return false;
     p.aiState.geoT=this.t;
+    // DECKEL AUF LEBENDE GEOLOGEN (v220). Es gab keinen: alle 1500 Takte
+    // kam ein neuer, solange irgendwo drei unerkundete Felsknoten lagen.
+    // Auf langsam wachsenden Karten bleibt das Gebirge ewig unerkundet -
+    // GEMESSEN (90 Spielminuten): Saat 23 hatte 25 Geologen, Saat 80
+    // zwanzig, Saat 64 achtzehn. Jeder verbraucht eine Spitzhacke; die
+    // Notschmiede fuetterte das Leck mit Eisen nach, das der
+    // Waffenschmiede fehlte. Zwei gleichzeitig reichen vollkommen.
+    if(this.units.filter(u=>u.player===p.id && !u.dead && u.type==='geo').length>=2)
+      return false;
     if((this.invCached(p.id).pick||0)<1) return false;
     const m=this.map;
     // Fahne mit moeglichst viel unerkundetem Fels in der Naehe
@@ -5267,16 +5289,22 @@ export class Game {
       if(c(wunsch)<2+Math.floor(tief/2)) want.splice(nachGrund, 0, wunsch);
       p.aiState.rekrutMangel=null;
     }
-    // MUENZNOT ZIEHT DIE GOLDKETTE VOR (v219). Der rekrutMangel-Merker oben
-    // feuert nur bei PLATZNOT - auf Saat 7 war Gold ab Minute 5 im eigenen
-    // Gebiet bekannt, und das Goldbergwerk wurde trotzdem erst in Minute 38
-    // gesetzt, weil es hinten in der Wunschliste stand und je Zug nur EIN
-    // Haus beginnt. Ohne Muenze kein Rekrut, ohne Rekrut kein Posten, ohne
-    // Posten kein Land: sind die Muenzen aufgebraucht und die Reserve nicht
-    // voll, gehoert das fehlende Kettenglied nach vorn.
+    // MUENZNOT ZIEHT DIE GOLDKETTE GANZ NACH VORN (v219/v220). Der
+    // rekrutMangel-Merker oben feuert nur bei PLATZNOT, und die erste
+    // Fassung (v219) reihte den Wunsch nur VOR den Ketten ein, aber hinter
+    // dem Grundbedarf. Das reichte den starken Saaten - den schwachen
+    // nicht: dort feuert der Grundbedarf endlos (erschoepfte Holzfaeller
+    // und Steinbrueche werden seit v212 abgerissen und neu gebaut) und
+    // gewinnt fast jeden Zug den einen Bauplatz. GEMESSEN: Saat 23 kannte
+    // ihr Gold ab Minute 5 und setzte das Bergwerk in Minute 48,9; Saat 97
+    // in Minute 50,8; Saat 777 nie. Deshalb an Position 0: der Zug wird
+    // nur bei ERFOLGREICHER Platzierung verbraucht, das Materialtor
+    // (4 freie Bretter) und die Platzsuche schuetzen den Holzstart - ein
+    // vergeblicher Wunsch kostet nichts, der Grundbedarf kommt im selben
+    // Zug an die Reihe.
     if((g0('coin')||0)<1 && this.recruitTotal(p.id)<10){
       const wunsch9 = c('goldmine')>0 || g0('gold')>=1 ? 'mint' : 'goldmine';
-      if(c(wunsch9)<2 && !want.includes(wunsch9)) want.splice(nachGrund, 0, wunsch9);
+      if(c(wunsch9)<2 && !want.includes(wunsch9)) want.splice(0, 0, wunsch9);
     }
 
     // Abgehängte Gebäude regelmäßig wieder ans HQ-Netz anschließen: eine
@@ -5404,7 +5432,8 @@ export class Game {
       // ohne Muenze gibt es keine Rekruten, und ohne Rekruten auch keinen
       // Feldzug, den der Feind-Vorstoss vorbereiten koennte.
       if(def.mil && (inv.coin||0)<1 && this.recruitTotal(p.id)<10
-         && !this.aiErzBekannt(p,'goldmine'))
+         && (!this.aiErzBekannt(p,'goldmine')
+             || this.t-(p.aiState.goldPlatzNot||-1e9)<1200))
         spot=this.aiErzRichtungSpot(p, type, 3);
       if(vorstoss && spot<0){
         spot=this.aiVorstossSpot(p, type);
@@ -5426,6 +5455,12 @@ export class Game {
       // Im Vorstoss-Modus zielt der Pionierweg RICHTUNG FEIND statt einfach
       // ans entfernteste eigene Land.
       if(spot<0){
+        // Goldbergwerk gewollt, aber kein Platz im bekannten Nest (v220,
+        // Saat 777: Gold ab Minute 10 bekannt, in 50 Minuten nie gesetzt) -
+        // der Merker laesst den naechsten Militaerposten Richtung Gold
+        // zielen, auch wenn schon ein Vorkommen im Gebiet liegt: das
+        // naechste Nest draussen ist dann die einzige Tuer.
+        if(type==='goldmine') p.aiState.goldPlatzNot=this.t;
         this.aiPionierweg(p, vorstoss);
         // KEIN PLATZ MEHR (v206). Ein Pionierweg hilft nur, wenn ueberhaupt
         // freies eigenes Land da ist. Ist das Gebiet dicht, gibt es genau
