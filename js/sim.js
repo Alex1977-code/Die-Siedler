@@ -5030,7 +5030,28 @@ export class Game {
         deckel+=2;
       milAllowed=Math.min(milAllowed, deckel);
     }
-    if(milN<milAllowed && this.t>=(p.aiState.milCd||0)) want.push('@mil');
+    // POSTENFLUT ZAEHMEN (v217, Nutzerbefund: "der Computergegner baut
+    // extrem viele Posten, ob die fertigwerden sehe ich nicht"). Gemessen
+    // (Saat 99): 21 Wachhaeuser von 57 Gebaeuden - der Wirtschaftsdeckel
+    // (4 + Wirtschaft/2) hat exakt geliefert, was er erlaubt, aber er
+    // prueft zwei Dinge nicht:
+    //   1. Wie viele Militaer-BAUSTELLEN schon offen sind. Jede frisst
+    //      Bretter und einen Bauarbeiter; ab drei parallelen Rohbauten
+    //      wird sichtbar "viel gebaut und nichts fertig".
+    //   2. Ob ein neuer Posten ueberhaupt BESETZBAR waere. Ein leerer
+    //      Posten verschiebt keine Grenze - er bindet nur Material.
+    // Deshalb: hoechstens 2 offene Militaer-Baustellen, und kein neuer
+    // Posten, solange schon 2 fertige leer stehen und keine Rekruten da
+    // sind, die einziehen koennten.
+    let milBau=0, milLeer=0;
+    for(const b of this.buildings.values()){
+      if(b.player!==p.id || !BLD[b.type].mil || b.type==='hq') continue;
+      if(b.state==='build') milBau++;
+      else if(b.state==='done' && b.soldiers && b.soldiers.length===0) milLeer++;
+    }
+    if(milN<milAllowed && this.t>=(p.aiState.milCd||0)
+       && milBau<2
+       && !(milLeer>=2 && this.recruitTotal(p.id)===0)) want.push('@mil');
     // --- Stufe B (ab Normal): Verarbeitungsketten, jede nur mit Zulauf
     // ZIELAUSBAU STATT DECKEL (v209).
     //
