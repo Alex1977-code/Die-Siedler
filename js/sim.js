@@ -4117,9 +4117,37 @@ export class Game {
     return true;
   }
   tickBuilderSpawn(){
+    // WERKZEUG NACH NOT STATT NACH REIHENFOLGE (v222). Fertige Haeuser,
+    // die auf ihre Fachkraft (und deren Werkzeug) warten, wurden bisher in
+    // Map-Reihenfolge bedient - wer zuerst fertig war, bekam die naechste
+    // freie Spitzhacke. Seit die Notschmiede weg ist, ist das toedlich:
+    // GEMESSEN (Saat 11, 60 min) standen 4 Kohlegruben, 3 Eisenbergwerke
+    // und 1 Goldbergwerk um 6 Starthacken an - die frueh gebauten Gruben
+    // gewannen immer, der Werkzeugschmied bekam nie Eisen, die einzige
+    // Muenzquelle stand die ganze Stunde, und alle 12 Saaten blieben bei
+    // den 6 Startmuenzen (0/12 Rekruten-Durchbrueche).
+    // Jetzt wird der Betrieb zuerst bedient, dessen GEWERK beim Spieler
+    // noch gar nicht laeuft: das erste Eisenbergwerk schlaegt die vierte
+    // Kohlegrube, das einzige Goldbergwerk jeden Zweitbetrieb. Als
+    // "laufend" zaehlt auch, wer sein Werkzeug schon beansprucht hat
+    // (toolGood), damit zwei wartende Haeuser desselben Gewerks nicht
+    // beide als Erstbetrieb gelten.
+    const warten=[];
+    for(const b of this.buildings.values())
+      if(b.state==='done' && b.worker && !b.worker.present) warten.push(b);
+    if(warten.length){
+      const laeuft=new Map();
+      for(const b of this.buildings.values()){
+        if(b.state!=='done' || !b.worker) continue;
+        if(!b.worker.present && !b.toolGood) continue;
+        const k=b.player+':'+b.type;
+        laeuft.set(k, (laeuft.get(k)||0)+1);
+      }
+      warten.sort((a,b2)=>(laeuft.get(a.player+':'+a.type)||0)
+                         -(laeuft.get(b2.player+':'+b2.type)||0));
+      for(const b of warten) this.trySettle(b);
+    }
     for(const b of this.buildings.values()){
-      // fertige Gebäude, die noch auf Werkzeug für ihre Fachkraft warten
-      if(b.state==='done' && b.worker && !b.worker.present){ this.trySettle(b); continue; }
       if(b.state!=='build') continue;
       // Phase 1: Planierer (freie Figur + Schaufel) ebnet den Bauplatz
       // Kein "continue" mehr ans Ende: der Bauarbeiter unten wird JETZT
@@ -4689,6 +4717,16 @@ export class Game {
     if(this.units.filter(u=>u.player===p.id && !u.dead && u.type==='geo').length>=2)
       return false;
     if((this.invCached(p.id).pick||0)<1) return false;
+    // BERGWERK VOR PROSPEKTION (v222). Der Geologe bringt seine Hacke
+    // zwar zurueck, aber der naechste holte sie sich sofort wieder -
+    // GEMESSEN (Saat 11) rotierten so zwei Hacken fuer immer durch die
+    // Geologie, waehrend Eisen- und Goldbergwerk 60 Minuten auf genau
+    // diese Hacken warteten. Ein Vorkommen zu SUCHEN ist sinnlos, solange
+    // ein gefundenes nicht einmal abgebaut werden kann: wartet ein
+    // fertiges Bergwerk auf seine Spitzhacke, bleibt der Geologe daheim.
+    for(const b of this.buildings.values())
+      if(b.player===p.id && b.state==='done' && b.worker && !b.worker.present
+         && !b.toolGood && TOOL_OF[b.type]==='pick') return false;
     const m=this.map;
     // Fahne mit moeglichst viel unerkundetem Fels in der Naehe
     let best=-1, bs=0;
@@ -5320,6 +5358,29 @@ export class Game {
       const type = w==='@mil' ? (lvl>=2 ? 'guardhouse' : 'barracks') : w;
       const def=BLD[type];
       if(boards<(def.cost.board||0) || stones<(def.cost.stone||0)) continue;
+      // WERKZEUG-BREMSE (v222): seit die Notschmiede weg ist, ist jedes
+      // Werkzeug endlich. Ein ZWEITER Betrieb eines Gewerks wird nur
+      // angefangen, wenn nach Abzug aller bestehenden ANSPRUECHE noch ein
+      // Werkzeug fuer ihn uebrig waere - Anspruch haben fertige Haeuser,
+      // die auf genau dieses Werkzeug warten, und ROHBAUTEN desselben
+      // Gewerks (die melden sich erst bei Fertigstellung, schnappen dem
+      // Wartenden die Lieferung dann aber weg). Die erste Fassung prüfte
+      // nur "liegt EINS frei?" - damit winkte sie Kohlegrube 2 und 3
+      // durch, solange die eine freie Hacke noch da lag (gemessen: 8
+      // Hoefe um 2 Sensen, 7 Bergwerke um 6 Hacken, Eisen und Gold
+      // gingen leer aus). Der ERSTE seiner Art darf immer gebaut werden -
+      // die Vergabe nach Not (tickBuilderSpawn) bedient ihn zuerst,
+      // sonst kaeme eine Goldkette nie in Gang.
+      const wz=TOOL_OF[type];
+      if(wz && this.aiCount(p,type)>0){
+        let anspruch=0;
+        for(const b of this.buildings.values()){
+          if(b.player!==p.id || TOOL_OF[b.type]!==wz) continue;
+          if(b.state==='build') anspruch++;
+          else if(b.state==='done' && b.worker && !b.worker.present && !b.toolGood) anspruch++;
+        }
+        if((inv[wz]||0) <= anspruch) continue;
+      }
       // KD1 VORSTOSS: Ohne Feindkontakt zaehlt bei einem Militaerposten nur
       // eines - naeher an den Gegner. aiFindSpot streut 340 Zufallsknoten
       // und wiegt die Richtung nur weich (edW); gemessen rueckte die Front
