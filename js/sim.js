@@ -2063,6 +2063,34 @@ export class Game {
     }
     return best || ersatz;
   }
+  // GEGENDRUCK AN DER EINSPEISUNG (v214).
+  //
+  // dispatch pruefte bisher nur die QUELLfahne - die kann bei 7 stehen,
+  // waehrend die ganze Strecke dahinter dicht ist. GEMESSEN (Saat 11): das
+  // Netz stellte ab Minute 44 exakt nichts mehr zu, und dispatch schob
+  // trotzdem weiter 20 bis 100 Waren je Minute hinein, bis 372 Waren auf
+  // den Fahnen lagen und der Lagerbestand bei 843 einfror.
+  //
+  // In Siedler 2 staut sich der Verkehr bis zum Betrieb zurueck: der Betrieb
+  // behaelt seine Ware im Haus und hoert auf zu produzieren. Genau das
+  // entsteht hier, wenn die Einspeisung die ERSTE ETAPPE prueft: ist die
+  // naechste Fahne Richtung Ziel voll, bleibt die Ware im Ausgang (b.out),
+  // der Ausgang laeuft auf 4 voll, und die Produktion ruht von selbst
+  // (tickProduction: if(b.out>=4) continue). Kein Verlust, nur Rueckstau.
+  //
+  // Fuehrt die letzte Etappe direkt ans Ziel, wird nicht geprueft: Waren
+  // fuer das Haus an der Fahne gehen durch die Tuer, nicht auf den Stapel.
+  etappeFrei(von, ziel){
+    if(von===ziel) return true;
+    const rid=this.nextRoad(von, ziel);
+    if(rid===null || rid===undefined) return false;   // kein Weg -> nicht einspeisen
+    const r=this.roads.get(rid);
+    if(!r) return false;
+    const naechste = r.path[0]===von ? r.path[r.path.length-1] : r.path[0];
+    if(naechste===ziel) return true;
+    const items=this.flagItems.get(naechste);
+    return !items || items.length < FLAG_CAP;
+  }
   dispatch(){
     const reqs=this.requestsOf();
     // Erst der Anlass (Baustelle vor Eingang vor Essen vor Sold), dann die
@@ -2081,6 +2109,8 @@ export class Game {
       if(comp===undefined) continue;
       const src=this.findSource(rq.b.player, rq.good, destFlag, comp);
       if(!src) continue;
+      // Erste Etappe verstopft? Ware bleibt in der Quelle (v214, s. etappeFrei)
+      if(!this.etappeFrei(src.door, destFlag)) continue;
       let good=rq.good;
       if(good==='@food'){
         if(src.inv) good=FOODS.find(f=>src.inv[f]>0);
@@ -2120,6 +2150,10 @@ export class Game {
       if(!store) continue;
       const items=this.flagItems.get(b.door)||[];
       if(this.eigeneAnFahne(b)>=FLAG_CAP || items.length>=FLAG_CAP+4) continue;
+      // Auch der Ueberschuss wartet, wenn die erste Etappe zum Lager voll
+      // ist (v214) - genau dieser Strom hat das Netz geflutet: 296 der 372
+      // gestrandeten Waren waren Lagerlieferungen.
+      if(!this.etappeFrei(b.door, store.door)) continue;
       b.out--;
       items.push({good:g, destB:store.id, srcB:b.id});
       this.flagItems.set(b.door, items);
@@ -2178,10 +2212,16 @@ export class Game {
           // ausgenommen - die gehen durch die Tuer, nicht auf den Stapel.
           const zielF = r.path[endIx===0 ? lastIx : 0];
           const zielItems = this.flagItems.get(zielF);
-          const zielVoll = !!zielItems && zielItems.length>=Game.ZIEL_FREI;
+          const zielN = zielItems ? zielItems.length : 0;
+          const zielVoll = zielN>=Game.ZIEL_FREI;
           let bestIt=null, bestPr=99, bestRang=1e9;
           for(let k=0;k<items.length;k++){
             const it=items[k];
+            // Ankunftszeit an DIESER Fahne, fuers Alterungsventil unten.
+            // Faul gestempelt: pick() laeuft jeden Takt, der Stempel sitzt
+            // also praktisch sofort nach dem Ablegen. Beim Weitertragen setzt
+            // der Traeger ihn neu (s. carry-Zweig).
+            if(it.lagT===undefined) it.lagT=this.t;
             const dest=this.buildings.get(it.destB);
             if(!dest){ items.splice(k,1); k--; continue; }
             if(dest.door===f){
@@ -2205,7 +2245,25 @@ export class Game {
             if(this.nextRoad(f, dest.door)!==r.id) continue;
             // Zielfahne voll? Dann liegen lassen (v211, siehe oben) - es sei
             // denn, das Ziel steht selbst an dieser Fahne.
-            if(zielVoll && dest.door!==zielF) continue;
+            //
+            // ALTERUNGSVENTIL (v214). Die harte 8er-Grenze allein erzeugt
+            // einen gegenseitigen Stillstand: eine Fahne faellt nur unter 8,
+            // wenn jemand etwas wegnimmt - und genommen wird nur, wenn die
+            // Nachbarfahne unter 8 liegt. GEMESSEN (Saat 11, Minute 50):
+            // 351 von 351 liegengebliebenen Waren scheiterten an genau
+            // dieser einen Bedingung, alle Nachbarfahnen bei exakt 8,
+            // 159 von 160 Traegern arbeitslos. Ohne die Pruefung (v210)
+            // friert dasselbe Netz bei 12 ein - die Fahnenkapazitaet ist
+            // beide Male die bindende Grenze, nur die Zahl ist anders.
+            //
+            // Deshalb altert die Ware: wer laenger als eine Spielminute
+            // (600 Takte) liegt, darf auch auf eine Fahne bis 10 - zwei
+            // Plaetze unter der Abwurfgrenze 12 bleiben frei, damit der
+            // Traeger am Ende immer ablegen kann. So bewegt sich ein
+            // 8/8-Patt wieder: die aeltesten Waren fliessen zuerst, und
+            // jede Bewegung oeffnet hinter sich Platz fuer die naechste.
+            const gealtert = this.t-(it.lagT||0) > 600 && zielN < FLAG_CAP+2;
+            if(zielVoll && dest.door!==zielF && !gealtert) continue;
             const pr = dest.state==='build' ? 0 : (dest.inv ? 2 : 1);
             // Bei gleichem Anlass entscheidet die Rangfolge des Spielers,
             // welche Ware der Traeger zuerst aufnimmt (v196). Vorher gewann
@@ -2269,6 +2327,7 @@ export class Game {
           } else {
             const items=this.flagItems.get(f)||[];
             if(items.length<FLAG_CAP+4){
+              c.item.lagT=this.t;     // frisch abgelegt - das Alterungsventil zaehlt je Fahne neu
               items.push(c.item); this.flagItems.set(f,items);
               c.item=null; c.state='idle'; c.stau=0;
             } else {
