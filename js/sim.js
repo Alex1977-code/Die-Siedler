@@ -5004,15 +5004,18 @@ export class Game {
     if(c('sawmill')<1) want.push('sawmill');
     if(c('forester')<1) want.push('forester');
     if(c('quarry')<1) want.push('quarry');
-    if(essen<8 && c('fisher')+c('hunter')<1) want.push('fisher');
-    if(essen<8 && c('fisher')+c('hunter')<1) want.push('hunter');
+    // ESSEN IST STEIGERUNG, NICHT START (v226, Nutzer-Sollkette: "dann
+    // essen um zu steigern"). Frueh traegt die Startkiste (8 Fisch + 6
+    // Brot); gebaute Nahrung steht am ENDE der Wunschliste - sie macht
+    // Bergwerke und Schmieden schneller, gruendet aber nichts. Nur der
+    // Not-Anker bleibt vorn: geht das Essen RESTLOS aus, arbeitet ein
+    // Bergwerk kaum noch.
+    if(essen<4 && c('fisher')+c('hunter')<1){ want.push('fisher'); want.push('hunter'); }
     // --- Nachschub nach Bedarf: knappe Ware -> noch ein Betrieb dafuer
     if(g0('trunk')<8  && c('woodcutter')<2+tief) want.push('woodcutter');
     if(g0('board')<14 && c('sawmill')<1+tief && c('woodcutter')>c('sawmill')) want.push('sawmill');
     if(g0('trunk')<12 && c('forester')<1+Math.floor(tief/2)) want.push('forester');
     if(g0('stone')<14 && c('quarry')<1+tief) want.push('quarry');
-    if(essen<12 && c('fisher')<1+tief) want.push('fisher');
-    if(essen<12 && c('hunter')<1+Math.floor(tief/2)) want.push('hunter');
     // Bis hierher steht die MATERIALBASIS: Holz, Bretter, Stein, Nahrung.
     // Vor sie darf sich nichts draengen - ohne Bretter wird auch das
     // dringendste Bergwerk nicht fertig. Der Engpass der Eisenhuette wird
@@ -5136,10 +5139,16 @@ export class Game {
     // Gebaut wird in der Reihenfolge der Kette von unten nach oben: erst
     // die Rohstoffe, dann die Verarbeitung. Fehlt etwas weiter unten, steht
     // es weiter vorn in der Wunschliste.
+    // NUTZER-SOLLKETTE (v226): nach der Materialbasis kommt die
+    // REKRUTENKETTE - Brunnen, Hof, Brauerei. Muehle und Baeckerei
+    // standen hier VOR der Brauerei und frassen ihr Getreide und die
+    // Bretter weg (Saat 2024: 2 Muehlen + 2 Baeckereien im Bau bei
+    // Minute 5, Bier stand bei 1); sie gehoeren zur Essen-Stufe ganz
+    // ans Ende. Die Waffenschmiede wandert HINTER die Werkzeugkette
+    // (Schmelze -> Werkzeugschmied -> Waffenschmiede, s. unten).
     if(tief>=2){
-      for(const typ of ['well','farm','mill','bakery','brewery'])
+      for(const typ of ['well','farm','brewery'])
         if(c(typ)<soll[typ]) want.push(typ);
-      if(c('armory')<soll.armory) want.push('armory');
     }
     // --- WERKZEUGKETTE: auf ALLEN Stufen, und von der Werkzeugnot gezogen.
     // Sie stand bisher komplett hinter tief>=2 - eine Stufe-1-KI konnte
@@ -5204,6 +5213,10 @@ export class Game {
           if(willKohle) want.push('coalmine');
         }
       }
+      // Die Waffenschmiede kommt NACH der Werkzeugkette (v226, Nutzer-
+      // Sollkette: Schmelze -> Werkzeugschmied -> Waffenschmiede) - das
+      // Werkzeug traegt die ganze Siedlung, die Waffe nur das Militaer.
+      if(tief>=2 && c('armory')<soll.armory) want.push('armory');
     }
     // MEHRERE LAGERHAEUSER (v201). Bisher baute die KI hoechstens EINES, und
     // das erst auf Schwer - in der Praxis lief damit die ganze Siedlung ueber
@@ -5252,6 +5265,17 @@ export class Game {
     {
       if(c('goldmine')<1 && this.aiErzBekannt(p,'goldmine')) want.push('goldmine');
       if((c('goldmine')>0 || g0('gold')>=2) && c('mint')<1) want.push('mint');
+    }
+    // --- ESSEN ZULETZT, ZUR STEIGERUNG (v226, Nutzer-Sollkette). Brot,
+    // Fisch und Fleisch machen Bergwerke und Schmieden schneller
+    // (ESSEN_TEMPO), gruenden aber nichts - sie kommen, wenn die
+    // Existenzketten stehen. Der Not-Anker fuer restlos leeres Essen
+    // steht weiter vorn in der Grundstufe.
+    if(essen<12 && c('fisher')<1+tief) want.push('fisher');
+    if(essen<12 && c('hunter')<1+Math.floor(tief/2)) want.push('hunter');
+    if(tief>=2){
+      if(c('mill')<soll.mill) want.push('mill');
+      if(c('bakery')<soll.bakery) want.push('bakery');
     }
     // ENGPASS DER EISENHUETTE VOR MILITAER UND VERARBEITUNG (v197).
     // Bergwerke stehen am Ende der Wunschliste; Militaerposten, Muehlen und
