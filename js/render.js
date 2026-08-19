@@ -2,6 +2,15 @@
 import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK } from './core.js';
 import { TILE, ROWH, HSCALE } from './map.js';
 
+// Haarfarben der Bewohner (T5, Nutzerwunsch: Farbstil an den Asterix-
+// Figuren orientiert, verschiedene Haarfarben). Die Palette folgt den
+// Vorbildern: kraeftiges Blond (Asterix), Kupferrot (Obelix), Braun,
+// Schwarz und Weiss (Miraculix) - Blond doppelt, damit es das haeufigste
+// bleibt. Welche Figur welche Farbe traegt, entscheidet ihre Zeichen-
+// Kennung (_animSeed), dieselbe Quelle wie fuer den Animations-Versatz -
+// die Farbe ist damit je Figur stabil, ohne neuen Zustand.
+const HAAR_FARBEN=['#e9c548','#e9c548','#c8622c','#7a4a26','#33291f','#e6e2d8'];
+
 // Stilguide-Palette: erdige Töne, Moosgrün, Strohgelb, gedecktes Blau (keine Übersättigung)
 const TER_COL = {
   gruen:  { [TER.WATER]:'#4a83a6', [TER.GRASS]:'#7ba55e', [TER.DESERT]:'#d1ba82', [TER.MOUNT]:'#a1988a', [TER.SNOW]:'#eceff3', [TER.SWAMP]:'#5d8560', [TER.LAVA]:'#8d3a1e' },
@@ -6807,6 +6816,76 @@ export class Renderer {
     return luft;
   }
   // Soldaten: Umhang/Helmbusch (blaue Flächen) als Maske, im Spiel eingefärbt
+  // Haar-Maske je Figuren-Blatt (T5). Die Tripo-Modelle haben nur EIN
+  // Material mit UV-Atlas - eine Haar-Maske laesst sich nicht mitbacken
+  // (gleiche Lage wie bei den Tunika-Kennfarben, s. tools/tunika.mjs).
+  // Deshalb wird sie hier aus dem fertigen Blatt gewonnen, je Blatt einmal
+  // und dann gecacht (wie unitMask fuer den Soldaten-Umhang):
+  //   - je 88er-Zelle die KOPFZONE bestimmen (oberste 24 % der deckenden
+  //     Figur) - dieselbe Ortsregel wie beim Helmbusch (tools/helmbusch.mjs)
+  //   - darin nur das BRAUNFENSTER nehmen: Farbton 15-48 Grad, gesaettigt,
+  //     nicht zu hell. VERMESSEN an den Blaettern: echtes Haar liegt bei
+  //     20-40 Grad dunkel bis mittel (Traeger, Bauer, Bergmann, Siedler);
+  //     Kopfbedeckungen liegen sauber ausserhalb (Fischer-Kappe 210 Grad,
+  //     Schmied anthrazit 200-230 grau, Baeckerhaube 40 hell) und behalten
+  //     ihre Farbe. Die Helligkeit wird als Graustufe mitgenommen, damit
+  //     die Schattierung des Backens erhalten bleibt.
+  haarMaske(img){
+    if(!this._hMask) this._hMask=new Map();
+    const key=img.src;
+    if(this._hMask.has(key)) return this._hMask.get(key);
+    let out=null;
+    try{
+      const CELL=88, W=img.naturalWidth, H=img.naturalHeight;
+      const cv=document.createElement('canvas');
+      cv.width=W; cv.height=H;
+      const t=cv.getContext('2d',{willReadFrequently:true});
+      t.drawImage(img,0,0);
+      const d=t.getImageData(0,0,W,H).data;
+      const od=t.createImageData(W,H);
+      const cols=Math.max(1,Math.floor(W/CELL)), rows=Math.max(1,Math.floor(H/CELL));
+      let n=0;
+      for(let cy=0;cy<rows;cy++) for(let cx=0;cx<cols;cx++){
+        const x0=cx*CELL, y0=cy*CELL;
+        let top=CELL, bot=-1;
+        for(let y=0;y<CELL;y++){
+          for(let x=0;x<CELL;x++){
+            if(d[((y0+y)*W+x0+x)*4+3]>120){ if(y<top) top=y; if(y>bot) bot=y; break; }
+          }
+        }
+        if(bot<0) continue;
+        const kopf=top+Math.max(3, Math.round((bot-top)*0.24));
+        for(let y=top;y<=kopf && y<CELL;y++) for(let x=0;x<CELL;x++){
+          const p=((y0+y)*W+x0+x)*4;
+          const a=d[p+3]; if(a<120) continue;
+          const r=d[p]/255, g2=d[p+1]/255, b=d[p+2]/255;
+          const mx=Math.max(r,g2,b), mn=Math.min(r,g2,b);
+          const l=(mx+mn)/2;
+          // Helligkeitsgrenze 0,30 - VERMESSEN je Kopfzone: echtes Haar
+          // liegt bei L 0,1-0,29 (Siedler, Traeger, Bergmann fast
+          // vollstaendig), braune KOPFBEDECKUNGEN darueber (Strohhut des
+          // Bauern 0,3-0,49, Schweinehirt, Bauarbeiter-Kapuze 0,4). Die
+          // erste Fassung (0,52) hat den Strohhut mitgefaerbt - ein
+          // schwarzer "Strohhut" war das sichtbare Ergebnis.
+          if(mx===mn || l>=0.30) continue;
+          const s=(mx-mn)/(1-Math.abs(2*l-1));
+          if(s<0.15) continue;
+          let h9=0;
+          if(mx===r) h9=60*(((g2-b)/(mx-mn))%6);
+          else if(mx===g2) h9=60*((b-r)/(mx-mn)+2);
+          else h9=60*((r-g2)/(mx-mn)+4);
+          if(h9<0) h9+=360;
+          if(h9<15 || h9>48) continue;
+          const v=Math.min(255, 70+l*255*0.9);          // Graustufe = Schattierung
+          od.data[p]=v; od.data[p+1]=v; od.data[p+2]=v; od.data[p+3]=a;
+          n++;
+        }
+      }
+      if(n>30){ t.putImageData(od,0,0); out=cv; }
+    }catch(_){ out=null; }
+    this._hMask.set(key,out);
+    return out;
+  }
   unitMask(img){
     if(!this._uMask) this._uMask=new Map();
     const key=img.src;
@@ -11599,6 +11678,28 @@ export class Renderer {
         const tl=this.asset(baseKey+'_atk_tool');
         if(tl && tl.naturalWidth===anim.img.naturalWidth)
           g.drawImage(tl, anim.sx, anim.sy, anim.sw, anim.sh, -ww/2, -hh, ww, hh);
+      }
+      // Haarfarbe der Bewohner (T5): Soldaten tragen Helm, alle anderen
+      // bekommen ihr Haar aus der Asterix-Palette - stabil je Figur ueber
+      // die Zeichen-Kennung, getoent wie der Soldaten-Umhang darunter.
+      if(kind!=='soldier'){
+        const hm=this.haarMaske(anim.img);
+        if(hm){
+          const farbe=HAAR_FARBEN[Math.abs(Math.round((this._animSeed||0)*10))%HAAR_FARBEN.length];
+          const sc=this._haarScratch || (this._haarScratch=document.createElement('canvas'));
+          if(sc.width!==anim.sw||sc.height!==anim.sh){ sc.width=anim.sw; sc.height=anim.sh; }
+          const tc=sc.getContext('2d');
+          tc.globalCompositeOperation='source-over';
+          tc.clearRect(0,0,sc.width,sc.height);
+          tc.drawImage(hm, anim.sx, anim.sy, anim.sw, anim.sh, 0,0, sc.width,sc.height);
+          tc.globalCompositeOperation='multiply';
+          tc.fillStyle=farbe;
+          tc.fillRect(0,0,sc.width,sc.height);
+          tc.globalCompositeOperation='destination-in';
+          tc.drawImage(hm, anim.sx, anim.sy, anim.sw, anim.sh, 0,0, sc.width,sc.height);
+          tc.globalCompositeOperation='source-over';
+          g.drawImage(sc, -ww/2, -hh, ww, hh);
+        }
       }
       // Umhang/Helmbusch der Soldaten in Spielerfarbe einfärben
       if(kind==='soldier'){
