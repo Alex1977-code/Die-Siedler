@@ -1563,6 +1563,7 @@ export class Game {
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
+    if(this.t%300===141) this.warenUmwidmen();
     if(this.t%300===167) this.wegeTeilen();
     if(this.t%300===97) this.schilderVerfall();
   }
@@ -2033,6 +2034,43 @@ export class Game {
     if(naechste===ziel) return true;
     const items=this.flagItems.get(naechste);
     return !items || items.length < FLAG_CAP;
+  }
+  // LAGERWARE WIRD UMGEWIDMET (v225, Grabung Saat 2024). Der Warenstau
+  // dort war ein RING: Fahne 5675 (11 Waren Richtung HQ) routete ueber
+  // Fahne 5289, und 5289 (10 Waren Richtung Waffenschmiede) routete
+  // ueber 5675 - dazu drei Zubringerfahnen, alle >=8. Kein Kapazitaets-
+  // ventil kann so einen Zyklus loesen: jede Grenze K pumpt sich exakt
+  // auf K voll (gemessen: 10/11 mit dem 600er-Ventil, 12/12 mit einer
+  // versuchsweisen zweiten Stufe, und eine Platz-Reservierung nach
+  // Vorbild-Art drosselte gesunde Karten zu Tode - Saat 42: Siedler 0).
+  // Was den Ring WIRKLICH bricht, ist eine neue RICHTUNG: eine Ware
+  // Richtung Lager, die laenger als zwei Spielminuten liegt, wird auf
+  // das per Route naechste ANDERE Lager umgebucht - nur wenn das echt
+  // naeher ist (sonst pendelte sie zwischen zwei Lagern). Umgewidmet
+  // werden nur LAGER-Ziele: Bestellungen von Betrieben und Baustellen
+  // sind bedarfsgebunden und behalten ihr Ziel.
+  warenUmwidmen(){
+    for(const [f,items] of this.flagItems){
+      for(const it of items){
+        if(it.reserved || it.wartet) continue;
+        if(this.t-(it.lagT||this.t) < 1200) continue;
+        const dest=this.buildings.get(it.destB);
+        if(!dest || !dest.inv || dest.state!=='done') continue;
+        let best=null, bd=1e9;
+        for(const s of this.buildings.values()){
+          if(s.player!==dest.player || !s.inv || s.state!=='done') continue;
+          if(s.id===dest.id) continue;
+          if(s.door!==f && this.nextRoad(f, s.door)==null) continue;
+          const d=this.flagDist(s.door, f);
+          if(d<bd){ bd=d; best=s; }
+        }
+        if(!best || bd >= this.flagDist(dest.door, f)) continue;
+        if(dest.incoming[it.good]) dest.incoming[it.good]--;
+        best.incoming[it.good]=(best.incoming[it.good]||0)+1;
+        it.destB=best.id;
+        it.lagT=this.t;               // am neuen Ziel frisch altern
+      }
+    }
   }
   dispatch(){
     const reqs=this.requestsOf();
@@ -4918,7 +4956,12 @@ export class Game {
       for(const b of this.buildings.values()){
         if(b.player!==p.id || b.state!=='build') continue;
         const istEng = !!eng && b.type===eng;
-        if(!istEng && !BLD[b.type].mil) continue;
+        // v225: auch LAGERHAUS-Baustellen bekommen ein Teil je Zug. Das
+        // Lagerhaus ist das Anti-Stau-Gebaeude - und genau im Stau, den
+        // es loesen soll, verhungerte seine eigene Baustelle (Saat 2024:
+        // vier Lagerhaus-Baustellen standen 45 Minuten bei 0 Brettern,
+        // waehrend der Ringstau alles wuergte). Henne-Ei, hier gekappt.
+        if(!istEng && !BLD[b.type].mil && b.type!=='storehouse') continue;
         if(b.door==null || b.door<0 || this.compOf(b.door)!==hqC2) continue;
         bau.push({b, istEng});
       }
