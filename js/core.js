@@ -127,13 +127,13 @@ export const BLD = {
   bakery:     { name:'Bäckerei', cat:'nahrung', size:'M', cost:{board:2,stone:2}, prod:{out:'bread', inputs:{flour:1,water:1}, time:90}, desc:'Backt Brot aus Mehl und Wasser.' },
   pigfarm:    { name:'Schweinezucht', cat:'nahrung', size:'L', cost:{board:3,stone:3}, prod:{out:'pig', inputs:{grain:1,water:1}, time:140}, space:2, desc:'Züchtet Schweine.' },
   butcher:    { name:'Schlachterei', cat:'nahrung', size:'M', cost:{board:2,stone:2}, prod:{out:'meat', inputs:{pig:1}, time:80}, desc:'Verarbeitet Schweine zu Fleisch.' },
-  brewery:    { name:'Brauerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'beer', inputs:{grain:1,water:1}, time:110}, desc:'Braut Bier. Als Sold stärkt es die Soldaten in den Posten.' },
+  brewery:    { name:'Brauerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'beer', inputs:{grain:1,water:1}, time:110}, desc:'Braut Bier aus Getreide und Wasser. Jeder neue Rekrut kostet ein Bier.' },
   coalmine:   { name:'Kohlebergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'coal', time:90, desc:'Fördert Kohle. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
   ironmine:   { name:'Eisenbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'ironore', time:90, desc:'Fördert Eisenerz. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
   goldmine:   { name:'Goldbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'gold', time:100, desc:'Fördert Golderz. Mit zugeteiltem Essen fördern die Bergleute schneller.' },
   granitemine:{ name:'Steinbergwerk', cat:'industrie', size:'MINE', cost:{board:4}, mine:'stone', time:90, desc:'Fördert Steine aus dem Berg.' },
   smelter:    { name:'Eisenhütte', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'iron', inputs:{ironore:1,coal:1}, time:100}, desc:'Schmilzt Erz zu Eisen.' },
-  mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Jeder neue Rekrut kostet eine Münze.' },
+  mint:       { name:'Münzprägerei', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{out:'coin', inputs:{gold:1,coal:1}, time:110}, desc:'Prägt Münzen. Sie befördern die Soldaten in den Posten und machen sie stärker.' },
   armory:     { name:'Waffenschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['sword','shield','spear','bow'], inputs:{iron:1,coal:1}, time:100}, desc:'Schmiedet Schwerter, Schilde, Speere und Bögen.' },
   toolsmith:  { name:'Werkzeugschmiede', cat:'industrie', size:'M', cost:{board:2,stone:2}, prod:{outs:['hammer','pick','axe','saw','scythe','rod','cleaver','shovel'], inputs:{iron:1,board:1}, time:130}, foodBoost:true, desc:'Schmiedet alle Werkzeuge (Hammer, Spitzhacke, Axt, Säge, Sense, Angel, Beil, Schaufel) – bevorzugt das, was gerade fehlt. Mit Essen deutlich schneller.' },
   donkeyfarm: { name:'Eselzucht', cat:'industrie', size:'M', cost:{board:3,stone:1}, prod:{out:'@donkey', inputs:{grain:1,water:1}, time:200}, space:1, desc:'Züchtet Esel. Sie verstärken stark befahrene Straßen – der Transport wird schneller.' },
@@ -221,7 +221,7 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 //    auch die des Werkzeugschmieds, der Schaufeln haette schmieden koennen.
 //  - Spitzhacken 6 statt 4: bis zu vier Steinbrueche, zwei Bergwerke und
 //    zwei Geologen wollen eine, bevor der Schmied liefert.
-export const START_GOODS = { trunk:16, board:36, stone:24, fish:8, water:6, bread:6, beer:5, sword:4, shield:4, spear:3, bow:3, coal:4, iron:2, coin:6, grain:4, hammer:6, pick:6, axe:2, saw:1, scythe:2, rod:2, cleaver:1, shovel:4 };
+export const START_GOODS = { trunk:16, board:36, stone:24, fish:8, water:6, bread:6, beer:6, sword:4, shield:4, spear:3, bow:3, coal:4, iron:2, coin:6, grain:4, hammer:6, pick:6, axe:2, saw:1, scythe:2, rod:2, cleaver:1, shovel:4 };
 
 // ---------- Militär-Kennzahlen ----------
 // KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js

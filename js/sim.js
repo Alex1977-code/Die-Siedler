@@ -1915,12 +1915,12 @@ export class Game {
           for(let k=0;k<need;k++) reqs.push({b, good:'stone', prio:2});
         }
         if(def.mil && b.soldiers){
-          // Bier als Sold (v215): bis zu 2 im Gebaeude staerken die
-          // Verteidiger. Die Muenzen gehen jetzt in die Rekrutierung -
-          // Nutzerentscheid: Waffe + Muenze macht den Rekruten, das Bier
-          // steigert die Leistung der Soldaten.
-          if((b.bier||0) + (b.incoming.beer||0) < 2 && b.soldiers.length)
-            reqs.push({b, good:'beer', prio:3});
+          // MUENZEN ALS BEFOERDERUNG (v224, Nutzerentscheid - wie im
+          // Vorbild): bis zu 2 Muenzen je Posten bilden die Besatzung
+          // aus und staerken sie im Kampf. Das Bier geht jetzt in die
+          // Rekrutierung (s. tickMilitary) - v215 war es andersherum.
+          if((b.coins||0) + (b.incoming.coin||0) < 2 && b.soldiers.length)
+            reqs.push({b, good:'coin', prio:3});
         }
         if(b.type==='hq'){
           // REKRUTIERUNGSGUETER INS HQ BESTELLEN (v219). Der alte Kommentar
@@ -1930,10 +1930,11 @@ export class Game {
           // Rekrutierung liest nur hq.inv. GEMESSEN (Saat 7): die Praegerei
           // lief, 20 Muenzen lagen im Lagerhaus - und die Rekruten blieben
           // bei den sechs Startmuenzen stehen, weil nie eine Muenze ins HQ
-          // fand. Jetzt bestellt das HQ wie jeder Betrieb: Muenzen und je
-          // Waffentyp ein Stueck, solange die Reserve nicht voll ist.
+          // fand. Jetzt bestellt das HQ wie jeder Betrieb - seit v224
+          // Bier statt Muenzen (Original-Rekrutierung: Bier + Waffe) -
+          // und je Waffentyp ein Stueck, solange die Reserve nicht voll ist.
           if(this.recruitTotal(b.player)<10){
-            const soll={coin:2, sword:1, shield:1, spear:1, bow:1};
+            const soll={beer:2, sword:1, shield:1, spear:1, bow:1};
             for(const g9 in soll){
               const need=soll[g9]-(b.inv[g9]||0)-(b.incoming[g9]||0);
               for(let k=0;k<need;k++) reqs.push({b, good:g9, prio:2});
@@ -2112,8 +2113,10 @@ export class Game {
     // formal auch mil (Miliz-Radius), aber ein LAGER - dort gehoeren Bier
     // und Muenzen ins Inventar, sonst fraesse der Sold-Zweig die Muenzen,
     // die das HQ seit v219 fuer die Rekrutierung bestellt.
-    if(good==='beer' && def.mil && !b.inv){ b.bier=(b.bier||0)+1; return; }
-    if(good==='coin' && def.mil && !b.inv){ b.coins++; return; }
+    // Muenzen an einen Posten = Befoerderung der Besatzung (v224). Bier
+    // geht nicht mehr an Posten (v215-Sold abgeschafft), es wird im HQ
+    // fuer die Rekrutierung gebraucht und lagert wie jede Ware.
+    if(good==='coin' && def.mil && !b.inv){ b.coins=(b.coins||0)+1; return; }
     if(b.state==='build'){ b.stock[good]=(b.stock[good]||0)+1; return; }
     if(b.inv){ b.inv[good]=(b.inv[good]||0)+1; return; }
     b.stock[good]=(b.stock[good]||0)+1;
@@ -3649,7 +3652,7 @@ export class Game {
       }
       let p=0.5 + (STYPES[atkT].str-STYPES[defT].str)*0.09
             + this.matchup(atkT,defT) - this.matchup(defT,atkT)
-            - 0.06*Math.min((b.bier||0)+(b.coins||0),2);   // Sold: Bier stärkt die Verteidiger (alte Münzen zählen weiter)
+            - 0.06*Math.min(b.coins||0,2);   // Beförderung (v224): Münzen im Posten = ausgebildete Besatzung; Alt-Bier zählt nicht mehr
       // Heimvorteil am Hauptquartier: die Miliz verteidigt ihre Mauern
       // verbissen. Ohne den Malus konnte eine glückliche 2-Mann-Sondierung
       // eine volle Miliz niederkämpfen und das HQ schleifen – das Spielende
@@ -3702,9 +3705,10 @@ export class Game {
     if(this.t%25!==0) return;
     for(const p of this.players){
       if(p.defeated) continue;
-      // Rekrutierung im HQ: Waffe(n) + eine Muenze -> Soldat des jeweiligen
-      // Typs (Nutzerentscheid v215: das Bier ist kein Rekrutierungs-Tor mehr,
-      // es staerkt als Sold die Soldaten in den Posten - s. deliver/Kampf).
+      // Rekrutierung im HQ: Waffe(n) + ein Bier -> Soldat des jeweiligen
+      // Typs (Nutzerentscheid v224, wie im Vorbild: Bier rekrutiert, die
+      // Muenzen befoerdern die Soldaten in den Posten - s. deliver/Kampf.
+      // v215-v223 war es andersherum: Muenze rekrutierte, Bier war Sold).
       // Schwertkämpfer: Schwert+Schild | Speerkämpfer: Speer | Bogenschütze: Bogen
       const hq=this.buildings.get(p.hq);
       if(hq && hq.inv){
@@ -3724,7 +3728,7 @@ export class Game {
         for(const b9 of this.buildings.values())
           if(b9.player===p.id && TOOL_OF[b9.type]==='bow' && !b9.toolGood
              && (b9.state==='done' || b9.state==='build')){ bogenTabu=1; break; }
-        while(this.recruitTotal(p.id)<10 && (hq.inv.coin||0)>0 && guard-->0){
+        while(this.recruitTotal(p.id)<10 && (hq.inv.beer||0)>0 && guard-->0){
           // ausgewogen rekrutieren: den Typ mit der kleinsten Reserve zuerst
           const canDo=STYPE_LIST.filter(t=>{
             for(const w in STYPES[t].weapons)
@@ -3734,40 +3738,38 @@ export class Game {
           if(!canDo.length) break;
           canDo.sort((a,b)=>(p.recruits[a]||0)-(p.recruits[b]||0));
           const t=canDo[0];
-          hq.inv.coin--;
+          hq.inv.beer--;
           for(const w in STYPES[t].weapons) hq.inv[w]-=STYPES[t].weapons[w];
           p.recruits[t]=(p.recruits[t]||0)+1;
           p._rekrutT=this.t;      // fuer den Bier-Tipp: die Kette LAEUFT
           this.onRecruit && p.id===0 && this.onRecruit();
         }
-        // Die Muenze ist jetzt das harte Tor (v215) - ohne Muenze kein
-        // Rekrut, egal wie viele Waffen im Lager liegen. Das Tor selbst ist
-        // gewollt (Nutzerentscheid), aber es darf nicht unsichtbar sein:
-        // Waffen im Lager, Reserve nicht voll, und nichts sagte einem, woran
-        // es liegt. Der Tipp kommt hoechstens alle 3000 Takte, und er
-        // schweigt, solange in den letzten 5 Minuten ein Rekrut entstand -
-        // die Muenze wird oft im selben Takt verbraucht, in dem sie ankommt
-        // (Lagerstand 0 heisst NICHT Kette kaputt; Lehre aus dem Bier-Tipp).
-        if(p.id===0 && this.recruitTotal(p.id)<10 && !(hq.inv.coin>0)
+        // Das Bier ist jetzt das harte Tor (v224, wie im Vorbild) - ohne
+        // Bier kein Rekrut, egal wie viele Waffen im Lager liegen. Das Tor
+        // ist gewollt, aber es darf nicht unsichtbar sein: Waffen im Lager,
+        // Reserve nicht voll, und nichts sagte einem, woran es liegt. Der
+        // Tipp kommt hoechstens alle 3000 Takte, und er schweigt, solange
+        // in den letzten 5 Minuten ein Rekrut entstand - das Bier wird oft
+        // im selben Takt verbraucht, in dem es ankommt (Lagerstand 0
+        // heisst NICHT Kette kaputt).
+        if(p.id===0 && this.recruitTotal(p.id)<10 && !(hq.inv.beer>0)
            && this.t-(p._rekrutT||-1e9)>3000){
           const waffeDa=((hq.inv.sword||0)>0&&(hq.inv.shield||0)>0)
                         ||(hq.inv.spear||0)>0||(hq.inv.bow||0)>0;
           if(waffeDa && this.t-(p._bierMsgT||-9999)>3000){
             p._bierMsgT=this.t;
             // KD4: mit Handlungsanleitung statt blosser Feststellung - je
-            // nachdem, welches Glied der Muenzkette wirklich fehlt.
-            let tipp='baue ein Goldbergwerk und eine Münzprägerei';
-            let praegerei=null, goldmine=null;
+            // nachdem, welches Glied der Bierkette wirklich fehlt.
+            let tipp='baue eine Brauerei (sie braucht Getreide und Wasser)';
+            let brauerei=null;
             for(const b2 of this.buildings.values()){
               if(b2.player!==0) continue;
-              if(b2.type==='mint') praegerei=b2;
-              if(b2.type==='goldmine') goldmine=b2;
+              if(b2.type==='brewery'){ brauerei=b2; break; }
             }
-            if(praegerei) tipp = praegerei.state==='build'
-              ? 'die Münzprägerei ist noch im Bau'
-              : 'die Münzprägerei braucht Golderz (Goldbergwerk) und Kohle';
-            else if(goldmine) tipp='baue eine Münzprägerei, das Goldbergwerk steht schon';
-            this.msg(`Waffen liegen bereit, aber es fehlt die Münze – ${tipp}, sonst gibt es keine Rekruten.`,
+            if(brauerei) tipp = brauerei.state==='build'
+              ? 'die Brauerei ist noch im Bau'
+              : 'die Brauerei braucht Getreide (Bauernhof) und Wasser (Brunnen)';
+            this.msg(`Waffen liegen bereit, aber es fehlt das Bier – ${tipp}, sonst gibt es keine Rekruten.`,
                      'warn', hq.node, 0, 'wirtschaft');
           }
         }
@@ -4613,10 +4615,10 @@ export class Game {
     const g0=(k)=>inv[k]||0;
     const waffen=g0('sword')+g0('shield')+g0('spear')+g0('bow');
     const essen=g0('fish')+g0('bread')+g0('meat');
-    // Bier ist seit v215 kein Rekruten-Tor mehr, aber weiter der Sold, der
-    // die Soldaten in den Posten staerkt - und Getreide bleibt sein
-    // Engpass. Die Regel bleibt deshalb: bei Biermangel und knappem
-    // Getreide ruhen die Nebenverbraucher, bis wieder gebraut wird.
+    // Bier ist seit v224 wieder das Rekruten-Tor (Original-Rekrutierung:
+    // Bier + Waffe je Rekrut) - und Getreide bleibt sein Engpass. Die
+    // Regel gilt also erst recht: bei Biermangel und knappem Getreide
+    // ruhen die Nebenverbraucher, bis wieder gebraut wird.
     const bierNot = waffen>0 && g0('beer')<3 && g0('grain')<8;
     for(const b of this.buildings.values()){
       if(b.player!==p.id || b.state!=='done') continue;
@@ -4887,8 +4889,9 @@ export class Game {
       for(const t of ['axe','saw','scythe','rod','cleaver']) auf(t, HB.werkzeug);
       // Muenzen, Bier und Waffen: ohne sie friert das Gebiet nach den
       // Start-Rekruten ein, weil ein Posten erst MIT Besatzung die Grenze
-      // verschiebt. Seit v215 macht die MUENZE den Rekruten (Bier ist Sold),
-      // deshalb stockt die Hilfe hier beide bis zur selben Schwelle auf.
+      // verschiebt. Seit v224 macht das BIER den Rekruten (Muenzen
+      // befoerdern), die Hilfe stockt weiter beide bis zur selben
+      // Schwelle auf - Bier existenziell, Muenzen fuer die Kampfkraft.
       auf('coin', HB.beer); auf('beer', HB.beer);
       auf('sword', HB.waffe); auf('shield', HB.waffe);
       if(lvl>=2) auf('spear', HB.waffe);
@@ -5194,12 +5197,12 @@ export class Game {
                           gestapelt>=24? Math.min(c('storehouse')+1, grundSoll+2) : 0);
       if(c('storehouse')<soll) want.push('storehouse');
     }
-    // --- Goldkette: auf ALLEN Stufen (v215). Sie stand hinter tief>=3 -
-    // solange die Rekrutierung am Bier hing, war Gold Luxus. Jetzt kostet
-    // JEDER Rekrut eine Muenze; eine KI ohne Goldkette stirbt mit dem
-    // Verbrauch ihrer Startmuenzen, auf Leicht wie auf Schwer. Dieselbe
-    // Falle wie beim Werkzeugschmied (v209): existenzielle Ketten duerfen
-    // nicht am Schwierigkeitsgrad haengen.
+    // --- Goldkette: auf ALLEN Stufen (v215, Begruendung angepasst v224).
+    // Muenzen sind seit v224 wieder die BEFOERDERUNG (Original-Modell):
+    // kein Existenztor mehr, aber ein Posten mit 2 Muenzen kaempft
+    // spuerbar staerker (Kampfformel) - eine KI ohne Goldkette stellt
+    // dieselbe Armee, verliert aber die Duelle. Die Kette bleibt deshalb
+    // auf allen Stufen in der Wunschliste, nur nicht mehr an Position 0.
     // Und die Praegerei folgt dem Bergwerk, nicht dem Lager (v202-Prinzip):
     // wer ein Goldbergwerk hat, will die Praegerei - Gold im Lager taugt
     // weiter als Ausloeser, ist aber nicht mehr die einzige Tuer.
@@ -5240,33 +5243,37 @@ export class Game {
     }
     // KEIN PLATZ UND KEIN SOLDAT (v206): dann bringt neues Land nichts, denn
     // ein Posten liesse sich gar nicht besetzen. Was der Siedlung fehlt, ist
-    // dann das, was Rekruten macht - eine Waffe oder die Muenze dazu (v215).
+    // dann das, was Rekruten macht - eine Waffe oder das Bier dazu (v224;
+    // der 'muenze'-Zweig bleibt fuer Altbestand aus Spielstaenden stehen).
     // Der beim gescheiterten Bauversuch gesetzte Merker zieht das
     // entsprechende Haus nach vorn; gebaut wird es nach denselben Regeln wie
     // alles andere (Material frei, Bauarbeiter frei, Bauplatz vorhanden).
     if(p.aiState.rekrutMangel){
       const wunsch = p.aiState.rekrutMangel==='muenze'
         ? (c('goldmine')>0 || g0('gold')>=1 ? 'mint' : 'goldmine')
-        : p.aiState.rekrutMangel==='bier' ? 'brewery'   // Altbestand aus Spielstaenden
+        : p.aiState.rekrutMangel==='bier' ? 'brewery'
         : 'armory';
       if(c(wunsch)<2+Math.floor(tief/2)) want.splice(nachGrund, 0, wunsch);
       p.aiState.rekrutMangel=null;
     }
-    // MUENZNOT ZIEHT DIE GOLDKETTE GANZ NACH VORN (v219/v220). Der
-    // rekrutMangel-Merker oben feuert nur bei PLATZNOT, und die erste
-    // Fassung (v219) reihte den Wunsch nur VOR den Ketten ein, aber hinter
-    // dem Grundbedarf. Das reichte den starken Saaten - den schwachen
-    // nicht: dort feuert der Grundbedarf endlos (erschoepfte Holzfaeller
-    // und Steinbrueche werden seit v212 abgerissen und neu gebaut) und
-    // gewinnt fast jeden Zug den einen Bauplatz. GEMESSEN: Saat 23 kannte
-    // ihr Gold ab Minute 5 und setzte das Bergwerk in Minute 48,9; Saat 97
-    // in Minute 50,8; Saat 777 nie. Deshalb an Position 0: der Zug wird
-    // nur bei ERFOLGREICHER Platzierung verbraucht, das Materialtor
-    // (4 freie Bretter) und die Platzsuche schuetzen den Holzstart - ein
-    // vergeblicher Wunsch kostet nichts, der Grundbedarf kommt im selben
-    // Zug an die Reihe.
-    if((g0('coin')||0)<1 && this.recruitTotal(p.id)<10){
-      const wunsch9 = c('goldmine')>0 || g0('gold')>=1 ? 'mint' : 'goldmine';
+    // POSITION 0 FUER DIE EXISTENZKETTE: die Herleitung stammt aus der
+    // Muenznot-Zeit (v219/v220 - der Grundbedarf feuert auf schwachen
+    // Saaten endlos und gewinnt sonst fast jeden Zug den einen Bauplatz;
+    // GEMESSEN setzte Saat 23 ihr Goldbergwerk sonst erst in Minute 48,9,
+    // Saat 777 nie).
+    // BIERNOT statt Muenznot (v224): Rekruten kosten jetzt Bier + Waffe
+    // (Original-Rekrutierung), also zieht die BIERKETTE nach vorn, wenn
+    // kein Bier da ist und die Reserve nicht voll - von unten nach oben
+    // (Brunnen -> Hof -> Brauerei), denn ohne Wasser und Getreide braut
+    // nichts. Auf ALLEN Stufen, aus demselben Grund wie die Goldkette in
+    // v215: existenzielle Ketten duerfen nicht am Schwierigkeitsgrad
+    // haengen. Die Begruendung fuer Position 0 gilt unveraendert (der Zug
+    // wird nur bei ERFOLGREICHER Platzierung verbraucht, das Materialtor
+    // schuetzt den Holzstart). Die Goldkette bleibt in der normalen
+    // Wunschliste - Muenzen sind jetzt Befoerderung, wichtig, aber kein
+    // Existenztor mehr.
+    if((g0('beer')||0)<1 && this.recruitTotal(p.id)<10){
+      const wunsch9 = c('well')<1? 'well' : c('farm')<1? 'farm' : 'brewery';
       if(c(wunsch9)<2 && !want.includes(wunsch9)) want.splice(0, 0, wunsch9);
     }
 
@@ -5413,10 +5420,12 @@ export class Game {
       // alte Streuwahl.
       const vorstoss = !!def.mil && lvl>=2 && !kontakt && this.t>=Game.VORSTOSS_AB;
       let spot=-1;
-      // Muenznot ohne Gold im Gebiet: der Posten zielt aufs naechste
-      // Goldvorkommen statt auf den Feind (v219, s. aiErzRichtungSpot) -
-      // ohne Muenze gibt es keine Rekruten, und ohne Rekruten auch keinen
-      // Feldzug, den der Feind-Vorstoss vorbereiten koennte.
+      // Muenzmangel ohne Gold im Gebiet: der Posten zielt aufs naechste
+      // Goldvorkommen statt auf den Feind (v219, s. aiErzRichtungSpot).
+      // Seit v224 sind Muenzen Befoerderung statt Rekrutierungs-Tor -
+      // der Zug bleibt trotzdem richtig: unbefoerderte Soldaten kaempfen
+      // schwaecher, und Gold holt man sich, solange die Reserve nicht
+      // voll ist und Posten gebaut werden duerfen.
       if(def.mil && (inv.coin||0)<1 && this.recruitTotal(p.id)<10
          && (!this.aiErzBekannt(p,'goldmine')
              || this.t-(p.aiState.goldPlatzNot||-1e9)<1200))
@@ -5470,7 +5479,7 @@ export class Game {
             const g1=(k)=>(inv[k]||0);
             const waffen=g1('sword')+g1('shield')+g1('spear')+g1('bow');
             // Was fehlt zuerst? Ohne Waffe nuetzt Bier nichts und umgekehrt.
-            p.aiState.rekrutMangel = waffen<2? 'waffe' : ((g1('coin')||0)<1? 'muenze' : null);
+            p.aiState.rekrutMangel = waffen<2? 'waffe' : ((g1('beer')||0)<1? 'bier' : null);
           }
         }
         continue;
