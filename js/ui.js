@@ -203,12 +203,12 @@ export class UI {
         <b>Schwer</b>: knapper Start, stärkere und aggressivere Gegner. Einstellbar vor jeder
         Partie – in der Kampagne über der Missionsliste, im freien Spiel im Formular.</p>
         <h3>Militär – drei Truppentypen</h3>
-        <p>Im Hauptquartier entstehen Soldaten aus Bier + Waffe:
+        <p>Im Hauptquartier entstehen Soldaten aus Waffe + Münze (aus der Prägerei):
         <b>Schwertkämpfer</b> (Schwert + Schild, stark im Nahkampf),
         <b>Speerkämpfer</b> (Speer) und <b>Bogenschützen</b> (Bogen – schießen vor jedem
         Nahkampf eine Pfeilsalve). Es gilt: Schwert schlägt Speer, Speer schlägt Bogen,
-        Bogen schlägt Schwert. Münzen aus der Prägerei sind Sold: Sie stärken die Verteidiger
-        des Militärgebäudes, in dem sie lagern.</p>
+        Bogen schlägt Schwert. Bier aus der Brauerei ist Sold: Es stärkt die Verteidiger
+        des Militärgebäudes, in dem es lagert.</p>
         <h3>So greifst du an</h3>
         <p>1. Baue <b>Militärgebäude in Richtung des Feindes</b> – nur Soldaten aus Gebäuden
         in Reichweite können angreifen.<br>
@@ -1170,7 +1170,7 @@ export class UI {
         }).filter(Boolean).join(' · ');
         const want=b.garrison??def.mil.cap;
         rows.push(`Besatzung: ${b.soldiers.length}/${def.mil.cap}${byT? ' ('+byT+')':''}`,
-          `Sold (Münzen): ${b.coins||0}`,
+          `Sold (Bier): ${(b.bier||0)+(b.coins||0)}`,
           `Soll-Stärke (antippen): <span class="pips" id="gar-pips">${
             Array.from({length:def.mil.cap},(_,k)=>
               `<button class="pip${k<want?' on':''}" data-n="${k+1}" title="${k+1} Mann">🛡</button>`).join('')
@@ -1182,15 +1182,15 @@ export class UI {
         if(b.type==='hq'){
           const r=g.players[0].recruits;
           // Ruhende Waffenvorräte erklären: Waffen werden beim REKRUTIEREN
-          // verbraucht (1 Bier + Waffe -> Rekrut), nicht beim Einzug in den
-          // Posten - der zieht fertige Soldaten aus der Reserve. Ohne den
-          // Hinweis wirkt der eingefrorene Schwertstapel wie ein Fehler
-          // (Nutzer-Report v186/v187), denn die Bier-Meldung ist flüchtig,
+          // verbraucht (1 Münze + Waffe -> Rekrut, v215), nicht beim Einzug
+          // in den Posten - der zieht fertige Soldaten aus der Reserve. Ohne
+          // den Hinweis wirkt der eingefrorene Schwertstapel wie ein Fehler
+          // (Nutzer-Report v186/v187), denn die Warnmeldung ist flüchtig,
           // das Lager hat man dagegen direkt vor Augen.
           const voll=g.recruitTotal(0)>=10;
           const waffeDa=((b.inv.sword||0)>0&&(b.inv.shield||0)>0)||(b.inv.spear||0)>0||(b.inv.bow||0)>0;
           const hinweis= voll? ' <small>(voll – rekrutiert wird erst wieder, wenn Posten Nachschub brauchen)</small>'
-            : (!(b.inv.beer>0)&&waffeDa)? ' <small>(kein Bier – je Rekrut wird 1 Bier + Waffe verbraucht, die Waffen bleiben solange liegen)</small>'
+            : (!(b.inv.coin>0)&&waffeDa)? ' <small>(keine Münze – je Rekrut wird 1 Münze + Waffe verbraucht, die Waffen bleiben solange liegen)</small>'
             : '';
           rows.push(`Reserve: ${STYPE_LIST.map(t=>`${r[t]||0}× ${STYPES[t].short}`).join(' · ')}${hinweis}`);
         }
