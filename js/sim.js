@@ -5436,6 +5436,9 @@ export class Game {
         if(spot<0 && this.aiPionierweg(p, true)) continue;
       }
       if(spot<0) spot=this.aiFindSpot(p, type);
+      // Bergwerk ohne Platz: bevor aufgegeben wird, prueft die Notraeumung,
+      // ob nur EIGENE Strassen/Fahnen das Erz zupflastern (v223, s. dort).
+      if(spot<0 && def.mine) spot=this.aiRaeumtFuerMine(p, type);
       // R4/R10: Kein Platz? Dann liegt es fast immer daran, dass das eigene
       // Wegenetz nicht bis ans freie Land reicht - ein Pionierweg loest das.
       // Im Vorstoss-Modus zielt der Pionierweg RICHTUNG FEIND statt einfach
@@ -5719,6 +5722,124 @@ export class Game {
     }
     p._vorCd=this.t+300;
     return -1;
+  }
+  // NOTRAEUMUNG FUER BERGWERKE (v223, T6). Die KI pflastert ihr eigenes
+  // Erz zu: Strassen zu laengst abgerissenen Bergwerken bleiben als tote
+  // Stummel im Gebirge liegen (burnBuilding raeumt nur die Tuerfahne,
+  // und die gilt als benutzt, solange die Strasse dort endet). GEMESSEN
+  // (Saat 99, Minute 40): 247 Gold im eigenen Gebiet, reichster Ring 171,
+  // und ALLE zehn Kandidatenknoten unbaubar - sechs davon "Hier verlaeuft
+  // eine Strasse". Ein Mensch reisst die Strasse ab und baut die Mine;
+  // genau das darf die KI jetzt auch - aber nur im selben Notfall wie
+  // beim Notbergbau (KEIN Bergwerk dieses Typs, auch keines im Bau), nur
+  // fuer EIGENE Strassen und Fahnen (nie Gebaeude), und gedrosselt.
+  // Abgehaengte Gebaeude faengt die Wiederanschluss-Schleife im aiStep
+  // auf (alle 150 Takte, aiConnect).
+  aiRaeumtFuerMine(p, type){
+    const m=this.map;
+    if(this.aiCount(p,type)>0) return -1;               // nur im echten Notfall
+    if(this.t-(p.aiState.raeumT||-1e9)<300) return -1;  // gedrosselt
+    const targetT={coalmine:1,ironmine:2,goldmine:3,granitemine:4}[type];
+    if(!targetT) return -1;
+    let tot;                        // tote Strassenketten, nur bei Bedarf gerechnet
+    const kand=[];
+    for(let i=0;i<m.oreT.length;i++){
+      if(m.owner[i]!==p.id || !m.terrOkMine(i)) continue;
+      if(m.bld[i]>=0) continue;                         // Gebaeude raeumen wir nie
+      const r=this.roadAt(i);
+      // Eigene Strassen duerfen weichen, fremde nie. TOTE KETTEN (die
+      // Zufahrt einer laengst abgerissenen Mine) sind gratis; eine
+      // LEBENDE Strasse ist der letzte Ausweg - der Riss kostet kurz
+      // den Anschluss dahinter, den aiConnect binnen 150 Takten neu
+      // baut. Die Schredder-Fassung (4 Segmente je Aufruf alle 300
+      // Takte, auch bei Fehlschlag) zerlegte auf Saat 99 die
+      // Bergzufahrten der laufenden Erzwirtschaft: Erz 167->5, Waffen
+      // 96->3. Die Nur-Stummel-Fassung fand dagegen exakt null
+      // Kandidaten - das Gebirgsnetz LEBT dort (aktive Minen nutzen
+      // die alten Zufahrten mit). Deshalb beides: tote Ketten zuerst,
+      // lebende nur einzeln, gedrosselt und mit Fehlversuchs-Merkern.
+      let klasse=0;                                     // 0 = frei/nur Fahne
+      if(r){
+        if(r.player!==p.id) continue;
+        if(tot===undefined) tot=this.toteStrassen(p.id);
+        let rid=-1; for(const [id,x] of this.roads) if(x===r){ rid=id; break; }
+        klasse = tot.has(rid) ? 1 : 2;                  // 1 = tote Kette, 2 = lebend
+      }
+      const failT=p.aiState.raeumNo && p.aiState.raeumNo.get(i);
+      if(failT!==undefined && this.t-failT<6000) continue;   // juengst gescheitert
+      let fels=false;
+      for(const n of m.nbs(i)) if((m.obj[n]&127)===OBJ.ROCK){ fels=true; break; }
+      if(fels) continue;
+      if(!r && !m.flag[i]) continue;    // nichts zu raeumen: nicht unsere Baustelle
+      let vorrat=0;
+      for(const n of [i,...m.nbs(i)]) if(m.oreT[n]===targetT) vorrat+=m.oreA[n];
+      if(vorrat>=8) kand.push({i, vorrat, klasse});
+    }
+    kand.sort((a,b)=> a.klasse-b.klasse || b.vorrat-a.vorrat);
+    // EIN Riss je Aufruf, dann entscheidet das normale canBuild - und
+    // ZWEI FEHLRISSE JE MINENTYP BEENDEN DIE RAEUMUNG FUER DIE PARTIE.
+    // Alles andere wurde gemessen und verworfen: der ungebremste
+    // Blindriss zerlegte auf Saat 99 die Bergzufahrten der laufenden
+    // Erzwirtschaft (Waffen 96->29 ohne je eine Muenze - das Goldnest
+    // liegt dort unbaubar im dichten Minendistrikt); eine Trocken-
+    // pruefung vor dem Riss lehnte auf Saat 64 genau den Riss ab, der
+    // dort den Durchbruch brachte (canBuild kann den Anschluss, den
+    // aiConnect NACH dem Bau legt, nicht vorhersehen), und ihre
+    // routeVer-Kaskade entwertete laufend die Traegerrouten. Der
+    // gedeckelte Blindriss nimmt die Karte, wie sie ist: wo der erste
+    // oder zweite Riss sitzt (Saat 64: Rekruten 6->35), gewinnt die
+    // Muenzkette; wo nicht, hoert die KI auf, bevor es teuer wird.
+    for(const k of kand.slice(0,1)){
+      const rz=p.aiState.raeumZahl=p.aiState.raeumZahl||{};
+      // das Limit zaehlt nur LEBEND-Risse: Fahnen und tote Ketten zu
+      // raeumen ist gratis und darf beliebig oft scheitern
+      if(k.klasse===2 && (rz[type]||0)>=2) return -1;
+      p.aiState.raeumT=this.t;
+      const r=this.roadAt(k.i);
+      if(r){
+        for(const [id,x] of this.roads) if(x===r){ this.removeRoad(id); break; }
+      }
+      if(m.flag[k.i]) this.removeFlag(k.i);
+      if(this.canBuild(p.id, type, k.i).ok) return k.i;
+      (p.aiState.raeumNo=p.aiState.raeumNo||new Map()).set(k.i, this.t);
+      if(k.klasse===2) rz[type]=(rz[type]||0)+1;
+    }
+    return -1;
+  }
+  // TOTE STRASSENKETTEN eines Spielers (v223): Zufahrten laengst
+  // abgerissener Bergwerke bleiben als Sackgassen liegen - und weil
+  // wegeTeilen lange Strassen mit Mittelfahnen zerlegt, besteht so eine
+  // Leiche aus MEHREREN Segmenten, von denen jedes innere "weiterfuehrt".
+  // Ein einzelner Segment-Blick erkennt sie deshalb nie (gemessen: die
+  // Stummel-Pruefung je Segment fand auf Saat 99 exakt null Leichen).
+  // Klassisches Blatt-Zupfen ueber den Fahnen-Graph: Strassen, deren
+  // Ende weder Gebaeudetuer ist noch (ueber noch lebende Strassen)
+  // weiterfuehrt, fallen - wiederholt, bis nichts mehr faellt. Alles
+  // Gefallene ist tote Kette.
+  toteStrassen(pl){
+    const tueren=new Set();
+    for(const b of this.buildings.values())
+      if(b.player===pl && b.door!=null && b.door>=0) tueren.add(b.door);
+    const lebend=new Map();
+    for(const [id,r] of this.roads)
+      if(r.player===pl && !r.isSea) lebend.set(id,r);
+    const tot=new Set();
+    let gefallen=true;
+    while(gefallen){
+      gefallen=false;
+      const grad=new Map();
+      for(const r of lebend.values())
+        for(const e of [r.path[0], r.path[r.path.length-1]])
+          grad.set(e,(grad.get(e)||0)+1);
+      for(const [id,r] of [...lebend]){
+        for(const e of [r.path[0], r.path[r.path.length-1]]){
+          if(!tueren.has(e) && (grad.get(e)||0)<=1){
+            tot.add(id); lebend.delete(id); gefallen=true; break;
+          }
+        }
+      }
+    }
+    return tot;
   }
   // KD1: Vorwarnung an den Spieler, wenn ein fremder Militaerposten in
   // Grenznaehe fertig wird - Naehe heisst: sein Einfluss plus 6 Knoten
