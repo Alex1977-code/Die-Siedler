@@ -212,7 +212,16 @@ export const PLAYER_COLORS_DARK = ['#33506f','#7d3628','#8f7639','#5d4368'];
 //    dorthin kommt man nur, indem Militaerposten die Grenze schieben -
 //    die Startkiste muss diese ersten Posten samt Besatzung tragen,
 //    sonst ist eine Karte ohne Erz am HQ von Beginn an verloren.
-export const START_GOODS = { trunk:16, board:36, stone:24, fish:8, water:6, bread:6, beer:5, sword:4, shield:4, spear:3, bow:3, coal:4, iron:2, coin:6, grain:4, hammer:6, pick:4, axe:2, saw:1, scythe:2, rod:2, cleaver:1, shovel:2 };
+// Werkzeuge v222 (Notschmiede weg - die Kiste traegt jetzt allein bis zum
+// ersten Werkzeugschmied, GEMESSEN an den dauerhaft gebundenen Stuecken):
+//  - Schaufeln 4 statt 2: bis zu zwei Foerster binden je eine fuer immer,
+//    der Planierer braucht eine zirkulierende. Mit zweien starb JEDE der
+//    zwoelf Mess-Siedlungen: "Baustelle wartet: keine Schaufel fuer den
+//    Planierer" 34x auf Saat 42, sechs volle Baustellen standen ewig -
+//    auch die des Werkzeugschmieds, der Schaufeln haette schmieden koennen.
+//  - Spitzhacken 6 statt 4: bis zu vier Steinbrueche, zwei Bergwerke und
+//    zwei Geologen wollen eine, bevor der Schmied liefert.
+export const START_GOODS = { trunk:16, board:36, stone:24, fish:8, water:6, bread:6, beer:5, sword:4, shield:4, spear:3, bow:3, coal:4, iron:2, coin:6, grain:4, hammer:6, pick:6, axe:2, saw:1, scythe:2, rod:2, cleaver:1, shovel:4 };
 
 // ---------- Militär-Kennzahlen ----------
 // KI-Druck je Stufe (aiLevel 1=Leicht, 2=Normal, 3=Schwer). Wirkt in sim.js

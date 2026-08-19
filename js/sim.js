@@ -1549,8 +1549,6 @@ export class Game {
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
-    if(this.t%300===41) this.notzimmerei();
-    if(this.t%300===83) this.notschmiede();
     if(this.t%300===167) this.wegeTeilen();
     if(this.t%300===97) this.schilderVerfall();
   }
@@ -1574,45 +1572,11 @@ export class Game {
     for(const q of [...this._signT.keys()]) if(!this.signs.has(q)) this._signT.delete(q);
   }
 
-  // ---------- Notzimmerei (R1) ----------
-  // Zweite Haelfte der Rueckfallebene fuer Holz. Der Wildwuchs sorgt dafuer,
-  // dass wieder Baeume da sind - aber um einen Holzfaeller (2 Bretter) und
-  // ein Saegewerk (2 Bretter, 2 Steine) zu bauen, braucht man BRETTER. Wer
-  // bei null steht, kaeme nie wieder heraus: jedes einzelne der 34 baubaren
-  // Haeuser kostet Bretter.
-  // Steht ein Spieler wirklich bei null, schnitzen die Siedler im
-  // Hauptquartier per Hand ein Brett - eins alle 900 Takte, also gut anderthalb
-  // Minuten bei einfachem Tempo. Die sechs Bretter fuer Holzfaeller, Foerster
-  // und Saegewerk dauern damit rund neun Minuten: ein empfindlicher
-  // Rueckschlag, aber kein Spielende. Ein vorhandener Stamm wird dabei
-  // aufgebraucht; ohne Stamm geht es langsam auch ohne.
-  notzimmerei(){
-    for(let p=0;p<this.players.length;p++){
-      const pl=this.players[p];
-      if(pl.defeated) continue;
-      const hq=this.buildings.get(pl.hq);
-      if(!hq || hq.state!=='done' || !hq.inv) continue;
-      // Bis zu acht Bretter - genau so viel, wie Holzfaeller (2), Foerster (2),
-      // Saegewerk (2) und Steinbruch (2) zusammen kosten. Wer ein fertiges
-      // Saegewerk hat, schnitzt nicht: dann laeuft die Wirtschaft wieder.
-      // Erste Fassung stoppte schon bei EINEM Brett - der Spieler blieb damit
-      // fuer immer bei eins stehen, und das billigste Haus kostet zwei.
-      const inv=this.invTotal(p);
-      const saege=[...this.buildings.values()].some(x=>
-        x.player===p && x.type==='sawmill' && x.state==='done');
-      if(saege || (inv.board||0)>=8){ pl._notzT=0; pl._notzMsg=false; continue; }
-      pl._notzT=(pl._notzT||0)+300;
-      if(pl._notzT<600) continue;
-      pl._notzT=0;
-      if((hq.inv.trunk||0)>0) hq.inv.trunk--;
-      hq.inv.board=(hq.inv.board||0)+1;
-      if(p===0 && !pl._notzMsg){
-        pl._notzMsg=true;
-        this.msg('Keine Bretter mehr! Im Hauptquartier werden Notbretter geschnitzt – '
-                +'bau schnell Holzfäller, Förster und Sägewerk.', 'warn', hq.node, 0, 'wirtschaft');
-      }
-    }
-  }
+  // ---------- Notzimmerei: ABGESCHAFFT (v222, Nutzerentscheid) ----------
+  // Von R1 bis v221 schnitzte das Hauptquartier bei null Brettern per Hand
+  // Notbretter aus Staemmen (eins je 900 Takte, bis 8 Stueck). Bretter
+  // kommen jetzt NUR noch aus der Startkiste (36) und dem Saegewerk; wer
+  // beides verspielt, ist ehrlich fest - wie im Vorbild.
 
   // WEGTEILUNG (v203): lange Strassen bekommen eine Fahne in der Mitte.
   //
@@ -1650,85 +1614,18 @@ export class Game {
     }
   }
 
-  // NOTSCHMIEDE: das Gegenstueck zur Notzimmerei, fuer Werkzeug.
-  //
-  // GEMESSENER SPIELSTOPPER. Der Foerster bindet dauerhaft eine SCHAUFEL
-  // (TOOL_OF), die Startkiste enthaelt genau zwei. Stehen zwei Foerster,
-  // ist keine Schaufel mehr im Land - und ohne Schaufel planiert kein
-  // Planierer mehr einen Bauplatz. Ohne planierten Platz wird nichts mehr
-  // fertig, also auch keine Werkzeugschmiede, die neue Schaufeln macht.
-  // Das ist kein Engpass, das ist eine Sackgasse ohne Ausgang.
-  //
-  // Gemessen (Saat 42, Stufe 2, ohne KI-Materialhilfe): ab Spielminute 10
-  // steht die Siedlung fuer immer. Bei Minute 40 lagen 60 Bretter, 73
-  // Steine und 61 Staemme im Lager, sechs Baustellen hatten Material UND
-  // Bauarbeiter - und alle sechs standen bei Fortschritt 0, weil keine
-  // einzige planiert war. Zwei Schaufeln steckten in zwei Foerstern, die
-  // sechs Haemmer in sechs Bauarbeitern, die auf unplanierten Plaetzen
-  // warteten. In 60 Minuten entstand kein Getreide, kein Erz, kein Bier
-  // und keine Waffe. Nur die KI kam davon, weil ihre Materialhilfe
-  // Schaufeln nachlegt - ein Mensch bekommt diese Hilfe nicht.
-  //
-  // Gegenmittel wie bei den Notbrettern: fehlt ein GRUNDWERKZEUG restlos
-  // und gibt es keine Werkzeugschmiede, die es machen koennte, fertigt das
-  // Hauptquartier von Hand eines an - langsam genug, dass es ein
-  // schmerzhafter Rueckschlag bleibt, aber die Partie geht weiter.
-  // Abgedeckt sind die Werkzeuge, an denen die GRUNDVERSORGUNG haengt:
-  // Schaufel (planieren), Hammer (bauen), Spitzhacke (Stein und Erz), Axt
-  // (Holz), Saege (Bretter), Sense (Getreide). Geht eines davon restlos aus,
-  // steht die ganze Kette. Angel, Beil und Bogen fehlen bewusst - Fischer,
-  // Schlachter und Jaeger sind Wahlberufe, kein Nadeloehr.
-  // Der erste Messlauf deckte nur Schaufel, Hammer und Spitzhacke ab; danach
-  // meldete der Holzfaeller zehnmal "wartet auf Werkzeug (Axt)" - derselbe
-  // Riegel eine Tuer weiter.
-  static NOTWERKZEUG=['shovel','hammer','pick','axe','saw','scythe'];
-  notschmiede(){
-    for(let p=0;p<this.players.length;p++){
-      const pl=this.players[p];
-      if(pl.defeated) continue;
-      const hq=this.buildings.get(pl.hq);
-      if(!hq || hq.state!=='done' || !hq.inv) continue;
-      const inv=this.invTotal(p);
-      // Eine Werkzeugschmiede macht die Nothilfe nur ueberfluessig, wenn sie
-      // auch ARBEITEN kann - und dafuer braucht sie Eisen.
-      //
-      // ZWEITE SACKGASSE, gemessen auf Saat 7 (60 Spielminuten, ohne
-      // Materialhilfe): drei fertige Eisenbergwerke, angeschlossen, nicht
-      // erschoepft, mit 156, 241 und 44 Einheiten Erz im Foerderring - und
-      // alle drei UNBESETZT UND OHNE SPITZHACKE. Die Spitzhacke braucht
-      // jedes Bergwerk und zusaetzlich der Steinmetz; die Startkiste hat
-      // vier. Drei Steinmetze und vier Kohlebergwerke hatten sie
-      // aufgebraucht.
-      //
-      // Die Notschmiede haette Spitzhacken gemacht - aber sie schaltet sich
-      // ab, sobald eine Werkzeugschmiede EXISTIERT. Auf Saat 7 stand eine,
-      // die ohne Eisen nichts schmieden konnte, und Eisen gab es nicht, weil
-      // dem Eisenbergwerk die Spitzhacke fehlte. Dieselbe Falle wie bei der
-      // Schaufel in v200, nur eine Tuer weiter: ich hatte sie damals nur
-      // fuer den Fall "gar keine Werkzeugschmiede" geschlossen.
-      const schmiede=[...this.buildings.values()].some(x=>
-        x.player===p && x.type==='toolsmith' && x.state==='done'
-        && ((inv.iron||0)>0 || (x.stock.iron||0)>0 || (x.incoming.iron||0)>0));
-      if(schmiede){ pl._notwT=0; pl._notwMsg=false; continue; }
-      // Was fehlt restlos? toolTrulyMissing zaehlt auch Werkzeug mit, das
-      // gerade unterwegs ist - sonst schmiedet das HQ, waehrend ein
-      // Planierer mit der Schaufel nur noch heimlaeuft.
-      const fehlt=Game.NOTWERKZEUG.find(t=>
-        (inv[t]||0)===0 && this.toolTrulyMissing(p, t));
-      if(!fehlt){ pl._notwT=0; pl._notwMsg=false; continue; }
-      pl._notwT=(pl._notwT||0)+300;
-      if(pl._notwT<1800) continue;        // rund drei Spielminuten je Stueck
-      pl._notwT=0;
-      hq.inv[fehlt]=(hq.inv[fehlt]||0)+1;
-      if(p===0){
-        const N={shovel:['Keine Schaufel','eine neue'], hammer:['Kein Hammer','einer'],
-                 pick:['Keine Spitzhacke','eine neue'], axe:['Keine Axt','eine neue'],
-                 saw:['Keine Säge','eine neue'], scythe:['Keine Sense','eine neue']}[fehlt];
-        this.msg(`${N[0]} mehr im Land! Im Hauptquartier wird von Hand ${N[1]} `
-          +`gefertigt – bau eine Werkzeugschmiede.`, 'warn', hq.node, 0, 'warnung');
-      }
-    }
-  }
+  // ---------- Notschmiede: ABGESCHAFFT (v222, Nutzerentscheid) ----------
+  // Von v200 bis v221 schmiedete das Hauptquartier alle drei Spielminuten
+  // gratis ein restlos fehlendes Grundwerkzeug - dreimal nachgebessert
+  // (Schaufel v200, Spitzhacke v210, Hammer v220), jedes Mal war sie das
+  // Pflaster ueber einem Loch in der echten Kette. Werkzeuge kommen jetzt
+  // NUR noch aus der Startkiste und vom Werkzeugschmied; dafuer haengt
+  // dessen KI-Wunsch nicht mehr am Eisen im Lager (s. Wunschliste,
+  // v202-Prinzip), die Startkiste deckt den Dauerbedarf (6 Spitzhacken,
+  // 4 Schaufeln - zwei Foerster binden zwei davon fuer immer), und die
+  // bekannten Lecks sind einzeln gestopft: Spitzhacken kehren bei
+  // Erschoepfung zurueck (v166), Geologen sind gedeckelt (v220), der
+  // Hammer-Warnhinweis (toolTrulyMissing) bleibt fuer den Spieler.
 
   // ---------- Statistik (H3) ----------
   // Ohne Zahlenwerk sieht man nie, ob die Siedlung waechst oder nur
@@ -5152,7 +5049,13 @@ export class Game {
       const werkzeugNot = (g0('hammer')+g0('shovel')+g0('pick')+g0('axe')+g0('saw')) < 8;
       const willKette = werkzeugNot || tief>=2;
       if(willKette){
-        if(g0('iron')>=2 && c('toolsmith')<1) want.push('toolsmith');
+        // Der Werkzeugschmied haengt nicht mehr am Eisen im Lager (v222):
+        // seit die Notschmiede weg ist, ist er die EINZIGE Werkzeugquelle
+        // nach der Startkiste - eine existenzielle Kette darf nicht auf
+        // ihr eigenes Endprodukt warten (v202-Prinzip: die Huette folgt dem
+        // Bergwerk, der Schmied folgt dem Bedarf). Ein Schmied ohne Eisen
+        // steht bereit und schmiedet, sobald die Huette liefert.
+        if(c('toolsmith')<1) want.push('toolsmith');
         // DIE HUETTE FOLGT DEM BERGWERK, NICHT DEM LAGER (v202).
         //
         // Bisher wurde sie erst ab drei Eisenerz IM LAGER gewuenscht. Damit
