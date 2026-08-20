@@ -4933,12 +4933,7 @@ export class Game {
       // kommt gar nichts mehr - die Hilfe verschwindet, ohne dass sie
       // abgeschaltet werden muesste. Bricht die Kette weg, faengt sie
       // wieder auf.
-      const HB=Game.AI_HILFE[lvl]||Game.AI_HILFE[2];
-      const auf=(gut,bis)=>{ if((hq.inv[gut]||0)<bis) hq.inv[gut]=bis; };
-      auf('board', HB.board); auf('stone', HB.stone);
-      auf('hammer', HB.hammer); auf('shovel', HB.shovel); auf('pick', HB.pick);
-      for(const t of ['axe','saw','scythe','rod','cleaver']) auf(t, HB.werkzeug);
-      // Muenzen, Bier und Waffen: GUMMIBAND STATT DAUERTROPF.
+      // GUMMIBAND STATT DAUERTROPF - fuer die GESAMTE Hilfe.
       // Bei Werkzeugen funktioniert der Boden wie gedacht: laeuft die
       // eigene Schmiede, bleibt der Bestand ueber der Schwelle und die
       // Hilfe verschwindet von selbst. Bei Bier und Waffen NIE - die KI
@@ -4951,17 +4946,33 @@ export class Game {
       // wirtschaftender Messling ohne Hilfe wurde auf 2 von 3 Karten
       // VERNICHTET, selbst die staerkste Karte (Saat 42, solo 40 vs 16)
       // fiel auf 16 vs 33.
-      // Deshalb gibt es Kriegsgueter nur noch, solange die KI SCHWAECHER
-      // als ihr staerkster Rivale ist (plus Stufen-Toleranz). Die Hilfe
-      // haelt das Spiel spannend, statt den Spieler zu ueberrollen -
-      // eine wirtschaftlich gesunde KI ueberrennt einen passiven Spieler
-      // weiterhin aus EIGENER Produktion (Saat 23 ganz ohne Hilfe:
-      // Staerke 29, braute 42 Bier, schmiedete 12 Schwerter).
-      let rivale=0;
+      // Zweite Messung (Gummiband zunaechst nur um die Kriegsgueter):
+      // Saat 7 und 42 geheilt (14/22 friedlich bzw. 31/33 Wettruesten),
+      // aber Saat 23 blieb Vernichtung (0/68) - bei nur 2 geschenkten
+      // Bieren! Der Baustoff/Werkzeug-Boden hatte den Ausbau der
+      // gegnerfreundlichen Karte so beschleunigt, dass die EIGENE
+      // Produktion explodierte (85 Bier, 30 Schwerter statt 42/12 im
+      // hilfefreien Lauf). Die Krücke braucht sie dort nachweislich
+      // nicht: ganz ohne Hilfe gewinnt sie 29 vs 10.
+      // Deshalb haengt jetzt die GESAMTE Hilfe am Gummiband: solange die
+      // KI SCHWAECHER als ihr staerkster Rivale ist (plus Stufen-
+      // Toleranz), bekommt sie die volle Kruecke - liegt sie vorn, gar
+      // nichts und steht auf eigenen Beinen. Faellt sie zurueck, faengt
+      // die Hilfe sie wieder auf. Rivale ist bevorzugt der Mensch;
+      // in reinen KI-Partien (und Messlaeufen) der staerkste Andere.
+      let rivale=-1;
       for(const q of this.players)
-        if(q.id!==p.id && !q.defeated) rivale=Math.max(rivale, this.aiStaerke(q));
+        if(q.id!==p.id && !q.defeated && !q.ai) rivale=Math.max(rivale, this.aiStaerke(q));
+      if(rivale<0)
+        for(const q of this.players)
+          if(q.id!==p.id && !q.defeated) rivale=Math.max(rivale, this.aiStaerke(q));
       const vorsprung = lvl>=3 ? 5 : lvl===2 ? 2 : -2;
       if(this.aiStaerke(p) < rivale + vorsprung){
+        const HB=Game.AI_HILFE[lvl]||Game.AI_HILFE[2];
+        const auf=(gut,bis)=>{ if((hq.inv[gut]||0)<bis) hq.inv[gut]=bis; };
+        auf('board', HB.board); auf('stone', HB.stone);
+        auf('hammer', HB.hammer); auf('shovel', HB.shovel); auf('pick', HB.pick);
+        for(const t of ['axe','saw','scythe','rod','cleaver']) auf(t, HB.werkzeug);
         auf('coin', HB.beer); auf('beer', HB.beer);
         auf('sword', HB.waffe); auf('shield', HB.waffe);
         if(lvl>=2) auf('spear', HB.waffe);
