@@ -6156,29 +6156,24 @@ export class Game {
     // Eine vorhandene Fahne gewinnt bei Gleichstand: ein Abzweig kostet eine
     // zusaetzliche Fahne und zerschneidet einen laufenden Weg.
     list.sort((a,b2)=> a.im-b2.im || (a.d+(a.istFahne?0:0.5))-(b2.d+(b2.istFahne?0:0.5)));
-    // GEMISCHTE KANDIDATENWAHL (v228, K11/W5-Grabung). Die 16 Versuche
-    // wurden komplett von HQ-Netz-Kandidaten (im=0) gefuellt - liegen
-    // die alle hinter Feindland, scheitert JEDER Versuch, waehrend die
-    // erreichbaren Fahnen der eigenen INSEL nie drankommen. GEMESSEN
-    // (Saat 80): ein besetzter Grenzposten hing 40 Minuten in der Luft,
-    // die eigene Insel-Fahne mit gueltigem Pfad stand auf Listenrang 69.
-    // Deshalb feste Plaetze fuer beide Klassen: Insel-Anschluss
-    // verschmilzt die Teilnetze, und sobald irgendein Inselgebaeude den
-    // HQ-Anschluss findet, haengt alles wieder zusammen. Die Insel-
-    // Plaetze kommen ZUSAETZLICH zu den vollen 16 des Normalfalls -
-    // eine erste Fassung (12+6) nahm dem haeufigen Normalanschluss vier
-    // Versuche weg und kostete gemessen mehr, als der seltene Inselfall
-    // brachte (Soldaten-Schnitt 23,8 -> 18,9 ueber 12 Saaten).
-    // Insel-Kandidaten nur aus FREMDEN Komponenten: nach dem ersten
-    // Insel-Anschluss liegen deren Fahnen in derselben Komponente wie
-    // das Gebaeude selbst - ohne den Filter "verband" aiConnect jeden
-    // 150er-Takt erfolgreich eine weitere Fahne der EIGENEN Insel per
-    // Parallelweg, Brett um Brett, endlos (gemessen: 12-Saaten-Schnitt
-    // fiel von 23,8 auf 18,5 Soldaten, Saat 7 wurde vernichtet).
-    const bComp=this.compOf(b.door);
-    const kandidaten=[...list.filter(c=>c.im===0).slice(0,16),
-                      ...list.filter(c=>c.im===1 && this.compOf(c.f)!==bComp).slice(0,6)];
-    for(const c of kandidaten){
+    // NUR HQ-NETZ-NAHE KANDIDATEN - KEIN INSEL-RUECKFALL (K11/W5-Grabung,
+    // dreifach gemessen und verworfen). Der Befund war real: ein
+    // besetzter Grenzposten auf Saat 80 hing 40 Minuten in der Luft,
+    // umgeben von einer eigenen Strassen-INSEL, deren erreichbare Fahne
+    // auf Listenrang 69 nie probiert wurde. Aber JEDE Heilung kostete
+    // im 12-Saaten-Beleg mehr, als der seltene Fall je gekostet hat:
+    //   12+6 gemischt:     Soldaten-Schnitt 23,8 -> 18,9 (Normalfall
+    //                      verlor vier seiner 16 Versuche)
+    //   16+6 ungefiltert:  Endlos-Parallelwege in der EIGENEN Insel
+    //                      (jeder 150er-Takt ein "Erfolg", Brett um
+    //                      Brett; Saat 7 vernichtet)
+    //   16+6 mit Fremd-    auf den vier Karten, wo er feuerte, klar
+    //   komponenten-Filter: schaedlich (Saat 80 selbst: 29 -> 8) -
+    //                      Inselwege sind lang, teuer und fuehren durch
+    //                      umkaempftes Land.
+    // Teilnetze heilen stattdessen von den GEBAEUDEN der Insel aus,
+    // sobald deren eigene aiConnect-Versuche das HQ-Netz erreichen.
+    for(const c of list.slice(0,16)){
       const path=this.roadPath(p.id, b.door, c.f);
       if(!path) continue;
       // Umgedreht faengt der Weg beim Anschlusspunkt an. Steht dort noch
