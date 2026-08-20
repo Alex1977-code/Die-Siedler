@@ -229,7 +229,7 @@ const SCHAUFELN = [
           L_Upperarm:[33,0,-12], L_Forearm:[-42,0,0],
           Spine01:[-10,-4,0], Head:[6,1,0] }],
 ];
-// ---------- Soldaten (T14) ------------------------------------------------
+// ---------- Soldaten (T14/T16) --------------------------------------------
 // Die Tripo-Angriffs-Clips der Soldaten (1.29 s) ZERFETZEN Helmbusch und
 // Umhang in freischwebende Fragmente, teils fehlen ganze Spalten (s. die
 // zerrissenen Blaetter unit_sword_atk/unit_spear_atk/unit_bow_atk vom
@@ -237,84 +237,93 @@ const SCHAUFELN = [
 // Zerreissen kommt also vom Clip, nicht vom Mesh. Heilung wie bei den
 // Berufen: handgesetzte Schluesselbilder ueber der ruhigen Basis (die
 // Soldaten haben keinen echten Warte-Clip, der Treiber nimmt den
-// Geh-Durchschwung bei 27 %). Die Waffen stecken im Mesh - KEIN
-// prozedurales Werkzeug anbringen (sonst Doppelwaffe). ABER: sie sind
-// NICHT an die Handknochen geskinnt (numerisch geprueft, posekalib):
-// Klinge und Speer haengen an der Oberarmkette (~60 % des Armwinkels,
-// Drehpunkt Schulter), der Bogen an der LINKEN Faust samt Twist-Knochen.
-// Die Posen unten arbeiten innerhalb dieser Grenzen.
+// Geh-Durchschwung bei 27 %).
 //
-// SCHWERT: Hieb von oben-seitlich, der Schild bleibt vorn. Rechter Arm
-// holt uebers rechte Schulterblatt aus (Rumpf dreht Y+ mit), verharrt
-// kurz, dann faellt der Hieb in 0.8 Frames quer nach vorn-unten
-// (Kontakt Spalte 4). Der linke Arm haelt den Schild konstant vor der
-// Brust - er macht den Hieb NICHT mit, das laese sich als Torkeln.
-// GRENZE (numerisch geprueft, pose-sword.png): die Klinge ist NUR an die
-// Oberarmkette geskinnt - R_Hand/R_Forearm bewegen sie gar nicht, sie
-// dreht mit ~60 % des Oberarmwinkels um die SCHULTER. Ausholen ueber den
-// Kopf (Klinge nach hinten-oben) ist damit unerreichbar; das Maximum ist
-// die Diagonale vor der Schulter. Faust-Drehungen bleiben deshalb WEG -
-// sie wuerden die Faust nur sichtbar vom Griff loesen.
+// T16 (Spielerkritik "Golfspielen"): die MESH-Waffen von sword/spear sind
+// NUR an die Oberarmkette geskinnt (~60 % des Armwinkels, Drehpunkt
+// Schulter) - Faust und Ellbogen bewegen sie nicht, mehr als eine flache
+// Diagonale war damit unerreichbar. Darum jetzt die Jaeger-Methode:
+// Mesh-Klinge/-Speer per 'entfernen' raus (Insel-IDs unten, verifiziert
+// ueber Isolationsproben waffe2-sword/waffe3-spear), stattdessen
+// prozedurale Faust-Waffen (kinds 'sword'/'spearw' in bake-sprites.html).
+// Die Waffe haengt an R_Hand - Faust-Drehungen sind WIRKSAM und tragen
+// die Pose. Der SCHILD bleibt im Mesh (sitzt sauber am linken Unterarm).
+// Nur der bow-Soldat behaelt seine Mesh-Waffe (linke Faust, ok).
+//
+// SCHWERT: WUCHTIGER Ueberkopf-Hieb. Faust-Winkel per kalibw-Montagen
+// vermessen (kalib-sword2/3.png) - die Faust-X-Achse wirkt oben und
+// unten GEGENLAEUFIG (Quaternion-Komposition, kein lineares Modell):
+//   Garde (Up40/Fa-55): Hand +40 hebt die Klinge auf ~+45 Grad,
+//   Ausholen (Up165/Fa-100): Hand +10 legt sie ~45 Grad HINTER den Kopf
+//     (Hand -80 kippte sie faelschlich nach VORN - sah aus wie ein Winken),
+//   Kontakt (Up62/Fa-6): Hand -45 stellt sie vor-unten (~-20 Grad;
+//     positive Werte druecken sie senkrecht zu Boden = alter "Golfschlag").
+// Ablauf: Garde - Klinge steigt - volles Ueberkopf-Ausholen mit
+// Rumpf-Aufdrehen (Y+22) - kurzes Verharren - der Hieb kracht in 0.9
+// Frames nach vorn-unten: Arm gestreckt, Rumpf beugt kraeftig vor und
+// dreht gegen, Knie federn. Kontakt Spalte 4, Verharren im Ziel,
+// zurueck. Der linke Arm haelt den Schild konstant vor der Brust.
 const SCHWERTHIEB = [
-  [0,   { R_Upperarm:[32,0,-8],  R_Forearm:[-42,0,0],                // Bereitschaft
+  [0,   { R_Upperarm:[40,0,-8],  R_Forearm:[-55,0,0], R_Hand:[40,0,0],  // Bereitschaft (Garde)
           L_Upperarm:[38,0,-6],  L_Forearm:[-66,0,0],
           Spine01:[-6,6,0], Head:[4,-2,0] }],
-  [1.4, { R_Upperarm:[112,0,-18],R_Forearm:[-74,0,0],                // Klinge steigt
+  [1.2, { R_Upperarm:[112,0,-14],R_Forearm:[-80,0,0], R_Hand:[25,0,0],  // Klinge steigt
           L_Upperarm:[40,0,-6],  L_Forearm:[-68,0,0],
-          Spine01:[8,16,0], Spine02:[3,7,0], Head:[5,-7,0],
+          Spine01:[8,14,0], Spine02:[3,6,0], Head:[5,-6,0],
           R_Thigh:[3,0,0], L_Thigh:[3,0,0] }],
-  [2.4, { R_Upperarm:[154,0,-26],R_Forearm:[-86,0,0],                // volles Ausholen
+  [2.3, { R_Upperarm:[165,0,-18],R_Forearm:[-100,0,0],R_Hand:[-5,0,0],  // Klinge HINTER dem Kopf
+          L_Upperarm:[42,0,-7],  L_Forearm:[-70,0,0],                   // (Hand -5 statt +10: bei
+          Spine01:[16,22,0], Spine02:[7,9,0], Head:[8,-10,0],           // +10 verschwand die Klinge
+          R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],                          // auf 35px im Helmbusch)
+  [3.1, { R_Upperarm:[158,0,-17],R_Forearm:[-95,0,0], R_Hand:[-6,0,0],  // Verharren oben
           L_Upperarm:[42,0,-7],  L_Forearm:[-70,0,0],
-          Spine01:[14,24,0], Spine02:[6,10,0], Head:[7,-10,0],
+          Spine01:[14,20,0], Spine02:[6,8,0], Head:[8,-9,0],
           R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],
-  [3.2, { R_Upperarm:[146,0,-24],R_Forearm:[-82,0,0],                // Verharren oben
-          L_Upperarm:[42,0,-7],  L_Forearm:[-70,0,0],
-          Spine01:[12,22,0], Spine02:[5,9,0], Head:[7,-9,0],
-          R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],
-  [4,   { R_Upperarm:[62,0,6],   R_Forearm:[-6,0,0],                 // KONTAKT
+  [4,   { R_Upperarm:[62,0,4],   R_Forearm:[-6,0,0],  R_Hand:[-45,0,0], // KONTAKT
           L_Upperarm:[40,0,-6],  L_Forearm:[-62,0,0],
-          Spine01:[-22,-14,0], Spine02:[-9,-6,0], Head:[12,6,0],
-          R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-6,0,0], L_Calf:[8,0,0] }],
-  [5,   { R_Upperarm:[66,0,4],   R_Forearm:[-10,0,0],                // Klinge steht
+          Spine01:[-30,-12,0], Spine02:[-11,-5,0], Head:[15,5,0],
+          R_Thigh:[-8,0,0], R_Calf:[10,0,0], L_Thigh:[-7,0,0], L_Calf:[9,0,0] }],
+  [5,   { R_Upperarm:[66,0,3],   R_Forearm:[-10,0,0], R_Hand:[-42,0,0], // Klinge steht im Ziel
           L_Upperarm:[40,0,-6],  L_Forearm:[-64,0,0],
-          Spine01:[-20,-12,0], Spine02:[-8,-5,0], Head:[11,5,0],
-          R_Thigh:[-6,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
-  [6.5, { R_Upperarm:[44,0,-8],  R_Forearm:[-36,0,0],                // zurueck
+          Spine01:[-27,-10,0], Spine02:[-10,-4,0], Head:[14,4,0],
+          R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-6,0,0], L_Calf:[8,0,0] }],
+  [6.5, { R_Upperarm:[46,0,-8],  R_Forearm:[-40,0,0], R_Hand:[-10,0,0], // zurueck zur Garde
           L_Upperarm:[39,0,-6],  L_Forearm:[-67,0,0],
           Spine01:[-10,2,0], Head:[6,0,0] }],
 ];
-// SPEER: Stoss nach vorn-oben. GRENZE (numerisch geprueft, pose-spear.png):
-// der Speer ist wie die Klinge NUR an die Oberarmkette geskinnt - Faust
-// und Ellbogen bewegen ihn nicht, er dreht mit ~60 % des Oberarmwinkels
-// um die SCHULTER und loest sich bei gestrecktem Arm sichtbar von der
-// Faust. Ein waagerechter Stoss ist damit unerreichbar; das Machbare ist
-// der DIAGONALE Stoss (Speer ~55 Grad, Spitze vor-oben) mit kraeftigem
-// Koerper-Ausfall. Damit die Faust optisch am Schaft bleibt, ist der
-// Ellbogen am Kontakt mitgebeugt (Up105/Fa-45 aus der Montage - bei
-// Fa-6 stand die Faust eine halbe Handbreit neben dem Schaft).
+// SPEER: Stoss auf Hueft-Hoehe. Faust-Winkel per kalibw-Montagen vermessen
+// (kalib-spear1/2.png): am Kontakt macht Hand X-50 den Schaft exakt
+// WAAGERECHT (h-24 zeigte 35 Grad hoch, h-75 kippte in den Boden); die
+// Spannpose W4 (Up4/Fa-30/Hand-55) legt ihn waagerecht AN DIE HUEFTE -
+// ein weiter zurueckgerissener Arm (Up -30) versteckte den Speer komplett
+// hinter Ruecken und Umhang, nur die Spitze lugte am Helm hervor.
+// Ablauf: Bereitschaft diagonal - zuruecknehmen an die Huefte (Gewicht
+// hinten, Rumpf-Yaw +26 auf) - gespannt verharren - STOSS: Arm streckt
+// nach vorn, Schaft bleibt waagerecht, Rumpf dreht kraeftig gegen (Y-16)
+// und lehnt in den Ausfall, Knie federn. Kontakt Spalte 4.
 const SPEERSTOSS = [
-  [0,   { R_Upperarm:[4,0,-4],   R_Forearm:[-10,0,0],                // Bereitschaft
+  [0,   { R_Upperarm:[16,0,-4],  R_Forearm:[-14,0,0], R_Hand:[-25,0,0], // Bereitschaft (diagonal)
           L_Upperarm:[26,0,-10], L_Forearm:[-44,0,0],
           Spine01:[-4,4,0], Head:[3,0,0] }],
-  [1.6, { R_Upperarm:[-12,0,-8], R_Forearm:[-26,0,0],                // zuruecknehmen
+  [1.6, { R_Upperarm:[8,0,-5],   R_Forearm:[-24,0,0], R_Hand:[-42,0,0], // an die Huefte nehmen
           L_Upperarm:[40,0,-16], L_Forearm:[-56,0,0],
-          Spine01:[5,18,0], Spine02:[2,8,0], Head:[2,-8,0],
-          R_Thigh:[2,0,0], L_Thigh:[2,0,0] }],
-  [3.2, { R_Upperarm:[-18,0,-10],R_Forearm:[-34,0,0],                // gespannt
-          L_Upperarm:[44,0,-18], L_Forearm:[-60,0,0],
-          Spine01:[7,22,0], Spine02:[3,10,0], Head:[2,-10,0],
+          Spine01:[6,22,0], Spine02:[2,9,0], Head:[2,-9,0],
           R_Thigh:[3,0,0], L_Thigh:[3,0,0] }],
-  [4,   { R_Upperarm:[105,0,4],  R_Forearm:[-45,0,0],                // KONTAKT (Stoss)
+  [3.2, { R_Upperarm:[4,0,-6],   R_Forearm:[-30,0,0], R_Hand:[-55,0,0], // gespannt, Gewicht hinten
+          L_Upperarm:[44,0,-18], L_Forearm:[-60,0,0],
+          Spine01:[8,26,0], Spine02:[3,11,0], Head:[2,-11,0],
+          R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],
+  [4,   { R_Upperarm:[52,0,2],   R_Forearm:[-6,0,0],  R_Hand:[-50,0,0], // KONTAKT (Stoss, waagerecht)
           L_Upperarm:[46,0,-24], L_Forearm:[-30,0,0],
-          Spine01:[-18,-14,0], Spine02:[-7,-6,0], Head:[10,7,0],
-          R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
-  [5,   { R_Upperarm:[98,0,2],   R_Forearm:[-44,0,0],                // steckt
+          Spine01:[-20,-16,0], Spine02:[-8,-7,0], Head:[11,7,0],
+          R_Thigh:[-8,0,0], R_Calf:[10,0,0], L_Thigh:[-6,0,0], L_Calf:[8,0,0] }],
+  [5,   { R_Upperarm:[48,0,1],   R_Forearm:[-10,0,0], R_Hand:[-47,0,0], // steckt
           L_Upperarm:[44,0,-22], L_Forearm:[-34,0,0],
-          Spine01:[-16,-12,0], Spine02:[-6,-5,0], Head:[9,6,0],
-          R_Thigh:[-6,0,0], R_Calf:[8,0,0], L_Thigh:[-4,0,0], L_Calf:[6,0,0] }],
-  [6.5, { R_Upperarm:[30,0,-4],  R_Forearm:[-20,0,0],                // herausziehen
+          Spine01:[-18,-14,0], Spine02:[-7,-6,0], Head:[10,6,0],
+          R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
+  [6.5, { R_Upperarm:[24,0,-4],  R_Forearm:[-20,0,0], R_Hand:[-34,0,0], // herausziehen
           L_Upperarm:[34,0,-14], L_Forearm:[-42,0,0],
-          Spine01:[-4,0,0], Head:[4,0,0] }],
+          Spine01:[-4,2,0], Head:[4,0,0] }],
 ];
 // BOGENSCHUSS: heben - spannen - LÖSEN (Spalte 4) - absetzen. Kalibriert
 // am Jaeger (T13), der den prozeduralen Bogen in der RECHTEN Faust traegt.
@@ -401,9 +410,29 @@ export const POSEN = {
   leveler:    { atk: SCHAUFELN,  werkzeug: IN_FAUST('shovel',1.4,[-90,0,0]),
                 entfernen:[372,238,406,448,231,99,111,464,465,94,105,390,310,1759,29,289,256,410,2,86,389,239,178,270,386,1711,138,309,400,363,375,557,621,72,411,443,398,408,474,23,224,261,419,342,325,355,444,762,39,169,68,208,104,120,121,110,198,125,287,299,332,356,379,361,403,404,385,402,450,451,579] },
   fisher:  { koerper: DICK, atk: ANGELN, werkzeug: IN_FAUST('rod',1.25) },
-  // Soldaten: Waffen stecken im Mesh, darum KEIN werkzeug-Eintrag (T14)
-  sword:   { atk: SCHWERTHIEB },
-  spear:   { atk: SPEERSTOSS },
+  // Soldaten (T16): sword/spear tragen jetzt PROZEDURALE Faust-Waffen -
+  // die Mesh-Waffen (nur Oberarm-geskinnt, "Golfschlag"-Grenze) fliegen
+  // per 'entfernen' raus. Der Schild bleibt im Mesh. Insel-IDs verifiziert
+  // ueber Isolationsproben (Waffe komplett isoliert, Figur+Faust+Schild
+  // unversehrt). Beim Speer haengt der Mesh-Schaft an Oberarm UND Zehe
+  // (wie der Jaeger-Bogen) samt Bodenkappen-Fragmenten bei y=0.
+  sword:   { atk: SCHWERTHIEB,
+             entfernen:[911,21,22],
+             werkzeug:{
+               walk:{ kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
+               idle:{ kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
+               atk: { kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[90,0,0],  scale:1.25 },
+             } },
+  spear:   { atk: SPEERSTOSS,
+             entfernen:[3026,1703,2264,2943,1639,1882,1479,2253,2254,1873,1884,2150,2556,2831,3029,3036,2941,2935,2630,2693,2695,3039,2552,3021,3028,3126,3230,2931,2153,2265,2575,2267,2567,2465,2272,2543,3038,2562,2687,2628,2627,2689,2788,2942],
+             // Trage-Rotation per kalibrot-spear.png vermessen: [0,0,0]
+             // liess den Schaft nach vorn-unten haengen (schleifender
+             // Speer), [150,0,0] schultert ihn (Spitze schraeg hinter-oben)
+             werkzeug:{
+               walk:{ kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
+               idle:{ kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
+               atk: { kind:'spearw', bone:'R_Hand', pos:[0,0.02,0],  rot:[90,0,0],  scale:1.25 },
+             } },
   bow:     { atk: BOGENSCHUSS_SPIEGEL },
   butcher: { koerper: DICK },
   miller:  { koerper: RUNDLICH },
