@@ -1577,6 +1577,7 @@ export class Game {
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
     if(this.t%300===141) this.warenUmwidmen();
+    if(this.t%300===201) this.ringRotation();
     if(this.t%300===167) this.wegeTeilen();
     if(this.t%300===97) this.schilderVerfall();
   }
@@ -2129,6 +2130,96 @@ export class Game {
         it.destB=neu.id;
         it.lagT=this.t;               // am neuen Ziel frisch altern
       }
+    }
+  }
+  // RING-ROTATION (v231, Nutzerauftrag: es darf nichts steckenbleiben,
+  // Fahnen-Ringe, die aufeinander warten, darf es nicht geben).
+  //
+  // Der einzige echte Transport-Deadlock ist der ZYKLUS voller Fahnen:
+  // jede will an die naechste liefern, keine hat Platz (Saat 58: 18
+  // Fahnen auf 10-11, alle 92 Traeger idle, Kohle 23 Minuten liegend).
+  // Ketten loesen sich am Kopf von selbst (Tuerfahnen werden eingeholt),
+  // ein Ring nie - Ventile heben nur die Grenze (v225: gemessen auf die
+  // naechste Stufe vollgepumpt), Umleitungen brauchen freie Nachbarn.
+  //
+  // Die Loesung nutzt die Definition des Rings selbst: WEIL jede Fahne
+  // an die naechste liefern will, laesst er sich KAPAZITAETSNEUTRAL
+  // drehen - jede gibt eine Ware ab und bekommt eine herein, simultan.
+  // Und weil nextRoad der erste Schritt des KUERZESTEN Wegs ist, rueckt
+  // jede beteiligte Ware ihrem Ziel dabei echt naeher: die Rotation
+  // kann nicht endlos kreisen, jeder Ring schrumpft messbar Richtung
+  // Zustellung. Laeuft alle 300 Takte, hoechstens acht Drehungen je
+  // Aufruf (mehr als genug: ein Ring braucht EINE).
+  ringRotation(){
+    // Wartekanten F -> G: auf F liegt eine tragbare Ware, deren
+    // naechste Etappe G ist, und G ist voll (>= ZIEL_FREI). Je (F,G)
+    // wandert die aelteste solche Ware.
+    const kanten=new Map();           // F -> Map(G -> Ware)
+    for(const [f,items] of this.flagItems){
+      if(!items || !items.length) continue;
+      let m=null;
+      for(const it of items){
+        if(it.reserved || it.wartet) continue;
+        const dest=this.buildings.get(it.destB);
+        if(!dest || dest.door===f) continue;
+        const rid=this.nextRoad(f, dest.door);
+        if(rid==null) continue;
+        const rd=this.roads.get(rid); if(!rd) continue;
+        const g=rd.path[0]===f ? rd.path[rd.path.length-1] : rd.path[0];
+        const gi=this.flagItems.get(g);
+        if(!gi || gi.length<Game.ZIEL_FREI) continue;  // dort ist Platz: kein Warten
+        m=m||new Map();
+        const bisher=m.get(g);
+        if(!bisher || (it.lagT||0)<(bisher.lagT||0)) m.set(g, it);
+      }
+      if(m) kanten.set(f, m);
+    }
+    if(!kanten.size) return;
+    let drehungen=0;
+    const dreh=(zyklus)=>{
+      // erst alle entnehmen, dann alle ablegen - so bleibt jede Fahne
+      // bei ihrer Warenzahl, kein Platz wird verletzt
+      const zuege=[];
+      for(const [f,g] of zyklus){
+        const it=kanten.get(f).get(g);
+        const items=this.flagItems.get(f);
+        if(!items || items.indexOf(it)<0) return;      // Lage veraltet
+        zuege.push({g, it, items});
+      }
+      for(const z of zuege) z.items.splice(z.items.indexOf(z.it),1);
+      for(const z of zuege){
+        const ziel=this.flagItems.get(z.g)||[];
+        z.it.lagT=this.t;               // bewegt - frisch altern
+        ziel.push(z.it);
+        this.flagItems.set(z.g, ziel);
+      }
+      drehungen++;
+    };
+    // Zyklussuche: klassischer Tiefendurchlauf mit Pfad-Index; eine
+    // Rueckkante in den eigenen Pfad ist ein Ring. Knoten, von denen
+    // aus kein Ring mehr erreichbar ist (oder die schon gedreht
+    // wurden), scheiden aus (global).
+    const global=new Set();
+    const suche=(f, kette, index)=>{
+      index.set(f, kette.length);
+      const m=kanten.get(f);
+      if(m) for(const g of m.keys()){
+        if(global.has(g)) continue;
+        if(index.has(g)) return kette.slice(index.get(g)).concat([[f,g]]);
+        kette.push([f,g]);
+        const z=suche(g, kette, index);
+        if(z) return z;
+        kette.pop();
+      }
+      index.delete(f);
+      global.add(f);
+      return null;
+    };
+    for(const start of [...kanten.keys()]){
+      if(drehungen>=8) break;
+      if(global.has(start)) continue;
+      const z=suche(start, [], new Map());
+      if(z){ dreh(z); for(const [a] of z) global.add(a); }
     }
   }
   dispatch(){
