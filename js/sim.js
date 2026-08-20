@@ -1276,7 +1276,19 @@ export class Game {
       }
     }
     for(const b of [...this.buildings.values()]){
-      if(b.type!=='hq' && m.owner[b.node]!==b.player && !BLD[b.type].mil){
+      // LANDVERLUST ZERSTOERT GEBAEUDE - wie im Vorbild. Militaerbauten
+      // waren hier pauschal ausgenommen; richtig ist die Ausnahme nur
+      // fuer BESETZTE Posten (um deren Boden wird gekaempft, das regelt
+      // die Eroberung). GEMESSEN (Saat 80, K11/W5-Grabung): ein fertiges,
+      // nie bezogenes Wachhaus strandete auf Feindesland als Zombie -
+      // die Tuer von sechs fremden Knoten umschlossen, nie anschliessbar
+      // (44 vergebliche aiConnect-Versuche in 11 Minuten), nie besetzbar,
+      // und es zaehlte weiter als Bestandsposten (aiCount/milN), sodass
+      // die KI keinen Ersatz baute. Unbesetzte Militaerbauten und
+      // Militaer-Baustellen auf fremdem Boden brennen jetzt wie jedes
+      // andere Gebaeude.
+      if(b.type!=='hq' && m.owner[b.node]!==b.player
+         && !(BLD[b.type].mil && b.soldiers && b.soldiers.length)){
         this.burnBuilding(b);
       }
     }
@@ -6143,7 +6155,18 @@ export class Game {
     // Eine vorhandene Fahne gewinnt bei Gleichstand: ein Abzweig kostet eine
     // zusaetzliche Fahne und zerschneidet einen laufenden Weg.
     list.sort((a,b2)=> a.im-b2.im || (a.d+(a.istFahne?0:0.5))-(b2.d+(b2.istFahne?0:0.5)));
-    for(const c of list.slice(0,16)){
+    // GEMISCHTE KANDIDATENWAHL (v228, K11/W5-Grabung). Die 16 Versuche
+    // wurden komplett von HQ-Netz-Kandidaten (im=0) gefuellt - liegen
+    // die alle hinter Feindland, scheitert JEDER Versuch, waehrend die
+    // erreichbaren Fahnen der eigenen INSEL nie drankommen. GEMESSEN
+    // (Saat 80): ein besetzter Grenzposten hing 40 Minuten in der Luft,
+    // die eigene Insel-Fahne mit gueltigem Pfad stand auf Listenrang 69.
+    // Deshalb feste Plaetze fuer beide Klassen: Insel-Anschluss
+    // verschmilzt die Teilnetze, und sobald irgendein Inselgebaeude den
+    // HQ-Anschluss findet, haengt alles wieder zusammen.
+    const kandidaten=[...list.filter(c=>c.im===0).slice(0,12),
+                      ...list.filter(c=>c.im===1).slice(0,6)];
+    for(const c of kandidaten){
       const path=this.roadPath(p.id, b.door, c.f);
       if(!path) continue;
       // Umgedreht faengt der Weg beim Anschlusspunkt an. Steht dort noch
