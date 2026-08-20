@@ -1276,22 +1276,20 @@ export class Game {
       }
     }
     for(const b of [...this.buildings.values()]){
-      // LANDVERLUST ZERSTOERT GEBAEUDE - wie im Vorbild. Militaerbauten
-      // waren hier pauschal ausgenommen - auch NIE BEZOGENE. GEMESSEN
-      // (Saat 80, K11/W5-Grabung): ein fertiges, nie bezogenes Wachhaus
-      // strandete auf Feindesland als Zombie - die Tuer von sechs
-      // fremden Knoten umschlossen, nie anschliessbar (44 vergebliche
-      // aiConnect-Versuche in 11 Minuten), nie besetzbar, und es zaehlte
-      // weiter als Bestandsposten (aiCount/milN), sodass die KI keinen
-      // Ersatz baute. Genau diese Zombies brennen jetzt: Militaerbauten,
-      // die NIE besetzt waren (besetztWar false) und auch jetzt keine
-      // Besatzung haben. EINST besetzte Posten bleiben stehen - eine
-      // schaerfere Fassung ("jeder unbesetzte brennt") wurde gemessen
-      // und verworfen: sie verbrannte im Grenzkrieg auch Posten, deren
-      // Besatzung gerade erst gefallen war, und kostete netto Substanz
-      // (Saat 7: Soldaten 0, Siedler 64 - Rueckeroberung wurde unmoeglich).
-      if(b.type!=='hq' && m.owner[b.node]!==b.player
-         && !(BLD[b.type].mil && (b.besetztWar || (b.soldiers && b.soldiers.length)))){
+      // LANDVERLUST ZERSTOERT ZIVILGEBAEUDE - Militaerbauten sind
+      // AUSGENOMMEN, und zwar bewusst pauschal. Die K11/W5-Grabung fand
+      // zwar den Zombie-Fall (Saat 80: ein nie bezogenes Wachhaus
+      // strandete auf Feindesland, nie anschliessbar, zaehlte aber
+      // weiter als Bestandsposten) - doch BEIDE Brennfassungen wurden
+      // gemessen und verworfen: "jeder unbesetzte brennt" UND "nur nie
+      // bezogene brennen" verbrannten vor allem frische Frontposten,
+      // deren erster Rekrut noch unterwegs war, wenn die Grenze kurz
+      // darueberkippte (12-Saaten-Beleg: Soldaten-Schnitt 23,8 -> 18,9,
+      // Saat 7 vernichtet, sogar Saat 80 selbst fiel 29 -> 10). Der
+      // seltene Zombie kostet eine Karte einen Posten; das Brennen
+      // kostete alle Karten Substanz. Der Zombie-Fall bleibt als
+      // bekannte, bewusst nicht geheilte Klasse dokumentiert.
+      if(b.type!=='hq' && m.owner[b.node]!==b.player && !BLD[b.type].mil){
         this.burnBuilding(b);
       }
     }
@@ -6166,8 +6164,12 @@ export class Game {
     // die eigene Insel-Fahne mit gueltigem Pfad stand auf Listenrang 69.
     // Deshalb feste Plaetze fuer beide Klassen: Insel-Anschluss
     // verschmilzt die Teilnetze, und sobald irgendein Inselgebaeude den
-    // HQ-Anschluss findet, haengt alles wieder zusammen.
-    const kandidaten=[...list.filter(c=>c.im===0).slice(0,12),
+    // HQ-Anschluss findet, haengt alles wieder zusammen. Die Insel-
+    // Plaetze kommen ZUSAETZLICH zu den vollen 16 des Normalfalls -
+    // eine erste Fassung (12+6) nahm dem haeufigen Normalanschluss vier
+    // Versuche weg und kostete gemessen mehr, als der seltene Inselfall
+    // brachte (Soldaten-Schnitt 23,8 -> 18,9 ueber 12 Saaten).
+    const kandidaten=[...list.filter(c=>c.im===0).slice(0,16),
                       ...list.filter(c=>c.im===1).slice(0,6)];
     for(const c of kandidaten){
       const path=this.roadPath(p.id, b.door, c.f);
