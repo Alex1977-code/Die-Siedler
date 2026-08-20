@@ -6169,8 +6169,15 @@ export class Game {
     // eine erste Fassung (12+6) nahm dem haeufigen Normalanschluss vier
     // Versuche weg und kostete gemessen mehr, als der seltene Inselfall
     // brachte (Soldaten-Schnitt 23,8 -> 18,9 ueber 12 Saaten).
+    // Insel-Kandidaten nur aus FREMDEN Komponenten: nach dem ersten
+    // Insel-Anschluss liegen deren Fahnen in derselben Komponente wie
+    // das Gebaeude selbst - ohne den Filter "verband" aiConnect jeden
+    // 150er-Takt erfolgreich eine weitere Fahne der EIGENEN Insel per
+    // Parallelweg, Brett um Brett, endlos (gemessen: 12-Saaten-Schnitt
+    // fiel von 23,8 auf 18,5 Soldaten, Saat 7 wurde vernichtet).
+    const bComp=this.compOf(b.door);
     const kandidaten=[...list.filter(c=>c.im===0).slice(0,16),
-                      ...list.filter(c=>c.im===1).slice(0,6)];
+                      ...list.filter(c=>c.im===1 && this.compOf(c.f)!==bComp).slice(0,6)];
     for(const c of kandidaten){
       const path=this.roadPath(p.id, b.door, c.f);
       if(!path) continue;
