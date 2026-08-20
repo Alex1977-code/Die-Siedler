@@ -5271,12 +5271,27 @@ export class Game {
     // (ESSEN_TEMPO), gruenden aber nichts - sie kommen, wenn die
     // Existenzketten stehen. Der Not-Anker fuer restlos leeres Essen
     // steht weiter vorn in der Grundstufe.
-    if(essen<12 && c('fisher')<1+tief) want.push('fisher');
-    if(essen<12 && c('hunter')<1+Math.floor(tief/2)) want.push('hunter');
+    // VORZIEHEN, SOBALD DIE WAFFENKETTE STEHT (v227, Nutzerentscheid):
+    // sind Schmelze, Werkzeugschmied und Waffenschmiede alle FERTIG,
+    // ist die Gruendungsphase durch - ab da ist Essen der wirksamste
+    // Beschleuniger (gemessene Foerderrate 6,6 -> 9,0 je Bergwerk) und
+    // rueckt direkt hinter den Grundbedarf. Die Not-Splices (Biernot,
+    // Engpass-Bergwerk) schieben sich weiterhin davor - Existenz vor
+    // Tempo. Der v226-Beleglauf zeigte den Preis des reinen Listenendes:
+    // die starken Karten fielen von 380 auf 261 Rekruten, weil die
+    // Minen ohne Brot die ganze Stunde im Hungertempo foerderten.
+    const essenWunsch=[];
+    if(essen<12 && c('fisher')<1+tief) essenWunsch.push('fisher');
+    if(essen<12 && c('hunter')<1+Math.floor(tief/2)) essenWunsch.push('hunter');
     if(tief>=2){
-      if(c('mill')<soll.mill) want.push('mill');
-      if(c('bakery')<soll.bakery) want.push('bakery');
+      if(c('mill')<soll.mill) essenWunsch.push('mill');
+      if(c('bakery')<soll.bakery) essenWunsch.push('bakery');
     }
+    const waffenketteSteht = this.aiCount(p,'smelter',false)>0
+      && this.aiCount(p,'toolsmith',false)>0
+      && this.aiCount(p,'armory',false)>0;
+    if(waffenketteSteht) want.splice(nachGrund, 0, ...essenWunsch);
+    else want.push(...essenWunsch);
     // ENGPASS DER EISENHUETTE VOR MILITAER UND VERARBEITUNG (v197).
     // Bergwerke stehen am Ende der Wunschliste; Militaerposten, Muehlen und
     // Baeckereien haben die Bretter vorher aufgebraucht. Fehlt einer
