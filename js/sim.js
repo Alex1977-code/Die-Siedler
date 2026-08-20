@@ -2189,7 +2189,18 @@ export class Game {
       for(const z of zuege) z.items.splice(z.items.indexOf(z.it),1);
       for(const z of zuege){
         const ziel=this.flagItems.get(z.g)||[];
-        z.it.lagT=this.t;               // bewegt - frisch altern
+        // Das Frust-Alter (lagT) laeuft WEITER: die Rotation ist
+        // kuenstliche Bewegung, kein Beweis, dass der Weg wieder fliesst.
+        // Der erste Wurf stempelte hier neu - damit blieb eine Ware im
+        // aktiven Ring ewig "jung", Alterungsventil (ab 600) und
+        // Uralt-Umleitung (ab 2400) griffen nie wieder, und die Rotation
+        // ersetzte sie nur durch einen Hop je halbe Minute. GEMESSEN:
+        // Saat 58 fiel von 27 auf 24 Rekruten (Waffen 63 -> 22), Saat 97
+        // von 34 auf 27, waehrend 426 Waren im Korridor kreisten. Ohne
+        // Stempel kaskadieren die drei Mechanismen: Rotation bricht den
+        // Stillstand, das Ventil laesst die gealterte Ware sofort
+        // weiterfliessen, die Umleitung verteilt sie auf Parallelwege.
+        // Nur der echte Traeger-Ablegestempel verjuengt.
         ziel.push(z.it);
         this.flagItems.set(z.g, ziel);
       }
