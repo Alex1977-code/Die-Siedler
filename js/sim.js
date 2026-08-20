@@ -2084,17 +2084,6 @@ export class Game {
         const dest=this.buildings.get(it.destB);
         if(!dest) continue;
         const istLager=dest.inv && dest.state==='done';
-        // naechstes per Route erreichbares ANDERES Lager (beide Zweige)
-        let best=null, bd=1e9;
-        for(const s of this.buildings.values()){
-          if(s.player!==dest.player || !s.inv || s.state!=='done') continue;
-          if(s.id===dest.id) continue;
-          if(s.door!==f && this.nextRoad(f, s.door)==null) continue;
-          const d=this.flagDist(s.door, f);
-          if(d<bd){ bd=d; best=s; }
-        }
-        if(!best) continue;
-        // Lagerware pendelt nicht: Umbuchung nur zu einem ECHT naeheren Lager.
         // GESTRANDETE BESTELLUNG (v230, Grabung Saat 58): eine Betriebs- oder
         // Baustellen-Ware, die zwei Minuten unbewegt liegt, steckt in einem
         // Dauerstau - kein Traeger nimmt sie je wieder auf, incoming beim
@@ -2105,12 +2094,39 @@ export class Game {
         // eingefroren. Die Bestellung wird deshalb AUFGEGEBEN: Ware zum
         // naechsten erreichbaren Lager, incoming beim Besteller abgebucht -
         // der bestellt sofort neu, und der Etappen-Rueckfall in findSource
-        // waehlt dann eine Quelle mit freiem Weg. Hier zaehlt Erreichbarkeit,
-        // nicht Naehe: Hauptsache, die Buchung wird frei.
-        if(istLager && bd >= this.flagDist(dest.door, f)) continue;
+        // waehlt dann eine Quelle mit freiem Weg.
+        //
+        // RICHTUNGSWECHSEL BEI URALT-WAREN (v230, zweite Stufe). Die
+        // Stau-Karte von Saat 58 zeigte den Rest-Deadlock: 18 Fahnen auf
+        // exakt 10-11 Waren (der Ventildeckel), alle 92 Traeger idle, fast
+        // alle 337 Waren Richtung DESSELBEN Lagers, Kohle seit 23 Minuten
+        // unterwegs - und ein echter Ring (zwei Fahnen warten ueber
+        // dieselbe Strasse aufeinander). Ein naeheres anderes Lager gibt es
+        // dort nicht, also griff die Umbuchung nie. Kapazitaetsventile
+        // pumpen so einen Ring nur auf die naechste Grenze (v225 gemessen
+        // und verworfen) - was ihn bricht, ist eine NEUE RICHTUNG: wer
+        // laenger als vier Minuten liegt, darf auch zu einem WEITEREN
+        // Lager, sofern die erste Etappe dorthin frei ist. Der Umweg
+        // nutzt die leeren Fahnen (66 von 92 lagen bei null), und jede
+        // Bewegung oeffnet hinter sich Platz.
+        const uralt=this.t-(it.lagT||this.t) > 2400;
+        let best=null, bd=1e9;        // naechstes anderes Lager
+        let frei=null, fd=1e9;        // naechstes Lager mit freier erster Etappe
+        for(const s of this.buildings.values()){
+          if(s.player!==dest.player || !s.inv || s.state!=='done') continue;
+          if(s.id===dest.id) continue;
+          if(s.door!==f && this.nextRoad(f, s.door)==null) continue;
+          const d=this.flagDist(s.door, f);
+          if(d<bd){ bd=d; best=s; }
+          if(uralt && d<fd && (s.door===f || this.etappeFrei(f, s.door))){ fd=d; frei=s; }
+        }
+        let neu=null;
+        if(uralt && frei) neu=frei;
+        else if(best && (!istLager || bd < this.flagDist(dest.door, f))) neu=best;
+        if(!neu) continue;
         if(dest.incoming[it.good]) dest.incoming[it.good]--;
-        best.incoming[it.good]=(best.incoming[it.good]||0)+1;
-        it.destB=best.id;
+        neu.incoming[it.good]=(neu.incoming[it.good]||0)+1;
+        it.destB=neu.id;
         it.lagT=this.t;               // am neuen Ziel frisch altern
       }
     }
