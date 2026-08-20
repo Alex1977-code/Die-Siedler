@@ -59,8 +59,171 @@ const DRAHTIG={  // sehnig-duenn (Jaeger)
   L_Thigh:[0.88,1,0.88], R_Thigh:[0.88,1,0.88],
 };
 
+// ---------- Gemeinsame Arbeitsgesten (T13) --------------------------------
+// Die uebrigen Berufe liefen bis v232 auf den KAPUTTEN Tripo-Angriffs-Clips
+// (Figur klappt zu Boden - die "Verbeugung" des Geologen), waehrend das
+// Werkzeug als losgeloestes Overlay seinen eigenen Bogen schlug. Jetzt
+// bekommen alle dieselbe Behandlung wie Jaeger/Foerster: handgesetzte
+// Schluesselbilder + Werkzeug IN der Hand (am Knochen mitgebacken).
+//
+// HACK: rechtshaendiger Schlag von ueber dem Kopf nach vorn-unten
+// (Geologe, Bergmann, Steinmetz - Spitzhacke). Kontakt Spalte 4.
+const HACK = [
+  [0,   { R_Upperarm:[38,0,-6],  R_Forearm:[-45,0,0],
+          L_Upperarm:[18,0,8],   L_Forearm:[-26,0,0],
+          Spine01:[-6,0,0], Head:[4,0,0] }],
+  [1,   { R_Upperarm:[90,0,-10], R_Forearm:[-75,0,0],
+          L_Upperarm:[26,0,10],  L_Forearm:[-36,0,0],
+          Spine01:[6,0,0], Head:[8,0,0] }],
+  [2,   { R_Upperarm:[138,0,-12],R_Forearm:[-88,0,0],
+          L_Upperarm:[32,0,10],  L_Forearm:[-46,0,0],
+          Spine01:[14,0,0], Spine02:[4,0,0], Head:[10,0,0],
+          R_Thigh:[2,0,0], L_Thigh:[2,0,0] }],
+  [3,   { R_Upperarm:[96,0,-8],  R_Forearm:[-38,0,0],
+          L_Upperarm:[26,0,9],   L_Forearm:[-30,0,0],
+          Spine01:[-10,0,0], Spine02:[-4,0,0], Head:[6,0,0] }],
+  [4,   { R_Upperarm:[40,0,-6],  R_Forearm:[-4,0,0],                 // KONTAKT
+          L_Upperarm:[20,0,8],   L_Forearm:[-14,0,0],
+          Spine01:[-24,0,0], Spine02:[-9,0,0], Head:[13,0,0],
+          R_Thigh:[-6,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
+  [5,   { R_Upperarm:[44,0,-6],  R_Forearm:[-8,0,0],
+          L_Upperarm:[20,0,8],   L_Forearm:[-16,0,0],
+          Spine01:[-21,0,0], Spine02:[-8,0,0], Head:[12,0,0],
+          R_Thigh:[-5,0,0], R_Calf:[7,0,0], L_Thigh:[-4,0,0], L_Calf:[6,0,0] }],
+  [6.5, { R_Upperarm:[52,0,-7],  R_Forearm:[-40,0,0],
+          L_Upperarm:[19,0,8],   L_Forearm:[-22,0,0],
+          Spine01:[-12,0,0], Head:[7,0,0] }],
+];
+// HAMMER: kurzer, flinker Schlag auf Brust-/Kniehoehe (Bauarbeiter).
+const HAMMERN = [
+  [0,   { R_Upperarm:[42,0,-6],  R_Forearm:[-55,0,0],
+          L_Upperarm:[14,0,6],   L_Forearm:[-20,0,0],
+          Spine01:[-8,0,0], Head:[4,0,0] }],
+  [1.5, { R_Upperarm:[100,0,-10],R_Forearm:[-62,0,0],
+          L_Upperarm:[16,0,6],   L_Forearm:[-22,0,0],
+          Spine01:[2,0,0], Head:[6,0,0] }],
+  [2.5, { R_Upperarm:[122,0,-12],R_Forearm:[-72,0,0],
+          L_Upperarm:[18,0,7],   L_Forearm:[-24,0,0],
+          Spine01:[6,0,0], Spine02:[2,0,0], Head:[8,0,0] }],
+  [4,   { R_Upperarm:[44,0,-6],  R_Forearm:[-10,0,0],                // KONTAKT
+          L_Upperarm:[14,0,6],   L_Forearm:[-18,0,0],
+          Spine01:[-18,0,0], Spine02:[-7,0,0], Head:[11,0,0],
+          R_Thigh:[-4,0,0], R_Calf:[6,0,0], L_Thigh:[-3,0,0], L_Calf:[5,0,0] }],
+  [5,   { R_Upperarm:[52,0,-7],  R_Forearm:[-34,0,0],
+          L_Upperarm:[14,0,6],   L_Forearm:[-18,0,0],
+          Spine01:[-18,0,0], Spine02:[-6,0,0], Head:[10,0,0] }],
+  [6.5, { R_Upperarm:[46,0,-6],  R_Forearm:[-48,0,0],
+          L_Upperarm:[14,0,6],   L_Forearm:[-20,0,0],
+          Spine01:[-10,0,0], Head:[5,0,0] }],
+];
+// AXT: beidarmig angedeuteter Diagonalhieb von schraeg oben (Holzfaeller).
+// Der Rumpf dreht leicht mit (Y), damit der Hieb Schwung hat.
+const HACKEN_AXT = [
+  [0,   { R_Upperarm:[40,0,-8],  R_Forearm:[-50,0,0],
+          L_Upperarm:[28,0,10],  L_Forearm:[-44,0,0],
+          Spine01:[-6,4,0], Head:[4,0,0] }],
+  [1,   { R_Upperarm:[112,0,-14],R_Forearm:[-70,0,0],
+          L_Upperarm:[45,0,14],  L_Forearm:[-60,0,0],
+          Spine01:[8,10,0], Spine02:[3,4,0], Head:[8,-4,0] }],
+  [2,   { R_Upperarm:[148,0,-18],R_Forearm:[-78,0,0],
+          L_Upperarm:[58,0,16],  L_Forearm:[-68,0,0],
+          Spine01:[14,14,0], Spine02:[5,6,0], Head:[10,-6,0],
+          R_Thigh:[2,0,0], L_Thigh:[2,0,0] }],
+  [3,   { R_Upperarm:[92,0,-10], R_Forearm:[-42,0,0],
+          L_Upperarm:[44,0,12],  L_Forearm:[-40,0,0],
+          Spine01:[-6,4,0], Head:[6,0,0] }],
+  [4,   { R_Upperarm:[42,0,-6],  R_Forearm:[-8,0,0],                 // KONTAKT
+          L_Upperarm:[26,0,8],   L_Forearm:[-16,0,0],
+          Spine01:[-26,-8,0], Spine02:[-10,-3,0], Head:[14,4,0],
+          R_Thigh:[-5,0,0], R_Calf:[7,0,0], L_Thigh:[-4,0,0], L_Calf:[6,0,0] }],
+  [5,   { R_Upperarm:[46,0,-6],  R_Forearm:[-14,0,0],
+          L_Upperarm:[26,0,8],   L_Forearm:[-18,0,0],
+          Spine01:[-22,-6,0], Spine02:[-8,-2,0], Head:[12,3,0] }],
+  [6.5, { R_Upperarm:[44,0,-7],  R_Forearm:[-42,0,0],
+          L_Upperarm:[27,0,9],   L_Forearm:[-38,0,0],
+          Spine01:[-10,0,0], Head:[6,0,0] }],
+];
+// SENSE: ruhiger Maehschwung - der Rumpf dreht von rechts nach links,
+// die Arme bleiben lang (Bauer). Kontakt = Mitte des Schwungs.
+const MAEHEN = [
+  [0,   { R_Upperarm:[30,0,-10], R_Forearm:[-18,0,0],
+          L_Upperarm:[34,0,12],  L_Forearm:[-30,0,0],
+          Spine01:[-10,38,0], Spine02:[0,14,0], Head:[6,-13,0] }],
+  [2,   { R_Upperarm:[34,0,-10], R_Forearm:[-14,0,0],
+          L_Upperarm:[36,0,12],  L_Forearm:[-26,0,0],
+          Spine01:[-12,18,0], Spine02:[0,7,0], Head:[7,-7,0] }],
+  [4,   { R_Upperarm:[36,0,-10], R_Forearm:[-12,0,0],                // KONTAKT
+          L_Upperarm:[38,0,12],  L_Forearm:[-24,0,0],
+          Spine01:[-13,-12,0], Spine02:[0,-5,0], Head:[8,5,0] }],
+  [5.5, { R_Upperarm:[33,0,-10], R_Forearm:[-15,0,0],
+          L_Upperarm:[36,0,12],  L_Forearm:[-27,0,0],
+          Spine01:[-11,-36,0], Spine02:[0,-13,0], Head:[7,12,0] }],
+  [7,   { R_Upperarm:[30,0,-10], R_Forearm:[-18,0,0],
+          L_Upperarm:[34,0,12],  L_Forearm:[-30,0,0],
+          Spine01:[-10,24,0], Spine02:[0,9,0], Head:[6,-9,0] }],
+];
+// ANGEL: auswerfen und halten (Fischer). ATK_MS laeuft langsam (240 ms),
+// die zweite Haelfte ist bewusst fast still - er WARTET auf den Biss.
+const ANGELN = [
+  [0,   { R_Upperarm:[42,0,-6],  R_Forearm:[-30,0,0],
+          L_Upperarm:[12,0,6],   L_Forearm:[-18,0,0],
+          Spine01:[-4,0,0], Head:[4,0,0] }],
+  [1.5, { R_Upperarm:[108,0,-10],R_Forearm:[-70,0,0],
+          L_Upperarm:[16,0,6],   L_Forearm:[-20,0,0],
+          Spine01:[8,0,0], Head:[8,0,0] }],
+  [3,   { R_Upperarm:[70,0,-8],  R_Forearm:[-16,0,0],
+          L_Upperarm:[12,0,6],   L_Forearm:[-18,0,0],
+          Spine01:[-6,0,0], Head:[2,0,0] }],
+  [4,   { R_Upperarm:[54,0,-6],  R_Forearm:[-10,0,0],                // Schnur liegt
+          L_Upperarm:[10,0,5],   L_Forearm:[-16,0,0],
+          Spine01:[-8,0,0], Head:[0,0,0] }],
+  [6,   { R_Upperarm:[52,0,-6],  R_Forearm:[-12,0,0],
+          L_Upperarm:[10,0,5],   L_Forearm:[-16,0,0],
+          Spine01:[-7,0,0], Head:[1,0,0] }],
+  [7,   { R_Upperarm:[50,0,-6],  R_Forearm:[-16,0,0],
+          L_Upperarm:[11,0,5],   L_Forearm:[-17,0,0],
+          Spine01:[-6,0,0], Head:[2,0,0] }],
+];
+// SCHAUFEL: einstechen, hebeln, seitlich auswerfen (Planierer).
+const SCHAUFELN = [
+  [0,   { R_Upperarm:[36,0,-6],  R_Forearm:[-30,0,0],
+          L_Upperarm:[30,0,10],  L_Forearm:[-40,0,0],
+          Spine01:[-10,0,0], Head:[5,0,0] }],
+  [1.5, { R_Upperarm:[62,0,-8],  R_Forearm:[-50,0,0],
+          L_Upperarm:[42,0,12],  L_Forearm:[-52,0,0],
+          Spine01:[0,0,0], Head:[6,0,0] }],
+  [3,   { R_Upperarm:[46,0,-6],  R_Forearm:[-18,0,0],
+          L_Upperarm:[34,0,10],  L_Forearm:[-30,0,0],
+          Spine01:[-24,0,0], Spine02:[-8,0,0], Head:[12,0,0],
+          R_Thigh:[-6,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
+  [4,   { R_Upperarm:[40,0,-6],  R_Forearm:[-10,0,0],                // KONTAKT (Stich)
+          L_Upperarm:[32,0,10],  L_Forearm:[-24,0,0],
+          Spine01:[-34,0,0], Spine02:[-12,0,0], Head:[16,0,0],
+          R_Thigh:[-8,0,0], R_Calf:[11,0,0], L_Thigh:[-7,0,0], L_Calf:[10,0,0] }],
+  [5.5, { R_Upperarm:[58,0,-8],  R_Forearm:[-44,0,0],
+          L_Upperarm:[48,0,14],  L_Forearm:[-56,0,0],
+          Spine01:[-8,-14,0], Spine02:[-2,-5,0], Head:[8,5,0] }],
+  [7,   { R_Upperarm:[40,0,-7],  R_Forearm:[-34,0,0],
+          L_Upperarm:[33,0,10],  L_Forearm:[-42,0,0],
+          Spine01:[-10,-4,0], Head:[6,1,0] }],
+];
+// Werkzeug-Anbringung: Stiel liegt QUER in der Faust (Grundlage +Y aus der
+// Faust). rot [90,0,0] kippt ihn ueber die FINGERKNOECHEL nach vorn - so
+// zeigt der Kopf beim Ausholen nach hinten-oben und am Kontakt nach
+// vorn-unten (kalibriert ueber die Vorschau-Blaetter, T13; die erste
+// Fassung [0,0,-90] stand seitlich uebers Daumengelenk ab).
+const IN_FAUST=(kind,scale=1,rot=[90,0,0])=>({ atk:{ kind, bone:'R_Hand', pos:[0,0.02,0], rot, scale } });
+
 export const POSEN = {
-  fisher:  { koerper: DICK },
+  geo:        { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
+  miner:      { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
+  quarry:     { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
+  builder:    { atk: HAMMERN,    werkzeug: IN_FAUST('hammer',1.7) },
+  woodcutter: { atk: HACKEN_AXT, werkzeug: IN_FAUST('axe',1.35) },
+  // Sense: Blatt zum BODEN gedreht (die Faust-Grundlage hielte es nach oben)
+  farm:       { atk: MAEHEN,     werkzeug: IN_FAUST('scythe',1.15,[-70,0,0]) },
+  leveler:    { atk: SCHAUFELN,  werkzeug: IN_FAUST('shovel',1.25) },
+  fisher:  { koerper: DICK, atk: ANGELN, werkzeug: IN_FAUST('rod',1.25) },
   butcher: { koerper: DICK },
   miller:  { koerper: RUNDLICH },
   baker:   { koerper: RUNDLICH },

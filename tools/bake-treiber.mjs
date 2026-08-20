@@ -101,9 +101,15 @@ async function ruesten(set){
 // (clip,t,pose) je Spalte eines Sets
 function spaltenPlan(set){
   const n=SPALTEN[set];
+  // Modelle OHNE echten Warte-Clip (idle===walk) bekommen als Grundpose
+  // den DURCHSCHWUNG des Geh-Zyklus (~27%): beide Fuesse unterm Koerper,
+  // Ruecken gerade. Frame 0 des Geh-Clips ist mitten im Schritt - die
+  // additive Arbeitspose sass sonst auf einer schiefen Grundhaltung
+  // (T13: der Geologe kippte am Kontakt fast kopfueber).
+  const atkT = idle===walk ? walk.duration*0.27 : 0;
   const plan=[];
   for(let k=0;k<n;k++){
-    if(set==='atk') plan.push({clip:idle.name, t:0, pose:atkPose(P.atk,k)});
+    if(set==='atk') plan.push({clip:idle.name, t:atkT, pose:atkPose(P.atk,k)});
     else if(set==='trag') plan.push({clip:walk.name, t:walk.duration*k/n, pose:P.trag});
     else {
       const clip= set==='walk'? walk : idle;
