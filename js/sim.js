@@ -1981,8 +1981,19 @@ export class Game {
     return n;
   }
   findSource(pl, good, destFlag, comp){
-    // Quellen: Produktionsausstoß (b.out) oder Lager (inv)
-    let best=null, bd=1e9;
+    // Quellen: Produktionsausstoß (b.out) oder Lager (inv).
+    //
+    // ETAPPEN-RUECKFALL (v230, Grabung Saat 58/97): bisher gewann stur die
+    // RAEUMLICH naechste Quelle - und dispatch verwarf die Bestellung, wenn
+    // deren erste Etappe voll war. Bei einem Dauerstau an genau dieser
+    // Quelle hungerte der Betrieb fuer immer, obwohl dieselbe Ware im Lager
+    // hinter einer FREIEN Etappe lag. GEMESSEN (Saat 97): ueber 40 Minuten
+    // hiess es fuer jede Schmelze und Waffenschmiede "Quelle coalmine,
+    // Etappe VOLL", waehrend 69 Kohle im Lager warteten - null Eisen, null
+    // Waffen, Rekruten eingefroren. Deshalb werden jetzt die DREI naechsten
+    // Quellen gemerkt und die erste mit freier Etappe gewinnt; sind alle
+    // verstopft, bleibt es beim alten Verhalten (dispatch prueft ohnehin).
+    const top=[];                 // die drei naechsten freien Quellen
     let ersatz=null, ed=1e9;      // Lager mit voller Fahne, nur als Rückfall
     for(const b of this.buildings.values()){
       if(b.player!==pl || b.state!=='done') continue;
@@ -2016,9 +2027,12 @@ export class Game {
         continue;
       }
       const d=this.flagDist(f, destFlag);
-      if(d<bd){ bd=d; best=b; }
+      const ins=top.findIndex(x=>d<x.d);
+      if(ins>=0){ top.splice(ins,0,{b,d}); if(top.length>3) top.pop(); }
+      else if(top.length<3) top.push({b,d});
     }
-    return best || ersatz;
+    for(const x of top) if(this.etappeFrei(x.b.door, destFlag)) return x.b;
+    return top.length? top[0].b : ersatz;
   }
   // GEGENDRUCK AN DER EINSPEISUNG (v214).
   //
@@ -2068,7 +2082,9 @@ export class Game {
         if(it.reserved || it.wartet) continue;
         if(this.t-(it.lagT||this.t) < 1200) continue;
         const dest=this.buildings.get(it.destB);
-        if(!dest || !dest.inv || dest.state!=='done') continue;
+        if(!dest) continue;
+        const istLager=dest.inv && dest.state==='done';
+        // naechstes per Route erreichbares ANDERES Lager (beide Zweige)
         let best=null, bd=1e9;
         for(const s of this.buildings.values()){
           if(s.player!==dest.player || !s.inv || s.state!=='done') continue;
@@ -2077,7 +2093,21 @@ export class Game {
           const d=this.flagDist(s.door, f);
           if(d<bd){ bd=d; best=s; }
         }
-        if(!best || bd >= this.flagDist(dest.door, f)) continue;
+        if(!best) continue;
+        // Lagerware pendelt nicht: Umbuchung nur zu einem ECHT naeheren Lager.
+        // GESTRANDETE BESTELLUNG (v230, Grabung Saat 58): eine Betriebs- oder
+        // Baustellen-Ware, die zwei Minuten unbewegt liegt, steckt in einem
+        // Dauerstau - kein Traeger nimmt sie je wieder auf, incoming beim
+        // Besteller bleibt erhoeht, und weil requestsOf nur 2x Input minus
+        // incoming bestellt, wuergen ZWEI solcher Waren ein Gut komplett ab.
+        // GEMESSEN: ab Minute 30 stand "water=0+2" / "coal=0+2" dreissig
+        // Minuten unveraendert, 62 Kohle und 38 Wasser im Lager, Rekruten
+        // eingefroren. Die Bestellung wird deshalb AUFGEGEBEN: Ware zum
+        // naechsten erreichbaren Lager, incoming beim Besteller abgebucht -
+        // der bestellt sofort neu, und der Etappen-Rueckfall in findSource
+        // waehlt dann eine Quelle mit freiem Weg. Hier zaehlt Erreichbarkeit,
+        // nicht Naehe: Hauptsache, die Buchung wird frei.
+        if(istLager && bd >= this.flagDist(dest.door, f)) continue;
         if(dest.incoming[it.good]) dest.incoming[it.good]--;
         best.incoming[it.good]=(best.incoming[it.good]||0)+1;
         it.destB=best.id;
