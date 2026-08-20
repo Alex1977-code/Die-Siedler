@@ -4911,7 +4911,18 @@ export class Game {
     const lvl=p.aiLevel;
     // KI-Bonus: leichte Materialhilfe je Level (hält das Spiel spannend, KI "mogelt" milde)
     const dm=Game.diffMods(this.difficulty);
-    if(this.t-(p.aiState.lastBonus||0)>=600/dm.bonusMul && hq.inv){
+    // ANLAUF-SCHONFRIST: in den ersten zehn Minuten gibt es keine Hilfe.
+    // Am Start sind alle gleich stark, das Gummiband unten laesst die
+    // Hilfe dann durch - und genau diese Fruehgeschenke verzinsen sich
+    // auf gegnerfreundlichen Karten brutal: Saat 23 bekam trotz
+    // Gummiband nur 2 Bier geschenkt, aber die Werkzeuge der ersten
+    // Minuten hoben die Eigenproduktion von 42 auf 61 Bier und 12 auf
+    // 25 Schwerter - aus 29/10 (Messling ueberlebt) wurde 0/55
+    // (Vernichtung). Die Hilfe soll AUFFANGEN, nicht anschieben - also
+    // erst, wenn sich ein echter Rueckstand zeigen kann. Startkiste
+    // haben beide Seiten gleichermassen; Angriffe warten mit t>3000
+    // laengst nach demselben Prinzip.
+    if(this.t>6000 && this.t-(p.aiState.lastBonus||0)>=600/dm.bonusMul && hq.inv){
       p.aiState.lastBonus=this.t;
       // BEDARFSDECKEL STATT DAUERTROPF.
       // Vorher legte diese Stelle bei JEDEM Takt feste Mengen ins Lager,
