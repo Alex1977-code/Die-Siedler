@@ -4938,14 +4938,34 @@ export class Game {
       auf('board', HB.board); auf('stone', HB.stone);
       auf('hammer', HB.hammer); auf('shovel', HB.shovel); auf('pick', HB.pick);
       for(const t of ['axe','saw','scythe','rod','cleaver']) auf(t, HB.werkzeug);
-      // Muenzen, Bier und Waffen: ohne sie friert das Gebiet nach den
-      // Start-Rekruten ein, weil ein Posten erst MIT Besatzung die Grenze
-      // verschiebt. Seit v224 macht das BIER den Rekruten (Muenzen
-      // befoerdern), die Hilfe stockt weiter beide bis zur selben
-      // Schwelle auf - Bier existenziell, Muenzen fuer die Kampfkraft.
-      auf('coin', HB.beer); auf('beer', HB.beer);
-      auf('sword', HB.waffe); auf('shield', HB.waffe);
-      if(lvl>=2) auf('spear', HB.waffe);
+      // Muenzen, Bier und Waffen: GUMMIBAND STATT DAUERTROPF.
+      // Bei Werkzeugen funktioniert der Boden wie gedacht: laeuft die
+      // eigene Schmiede, bleibt der Bestand ueber der Schwelle und die
+      // Hilfe verschwindet von selbst. Bei Bier und Waffen NIE - die KI
+      // verbraucht sie sofort beim Rekrutieren, der Bestand faellt jede
+      // Minute unter die Schwelle, die Hilfe fuellt jede Minute nach.
+      // Nachgemessen (60 min, Stufe 2, Saaten 7/23/42): der "Boden"
+      // schenkte dem Gegner 39-66 Bier und 71-81 Schwerter je Partie -
+      // ueber 90% seines Militaers waren Geschenk (Eigenproduktion nur
+      // 1-12 Schwerter). Folge: Staerke 90-100 statt 16-29; ein perfekt
+      // wirtschaftender Messling ohne Hilfe wurde auf 2 von 3 Karten
+      // VERNICHTET, selbst die staerkste Karte (Saat 42, solo 40 vs 16)
+      // fiel auf 16 vs 33.
+      // Deshalb gibt es Kriegsgueter nur noch, solange die KI SCHWAECHER
+      // als ihr staerkster Rivale ist (plus Stufen-Toleranz). Die Hilfe
+      // haelt das Spiel spannend, statt den Spieler zu ueberrollen -
+      // eine wirtschaftlich gesunde KI ueberrennt einen passiven Spieler
+      // weiterhin aus EIGENER Produktion (Saat 23 ganz ohne Hilfe:
+      // Staerke 29, braute 42 Bier, schmiedete 12 Schwerter).
+      let rivale=0;
+      for(const q of this.players)
+        if(q.id!==p.id && !q.defeated) rivale=Math.max(rivale, this.aiStaerke(q));
+      const vorsprung = lvl>=3 ? 5 : lvl===2 ? 2 : -2;
+      if(this.aiStaerke(p) < rivale + vorsprung){
+        auf('coin', HB.beer); auf('beer', HB.beer);
+        auf('sword', HB.waffe); auf('shield', HB.waffe);
+        if(lvl>=2) auf('spear', HB.waffe);
+      }
     }
     // Front-Nachschub: je Zug trägt die KI EIN fehlendes Bauteil aus dem
     // HQ-Lager direkt zu einer angeschlossenen Militär-Baustelle. Die
