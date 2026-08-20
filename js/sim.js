@@ -2291,7 +2291,26 @@ export class Game {
               items.splice(k,1); this.deliver(dest, it.good); k--; continue;
             }
             if(it.reserved) continue;
-            if(this.nextRoad(f, dest.door)!==r.id) continue;
+            if(this.nextRoad(f, dest.door)!==r.id){
+              // URALT-UMLEITUNG (v230, Stau-Karte Saat 58). Jede Ware war
+              // bisher auf ihre KUERZESTE Route gezwungen - fuehrt die durch
+              // einen Dauerstau, lag sie fuer immer: 18 Fahnen standen auf
+              // exakt 10-11 (dem Ventildeckel), alle 92 Traeger idle, Kohle
+              // seit 23 Minuten unterwegs, und der Richtungswechsel der
+              // Umwidmung griff nie, weil auch die Route zum ANDEREN Lager
+              // durch denselben Korridor fuehrt (nextRoad kennt keine
+              // Umwege; die 66 leeren Fahnen waren Nebenaeste). Deshalb darf
+              // eine Ware, die laenger als vier Minuten liegt, auch zur
+              // Seite wandern: ueber eine fremde Strasse, deren anderes Ende
+              // Platz hat und von dem aus ueberhaupt ein Weg zum Ziel
+              // existiert. Ab der neuen Fahne gilt wieder Normal-Routing;
+              // gependelt wird hoechstens im Vier-Minuten-Takt (lagT wird
+              // beim Ablegen neu gestempelt), und jede Bewegung oeffnet
+              // hinter sich Platz im Ring.
+              if(this.t-(it.lagT||0)<=2400) continue;
+              if(zielN>=Game.ZIEL_FREI) continue;
+              if(this.nextRoad(zielF, dest.door)==null) continue;
+            } else {
             // Zielfahne voll? Dann liegen lassen (v211, siehe oben) - es sei
             // denn, das Ziel steht selbst an dieser Fahne.
             //
@@ -2313,6 +2332,7 @@ export class Game {
             // jede Bewegung oeffnet hinter sich Platz fuer die naechste.
             const gealtert = this.t-(it.lagT||0) > 600 && zielN < FLAG_CAP+2;
             if(zielVoll && dest.door!==zielF && !gealtert) continue;
+            }
             const pr = dest.state==='build' ? 0 : (dest.inv ? 2 : 1);
             // Bei gleichem Anlass entscheidet die Rangfolge des Spielers,
             // welche Ware der Traeger zuerst aufnimmt (v196). Vorher gewann
