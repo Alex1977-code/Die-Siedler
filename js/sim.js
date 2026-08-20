@@ -1277,18 +1277,21 @@ export class Game {
     }
     for(const b of [...this.buildings.values()]){
       // LANDVERLUST ZERSTOERT GEBAEUDE - wie im Vorbild. Militaerbauten
-      // waren hier pauschal ausgenommen; richtig ist die Ausnahme nur
-      // fuer BESETZTE Posten (um deren Boden wird gekaempft, das regelt
-      // die Eroberung). GEMESSEN (Saat 80, K11/W5-Grabung): ein fertiges,
-      // nie bezogenes Wachhaus strandete auf Feindesland als Zombie -
-      // die Tuer von sechs fremden Knoten umschlossen, nie anschliessbar
-      // (44 vergebliche aiConnect-Versuche in 11 Minuten), nie besetzbar,
-      // und es zaehlte weiter als Bestandsposten (aiCount/milN), sodass
-      // die KI keinen Ersatz baute. Unbesetzte Militaerbauten und
-      // Militaer-Baustellen auf fremdem Boden brennen jetzt wie jedes
-      // andere Gebaeude.
+      // waren hier pauschal ausgenommen - auch NIE BEZOGENE. GEMESSEN
+      // (Saat 80, K11/W5-Grabung): ein fertiges, nie bezogenes Wachhaus
+      // strandete auf Feindesland als Zombie - die Tuer von sechs
+      // fremden Knoten umschlossen, nie anschliessbar (44 vergebliche
+      // aiConnect-Versuche in 11 Minuten), nie besetzbar, und es zaehlte
+      // weiter als Bestandsposten (aiCount/milN), sodass die KI keinen
+      // Ersatz baute. Genau diese Zombies brennen jetzt: Militaerbauten,
+      // die NIE besetzt waren (besetztWar false) und auch jetzt keine
+      // Besatzung haben. EINST besetzte Posten bleiben stehen - eine
+      // schaerfere Fassung ("jeder unbesetzte brennt") wurde gemessen
+      // und verworfen: sie verbrannte im Grenzkrieg auch Posten, deren
+      // Besatzung gerade erst gefallen war, und kostete netto Substanz
+      // (Saat 7: Soldaten 0, Siedler 64 - Rueckeroberung wurde unmoeglich).
       if(b.type!=='hq' && m.owner[b.node]!==b.player
-         && !(BLD[b.type].mil && b.soldiers && b.soldiers.length)){
+         && !(BLD[b.type].mil && (b.besetztWar || (b.soldiers && b.soldiers.length)))){
         this.burnBuilding(b);
       }
     }
