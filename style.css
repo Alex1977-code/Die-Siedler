@@ -20,13 +20,48 @@ body{
     #16202e;
   display:flex;
 }
-/* Titelbild als Kulisse, falls vorhanden */
+/* Die Kulisse ist das SPIEL SELBST: eine im Renderer gewachsene Siedlung
+   (assets/ui_titel.jpg, Saat 42 nach 12 Spielminuten - Burg, Muehle,
+   Felder, See). Ein langsamer Ken-Burns-Schwenk macht sie lebendig,
+   die Vignette (::after) haelt die Raender dunkel, damit Tafel und
+   Schrift ruhig davor stehen. */
+#scr-title{ overflow:hidden; }
 #scr-title::before{
-  content:''; position:absolute; inset:0; pointer-events:none;
-  background:url('assets/story_1.jpg') center/cover no-repeat;
-  opacity:0.22; filter:saturate(0.85);
-  mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 78%);
-  -webkit-mask-image:radial-gradient(ellipse at 50% 55%, #000 30%, transparent 78%);
+  content:''; position:absolute; inset:-5%; pointer-events:none; z-index:0;
+  /* 60%/45%: im schmalen Hochformat schneidet cover sonst genau die
+     Burg aus dem sichtbaren Streifen */
+  background:url('assets/ui_titel.jpg') 60% 45%/cover no-repeat;
+  opacity:0.58; filter:saturate(0.94);
+  animation:kulisse-schwenk 52s ease-in-out infinite alternate;
+}
+#scr-title::after{
+  content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+  background:radial-gradient(ellipse at 50% 42%, transparent 30%, rgba(10,16,26,0.82) 100%);
+}
+@keyframes kulisse-schwenk{
+  from{ transform:scale(1.05) translate(-1.4%,-1%); }
+  to  { transform:scale(1.14) translate(1.4%,1.2%); }
+}
+/* Ein Traeger wandert mit seiner Last ueber den Tafelfuss - dasselbe
+   Blatt wie im Spiel (12 Spalten x 88 px, Zeile 0 = Seitenansicht,
+   die Figuren blicken nativ nach links, also laeuft er von rechts). */
+.titel-traeger{
+  position:absolute; left:0; bottom:calc(2px + env(safe-area-inset-bottom));
+  width:88px; height:88px; z-index:1; pointer-events:none;
+  background:url('assets/unit_carrier_trag.png') 0 0 no-repeat;
+  animation: traeger-schritt 0.85s steps(12) infinite,
+             traeger-wandern 34s linear infinite;
+}
+@keyframes traeger-schritt{ from{ background-position-x:0 } to{ background-position-x:-1056px } }
+@keyframes traeger-wandern{ from{ transform:translateX(100vw) } to{ transform:translateX(-96px) } }
+/* Laufende Fassung (vom Serviceworker gemeldet), dezent in der Ecke */
+#build-tag{
+  position:absolute; right:10px; bottom:calc(6px + env(safe-area-inset-bottom));
+  z-index:2; font-size:11px; letter-spacing:0.06em; color:rgba(232,228,216,0.5);
+}
+@media (prefers-reduced-motion: reduce){
+  #scr-title::before, .titel-traeger{ animation:none; }
+  .titel-traeger{ display:none; }
 }
 .title-wrap{
   /* margin:auto statt align-items:center am Elternelement: ist die Tafel
@@ -36,7 +71,7 @@ body{
      scrollbar am oberen Rand. */
   margin:auto;
   text-align:center; padding:26px 22px 24px; max-width:420px; width:100%;
-  position:relative; border-radius:20px;
+  position:relative; z-index:2; border-radius:20px;
   background:
     linear-gradient(rgba(22,32,46,0.72),rgba(16,24,36,0.84)),
     url('assets/ui_wood.png') center/260px;
@@ -515,7 +550,23 @@ h1::after{
     radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
     radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
     #16202e;
+  position:relative;
 }
+/* dieselbe Spielszene wie am Titel, nur stiller: die Untermenues stehen
+   damit sichtbar IM Spiel statt vor grauem Grund */
+#scr-campaign::before,#scr-free::before,#scr-multi::before,
+#scr-load::before,#scr-options::before,#scr-help::before{
+  content:''; position:fixed; inset:0; pointer-events:none;
+  background:url('assets/ui_titel.jpg') center/cover no-repeat;
+  opacity:0.22; filter:saturate(0.85);
+}
+/* Checkboxen und Schieberegler: Gold statt Systemblau - der einzige
+   Fleck Browser-Optik, der noch in den Menues stand */
+input[type=checkbox], input[type=radio], input[type=range]{ accent-color:#c9a05a; }
+.opt{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.opt input[type=range]{ flex:1; min-width:130px; }
+/* Knopf-Icons im Hauptmenue */
+.mbtn .mi{ margin-right:9px; }
 .panel{
   max-width:520px; margin:14px auto; min-height:0;
   border-radius:18px;

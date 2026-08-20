@@ -475,7 +475,8 @@
 "unit_carpenter_walk.png",
 "unit_carrier_flee.png",
 "unit_carrier_idle.png",
-"unit_carrier_trag.png", "unit_carrier_walk.png",
+"unit_carrier_trag.png",
+"unit_carrier_walk.png",
 "unit_deer_idle.png",
 "unit_deer_walk.png",
 "unit_donkey_idle.png",
@@ -555,5 +556,6 @@
 "unit_woodcutter_walk.png",
 "unit_worker_flee.png",
 "unit_worker_idle.png",
-"unit_worker_walk.png"
+"unit_worker_walk.png",
+"ui_titel.jpg"
 ]

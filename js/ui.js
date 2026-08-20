@@ -38,6 +38,20 @@ export class UI {
     Sound.sfxOn=this.opts.sfx; Sound.musicOn=this.opts.music;
     this.buildDOM();
     this.showScreen('title');
+    // Laufende Fassung dezent am Titel zeigen - der Serviceworker meldet
+    // seine BUILD-Nummer (so sieht man nach einem Update sofort, ob die
+    // neue Fassung wirklich aktiv ist)
+    if(navigator.serviceWorker){
+      navigator.serviceWorker.addEventListener('message',(e)=>{
+        if(e.data && e.data.type==='version'){
+          const t=$('#build-tag'); if(t) t.textContent='Fassung '+e.data.build;
+        }
+      });
+      navigator.serviceWorker.ready.then(()=>setTimeout(()=>{
+        if(navigator.serviceWorker.controller)
+          navigator.serviceWorker.controller.postMessage({type:'version'});
+      },400)).catch(()=>{});
+    }
     this.cam={x:0,y:0,z:1};
     this.state={ sel:-1, mode:'view', roadFrom:-1, roadPath:null, buildCat:'basis', msgSeen:0, msgUngelesen:0 };
     this.renderer=new Renderer($('#cv'));
@@ -65,15 +79,17 @@ export class UI {
         <h1>NEULAND</h1>
         <p class="subtitle">Siedeln · Wirtschaft · Eroberung</p>
         <div class="menu">
-          <button id="bt-campaign" class="mbtn">Kampagne</button>
-          <button id="bt-free" class="mbtn">Freies Spiel</button>
-          <button id="bt-multi" class="mbtn">Mehrspieler</button>
-          <button id="bt-load" class="mbtn">Laden</button>
-          <button id="bt-options" class="mbtn">Optionen</button>
-          <button id="bt-help" class="mbtn">Anleitung</button>
+          <button id="bt-campaign" class="mbtn"><span class="mi">🏰</span>Kampagne</button>
+          <button id="bt-free" class="mbtn"><span class="mi">🗺️</span>Freies Spiel</button>
+          <button id="bt-multi" class="mbtn"><span class="mi">⚔️</span>Mehrspieler</button>
+          <button id="bt-load" class="mbtn"><span class="mi">📜</span>Laden</button>
+          <button id="bt-options" class="mbtn"><span class="mi">⚙️</span>Optionen</button>
+          <button id="bt-help" class="mbtn"><span class="mi">📖</span>Anleitung</button>
         </div>
         <p class="credits">Ein Aufbau-Strategiespiel im Geiste der Klassiker · eigene Grafik, Musik & Story</p>
       </div>
+      <div class="titel-traeger"></div>
+      <div id="build-tag"></div>
     </div>
     <div id="scr-campaign" class="screen hidden">
       <div class="panel">
