@@ -107,22 +107,39 @@ function spaltenPlan(set){
   // additive Arbeitspose sass sonst auf einer schiefen Grundhaltung
   // (T13: der Geologe kippte am Kontakt fast kopfueber).
   const atkT = idle===walk ? walk.duration*0.27 : 0;
+  // walkFenster [a,b] (posen.js): nur diesen Anteil des Geh-Clips ueber
+  // die 12 Spalten legen. Noetig, wenn der Clip MEHR als einen
+  // Schrittzyklus enthaelt (woodcutter/geo: zwei Zyklen in 1,88 s -
+  // per Fusshoehen-Periodik vermessen, T15). Ohne Fensterung zeigten
+  // 12 Spalten zwei Zyklen = nur 6 echte Phasen, doppelt so hastig.
+  const F=P.walkFenster||[0,1];
+  const wT=(k,n2)=>walk.duration*(F[0]+(F[1]-F[0])*k/n2);
   const plan=[];
   for(let k=0;k<n;k++){
     if(set==='atk') plan.push({clip:idle.name, t:atkT, pose:atkPose(P.atk,k)});
-    else if(set==='trag') plan.push({clip:walk.name, t:walk.duration*k/n, pose:P.trag});
-    else {
-      const clip= set==='walk'? walk : idle;
-      plan.push({clip:clip.name, t:clip.duration*k/n, pose:null});
-    }
+    else if(set==='trag') plan.push({clip:walk.name, t:wT(k,n), pose:P.trag});
+    else if(set==='walk') plan.push({clip:walk.name, t:wT(k,n), pose:null});
+    else plan.push({clip:idle.name, t:idle.duration*k/n, pose:null});
   }
   return plan;
 }
-// Versatz je Spalte: lineare Drift heraus, natürliches Wiegen bleibt
+// Versatz je Spalte: lineare Drift heraus, natürliches Wiegen bleibt.
+// zentrierKnochen (posen.js): statt der geskinnten Bounding-Box zentriert
+// ein KNOCHEN (i.d.R. Hip). Noetig beim Holzfaeller: zwei Streu-Vertices
+// haengen am statischen neutral_bone und bleiben bei der Root-Motion des
+// Geh-Clips zurueck - sie verankern die Box, die Zentrierkurve bekommt
+// einen Knick (Figur rutscht in der Zelle, Loop springt). Die Vertices
+// stecken auch nach 'entfernen' noch im Positions-Attribut, darum hilft
+// nur eine Box-freie Zentrierung. Der Knochen ist von Streu-Vertices
+// unabhaengig; die Spalten bleiben untereinander konsistent.
 async function versatz(plan, yaw){
   const cs=[];
   for(const s of plan)
-    cs.push(await page.evaluate(([c,t,y,p])=>window.center(c,t,y,p),[s.clip,s.t,yaw,s.pose]));
+    cs.push(await page.evaluate(([c,t,y,p,kn])=>{
+      const mitte=window.center(c,t,y,p);
+      if(kn){ const b=window.bonePos(kn); return {x:b.x, z:b.z}; }
+      return mitte;
+    },[s.clip,s.t,yaw,s.pose,P.zentrierKnochen||null]));
   const n=cs.length, mx=(n-1)/2;
   const fit=(v)=>{ const my=v.reduce((a,b)=>a+b,0)/n;
     let nu=0,de=0; for(let k=0;k<n;k++){ nu+=(k-mx)*(v[k]-my); de+=(k-mx)*(k-mx); }
