@@ -116,32 +116,49 @@ const HAMMERN = [
           L_Upperarm:[14,0,6],   L_Forearm:[-20,0,0],
           Spine01:[-10,0,0], Head:[5,0,0] }],
 ];
-// AXT: beidarmig angedeuteter Diagonalhieb von schraeg oben (Holzfaeller).
-// Der Rumpf dreht leicht mit (Y), damit der Hieb Schwung hat.
+// AXT: ECHTER beidhaendiger Diagonalhieb (Holzfaeller). Die erste Fassung
+// (v233) las sich als "Decke ausschuetteln" (Spielerkritik): am Kontakt
+// standen die Arme nur 42 Grad vor - die Haende hingen optisch an der
+// Huefte, die Axt zeigte unlesbar zu Boden, und die linke Hand pendelte
+// unbeteiligt mit. Neu vermessen an der Vorschau:
+//   - Ausholen BEIDARMIG uebers rechte Schulterblatt (Rumpf dreht Y+24
+//     mit) - beide Faeuste bleiben am Stiel; der linke Arm ADDUZIERT dabei
+//     (Z-, numerisch vermessen: Z+ haette ihn seitlich weggespreizt, das
+//     war der "Winke-Arm" der Vorschau). Faustabstand in der Ausholpose
+//     per bonePos kalibriert: L[150,0,-34]+Forearm-80 ergibt |LR|=0.157
+//     (~Stielbreite), die erste Fassung lag bei 0.28 = lose Haende,
+//   - oben wird KURZ verharrt (Schluessel 2.4 und 3.2 fast identisch),
+//     dann faellt der Hieb in nur 0.8 Frames - das gibt ihm die Wucht,
+//   - Kontakt (Spalte 4): Arme weit vorn-unten gestreckt (66 Grad,
+//     Ellbogen fast lang), Rumpf klar vorgebeugt (-32), Knie federn,
+//   - kurzes Verharren "im Holz" (Spalte 5), dann zurueck zur Bereitschaft.
 const HACKEN_AXT = [
-  [0,   { R_Upperarm:[40,0,-8],  R_Forearm:[-50,0,0],
-          L_Upperarm:[28,0,10],  L_Forearm:[-44,0,0],
-          Spine01:[-6,4,0], Head:[4,0,0] }],
-  [1,   { R_Upperarm:[112,0,-14],R_Forearm:[-70,0,0],
-          L_Upperarm:[45,0,14],  L_Forearm:[-60,0,0],
-          Spine01:[8,10,0], Spine02:[3,4,0], Head:[8,-4,0] }],
-  [2,   { R_Upperarm:[148,0,-18],R_Forearm:[-78,0,0],
-          L_Upperarm:[58,0,16],  L_Forearm:[-68,0,0],
-          Spine01:[14,14,0], Spine02:[5,6,0], Head:[10,-6,0],
-          R_Thigh:[2,0,0], L_Thigh:[2,0,0] }],
-  [3,   { R_Upperarm:[92,0,-10], R_Forearm:[-42,0,0],
-          L_Upperarm:[44,0,12],  L_Forearm:[-40,0,0],
-          Spine01:[-6,4,0], Head:[6,0,0] }],
-  [4,   { R_Upperarm:[42,0,-6],  R_Forearm:[-8,0,0],                 // KONTAKT
-          L_Upperarm:[26,0,8],   L_Forearm:[-16,0,0],
-          Spine01:[-26,-8,0], Spine02:[-10,-3,0], Head:[14,4,0],
-          R_Thigh:[-5,0,0], R_Calf:[7,0,0], L_Thigh:[-4,0,0], L_Calf:[6,0,0] }],
-  [5,   { R_Upperarm:[46,0,-6],  R_Forearm:[-14,0,0],
-          L_Upperarm:[26,0,8],   L_Forearm:[-18,0,0],
-          Spine01:[-22,-6,0], Spine02:[-8,-2,0], Head:[12,3,0] }],
-  [6.5, { R_Upperarm:[44,0,-7],  R_Forearm:[-42,0,0],
-          L_Upperarm:[27,0,9],   L_Forearm:[-38,0,0],
-          Spine01:[-10,0,0], Head:[6,0,0] }],
+  [0,   { R_Upperarm:[48,0,-6],  R_Forearm:[-42,0,0],                // Bereitschaft
+          L_Upperarm:[40,0,-8],  L_Forearm:[-50,0,0],
+          Spine01:[-8,6,0], Head:[5,-2,0] }],
+  [1.3, { R_Upperarm:[120,0,-12],R_Forearm:[-82,0,0],                // Axt steigt
+          L_Upperarm:[112,0,-26],L_Forearm:[-78,0,0],
+          Spine01:[10,16,0], Spine02:[4,7,0], Head:[6,-8,0],
+          R_Thigh:[3,0,0], L_Thigh:[3,0,0] }],
+  [2.4, { R_Upperarm:[160,0,-14],R_Forearm:[-96,0,0],                // volles Ausholen
+          L_Upperarm:[150,0,-34],L_Forearm:[-80,0,0],
+          Spine01:[17,24,0], Spine02:[7,10,0], Head:[8,-10,0],
+          R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],
+  [3.2, { R_Upperarm:[150,0,-13],R_Forearm:[-90,0,0],                // Verharren oben
+          L_Upperarm:[142,0,-32],L_Forearm:[-78,0,0],
+          Spine01:[14,22,0], Spine02:[6,9,0], Head:[8,-9,0],
+          R_Thigh:[4,0,0], L_Thigh:[4,0,0] }],
+  [4,   { R_Upperarm:[66,0,0],   R_Forearm:[-8,0,0],                 // KONTAKT
+          L_Upperarm:[60,0,-12], L_Forearm:[-14,0,0],
+          Spine01:[-32,-10,0], Spine02:[-12,-4,0], Head:[16,4,0],
+          R_Thigh:[-8,0,0], R_Calf:[10,0,0], L_Thigh:[-7,0,0], L_Calf:[9,0,0] }],
+  [5,   { R_Upperarm:[68,0,0],   R_Forearm:[-12,0,0],                // sitzt im Holz
+          L_Upperarm:[60,0,-12], L_Forearm:[-16,0,0],
+          Spine01:[-30,-8,0], Spine02:[-11,-3,0], Head:[15,3,0],
+          R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-6,0,0], L_Calf:[8,0,0] }],
+  [6.5, { R_Upperarm:[54,0,-6],  R_Forearm:[-32,0,0],                // loesen
+          L_Upperarm:[46,0,-10], L_Forearm:[-42,0,0],
+          Spine01:[-14,2,0], Head:[8,0,0] }],
 ];
 // SENSE: ruhiger Maehschwung - der Rumpf dreht von rechts nach links,
 // die Arme bleiben lang (Bauer). Kontakt = Mitte des Schwungs.
@@ -219,7 +236,9 @@ export const POSEN = {
   miner:      { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
   quarry:     { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
   builder:    { atk: HAMMERN,    werkzeug: IN_FAUST('hammer',1.7) },
-  woodcutter: { atk: HACKEN_AXT, werkzeug: IN_FAUST('axe',1.35) },
+  // Axt eine Stufe groesser (1.35 -> 1.5): auf Spielzoom war der Hieb sonst
+  // kaum als Axtschlag lesbar (Spielerkritik "Decke ausschuetteln")
+  woodcutter: { atk: HACKEN_AXT, werkzeug: IN_FAUST('axe',1.5) },
   // Sense: Blatt zum BODEN gedreht (die Faust-Grundlage hielte es nach oben)
   farm:       { atk: MAEHEN,     werkzeug: IN_FAUST('scythe',1.15,[-70,0,0]) },
   leveler:    { atk: SCHAUFELN,  werkzeug: IN_FAUST('shovel',1.25) },
