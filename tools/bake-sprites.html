@@ -100,6 +100,10 @@ window.bones=()=>[...boneMap.keys()];
 // sie NACH dem Stellen des Clips je Frame auf. Y bleibt ueberall 1, damit
 // Koerperhoehe und UNIT_FIT unveraendert bleiben; Kinder erben die
 // Skalierung (wer den Bauch verbreitert, gibt dem Hals den Kehrwert).
+// Kontrast-Faktor der Backstufe (T18); setKontrast nur fuer die
+// Kalibrier-Streifen (kontrastkalib.mjs) - im Betrieb gilt der Standard.
+let KONTRAST=1.2;
+window.setKontrast=(k)=>{ KONTRAST=k; return 'ok'; };
 let KOERPER=null;
 window.koerper=(scales)=>{
   for(const n in scales) if(!boneMap.get(n)) return 'FEHLT '+n;
@@ -238,6 +242,40 @@ window.toolAttach=(kind, boneName, pos=[0,0,0], rotDeg=[0,0,0], scale=1)=>{
     const zw=cyl(0.014,0.014,0.02,steel2); zw.position.y=0.455; gph.add(zw);
     const b1=cyl(0.001,0.030,0.075,steel); b1.position.y=0.525; b1.scale.z=0.45; gph.add(b1);
     const b2=cyl(0.030,0.001,0.035,steel); b2.position.y=0.470; b2.scale.z=0.45; gph.add(b2);
+  } else if(kind==='bart'||kind==='bartGross'||kind==='bartSchmal'){
+    // ASTERIX-SCHNURRBART (T18): gebogene Doppelwulst unterm Näschen -
+    // DAS Asterix-Merkmal. Aufbau in "Gesichtsraum": x = links/rechts,
+    // y = hoch, z = aus dem Gesicht; Anbringung/Neigung kommt vom
+    // Aufrufer (Head-Knochen, kalibriert ueber Vorschau-Zooms).
+    // Drei Varianten: buschig (Standard), gewaltig (Walross, dunkler),
+    // schmal (duenn) - markant verteilt statt Einheitsbart.
+    const dick = kind==='bartGross'? 1.5 : kind==='bartSchmal'? 0.62 : 1;
+    const lang = kind==='bartGross'? 1.35 : kind==='bartSchmal'? 0.85 : 1;
+    const farbe= mat(kind==='bartGross'? 0x4e3820 : 0x6b4a2a);
+    // Fluegel zeigen seitlich-ABWAERTS (rotation.z=-sgn*2.0 legt die
+    // Zylinderachse auf "rechts-unten 25 Grad"; die erste Fassung
+    // -sgn*1.05 zeigte nach OBEN in die Nase - unsichtbar). Die Spitze
+    // (+y-Ende) liegt aussen, darum r1 duenn.
+    const seite=(sgn)=>{
+      const a=cyl(0.012*dick,0.018*dick,0.062*lang,farbe);
+      a.rotation.z=-sgn*2.0; a.position.set(sgn*0.030*lang,-0.010,0); gph.add(a);
+      const b2=cyl(0.005*dick,0.013*dick,0.05*lang,farbe);
+      b2.rotation.z=-sgn*2.5; b2.position.set(sgn*0.070*lang,-0.036*lang,0); gph.add(b2);
+    };
+    seite(1); seite(-1);
+    const mitte=cyl(0.013*dick,0.013*dick,0.034,farbe);
+    mitte.rotation.z=Math.PI/2; mitte.position.set(0,-0.002,0); gph.add(mitte);
+  } else if(kind==='feder'){
+    // Hutfeder (Jaeger/Faehrtenleser): flachgedrueckter Kegel, Kiel unten
+    const kiel=cyl(0.003,0.003,0.045,mat(0xd8d2c2)); kiel.position.y=0.02; gph.add(kiel);
+    const fahne=cyl(0.002,0.020,0.13,mat(0xe8e2d2)); fahne.scale.z=0.35;
+    fahne.position.y=0.10; gph.add(fahne);
+  } else if(kind==='guertel'){
+    // Guertel mit heller Schnalle (Hip/Waist, kraeftige Figuren) - erbt
+    // die koerper()-Skalierung des Knochens und waechst mit dem Bauch mit
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.155,0.020,6,14), mat(0x4f3a22));
+    ring.rotation.x=Math.PI/2; gph.add(ring);
+    const schnalle=box(0.05,0.034,0.014, mat(0xc9a227)); schnalle.position.set(0,0,0.162); gph.add(schnalle);
   } else if(kind==='bow'){
     // Jagdbogen: Griff + je zwei zunehmend gebogene Wurfarm-Segmente,
     // Sehne als dünner Zylinder zwischen den Spitzen (YZ-Ebene)
@@ -464,6 +502,19 @@ window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null, extra=null)=>{
   // klaren Comic-Farben (kalibriert am Vergleichsstreifen: x1,45 trifft,
   // x1,7 kippt ins Neon). Identische Faktoren nutzt tools/farbpass.mjs
   // fuer die Bestandsblaetter - NIE beides auf dasselbe Blatt anwenden.
+  // KONTRAST-STUFE (T18, "alles zu braun"): Luma-Spreizung um den
+  // Mittelton NACH der Saettigung - kalibriert am Vergleichsstreifen
+  // (kontrastkalib.mjs: 1,1 kaum sichtbar, 1,35 saeuft in den Schatten
+  // ab / Weissbluehen auf Helm und Haut, 1,2 trennt Falten und Riemen
+  // sauber). tools/kontrastpass.mjs traegt DENSELBEN Faktor auf
+  // Bestandsblaetter nach - nie beides auf dasselbe Blatt.
+  // SCHUTZ Haarmaske: render.haarMaske nimmt Kopfzonen-Pixel mit
+  // HSL-L unter 0,30 als Haar - braune Kopfbedeckungen (Strohhut des
+  // Bauern) liegen knapp darueber (L 0,30-0,49). Die Spreizung wuerde
+  // L 0,30-0,33 UNTER die Schwelle druecken (schwarzer "Strohhut",
+  // s. T5-Vorfall). Darum klemmt die Kurve im Braunfenster (Ton 15-48,
+  // gesaettigt) auf minimal 0,305, wenn der Pixel VOR der Spreizung
+  // ueber der Schwelle lag.
   const px=g2.getImageData(0,0,outH,outH), d=px.data;
   for(let i=0;i<d.length;i+=4){
     if(d[i+3]===0) continue;
@@ -473,6 +524,12 @@ window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null, extra=null)=>{
     if(mx!==mn){ const df=mx-mn; s=l>0.5? df/(2-mx-mn):df/(mx+mn);
       h= mx===r? (g4-b)/df+(g4<b?6:0) : mx===g4? (b-r)/df+2 : (r-g4)/df+4; h/=6; }
     s=Math.min(1, s*1.45); l=Math.min(1, l*1.05);
+    const lVor=l;
+    l=Math.min(1, Math.max(0, 0.5+(l-0.5)*KONTRAST));
+    if(lVor>=0.30 && l<0.305){
+      const grad=h*360;
+      if(grad>=15 && grad<=48 && s>=0.15) l=0.305;
+    }
     const f=(p,q,t2)=>{ if(t2<0)t2+=1; if(t2>1)t2-=1;
       if(t2<1/6) return p+(q-p)*6*t2; if(t2<1/2) return q;
       if(t2<2/3) return p+(q-p)*(2/3-t2)*6; return p; };

@@ -22,6 +22,11 @@
 
 // Stützhand-Kürzel wie in den agentS-Posen: ruhig vor der Brust
 const FRAMES_ATK = 8;
+// Spaltenzahlen der uebrigen Sets (render.js COLS): cheer laeuft als
+// Schleife, die/hit sind EINMALCLIPS - render.js faehrt sie ueber prog
+// 0..1 einmal ab, 'die' bleibt auf der letzten Spalte liegen. Die Posen
+// muessen deshalb OHNE Ruecksprung enden (kein Wrap auf Schluessel 0).
+const FRAMES_CHEER = 12, FRAMES_DIE = 10, FRAMES_HIT = 8;
 
 // ---------- Koerperbau (Asterix-Silhouetten, Spielerwunsch) ----------------
 // 'koerper' skaliert Knochen statisch [sx,sy,sz] - Y bleibt 1 (Hoehe und
@@ -57,6 +62,49 @@ const DRAHTIG={  // sehnig-duenn (Jaeger)
   Waist:[0.80,1,0.82], Spine01:[0.95,1,0.95],
   NeckTwist01:[1.28,1,1.25],
   L_Thigh:[0.88,1,0.88], R_Thigh:[0.88,1,0.88],
+};
+// ---------- Asterix-Runde 2 (T18): staerker uebertrieben ------------------
+// "mehr asterix-stil auch bei ... koerperformen und accessoires". Ziel ist
+// KONTRAST ZWISCHEN den Berufen, nicht Einheitsmass: der Flinke duerr mit
+// grossem Kopf, der Starke breit auf schmalen Beinen, der Geniesser kugelig.
+// Y bleibt ueberall 1 (UNIT_FIT), Koepfe wachsen ueber NeckTwist01.
+const FLINK={    // duenn, flink, markanter Kopf (Traeger - haeufigste Figur)
+  Waist:[0.88,1,0.90], Spine01:[0.97,1,0.97],
+  NeckTwist01:[1.18,1,1.16],
+  L_Thigh:[0.92,1,0.92], R_Thigh:[0.92,1,0.92],
+};
+const KRAFT={    // Kraftpaket: breite Schultern auf schmalen Beinen (Bauarbeiter)
+  Waist:[1.14,1,1.14], Spine02:[1.24,1,1.12],
+  NeckTwist01:[0.92,1,0.95],
+  L_Upperarm:[1.10,1.02,1.10], R_Upperarm:[1.10,1.02,1.10],
+  L_Thigh:[0.94,1,0.94], R_Thigh:[0.94,1,0.94],
+};
+const HOLZFAELLER={ // kraeftig, eine Stufe unter KRAFT (Holzfaeller)
+  Waist:[1.10,1,1.10], Spine02:[1.12,1,1.06],
+  NeckTwist01:[0.97,1,1.00],
+  L_Upperarm:[1.08,1.02,1.08], R_Upperarm:[1.08,1.02,1.08],
+  L_Thigh:[0.96,1,0.96], R_Thigh:[0.96,1,0.96],
+};
+const SCHMIED={  // STAEMMIG uebertrieben: Schrank auf Beinen (Schmied)
+  Waist:[1.16,1,1.16], Spine02:[1.30,1,1.14],
+  NeckTwist01:[0.80,1,0.84],
+  L_Upperarm:[1.13,1.03,1.13], R_Upperarm:[1.13,1.03,1.13],
+  L_Thigh:[0.95,1,0.95], R_Thigh:[0.95,1,0.95],
+};
+const KUGEL={    // Kugelbauch des Geniessers (Brauer)
+  Waist:[1.55,1,1.62], Spine01:[0.90,1,0.90],
+  NeckTwist01:[0.74,1,0.70],
+  L_Thigh:[1.10,1,1.10], R_Thigh:[1.10,1,1.10],
+};
+const DICK_KOPF={ // DICK mit markanterem Kopf (Metzger)
+  Waist:[1.45,1,1.50], Spine01:[0.94,1,0.94],
+  NeckTwist01:[0.82,1,0.80],
+  L_Thigh:[1.14,1,1.14], R_Thigh:[1.14,1,1.14],
+};
+const SPUERNASE={ // duerr-drahtig, Kopf noch groesser (Kundschafter)
+  Waist:[0.82,1,0.84], Spine01:[0.95,1,0.95],
+  NeckTwist01:[1.30,1,1.27],
+  L_Thigh:[0.90,1,0.90], R_Thigh:[0.90,1,0.90],
 };
 
 // ---------- Gemeinsame Arbeitsgesten (T13) --------------------------------
@@ -365,22 +413,198 @@ const BOGENSCHUSS_SPIEGEL = [
   [6.5, { L_Upperarm:[40,0,8],  L_Forearm:[-25,0,0],
           R_Upperarm:[14,0,-4], R_Forearm:[-20,0,0],  Spine01:[0,0,0], Head:[2,0,0] }],
 ];
+// ---------- Soldaten: Jubel / Treffer / Sterben (T17) ----------------------
+// Die alten unit_*_cheer/die/hit-Blaetter stammten aus bake-clips.js
+// (Scratchpad): prozedurale Posen ueber einem CARRIER-Donor-Warteclip.
+// Der Donor-Clip fuehrt aber nicht alle 41 Knochen der Soldaten-Rigs -
+// Helmbusch und Umhang blieben in Bind-Pose und schwebten als lose
+// Fragmente neben der Figur (s. die zerrissenen alten Blaetter). Die
+// GLBs selbst haben NUR Geh-Clip (2,38 s) + den bekannten kaputten
+// 1,29-s-Clip (Streifenprobe T17: Figur zerknautscht in der Luft,
+// Spalten ab ~70 % leer) - clip-basiert ist hier nichts zu holen.
+// Darum dieselbe Behandlung wie atk: handgesetzte Schluesselbilder
+// ueber dem Geh-Durchschwung, Waffe an der Faust.
+//
+// JUBEL (12 Spalten, Schleife, render.js 95 ms/Bild): zwei Faust-
+// stoesse gen Himmel je Runde - Waffenarm reckt sich, Knie federn im
+// Gegentakt, Kopf geht mit. Der linke Arm (Schild) schwingt halbhoch
+// mit, ohne den Blick auf die Waffe zu verdecken.
+const JUBEL = [
+  [0,   { R_Upperarm:[104,0,-10], R_Forearm:[-38,0,0], R_Hand:[-45,0,0],  // tief, Knie gebeugt
+          L_Upperarm:[30,0,-40],  L_Forearm:[-30,0,0],
+          Spine01:[2,0,0], Head:[4,0,0],
+          R_Thigh:[-9,0,0], R_Calf:[14,0,0], L_Thigh:[-9,0,0], L_Calf:[14,0,0] }],
+  [1.5, { R_Upperarm:[168,0,-16], R_Forearm:[-10,0,0], R_Hand:[-70,0,0], // STOSS - Waffe hoch
+          L_Upperarm:[46,0,-64],  L_Forearm:[-24,0,0],
+          Spine01:[10,0,0], Spine02:[4,0,0], Head:[12,0,0] }],
+  [3,   { R_Upperarm:[158,0,-15], R_Forearm:[-16,0,0], R_Hand:[-65,0,0], // oben halten
+          L_Upperarm:[42,0,-58],  L_Forearm:[-26,0,0],
+          Spine01:[8,0,0], Spine02:[3,0,0], Head:[10,0,0] }],
+  [4.5, { R_Upperarm:[118,0,-11], R_Forearm:[-32,0,0], R_Hand:[-55,0,0],   // absinken
+          L_Upperarm:[34,0,-46],  L_Forearm:[-28,0,0],
+          Spine01:[4,0,0], Head:[6,0,0],
+          R_Thigh:[-5,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[8,0,0] }],
+  [6,   { R_Upperarm:[104,0,-10], R_Forearm:[-38,0,0], R_Hand:[-45,0,0],  // tief (wie 0)
+          L_Upperarm:[30,0,-40],  L_Forearm:[-30,0,0],
+          Spine01:[2,0,0], Head:[4,0,0],
+          R_Thigh:[-9,0,0], R_Calf:[14,0,0], L_Thigh:[-9,0,0], L_Calf:[14,0,0] }],
+  [7.5, { R_Upperarm:[168,0,-16], R_Forearm:[-10,0,0], R_Hand:[-70,0,0], // zweiter STOSS
+          L_Upperarm:[46,0,-64],  L_Forearm:[-24,0,0],
+          Spine01:[10,0,0], Spine02:[4,0,0], Head:[12,0,0] }],
+  [9,   { R_Upperarm:[158,0,-15], R_Forearm:[-16,0,0], R_Hand:[-65,0,0],
+          L_Upperarm:[42,0,-58],  L_Forearm:[-26,0,0],
+          Spine01:[8,0,0], Spine02:[3,0,0], Head:[10,0,0] }],
+  [10.5,{ R_Upperarm:[118,0,-11], R_Forearm:[-32,0,0], R_Hand:[-55,0,0],
+          L_Upperarm:[34,0,-46],  L_Forearm:[-28,0,0],
+          Spine01:[4,0,0], Head:[6,0,0],
+          R_Thigh:[-5,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[8,0,0] }],
+];
+// JUBEL fuer den bow-Soldaten: der Mesh-Bogen haengt an der linken Faust,
+// seine Wurfarme sind aber auf Twist-/Calf-Knochen verschmiert - ueber
+// ~110 Grad Oberarm DEFORMIERT er nur noch, statt zu steigen (Vorschau-
+// probe T17: der gespiegelte JUBEL liess den Bogen am Koerper kleben).
+// Darum: Bogenarm hebt MODERAT (bis ~106), die freie RECHTE Faust pumpt
+// dafuer voll gen Himmel - sie traegt kein Mesh und darf alles.
+const JUBEL_BOGEN = [
+  [0,   { R_Upperarm:[100,0,-10], R_Forearm:[-46,0,0],
+          L_Upperarm:[58,0,10],   L_Forearm:[-24,0,0],
+          Spine01:[2,0,0], Head:[4,0,0],
+          R_Thigh:[-9,0,0], R_Calf:[14,0,0], L_Thigh:[-9,0,0], L_Calf:[14,0,0] }],
+  [1.5, { R_Upperarm:[162,0,-32], R_Forearm:[-12,0,0],
+          L_Upperarm:[106,0,8],   L_Forearm:[-10,0,0],
+          Spine01:[10,0,0], Spine02:[4,0,0], Head:[12,0,0] }],
+  [3,   { R_Upperarm:[152,0,-28], R_Forearm:[-16,0,0],
+          L_Upperarm:[100,0,8],   L_Forearm:[-12,0,0],
+          Spine01:[8,0,0], Spine02:[3,0,0], Head:[10,0,0] }],
+  [4.5, { R_Upperarm:[116,0,-18], R_Forearm:[-36,0,0],
+          L_Upperarm:[76,0,9],    L_Forearm:[-18,0,0],
+          Spine01:[4,0,0], Head:[6,0,0],
+          R_Thigh:[-5,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[8,0,0] }],
+  [6,   { R_Upperarm:[100,0,-10], R_Forearm:[-46,0,0],
+          L_Upperarm:[58,0,10],   L_Forearm:[-24,0,0],
+          Spine01:[2,0,0], Head:[4,0,0],
+          R_Thigh:[-9,0,0], R_Calf:[14,0,0], L_Thigh:[-9,0,0], L_Calf:[14,0,0] }],
+  [7.5, { R_Upperarm:[162,0,-32], R_Forearm:[-12,0,0],
+          L_Upperarm:[106,0,8],   L_Forearm:[-10,0,0],
+          Spine01:[10,0,0], Spine02:[4,0,0], Head:[12,0,0] }],
+  [9,   { R_Upperarm:[152,0,-28], R_Forearm:[-16,0,0],
+          L_Upperarm:[100,0,8],   L_Forearm:[-12,0,0],
+          Spine01:[8,0,0], Spine02:[3,0,0], Head:[10,0,0] }],
+  [10.5,{ R_Upperarm:[116,0,-18], R_Forearm:[-36,0,0],
+          L_Upperarm:[76,0,9],    L_Forearm:[-18,0,0],
+          Spine01:[4,0,0], Head:[6,0,0],
+          R_Thigh:[-5,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[8,0,0] }],
+];
+// TREFFER (8 Spalten, Einmalclip): scharfer Ruecksturz - Brust und Kopf
+// fliegen zurueck, die Arme reissen auf, ein Bein stemmt nach vorn;
+// danach langsames Fangen zurueck zur Haltung. Spitze frueh (Spalte 1),
+// damit der Schlag-Kontakt des Gegners und der Ruck zusammenfallen.
+const TREFFER = [
+  [0,   { Spine01:[6,0,2], Head:[5,0,2],
+          R_Upperarm:[-8,0,6],  L_Upperarm:[-8,0,-6] }],
+  [1,   { Spine01:[30,0,8], Spine02:[16,0,5], Head:[26,0,9],             // voller Ruck
+          R_Upperarm:[-46,0,30], R_Forearm:[-24,0,0],
+          L_Upperarm:[-46,0,-30],L_Forearm:[-24,0,0],
+          L_Thigh:[7,0,0], R_Thigh:[4,0,0], R_Calf:[6,0,0] }],
+  [2.5, { Spine01:[20,0,5], Spine02:[11,0,3], Head:[18,0,6],
+          R_Upperarm:[-30,0,20], R_Forearm:[-18,0,0],
+          L_Upperarm:[-30,0,-20],L_Forearm:[-18,0,0],
+          L_Thigh:[5,0,0], R_Thigh:[3,0,0], R_Calf:[4,0,0] }],
+  [4.5, { Spine01:[9,0,2], Spine02:[5,0,1], Head:[8,0,3],
+          R_Upperarm:[-12,0,8],  R_Forearm:[-10,0,0],
+          L_Upperarm:[-12,0,-8], L_Forearm:[-10,0,0],
+          L_Thigh:[2,0,0], R_Thigh:[1,0,0] }],
+  [7,   { Spine01:[0,0,0], Head:[2,0,0],
+          R_Upperarm:[2,0,0],   L_Upperarm:[2,0,0] }],
+];
+// STERBEN (10 Spalten, Einmalclip, letzte Spalte bleibt liegen): erst
+// der Treffer-Ruck nach hinten, dann geben die Knie nach, der Rumpf
+// sackt vor, und ab Spalte ~6 kippt der ganze Koerper (Root X+) nach
+// vorn zu Boden - Beine gefaltet, Arme fallen vor, Kopf sinkt. Die
+// Waffe bleibt in der Faust und legt sich mit um.
+const STERBEN = [
+  [0,   { Spine01:[2,0,0], Head:[2,0,0] }],
+  [1.2, { Spine01:[14,0,4], Spine02:[8,0,2], Head:[12,0,5],              // Treffer
+          R_Upperarm:[-20,0,14], L_Upperarm:[-20,0,-14],
+          L_Thigh:[4,0,0] }],
+  [2.8, { Spine01:[-12,0,2], Spine02:[-4,0,0], Head:[2,0,3],             // Knie geben nach
+          R_Upperarm:[6,0,4],  R_Forearm:[-14,0,0],
+          L_Upperarm:[6,0,-4], L_Forearm:[-14,0,0],
+          Hip:[-6,0,0], R_Thigh:[-18,0,0], R_Calf:[36,0,0], L_Thigh:[-16,0,0], L_Calf:[32,0,0] }],
+  [4.5, { Spine01:[-26,0,3], Spine02:[-10,0,0], Head:[-6,0,4],           // tiefes Sacken
+          R_Upperarm:[16,0,6],  R_Forearm:[-10,0,0],
+          L_Upperarm:[16,0,-6], L_Forearm:[-10,0,0],
+          Hip:[-12,0,0], R_Thigh:[-34,0,0], R_Calf:[68,0,0], L_Thigh:[-32,0,0], L_Calf:[64,0,0] }],
+  [6.2, { Root:[30,0,4],                                                  // Kippen beginnt
+          Spine01:[-34,0,4], Spine02:[-14,0,0], Head:[-14,0,5],
+          R_Upperarm:[30,0,8],  R_Forearm:[-8,0,0],
+          L_Upperarm:[30,0,-8], L_Forearm:[-8,0,0],
+          Hip:[-14,0,0], R_Thigh:[-44,0,0], R_Calf:[84,0,0], L_Thigh:[-42,0,0], L_Calf:[80,0,0] }],
+  [8,   { Root:[62,0,6],                                                  // fast unten
+          Spine01:[-42,0,4], Spine02:[-16,0,0], Head:[-22,0,6],
+          R_Upperarm:[44,0,10],  R_Forearm:[-6,0,0],
+          L_Upperarm:[44,0,-10], L_Forearm:[-6,0,0],
+          Hip:[-18,0,0], R_Thigh:[-50,0,0], R_Calf:[94,0,0], L_Thigh:[-48,0,0], L_Calf:[90,0,0] }],
+  [9,   { Root:[76,0,6],                                                  // liegt
+          Spine01:[-45,0,4], Spine02:[-17,0,0], Head:[-26,0,6],
+          R_Upperarm:[52,0,10],  R_Forearm:[-4,0,0],
+          L_Upperarm:[52,0,-10], L_Forearm:[-4,0,0],
+          Hip:[-20,0,0], R_Thigh:[-52,0,0], R_Calf:[98,0,0], L_Thigh:[-50,0,0], L_Calf:[94,0,0] }],
+];
+// FLUCHT (12 Spalten, Schleife ueber dem Geh-Zyklus): vornuebergebeugt,
+// Kopf hoch (Panikblick), Arme angewinkelt mit leichtem Gegenpendeln -
+// im Spiel schneller abgespielt (render.js 46 ms) ergibt das Rennen.
+// Uebernimmt die Geste der alten bake-clips.js-Blaetter (T18).
+export const FLUCHT = [
+  [0, { Spine01:[-24,0,0], Spine02:[-13,0,0], Head:[26,0,0],
+        R_Forearm:[-35,0,0], L_Forearm:[-35,0,0] }],
+  [3, { Spine01:[-24,0,0], Spine02:[-13,0,0], Head:[26,0,0],
+        R_Forearm:[-39,0,0], L_Forearm:[-31,0,0] }],
+  [6, { Spine01:[-24,0,0], Spine02:[-13,0,0], Head:[26,0,0],
+        R_Forearm:[-35,0,0], L_Forearm:[-35,0,0] }],
+  [9, { Spine01:[-24,0,0], Spine02:[-13,0,0], Head:[26,0,0],
+        R_Forearm:[-31,0,0], L_Forearm:[-39,0,0] }],
+];
 // Werkzeug-Anbringung: Stiel liegt QUER in der Faust (Grundlage +Y aus der
 // Faust). rot [90,0,0] kippt ihn ueber die FINGERKNOECHEL nach vorn - so
 // zeigt der Kopf beim Ausholen nach hinten-oben und am Kontakt nach
 // vorn-unten (kalibriert ueber die Vorschau-Blaetter, T13; die erste
 // Fassung [0,0,-90] stand seitlich uebers Daumengelenk ab).
 const IN_FAUST=(kind,scale=1,rot=[90,0,0])=>({ atk:{ kind, bone:'R_Hand', pos:[0,0.02,0], rot, scale } });
+// ---------- Asterix-Zubehoer (T18) ----------------------------------------
+// Starre toolAttach-Anbauten am Knochen; sie gelten je Beruf fuer ALLE
+// Sets (ruesten() nimmt seit T18 Listen), damit beim Set-Wechsel nichts
+// flackert. Bart-Anker per Sondenmessung (bartkalib): das Gesicht liegt
+// in Head-lokal Richtung -z (+z = Hinterkopf), der Mund bei y-0.12/
+// z-0.23, die Gesichtsflaeche kippt ~45 Grad vor (rot X+45) - erst damit
+// legen sich die Fluegel sichtbar UEBER die Wangen statt hinter die Nase.
+const BART       =(s=2.2,pos=[0,-0.12,-0.23],rx=45)=>({ kind:'bart',      bone:'Head', pos, rot:[rx,0,0], scale:s });
+const BART_GROSS =(s=2.4,pos=[0,-0.12,-0.23],rx=45)=>({ kind:'bartGross', bone:'Head', pos, rot:[rx,0,0], scale:s });
+const BART_SCHMAL=(s=2.2,pos=[0,-0.12,-0.23])=>({ kind:'bartSchmal',bone:'Head', pos, rot:[45,0,0], scale:s });
+// Robin-Hood-Feder hinten-oben an der Kappe (Probe D, feder-hunter.png)
+const FEDER      =(s=1.6)=>({ kind:'feder',     bone:'Head', pos:[0,0.12,0.16], rot:[35,0,0], scale:s });
+// werkzeug-Eintraege je Set um Zubehoer ergaenzen (macht Listen daraus)
+const MIT=(werkzeug={}, zubehoer=[], sets=['walk','idle','atk','trag','flee','cheer','die','hit'])=>{
+  const out={};
+  for(const s of sets){
+    const w=werkzeug[s];
+    const arr=[...(w? (Array.isArray(w)?w:[w]) : []), ...zubehoer];
+    if(arr.length) out[s]=arr;
+  }
+  return out;
+};
 
 export const POSEN = {
   // geo: der Geh-Clip (1,88 s) enthaelt ZWEI Schrittzyklen (Fusshoehen-
   // Periodik: bestes P=0.5 bei Fehler 0.026, T15) - ohne Fenster zeigten
   // die 12 Spalten beide Zyklen, also nur 6 echte Phasen (hastig).
   geo:        { atk: HACK,       werkzeug: IN_FAUST('pick',1.25),
-                walkFenster:[0,0.5] },
+                koerper: DRAHTIG, walkFenster:[0,0.5] },
   miner:      { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
   quarry:     { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
-  builder:    { atk: HAMMERN,    werkzeug: IN_FAUST('hammer',1.7) },
+  // T18: Kraftpaket mit buschigem Asterix-Schnurrbart
+  builder:    { atk: HAMMERN,    koerper: KRAFT,
+                werkzeug: MIT(IN_FAUST('hammer',1.7), [BART(2.6,[0,-0.14,-0.36])]) },
   // Axt eine Stufe groesser (1.35 -> 1.5): auf Spielzoom war der Hieb sonst
   // kaum als Axtschlag lesbar (Spielerkritik "Decke ausschuetteln").
   // Ruck beim Laufen (T15, Spielerkritik): zwei 2-Dreieck-Inseln der
@@ -391,7 +615,12 @@ export const POSEN = {
   // Dreiecke, 'zentrierKnochen' macht den Versatz Box-unabhaengig.
   // Der Geh-Clip enthaelt ausserdem wie beim geo ZWEI Schrittzyklen
   // (R_Foot-Hoehenperiodik: Spitzen bei 0/0.47/0.94) -> walkFenster.
-  woodcutter: { atk: HACKEN_AXT, werkzeug: IN_FAUST('axe',1.5),
+  // Bart beim Holzfaeller GEPRUEFT und verworfen (T18): sein Gesicht
+  // neigt sich im Gehen so stark, dass jeder Bart-Anker entweder im
+  // Kopf verschwindet oder als Klecks vor dem Gesicht schwebt
+  // (bart-woodcutter*.png) - Identitaet kommt aus Axt+Statur+Tunika.
+  woodcutter: { atk: HACKEN_AXT, koerper: HOLZFAELLER,
+                werkzeug: MIT(IN_FAUST('axe',1.5), []),
                 entfernen:[2992,3092], zentrierKnochen:'Hip',
                 walkFenster:[0,0.5] },
   // Sense: Blatt zum BODEN gedreht (die Faust-Grundlage hielte es nach oben)
@@ -416,14 +645,21 @@ export const POSEN = {
   // ueber Isolationsproben (Waffe komplett isoliert, Figur+Faust+Schild
   // unversehrt). Beim Speer haengt der Mesh-Schaft an Oberarm UND Zehe
   // (wie der Jaeger-Bogen) samt Bodenkappen-Fragmenten bei y=0.
-  sword:   { atk: SCHWERTHIEB,
+  sword:   { atk: SCHWERTHIEB, cheer: JUBEL, hit: TREFFER, die: STERBEN,
              entfernen:[911,21,22],
+             // cheer: Klinge quer zur hochgereckten Faust (rot 90 wie atk) -
+             // eine senkrecht weitergefuehrte Klinge (Trage-rot 155) stiesse
+             // beim vollen Recken oben aus dem festen Bildausschnitt.
+             // hit/die: Trage-Rotation (155) - die Waffe bleibt gesenkt.
              werkzeug:{
                walk:{ kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
                idle:{ kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
                atk: { kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[90,0,0],  scale:1.25 },
+               cheer:{kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[90,0,0],  scale:1.25 },
+               hit: { kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
+               die: { kind:'sword', bone:'R_Hand', pos:[0,0.02,0], rot:[155,0,0], scale:1.25 },
              } },
-  spear:   { atk: SPEERSTOSS,
+  spear:   { atk: SPEERSTOSS, cheer: JUBEL, hit: TREFFER, die: STERBEN,
              entfernen:[3026,1703,2264,2943,1639,1882,1479,2253,2254,1873,1884,2150,2556,2831,3029,3036,2941,2935,2630,2693,2695,3039,2552,3021,3028,3126,3230,2931,2153,2265,2575,2267,2567,2465,2272,2543,3038,2562,2687,2628,2627,2689,2788,2942],
              // Trage-Rotation per kalibrot-spear.png vermessen: [0,0,0]
              // liess den Schaft nach vorn-unten haengen (schleifender
@@ -432,12 +668,22 @@ export const POSEN = {
                walk:{ kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
                idle:{ kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
                atk: { kind:'spearw', bone:'R_Hand', pos:[0,0.02,0],  rot:[90,0,0],  scale:1.25 },
+               cheer:{kind:'spearw', bone:'R_Hand', pos:[0,0.02,0],  rot:[90,0,0],  scale:1.25 },
+               hit: { kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
+               die: { kind:'spearw', bone:'R_Hand', pos:[0,-0.05,0], rot:[150,0,0], scale:1.25 },
              } },
-  bow:     { atk: BOGENSCHUSS_SPIEGEL },
-  butcher: { koerper: DICK },
+  // bow: Mesh-Bogen haengt in der LINKEN Faust und ist in Ordnung (T16) -
+  // cheer/die/hit brauchen KEIN prozedurales Werkzeug, der Bogen folgt der
+  // linken Faust von selbst. Jubel gespiegelt (Bogenarm reckt sich).
+  bow:     { atk: BOGENSCHUSS_SPIEGEL, cheer: JUBEL_BOGEN, hit: TREFFER, die: STERBEN },
+  butcher: { koerper: DICK_KOPF, werkzeug: MIT({}, [BART(2.2,[0,-0.13,-0.27])]) },
   miller:  { koerper: RUNDLICH },
   baker:   { koerper: RUNDLICH },
-  smith:   { koerper: STAEMMIG },
+  // T18: der Schmied als Schrank mit Walross-Bart, der Brauer als Kugel,
+  // der Kundschafter duerr mit Riesenkopf und Hutfeder
+  smith:   { koerper: SCHMIED, werkzeug: MIT({}, [BART_GROSS(2.4,[0,-0.13,-0.28])]) },
+  brewer:  { koerper: KUGEL,   werkzeug: MIT({}, [BART(2.5,[0,-0.13,-0.28],55)]) },
+  scout:   { koerper: SPUERNASE, werkzeug: MIT({}, [FEDER(1.4)]) },
   hunter: {
     koerper: DRAHTIG,
     // eingebauter (zerreißender) Bogen samt Streufragmenten
@@ -445,15 +691,16 @@ export const POSEN = {
     // Werkzeug je Blatt: getragen (Gehen/Warten) hängt der Bogen längs der
     // Faust nach unten; beim Schießen steht er quer zur Faust (kalibriert:
     // Bogenebene senkrecht, Sehne zum Gesicht, leicht vorgeneigt).
-    werkzeug: {
+    werkzeug: MIT({
       walk: { kind:'bow', bone:'R_Hand', pos:[0,0.02,0], rot:[0,90,0],   scale:1.1 },
       idle: { kind:'bow', bone:'R_Hand', pos:[0,0.02,0], rot:[0,90,0],   scale:1.1 },
       atk:  { kind:'bow', bone:'R_Hand', pos:[0,0.05,0], rot:[105,0,90], scale:1.1 },
-    },
+    }, [FEDER()]),   // T18: Hutfeder
     // Bogenschuss: gemeinsame Geste mit dem bow-Soldaten (s. BOGENSCHUSS)
     atk: BOGENSCHUSS,
   },
   carrier: {
+    koerper: FLINK,   // T18: haeufigste Figur - duenn-flink, markanter Kopf
     // Tragepose (Set 'trag'): beide Haende halten die Kiste vor der Brust
     // (drawGood zeichnet die Ware mittig auf Schulterhoehe), leichtes
     // Zuruecklehnen als Gegengewicht. KONSTANT ueber dem Geh-Zyklus -
@@ -514,14 +761,19 @@ function poseLerp(A,B,t){
   }
   return out;
 }
-// Liefert die Pose zum (Bruch-)Frame k eines 8er-Zyklus
-export function atkPose(keys, k){
-  const ks=[...keys,[FRAMES_ATK,keys[0][1]]];
+// Liefert die Pose zum (Bruch-)Frame k. wrap=true haengt Schluessel 0 ans
+// Ende (Schleifen: atk/cheer); wrap=false haelt den LETZTEN Schluessel
+// (Einmalclips: die/hit - render.js laesst 'die' auf der Endspalte liegen).
+export function keyPose(keys, k, frames, wrap=true){
+  const ks= wrap ? [...keys,[frames,keys[0][1]]] : keys;
+  if(k<=ks[0][0]) return ks[0][1];
   for(let i=0;i<ks.length-1;i++){
     if(k>=ks[i][0] && k<=ks[i+1][0]){
       const t=(k-ks[i][0])/Math.max(0.0001,(ks[i+1][0]-ks[i][0]));
       return poseLerp(ks[i][1],ks[i+1][1],ease(t));
     }
   }
-  return ks[0][1];
+  return ks[ks.length-1][1];
 }
+export const atkPose=(keys,k)=>keyPose(keys,k,FRAMES_ATK,true);
+export const SET_FRAMES={ atk:FRAMES_ATK, cheer:FRAMES_CHEER, die:FRAMES_DIE, hit:FRAMES_HIT };

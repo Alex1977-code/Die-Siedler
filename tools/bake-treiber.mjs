@@ -20,7 +20,7 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { POSEN, atkPose } from './posen.js';
+import { POSEN, atkPose, keyPose, FLUCHT } from './posen.js';
 
 const HIER=path.dirname(fileURLToPath(import.meta.url));
 const ASSETS=path.join(HIER,'..','assets');
@@ -29,7 +29,17 @@ const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/ch
 const CELL=88;
 // 'trag' = Geh-Zyklus mit konstanter Zusatzpose (Traeger haelt die Last
 // vor der Brust, die Beine laufen aus dem Clip weiter)
-const SPALTEN={ walk:12, idle:12, atk:8, trag:12 };
+// cheer/die/hit (T17, Soldaten): handgesetzte Schluesselbild-Posen wie atk.
+// Die Soldaten-GLBs geben nichts anderes her - ausser dem Geh-Clip existiert
+// nur der bekannte kaputte 1,29-s-Clip (Streifenprobe: Figur zerknautscht,
+// Spalten ab ~70 % leer). die/hit sind EINMALCLIPS: die Posen enden auf der
+// letzten Spalte (kein Wrap), render.js faehrt sie ueber prog 0..1 ab.
+// flee (T18): Geh-Zyklus mit Flucht-Pose (vornuebergebeugt, Arme
+// angewinkelt) - ersetzt die alten bake-clips.js-Blaetter, damit auch
+// carrier/worker nach Koerperbau-Aenderungen komplett neu backbar sind.
+const SPALTEN={ walk:12, idle:12, atk:8, trag:12, cheer:12, die:10, hit:8, flee:12 };
+const EINMAL={ die:true, hit:true };
+const POSENSETS=['cheer','die','hit'];
 
 const modell=process.argv[2];
 const sets=(process.argv[3]&&!process.argv[3].startsWith('--')? process.argv[3] : 'atk').split(',');
@@ -88,12 +98,14 @@ const yawFor=(t)=>{ let y=(t-a0)/sg; y=((y%360)+360)%360; return Math.round(y); 
 const DIRS={ r:yawFor(0), fr:yawFor(45), f:yawFor(90), br:yawFor(-45), b:yawFor(-90) };
 console.log('DIRS', JSON.stringify(DIRS));
 
-// Werkzeug für ein Set anbringen (oder abräumen)
+// Werkzeug(e) für ein Set anbringen (oder abräumen). Ein Eintrag darf
+// seit T18 auch eine LISTE sein (Werkzeug + Zubehoer wie Schnurrbart,
+// Feder, Guertel - Asterix-Accessoires gelten je Beruf fuer ALLE Sets).
 async function ruesten(set){
   await page.evaluate('window.toolClear()');
   const w=P.werkzeug && P.werkzeug[set];
-  if(w){
-    const r=await page.evaluate(([k,b,p,ro,s])=>window.toolAttach(k,b,p,ro,s),[w.kind,w.bone,w.pos,w.rot,w.scale]);
+  for(const t of (w? (Array.isArray(w)?w:[w]) : [])){
+    const r=await page.evaluate(([k,b,p,ro,s])=>window.toolAttach(k,b,p,ro,s),[t.kind,t.bone,t.pos,t.rot,t.scale]);
     if(r!=='ok') throw new Error('toolAttach '+r);
   }
   await page.evaluate(()=>window.toolVis(true));
@@ -117,7 +129,12 @@ function spaltenPlan(set){
   const plan=[];
   for(let k=0;k<n;k++){
     if(set==='atk') plan.push({clip:idle.name, t:atkT, pose:atkPose(P.atk,k)});
+    else if(POSENSETS.includes(set)){
+      if(!P[set]) throw new Error(`kein Posensatz '${set}' fuer ${modell} in posen.js`);
+      plan.push({clip:idle.name, t:atkT, pose:keyPose(P[set], k, n, !EINMAL[set])});
+    }
     else if(set==='trag') plan.push({clip:walk.name, t:wT(k,n), pose:P.trag});
+    else if(set==='flee') plan.push({clip:walk.name, t:wT(k,n), pose:keyPose(P.flee||FLUCHT, k, n, true)});
     else if(set==='walk') plan.push({clip:walk.name, t:wT(k,n), pose:null});
     else plan.push({clip:idle.name, t:idle.duration*k/n, pose:null});
   }
@@ -132,7 +149,11 @@ function spaltenPlan(set){
 // stecken auch nach 'entfernen' noch im Positions-Attribut, darum hilft
 // nur eine Box-freie Zentrierung. Der Knochen ist von Streu-Vertices
 // unabhaengig; die Spalten bleiben untereinander konsistent.
-async function versatz(plan, yaw){
+// nurMittel (cheer/die/hit): KONSTANTER Versatz je Zeile (Spalten-Mittel)
+// statt Drift-Gerade. Die Basis steht still, alle Bewegung kommt aus der
+// Pose - eine Ausgleichsgerade wuerde z.B. das Vornueberkippen beim
+// Sterben teilweise "zurueckschieben" (die Figur ruschte durch die Zelle).
+async function versatz(plan, yaw, nurMittel=false){
   const cs=[];
   for(const s of plan)
     cs.push(await page.evaluate(([c,t,y,p,kn])=>{
@@ -142,6 +163,7 @@ async function versatz(plan, yaw){
     },[s.clip,s.t,yaw,s.pose,P.zentrierKnochen||null]));
   const n=cs.length, mx=(n-1)/2;
   const fit=(v)=>{ const my=v.reduce((a,b)=>a+b,0)/n;
+    if(nurMittel) return {my, sl:0};
     let nu=0,de=0; for(let k=0;k<n;k++){ nu+=(k-mx)*(v[k]-my); de+=(k-mx)*(k-mx); }
     return {my, sl: de? nu/de : 0}; };
   const fx=fit(cs.map(c=>c.x)), fz=fit(cs.map(c=>c.z));
@@ -159,7 +181,7 @@ async function backeBlatt(set){
   let row=0;
   for(const dk of ['r','fr','f','br','b']){
     const yaw=DIRS[dk];
-    const off=await versatz(plan,yaw);
+    const off=await versatz(plan,yaw,POSENSETS.includes(set));
     for(let k=0;k<n;k++){
       await page.evaluate(async ([s,y,o,c,col,row2])=>{
         const url=window.bake(s.clip,s.t,y,c,o.ox,o.oz,s.pose);
@@ -191,7 +213,7 @@ async function backeVorschau(){
   let row=0;
   for(const dk of rowsP){
     const yaw=DIRS[dk];
-    const off=await versatz(plan,yaw);
+    const off=await versatz(plan,yaw,POSENSETS.includes(set));
     for(let k=0;k<plan.length;k++){
       await page.evaluate(async ([s,y,o,c,col,row2,lbl])=>{
         const url=window.bake(s.clip,s.t,y,c,o.ox,o.oz,s.pose);
