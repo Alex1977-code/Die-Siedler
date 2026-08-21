@@ -1926,12 +1926,23 @@ export class Renderer {
             const spanY=Math.max(A[1],B[1],C[1])-Math.min(A[1],B[1],C[1]);
             const relF=Math.max(relEffOf(a2),relEffOf(b2),relEffOf(c2));
             const gyM=(ga[1]+gb[1]+gc[1])/3;
-            const wall9=spanY>ROWH*Math.min(1.7, 0.95+relF*0.35) && gyM<0;
+            // Befund B6 ("teilweise optisch gedreht"): die Wanderkennung
+            // war BINAER (spanY-Schwelle). Entlang der Wandkante kippen
+            // Auf- und Ab-Dreiecke knapp ueber bzw. unter die Schwelle -
+            // jedes zweite Dreieck bekam Halbschatten-Deckel und
+            // Wandtextur, die anderen blieben hell und texturlos. Das las
+            // sich als gedrehtes Rautenmuster (dbg-wl.png: gezackter
+            // wl-Saum, sicht-42-gruen-steil: Harlekin). Jetzt ein WEICHER
+            // Wandgrad wf (smoothstep um die alte Schwelle); Deckel und
+            // Textur skalieren damit, wl bleibt als Bool fuer die Fugen.
+            const wRatio=spanY/(ROWH*Math.min(1.7, 0.95+relF*0.35));
+            const wallF= gyM<0? smT((wRatio-0.72)/0.62) : 0;
+            const wall9=wallF>0.5;
             // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
             // kante liegt auf der SONNENSEITE der helleren Platte.
             // wl markiert Wanddreiecke – zwischen ihnen keine Fugen, eine
             // Absturzwand ist EINE Fläche (Fugen zerhackten sie in Zähne).
-            const t3={A,B,C,blk, wl:wall9, gy:gyM,
+            const t3={A,B,C,blk, wl:wall9, wf:wallF, gy:gyM,
                       qa:a2, qb:b2, qc:c2,
                       cx:(A[0]+B[0]+C[0])/3, cy:(A[1]+B[1]+C[1])/3};
             tris.push(t3);
@@ -2169,9 +2180,12 @@ export class Renderer {
                 // je Platte die Plattenstruktur auf die ebene Hochflaeche
                 const jb=(hash01(t3.blk*13+7)-0.5)*0.05;
                 let sA=eckShade(t3.qa)+jb, sB=eckShade(t3.qb)+jb, sC=eckShade(t3.qc)+jb;
-                // Absturzwaende bleiben im Halbschatten - WEICH komprimiert
-                if(t3.wl){
-                  const cap=(s0)=> s0>0.58? 0.58+(s0-0.58)*0.30 : s0;
+                // Absturzwaende bleiben im Halbschatten - WEICH komprimiert,
+                // und seit B6 GRADUELL nach Wandgrad wf statt binaer: an der
+                // Wandkante faellt der Deckel sanft ab, kein Harlekin mehr
+                if(t3.wf>0){
+                  const k0=0.70*t3.wf;             // 0 = kein Deckel, 0.70 = alt (Faktor 0.30)
+                  const cap=(s0)=> s0>0.58? 0.58+(s0-0.58)*(1-k0) : s0;
                   sA=cap(sA); sB=cap(sB); sC=cap(sC);
                 }
                 sA=Math.max(SLO,Math.min(SHI,sA));
@@ -2772,7 +2786,13 @@ export class Renderer {
                 let anyC=false;
                 for(const t3 of tris){
                   let ma=cmOf(t3.qa), mb=cmOf(t3.qb), mc=cmOf(t3.qc);
-                  if(t3.wl){ ma=Math.max(ma,0.9); mb=Math.max(mb,0.9); mc=Math.max(mc,0.9); }
+                  // B6: Wandtextur GRADUELL nach Wandgrad statt binaer -
+                  // sonst traegt an der Wandkante jedes zweite Dreieck
+                  // Mauerwerk und der Nachbar keines (Harlekin)
+                  if(t3.wf>0){
+                    const mW=0.9*t3.wf;
+                    ma=Math.max(ma,mW); mb=Math.max(mb,mW); mc=Math.max(mc,mW);
+                  }
                   // Rueckseite (Silhouette zur Wiese dahinter): dort keine
                   // Mauerwerk-Textur – der Rand ist Deckflaeche/Grat
                   if(t3.gy>0.08){ ma*=0.18; mb*=0.18; mc*=0.18; }
@@ -3137,6 +3157,7 @@ export class Renderer {
                 return v;
               };
               const p1=new Path2D(); let nB=0;
+              const pF=new Path2D(); let nF9=0;   // Fuss-AO flacher Kanten (B2)
               const pL=new Path2D(); let nL2=0;   // helle Oberkante (Grat)
               // Nutzerurteil zu v92 ("das Gebirge passt optisch noch nicht,
               // Perspektive?"): das Massiv wird beim Zeichnen um liftAt*HSCALE
@@ -3201,7 +3222,6 @@ export class Renderer {
                   // am FUSS der Wand (unangehobene Grundlinie), nicht auf
                   // der angehobenen Kante selbst
                   const F1=m.worldPos(e.u), F2=m.worldPos(e.v);
-                  p1.moveTo(F1[0],F1[1]); p1.lineTo(F2[0],F2[1]); nB++;
                   // Die FLANKE als Viereck von der Felskante hinunter zum
                   // TIEFSTEN Nachbarn ausserhalb des Massivs. Nicht die
                   // Anhebung allein: die greift nur bei kleinen Massiven
@@ -3221,6 +3241,14 @@ export class Renderer {
                   const y1w=Math.max(F1[1], fussY(e.u));
                   const y2w=Math.max(F2[1], fussY(e.v));
                   const hh9=Math.min(y1w-P1[1], y2w-P2[1]);
+                  // Fuss-AO NACH WANDHOEHE gestaffelt (Befund B2): an
+                  // FLACHEN Raendern kleiner Massive zeichnete der volle
+                  // 24-px-Dreifachstrich das Sechseckpolygon der Grenze als
+                  // dunkle Bogenkette nach (sicht-777-gebirge-wasser,
+                  // linke Kante). Flache Kanten (< 10 px sichtbare Wand)
+                  // bekommen nur noch den schmalen Saum.
+                  if(hh9>10){ p1.moveTo(F1[0],F1[1]); p1.lineTo(F2[0],F2[1]); nB++; }
+                  else      { pF.moveTo(F1[0],F1[1]); pF.lineTo(F2[0],F2[1]); nF9++; }
                   if(hh9>9){
                     const kr=kroneWeg(P1,P2,e.u,e.v);
                     wandQ.moveTo(kr[0][0],kr[0][1]);
@@ -3262,6 +3290,12 @@ export class Renderer {
                 g.strokeStyle='rgba(36,30,24,0.11)'; g.lineWidth=24; g.stroke(p1);
                 g.strokeStyle='rgba(36,30,24,0.13)'; g.lineWidth=10; g.stroke(p1);
                 g.strokeStyle='rgba(36,30,24,0.10)'; g.lineWidth=4;  g.stroke(p1);
+              }
+              if(nF9){
+                // flache Kanten: nur ein leiser schmaler Saum (s. B2 oben)
+                g.lineCap='round'; g.lineJoin='round';
+                g.strokeStyle='rgba(36,30,24,0.09)'; g.lineWidth=9; g.stroke(pF);
+                g.strokeStyle='rgba(36,30,24,0.08)'; g.lineWidth=3.5; g.stroke(pF);
               }
               if(nL2){
                 g.lineCap='round'; g.lineJoin='round';
@@ -3948,6 +3982,47 @@ export class Renderer {
           }
         }
       }
+      // SILHOUETTEN-DECKUNG (Befund B1/B3): liegt ein Knoten HINTER der
+      // nach Norden angehobenen bzw. hohen Massiv-Zeichnung? Der alte Test
+      // liftAt(i)>0.25 (G4) war fuer Gras totes Recht: liftInfo liefert
+      // fuer Nicht-Massiv-Knoten immer lift=0, der Ausschluss feuerte nie.
+      // Gemessen wird jetzt die ZEICHNUNG selbst: ein Massivknoten bis
+      // zwei Ringe MAP-suedlich, dessen gezeichnete Oberkante (worldPos
+      // minus Anhebung) ueber der eigenen Knotenmitte liegt, deckt den
+      // Knoten im Bild ab.
+      // tiefe: Suchringe map-suedwaerts. Die Steilwand-Ausnahme des
+      // Massiv-Beschnitts (nr==1-Dreiecke) spannt Felsdreiecke bis zu den
+      // Aussenecken ZWEI Reihen weiter - fuer Wasser hinter hohen Waenden
+      // braucht es drei Ringe (gemessen: dbg-ufer, Magenta sass eine
+      // Reihe zu tief). tol: wie viele Bildpunkte die gezeichnete
+      // Felskante UNTER der Knotenmitte enden darf und trotzdem als
+      // Deckung zaehlt (die Dreiecke reichen ueber die Knotenmitte der
+      // Aussenecke hinaus).
+      const silhCache=new Map();
+      const silhGedeckt=(i2, tiefe=2)=>{
+        const key2=i2*4+tiefe;
+        let v=silhCache.get(key2);
+        if(v!==undefined) return v;
+        const py2=m.worldPos(i2)[1];
+        v=false;
+        const seen2=new Set([i2]);
+        let ring2=[i2];
+        for(let d2=0; d2<tiefe && !v; d2++){
+          const nx2=[];
+          for(const p2 of ring2){
+            for(const q2 of m.nbs(p2)){
+              if(seen2.has(q2)) continue;
+              seen2.add(q2); nx2.push(q2);
+              if(!isMassif(q2) || m.Y(q2)<=m.Y(i2)) continue;
+              if(m.worldPos(q2)[1]-liftOf(q2)*HSCALE < py2+14){ v=true; break; }
+            }
+            if(v) break;
+          }
+          ring2=nx2;
+        }
+        silhCache.set(key2,v);
+        return v;
+      };
       // Geländeübergänge: gemalte Pinsel entlang jeder Geländegrenze. Der
       // Pinsel wird so gedreht, dass seine ausgefranste Seite ins Nachbar-
       // gelände zeigt – dadurch gehen die Arten ineinander über.
@@ -4000,13 +4075,14 @@ export class Renderer {
                 // steht es zwei Zeilen weiter fuer alle anderen Nachbarn
                 // auch schon.
                 if(t===TER.MOUNT || isMassif(i)) continue;
-                // Kritik G4: auch ANGEHOBENES Gras stempelt nicht. Ein
-                // Grasknoten auf der Massivschulter liegt gezeichnet bis zu
-                // 40 px UEBER seiner Knotenmitte - Sand und Schaum landeten
-                // dort quer auf der Klippenwand, mit Grasbuescheln mitten
-                // im "Schaum" (Kritikfoto g13). Gleiche Logik wie der
-                // Fels-Ausschluss von v101, nur ueber die Hebung erkannt.
-                if(this.liftAt && this.liftAt(i)>0.25) continue;
+                // Kritik G4: auch VERDECKTES Gras stempelt nicht. Ein
+                // Grasknoten hinter der Massiv-Silhouette liegt im Bild
+                // unter der gemalten Felsdecke - Sand und Schaum landeten
+                // dort als fleckiges Band quer AUF dem Fels (Kritikfoto
+                // g13; erneut Befund B3, sicht-42-gruen-randN). Der alte
+                // Test liftAt(i)>0.25 war fuer Gras wirkungslos (liftInfo
+                // liefert dort immer 0) - jetzt entscheidet die Zeichnung:
+                if(silhGedeckt(i)) continue;
                 const jit=(hsh-0.5)*0.22;              // nur leicht kippen: der Saum folgt der Kante
                 if(sandImg){ put(sandImg, mx2-(bx-ax)*0.10, my2-(by-ay)*0.10, ang, 34+hsh*9, 0.5, jit, 2.3); any=true; }
                 // Deckkraft 0,45 -> 0,26 und etwas schmaler: der Saum las
@@ -4068,15 +4144,59 @@ export class Renderer {
       // An Schnee-Ebenen übernimmt eine Schneewehe die Rolle des Bands –
       // graues Geröll auf Weiß läse sich als Schmutzfleck.
       {
-        const eScree=[], eSnow=[];
+        const eScree=[], eSnow=[], eWater=[], ePool=[];
+        // Kessel-Test mit begrenzter Flutung, Entscheidung je Komponente
+        // gemerkt (deterministisch, chunkuebergreifend gleich)
+        const poolMemo=new Map();
+        const istKessel=(i0)=>{
+          if(poolMemo.has(i0)) return poolMemo.get(i0);
+          const comp=[i0]; const cs=new Set([i0]);
+          let ok=true;
+          for(let k=0;k<comp.length && comp.length<=12;k++){
+            for(const q of m.nbs(comp[k])){
+              if(m.terr[q]===TER.WATER){
+                if(!cs.has(q)){ cs.add(q); comp.push(q); }
+              } else if(!isMassif(q)) ok=false;
+            }
+          }
+          if(comp.length>12) ok=false;
+          for(const q of comp) poolMemo.set(q,ok);
+          return ok;
+        };
         for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
           for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
             const i=m.idx(x,y);
-            if(m.terr[i]!==TER.MOUNT) continue;
+            const tI=m.terr[i];
+            const bergig = tI===TER.MOUNT;
+            // GEHOBENE Landknoten (Gras/Schnee auf der Massivschulter,
+            // liftOf>0.25) sind vom Sand-/Schaumpinsel ausgenommen (G4) -
+            // ihre Wasserkante stand deshalb genauso nackt im Bild wie die
+            // reine Felskante (Befund B1, Treppe in sicht-42-gruen-randN).
+            // Sie liefern nur Wasserkanten ans Felsufer, keine Scree-Kanten.
+            const gehoben = !bergig && tI!==TER.WATER && tI!==TER.LAVA
+                         && liftOf(i)>0.25;
+            if(!bergig && !gehoben) continue;
             const [ax,ay]=m.worldPos(i);
             for(const n of m.nbs(i)){
               const tn=m.terr[n];
-              if(isMassif(n) || tn===TER.WATER || tn===TER.LAVA) continue;
+              if(isMassif(n) || tn===TER.LAVA) continue;
+              if(!bergig && tn!==TER.WATER) continue;
+              // FELSUFER (Befund B1): Wasserkanten fielen bisher KOMPLETT
+              // heraus - kein Sand/Schaum (v101, richtig: ein Bergsee hat
+              // keinen Strand), aber eben auch kein Geroellband. Der
+              // Massiv-Beschnitt endete voellig unbekleidet im Wasser:
+              // harte Zickzack-Treppe an der Nordkante, rohe Wandnaht an
+              // der Suedkante (Sichtung sicht-42-gruen-randN /
+              // sicht-42-winter-wasser). Die Kanten werden jetzt gesammelt
+              // und unten als FELSufer angezogen: nasser Sockel, gestuerzte
+              // Bloecke in der Wasserlinie, leiser Wellensaum.
+              if(tn===TER.WATER){
+                const [bx,by]=m.worldPos(n);
+                let ux=bx-ax, uy=by-ay;
+                const L2=Math.hypot(ux,uy)||1; ux/=L2; uy/=L2;
+                eWater.push({i,n,bx,by,ux,uy});
+                continue;
+              }
               const [bx,by]=m.worldPos(n);
               let ux=bx-ax, uy=by-ay;
               const L2=Math.hypot(ux,uy)||1; ux/=L2; uy/=L2;
@@ -4121,7 +4241,48 @@ export class Renderer {
               (tn===TER.SNOW? eSnow : eScree).push({i,n,tn,mx:(ax+bx)/2,my:(ay+by)/2,ux,uy,dp,sf});
             }
           }
-        if(eScree.length || eSnow.length){
+        // Zusatz (Befund B3, sicht-42-gruen-randN): Wasserknoten OHNE
+        // direkten Felsnachbarn, die aber hinter der Massiv-Silhouette
+        // liegen (eine Reihe Gras dazwischen, im Bild vom gemalten Fels
+        // verdeckt). Ihre sichtbare Naht ist der Suedrand der Wasserzellen
+        // gegen die Felszeichnung - sie laufen als Felsufer-Kante mit, mit
+        // MAP-Nord als Wasserrichtung (die Deckung kommt stets von Sueden).
+        for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
+          for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
+            const i=m.idx(x,y);
+            if(m.terr[i]!==TER.WATER) continue;
+            // BERGSEE-BECKEN (Befund B1b, sicht-42-gruen-wasser): ein
+            // KLEINER Kesselsee (Wasserkomponente <= 12 Knoten, ringsum
+            // nur Massiv) wird von den nr==2-Randdreiecken des Beschnitts
+            // komplett zugemalt - er stand als brauner Erdfleck im Fels.
+            // Der Nachbartest allein reichte NICHT: auch Meeresknoten an
+            // der Massivkueste haben nur Wasser+Fels als Nachbarn und
+            // bekamen faelschlich Poolstempel aufs offene Blau (heil1f).
+            if(istKessel(i)) ePool.push(i);
+            if(m.nbs(i).some(q=>m.terr[q]===TER.MOUNT)) continue;   // schon erfasst
+            if(!silhGedeckt(i,3)) continue;
+            // nur die NAHTREIHE, und nur gegen NORDEN: die Naht liegt
+            // zwischen diesem (im Bild fels-verdeckten) Knoten und freiem
+            // Wasser map-noerdlich davon. Freie Nachbarn seitlich lieferten
+            // Zellen mitten auf dem gemalten Fels (dbg-ufer, 2. Messung).
+            let fx9=0, fy9=0, nf9=0;
+            for(const q of m.nbs(i)){
+              if(m.terr[q]!==TER.WATER || m.Y(q)>=y) continue;
+              if(silhGedeckt(q,3)) continue;
+              const [qx9,qy9]=m.worldPos(q);
+              fx9+=qx9; fy9+=qy9; nf9++;
+            }
+            if(!nf9) continue;
+            // Anker DICHT am gedeckten Knoten (Faktor 0.22): die Felsmalerei
+            // endet etwa an seiner Position - auf halbem Weg sassen die
+            // Zellen als dunkle Flecken im offenen Wasser (heil1d)
+            const [bx0,by0]=m.worldPos(i);
+            const bx=bx0+(fx9/nf9-bx0)*0.22, by=by0+(fy9/nf9-by0)*0.22;
+            let ux=fx9/nf9-bx0, uy=fy9/nf9-by0;
+            const L2=Math.hypot(ux,uy)||1; ux/=L2; uy/=L2;
+            eWater.push({i, n:i, bx, by, ux, uy, deck:true});
+          }
+        if(eScree.length || eSnow.length || eWater.length || ePool.length){
           // korreliertes Breitenrauschen: das Band schwillt über MEHRERE
           // Zellen an und ab. Weißes Rauschen je Kante gäbe nur eine
           // Zitterkante, konstante Breite den kritisierten Stempel-Rahmen.
@@ -4414,6 +4575,142 @@ export class Renderer {
             g.globalAlpha=0.97;
             g.drawImage(this._texTmp,0,0,w,h);
             g.globalAlpha=1;
+          }
+          // ---- 3b) FELSUFER gegen Wasser (Befund B1, Spielerkritik
+          //      "uebergang ... zum wasser"). KEIN Strand, KEIN Schaum-
+          //      stempel (beides in v101/G4 gemessen und verworfen - die
+          //      Stempel landeten auf der unangehobenen Knotenmitte quer
+          //      auf der Felswand). Stattdessen das, was ein Felsufer
+          //      ausmacht: ein dunkler NASSER Sockel ueber der Naht,
+          //      Tiefenschatten im Wasser direkt am Fels, gestuerzte
+          //      Bloecke in der Wasserlinie und ein leiser Wellensaum.
+          //      Ankerpunkt liegt knapp VOR dem Wasserknoten Richtung
+          //      Fels: die Wasserzellen der Grundschicht (Radius ~22 px,
+          //      rf=0.62 am Fels) enden dort, und (ux,uy) kommen aus
+          //      worldPos MIT Hoehenversatz - "Richtung Fels" stimmt so
+          //      auf der Wandseite (Naht unten am Wandfuss) wie auf der
+          //      Rueckseite (Naht an der angehobenen Silhouette).
+          // ---- 3a) BERGSEE-BECKEN zurueckstempeln (s. Sammlung oben):
+          //      dunkler Felssee UEBER der Massivdecke, danach legt 3b
+          //      das Felsufer (Sockel, Bloecke, Wellensaum) darueber.
+          if(ePool.length){
+            const wc9=hex2arr(cols[TER.WATER]||'#4a83a6');
+            const dkP=(f,a9)=>'rgba('+(wc9[0]*f|0)+','+(wc9[1]*f|0)+','+(wc9[2]*f|0)+','+a9+')';
+            g.save(); g.translate(-c.ox,-c.oy);
+            for(const iP of ePool){
+              const [px,py]=m.worldPos(iP);
+              // HARTE, satt ueberlappende Zellen (Radius 34 bei Knotenmass
+              // 52): gleiche Farbe + harte Fuellung -> die Vereinigung
+              // liest sich als EINE Flaeche. Weiche Einzelzellen zerfielen
+              // zur blauen Wabenkette (heil1f). Den Rand bekleidet 3b.
+              g.beginPath();
+              for(let k=0;k<7;k++){
+                const a2=k*0.897+hash01(iP*11+1)*0.6;
+                // Radius 38 (vorher 34): bei 44er-Zeilenmass blieb zwischen
+                // zwei Poolknoten sonst ein heller Felsstreifen stehen
+                // (nach-42-gruen-steil)
+                const rr=38*(0.88+hash01(iP*17+k*5)*0.26);
+                const qx=px+Math.cos(a2)*rr, qy=py+Math.sin(a2)*rr*0.85;
+                if(k===0) g.moveTo(qx,qy); else g.lineTo(qx,qy);
+              }
+              g.closePath();
+              // dunkles Kesselwasser (Stilguide 11.2: kein Tuerkis - der
+              // abgedunkelte Themen-Wasserton bleibt in der Familie)
+              g.fillStyle=dkP(0.52,0.92);
+              g.fill();
+              // leiser Lichtschein auf der Flaeche (Nordwest-Licht)
+              g.fillStyle=dkP(0.86,0.35);
+              g.beginPath();
+              g.ellipse(px-4,py-3,10+hash01(iP*7+3)*6,4,0.4,0,7);
+              g.fill();
+            }
+            g.restore();
+          }
+          if(eWater.length){
+            // Die NAHT verlaeuft praktisch AM Wasserknoten: die Massiv-
+            // dreiecke reichen bis zur Wasserecke, die (auf rf=0.62
+            // geschrumpften) Wasserzellen enden ebendort. Erster Anlauf
+            // mit Anker 13-21 px felsseitig sass daneben - auf der Nord-
+            // kante zeigen (ux,uy) fast laengs der Naht, die Zellen
+            // landeten im Wasser bzw. mitten auf dem Plateau (gemessen
+            // an heil1-42-gruen-randN). Jetzt: Anker = Wasserknoten,
+            // Sockel minimal felsseitig, Tiefe minimal wasserseitig.
+            const kaltU=this.theme==='winter';
+            const cWell= kaltU? 'rgba(206,220,230,0.17)' : 'rgba(199,219,222,0.19)';
+            g.save(); g.translate(-c.ox,-c.oy);
+            for(const e of eWater){
+              const h4=hash01(e.i*13+e.n*7);
+              const wn=bno(m.X(e.n)+3, m.Y(e.n)+9);
+              const tx=-e.uy, ty=e.ux;               // laengs der Uferlinie
+              // VEREISTES Ufer (Winterthema oder Firndecke bis an die
+              // Kante): dunkler Nass-Sockel las sich dort als graue
+              // Raupenkette auf dem Weiss (heil1-42-winter-wasser) -
+              // stattdessen kuehler, hellerer Auftritt.
+              const deckU=this._firnDeck? this._firnDeck.get(e.i) : undefined;
+              const schneeU= kaltU || (deckU!==undefined && deckU>0.45);
+              // 1) Tiefenschatten im Wasser direkt am Fels - erst dadurch
+              //    FAELLT die Wand ins Wasser, statt daran anzustossen
+              {
+                // im KESSELSEE deutlich leiser und kleiner: die grossen
+                // Tiefen-Ellipsen mehrerer Kanten deckten den kleinen Pool
+                // fast ganz zu ("Oelflecken", heil1g-42-gruen-wasser)
+                const imKessel=poolMemo.get(e.n)===true;
+                const sx=e.bx+e.ux*5, sy=e.by+e.uy*4+1.5;
+                const rT= schneeU? '20,32,46' : '14,28,34';
+                const aT= imKessel? 0.14 : schneeU? 0.20 : 0.26;
+                const rr9= imKessel? 12 : 28+wn*9;
+                const rg=g.createRadialGradient(sx,sy,2, sx,sy,rr9);
+                rg.addColorStop(0,'rgba('+rT+','+aT+')');
+                rg.addColorStop(1,'rgba('+rT+',0)');
+                g.fillStyle=rg;
+                g.beginPath();
+                g.ellipse(sx,sy,rr9,rr9*0.4,Math.atan2(ty,tx),0,7);
+                g.fill();
+              }
+              // 2) nasser Felssockel UEBER der Naht: kantige Zelle direkt
+              //    am Wasserknoten, kraeftig laengs gestreut, jede vierte
+              //    Kante laesst aus (keine Kettenglieder-Optik)
+              if(hash01(e.i*37+e.n*5)>0.24){
+                // deck-Kanten (Naht ueber freiem Wasser) LEISER und kleiner:
+                // volle 0.30-Zellen lasen sich dort als Schmutzflecken im Blau
+                const aS=e.deck? 0.22 : 0.30;
+                const rS=e.deck? 7+wn*5+h4*4 : 9+wn*8+h4*5;
+                g.fillStyle= schneeU? 'rgba(214,226,236,'+aS+')' : 'rgba(30,28,23,'+aS+')';
+                cell(g, e, e.bx-e.ux*(3+wn*4)+tx*(h4-0.5)*20,
+                     e.by-e.uy*(2.5+wn*3.5)+ty*(h4-0.5)*16, rS, 3);
+                // Nahtreihen-Kanten (deck) decken einen ganzen Knotenabstand
+                // Uferlinie - eine zweite Zelle laengs versetzt schliesst
+                // die Kette, ohne als Raupe zu lesen (Radius streut stark)
+                if(e.deck)
+                  cell(g, e, e.bx-e.ux*(2+h4*4)+tx*((0.5-h4)*10+12),
+                       e.by-e.uy*(1.5+h4*3)+ty*((0.5-h4)*8+10), 6+wn*5+h4*5, 3);
+              }
+              // 3) gestuerzte Bloecke IN der Wasserlinie - sie zerschneiden
+              //    die Restnaht wie die Grenzbloecke des Geroellbands
+              if(h4<0.62){
+                const nB9=1+((h4*23|0)&1);
+                for(let k=0;k<nB9;k++){
+                  const sw9=(hash01(e.i*19+e.n*3+k*29)-0.5)*24;
+                  const dd9=-2+hash01(e.i*7+e.n+k*13)*8;
+                  this.rockChunklet(g, e.bx-e.ux*dd9+tx*sw9, e.by-e.uy*dd9*0.85+ty*sw9*0.8,
+                                    2.4+hash01(e.i*23+e.n+k*17)*3.0, e.i*11+e.n*7+k*31,
+                                    undefined, schneeU);
+                }
+              }
+              // 4) Wellensaum: kurzer heller Bogen wasserseitig, lueckig
+              //    gehasht - eine durchgehende Linie waere nur die naechste
+              //    harte Kante
+              if(h4>0.30){
+                const lx=e.bx+e.ux*3, ly=e.by+e.uy*2.5+0.8;
+                g.strokeStyle=cWell;
+                g.lineWidth=2.2; g.lineCap='round';
+                g.beginPath();
+                g.moveTo(lx-tx*11, ly-ty*9+1.2);
+                g.quadraticCurveTo(lx, ly-1.1, lx+tx*11, ly+ty*9+1.2);
+                g.stroke();
+              }
+            }
+            g.restore();
           }
           // (---- 4) entfallen: die Radialkleckse auf der Suedostseite sind
           // durch den PROJIZIERTEN Schlagschatten aus 2.7b ersetzt, der nach
@@ -5613,6 +5910,19 @@ export class Renderer {
     const schnee9 = this.theme==='winter' || m.terr[i]===TER.SNOW
                  || (deck9!==undefined? deck9>0.45
                                       : m.hgt[i]>this.firnAt(i)-0.4);
+    // K2-Nachsorge fuer BESTEHENDE Spielstaende (die Steilwand-Sperre der
+    // Streuung in map.js greift nur bei neu erzeugten Karten): steht die
+    // Formation auf einer Wand (slopeMax > 2.6, s. Messung mess-rock:
+    // Terrassenwaende liegen bei 3.0+), wird statt Nadel/Sporn/Kuppe ein
+    // FLACHER Haufen gezeichnet - der liest sich als Geroellablage an der
+    // Wand, waehrend ein aufrechtes Objekt dort "aufgeklebt" schwebte.
+    if(m.slopeMax(i)>2.6){
+      const art9= sp<0.5? 'obj_steinhaufen' : 'obj_kieshaufen';
+      if(!this.drawFelsObj(g, art9, px+ox2, py+oy2+2, (sp<0.5?0.30:0.24)*sc7,
+                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2, schnee9))
+        this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.5, lz);
+      return;
+    }
     // Gipfel? Der höchste Knoten der Umgebung bekommt die Kuppe.
     const hi=m.hgt[i];
     let top=true;
@@ -12045,6 +12355,14 @@ export class Renderer {
         // durch den See (Grafik-Ärgernis aus dem Kritikbericht).
         const nass=(q)=>{ const t2=m.terr[q]; return t2===TER.WATER||t2===TER.LAVA; };
         if(nass(i)||nass(n)) continue;
+        // Befund B4 (K2, sicht-42-gruen-objekt): kein Pfosten AUF der
+        // Steilwand. Der senkrecht gemalte Pfahl stand dort sichtbar
+        // "aufgeklebt" mitten in der Wandflaeche - in eine Felswand rammt
+        // niemand einen Pfahl. Die Grenz-LINIE laeuft weiter durch, auf
+        // flacheren Abschnitten stehen weiter Pfosten (m.steil kommt aus
+        // computePasses: slopeMax > 1.80).
+        const steil9=(q)=> m.steil && m.steil[q] && m.terr[q]===TER.MOUNT;
+        if(steil9(i)||steil9(n)) continue;
         const gx=Math.round(mx/34), gy=Math.round(my/30);
         const key=gx+','+gy;
         if(!seen.has(key)){

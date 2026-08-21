@@ -849,10 +849,20 @@ export function genWorld(opts){
   //      damit Bergwerke am Fuss und der Geroellsaum Platz behalten.
   {
     const istBerg=(q)=>map.terr[q]===TER.MOUNT;
-    const dichte=0.17;
+    // Gebirgskritik K2 ("Objekte liegen auf den Bergen auf"): KEINE
+    // Formation in der Steilwand. GEMESSEN (4 Karten M) ist die Verteilung
+    // der slopeMax unter den bisherigen Felsknoten zweigipflig: ~50 % auf
+    // ebenen Plateaus (um 0,5) und 37-60 % auf Terrassenwaenden (3,0+).
+    // Ein aufrecht gemaltes Felsobjekt auf einer 3er-Wand steht sichtbar
+    // "aufgeklebt" (spiel-58-gebirge-mine). Schwelle 2,6 nimmt genau den
+    // Wand-Gipfel heraus; die Dichte steigt 0,17 -> 0,22, damit die
+    // Gesamtzahl der Formationen etwa gleich bleibt (sie draengen sich
+    // jetzt auf den Plateaus, wo Geroell auch liegen bliebe).
+    const dichte=0.22;
     for(let i=0;i<w*h;i++){
       if(!istBerg(i) || map.obj[i]) continue;
       if(map.pass && map.pass[i]) continue;
+      if(map.slopeMax(i)>2.6) continue;                  // keine Steilwand
       const nb=map.nbs(i);
       if(nb.some(q=>map.pass && map.pass[q])) continue;
       if(nb.some(q=>!istBerg(q))) continue;              // Randreihe frei
