@@ -64,8 +64,10 @@ const BERUFE={
   // wuerde die Haarfarben von v218 zerstoeren.
   // Die Ziele halten Abstand zu den vier Spielerfarben (Blau, Rostrot,
   // Gelbocker, Violett) und den vier alten Kennfarben.
+  // hell 0.3 -> 0.5 (T18): der Kontrast-Bake dunkelt die Tunika-Basis,
+  // mit 0.3 las sich das Zinnober auf Spielzoom wieder als Braun.
   carrier: { sets:['walk','idle','trag','flee'], ziel:[201,108,46],  // Zinnober-Orange (haeufigste Figur)
-             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.3, kopfSchutz:true },
+             fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.5, kopfSchutz:true },
   farm:    { sets:['walk','idle','atk'], ziel:[58,132,120],         // Petrol - NICHT gruen: der Bauer steht auf gruener Wiese, Wiesengruen war Tarnfarbe (Sichtpruefung)
              fenster:{h0:18,h1:52, s0:0.15,s1:1, l0:22,l1:165}, hell:0.25, kopfSchutz:true },
   worker:  { sets:['walk','idle'], ziel:[190,172,138],               // helles Leinen
