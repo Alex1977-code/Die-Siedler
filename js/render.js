@@ -11735,8 +11735,15 @@ export class Renderer {
           g.drawImage(gemalt, x-ww/2, y-hh+8+luft, ww, hh);
           g.globalAlpha=1;
         }
-        // Glutschein – nur ohne gemaltes Brandblatt, sonst doppeltes Feuer
-        if(heat>0 && !gemalt){
+        // Glutschein – nur ohne gemaltes Brandblatt, sonst doppeltes Feuer.
+        // AUSNAHME (T19-Audit): drei Blaetter zeigen in Phase 1 ein voellig
+        // INTAKTES Gebaeude (butcher, mint - die Muenzerei sogar wohnlich
+        // beleuchtet - und die mine-Serie). Dort wirkte der Brandbeginn wie
+        // "nichts passiert"; die prozeduralen Flammen laufen deshalb in
+        // Phase 1 zusaetzlich ueber das gemalte Blatt.
+        const nackt = gemalt && bPh===1 &&
+          (bKey==='fx_burn_butcher' || bKey==='fx_burn_mint' || bKey==='fx_burn_mine');
+        if(heat>0 && (!gemalt || nackt)){
           const rad=g.createRadialGradient(x,y-6,2,x,y-6,w+16);
           rad.addColorStop(0,`rgba(255,150,40,${0.26*heat})`);
           rad.addColorStop(1,'rgba(255,120,30,0)');
