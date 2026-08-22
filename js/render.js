@@ -1599,16 +1599,6 @@ export class Renderer {
           const PAL=this.rockPal();
           const [hlo,hhi]=this.massifHiLo();
           const spanH=(hhi-hlo)||1;
-          // Umbau 2.5 (Gebirge-Papier): das Hoehenfeld wird VOR der
-          // Schattierung terrassiert – NUR fuer den Massiv-Pass, reine
-          // Zeichensache (m.hgt und damit Geometrie/Spiellogik unveraendert).
-          // Formel aus dem Papier: Rauschen addieren (damit die Stufenkanten
-          // nicht dem Gitter folgen), floor + smoothstep(0.72..1.0) auf den
-          // Nachkommateil, Mischung 0.7. step=1.9 entspricht ~3.5 der
-          // 0.55er-Hoehenstufen, auf die der Kartengenerator Fels einrastet.
-          // Ergebnis: breite Plateaus und steile Stufen, die 2.4 automatisch
-          // als Wand zeichnet.
-          const TSTEP=1.9;
           const smT=(u)=> u<=0?0 : u>=1?1 : u*u*(3-2*u);
           const tvv=(xx,yy)=>hash01((Math.imul(xx,73856093)^Math.imul(yy,19349663)^0x7a3b)|0);
           const tnoise=(X,Y)=>{
@@ -1618,40 +1608,22 @@ export class Renderer {
             return (tvv(x2,y2)*(1-fx)+tvv(x2+1,y2)*fx)*(1-fy)
                  + (tvv(x2,y2+1)*(1-fx)+tvv(x2+1,y2+1)*fx)*fy;
           };
+          // T20 GEOMETRIE-TREUE: hgtT ist wieder die ECHTE Hoehe m.hgt.
+          // Die Zeichen-Terrassierung (Rauschen + floor/smoothstep auf
+          // TSTEP=1.9, Umbau 2.5) ist raus: sie erfand Stufen und Waende,
+          // die es in der Geometrie nicht gibt - Figuren liefen "wie ueber
+          // eine Platte" durch gemalte Kanten, und die Wandvorhaenge der
+          // erfundenen Stufen lagen als Schmutzschlieren auf der
+          // Hochflaeche (Nutzerfoto). Das Bergwerks-Glaetten entfaellt
+          // mit: ohne erfundene Kanten steht die Mine nie quer ueber einer.
+          // Die Funktion (samt Cache) bleibt als EINZIGE Hoehenquelle des
+          // Passes stehen, damit alle Leser (Gradient, Steilheit, Bruch,
+          // Schlagschatten, Firn) automatisch der echten Karte folgen.
           const hTc=new Map();
           const hgtT=(q)=>{
             let v=hTc.get(q);
             if(v!==undefined) return v;
-            const h9=m.hgt[q]+liftOf(q);   // G1: Anhebung geht in die Zeichnung ein
-            if(!isMassif(q)) v=h9;      // Umland bleibt unangetastet
-            else {
-              const X9=m.X(q), Y9=m.Y(q);
-              // Nutzer-Leitlinie B ("die Felsen sehen wie grosse TREPPEN
-              // aus"): drei Stoerungen brechen den gleichmaessigen
-              // Terrassen-Rhythmus.
-              // 1) WARP (langsame Verschiebung): Stufenkanten wandern
-              //    seitlich und verschmelzen stellenweise.
-              // 2) KLUFT (vor allem laengs X laufendes Rauschen):
-              //    senkrechte Phasenspruenge zerschneiden die
-              //    waagerechten Baender in Sporne.
-              // 3) MISCHUNG 0.45..0.85 statt fest 0.7: der Terrassierungs-
-              //    grad schwankt – zwischen harten Stufen liegen gewoelbte
-              //    Kuppen ganz ohne Band.
-              const hIn=h9+(tnoise(X9,Y9)-0.5)*TSTEP*0.4
-                        +(tnoise(X9*0.34+53,Y9*0.34+17)-0.5)*TSTEP*0.9
-                        +(tnoise(X9*1.15+211,Y9*0.27+97)-0.5)*TSTEP*0.55;
-              const t9=hIn/TSTEP, f9=t9-Math.floor(t9);
-              const mix9=0.45+tnoise(X9*0.22+139,Y9*0.22+71)*0.40;
-              v=h9*(1-mix9)+(Math.floor(t9)+smT((f9-0.72)/0.28))*TSTEP*mix9;
-              // Bergwerks-Umfeld glaetten: die Mine steht nie quer ueber
-              // einer gemalten Terrassenkante (Nutzerfoto IMG_7989)
-              if(mineNodes.size){
-                let mf=1;
-                if(mineNodes.has(q)) mf=0;
-                else { for(const b9 of m.nbs(q)) if(mineNodes.has(b9)){ mf=0.3; break; } }
-                if(mf<1) v=h9*(1-mf)+v*mf;
-              }
-            }
+            v=m.hgt[q];
             hTc.set(q,v);
             return v;
           };
@@ -1799,8 +1771,7 @@ export class Renderer {
           };
           // Höhenband-Faktoren (Fuß dunkler/wärmer, Gipfel fahler/kühler) -
           // seit Umbau 2.1 STETIG verlaufen statt in Stufen; die Mischung
-          // übernimmt colAt() im Füllpass. Die Facettenstufe fuer Fugen und
-          // Kantenlicht liefert seit Umbau 4.0 facetShade() als t3.qs.
+          // übernimmt colAt() im Füllpass.
           const FB=[0.88,0.94,1.0,1.05,1.09];
           const kalt=[214,216,222];      // Gipfelhauch, deutlich weniger blau
           const warmOnly=(this.theme==='vulkan'||this.theme==='wueste');
@@ -1844,14 +1815,25 @@ export class Renderer {
               if(L9>0) v[1]-=L9*HSCALE;   // G1: gezeichnete Anhebung
               else if(!isMassif(q)){
                 // Zeichnungs-Rueckzug (Kritik G4a): Wiesen-Ecken gemischter
-                // Facetten ruecken ~1/3 zur Felsseite – der gemalte Fels
-                // uebergreift die Logik um <0.5 Knoten, Baeume der
-                // Nachbarwiese stehen frei statt mitten auf dem Band
+                // Facetten ruecken zur Felsseite – der gemalte Fels
+                // uebergreift die Logik weniger, Baeume der Nachbarwiese
+                // stehen frei statt mitten auf dem Band.
+                // T20: 0.34 -> 0.48. Ohne die Zeichen-Anhebung stand an
+                // NIEDRIGEN Raendern die rohe Netz-Silhouette als
+                // regelmaessiger 40-px-Saegezahn im Bild (diag_rand_r3);
+                // kuerzere Zaehne plus tiefere zackW-Fransen und das
+                // Geroellband brechen den Rhythmus.
                 let ax9=0, ay9=0, n9=0;
                 for(const b9 of m.nbs(q)) if(isMassif(b9)){
                   const P9=m.worldPos(b9); ax9+=P9[0]; ay9+=P9[1]; n9++;
                 }
-                if(n9){ v[0]+=(ax9/n9-v[0])*0.34; v[1]+=(ay9/n9-v[1])*0.34; }
+                // WASSER-Ecken noch staerker (0.62): die nr2-Dreiecke am
+                // Ufer stiessen sonst als grosse Felspyramiden bis zur
+                // Wasser-Knotenmitte in den See (r7-Beleg bergwerk_lang);
+                // die geschrumpften Wasserzellen (rf 0.62) und das
+                // Felsufer kleiden die kuerzere Naht.
+                const zieh=(m.terr[q]===TER.WATER)? 0.62 : 0.48;
+                if(n9){ v[0]+=(ax9/n9-v[0])*zieh; v[1]+=(ay9/n9-v[1])*zieh; }
               }
               wp.set(q,v);
             }
@@ -1880,10 +1862,37 @@ export class Renderer {
               const hmax=Math.max(hE(a2),hE(b2),hE(c2));
               const hmin=Math.min(hE(a2),hE(b2),hE(c2));
               const rq=isMassif(a2)? a2 : isMassif(b2)? b2 : c2;
-              // an ANGEHOBENEN Raendern (kleine Massive) grosszuegiger:
-              // sonst bleiben Luecken zwischen den Wandzaehnen der Suedkante
-              const thr9=Math.min(1.15, 0.55+relEffOf(rq)*0.28-(liftOf(rq)>0.25?0.3:0));
-              if(hmax-hmin<Math.max(0.5,thr9)) return;
+              // T20: Schwelle deutlich gesenkt. Sie war auf die Anhebungs-
+              // Aera kalibriert (0.55+rel*0.28); mit ECHTEN Hoehen fielen
+              // an niedrigen Abbruchkanten die Wiesen-Wedel-Dreiecke
+              // zwischen den Zaehnen heraus - die Grenze stand als
+              // regelmaessiger 40-px-Saegezahn im Bild (diag_rand_r3/r4).
+              // Ab 0.42 Echtabfall gehoert das Dreieck dem Fels; den
+              // Uebergriff in die Wiese begrenzt der 0.48-Rueckzug der
+              // Wiesen-Ecken (pos), den Rand fransen zackW und Geroellband.
+              // (Erster Wurf 0.42+rel*0.10 war noch zu hoch: die Wedel an
+              //  der gruen-12-Suedkante fallen mit 0.40-0.50 Echtabfall
+              //  weiter heraus, r5-Beleg. Fest 0.38 nimmt sie mit; die
+              //  Hoehenstufen des Generators liegen bei 0.55, sanftes
+              //  Wiesenrelief bleibt mit <0.35 draussen.)
+              // AUSNAHME WASSER/LAVA-Ecken: dort gilt die ALTE relative
+              // Schwelle (0.55+rel*0.28, wie vor T20). Der Wasserspiegel
+              // liegt fest bei -0.1, jede Uferkante ueberspringt 0.38 -
+              // mit der niedrigen Schwelle frass sich der Fels als harte
+              // Dreieckszaehne in den See (r6-Beleg bergsee_12). Ein
+              // pauschales 1.15 war die Ueberkorrektur: es legte auch
+              // mittelhohe Uferdreiecke frei, deren dunkle Gouraud-Basis
+              // dann als eckige Flecken durchs halbtransparente Wasser
+              // schien (r6-Beleg lava_7).
+              let thr9=0.38;
+              for(const q9 of [a2,b2,c2]){
+                const t9=m.terr[q9];
+                if(!isMassif(q9) && (t9===TER.WATER||t9===TER.LAVA)){
+                  thr9=Math.min(1.15, 0.55+relEffOf(rq)*0.28);
+                  break;
+                }
+              }
+              if(hmax-hmin<thr9) return;
             }
             let A=pos(a2), B=pos(b2), C=pos(c2);
             // EINHEITLICHER UMLAUFSINN (v101). Der Massiv-Beschnitt ist EIN
@@ -1911,10 +1920,7 @@ export class Renderer {
             const blk=blockOfXY(
               (m.X(a2)+((m.Y(a2)&1)*0.5)+m.X(b2)+((m.Y(b2)&1)*0.5)+m.X(c2)+((m.Y(c2)&1)*0.5))/3,
               (m.Y(a2)+m.Y(b2)+m.Y(c2))/3);
-            // Die frühere Blockton-Hilfsstufe (ci = qi*5+band) ist mit Umbau
-            // 4.0 entfallen: die Facettenstufe kommt jetzt aus facetShade()
-            // im Füllpass und steht als t3.qs bereit; Fugen und Kantenlicht
-            // lesen diese. Von der alten Rechnung bleibt nur, was die
+            // Von der alten Blockton-Rechnung bleibt nur, was die
             // WANDERKENNUNG braucht.
             const ga=gradAt(a2), gb=gradAt(b2), gc=gradAt(c2);
             // Hohe Absturzwände (stark gestreckte Dreiecke) bleiben im
@@ -1940,7 +1946,15 @@ export class Renderer {
             // Wandgrad wf (smoothstep um die alte Schwelle); Deckel und
             // Textur skalieren damit, wl bleibt als Bool fuer die Fugen.
             const wRatio=spanY/(ROWH*Math.min(1.7, 0.95+relF*0.35));
-            const wallF= gyM<0? smT((wRatio-0.72)/0.62) : 0;
+            // T20: auch SEITENFLANKEN (Ost/West, gyM um 0) sind Waende.
+            // Die alte Bedingung gyM<0 (nur talseitig) stammt aus der
+            // Anhebungs-Aera; ohne sie standen die hohen schmalen
+            // Plateauzungen als "durchscheinende Schleier" im Bild, weil
+            // ihre gestreckten Seitendreiecke wie normale Flaeche gefuellt
+            // wurden (diag_klein_z22, Knoten 61/40: 6.2er-Grat in 2.5er-
+            // Umgebung). Nur die klare RUECKSEITE (gyM deutlich positiv)
+            // bleibt Silhouette ohne Wandbehandlung.
+            const wallF= gyM<0.6? smT((wRatio-0.72)/0.62) : 0;
             const wall9=wallF>0.5;
             // Schwerpunkt fürs gerichtete Kantenlicht (Pass 4): die Licht-
             // kante liegt auf der SONNENSEITE der helleren Platte.
@@ -1999,6 +2013,9 @@ export class Renderer {
               let yy=-1e9;
               for(const q2 of m.nbs(q)){
                 if(isMassif(q2)) continue;
+                // T20: kartennoerdliche Nachbarn sind Rueckseite - siehe
+                // fussY im Flanken-Pass (graue Winterplatte)
+                if(m.Y(q2)<m.Y(q)) continue;
                 const y2=m.worldPos(q2)[1];
                 if(y2>yy) yy=y2;
               }
@@ -2093,15 +2110,18 @@ export class Renderer {
               const U9= e.u<e.v? P1 : P2, V9= e.u<e.v? P2 : P1;
               const ex9=V9[0]-U9[0], ey9=V9[1]-U9[1];
               const el9=Math.hypot(ex9,ey9)||1;
-              // 2 Punkte auf kurzen, 3 auf langen Kanten; Tiefe 1.5..7.5 px
-              // nach innen, je Punkt eigen gehasht - harte Zaehne statt
-              // paralleler Einrueckung. Ein Punkt darf flach bleiben (~0).
-              const nz9=el9>56? 3 : 2;
+              // T20 (Architektur D): tiefere, unregelmaessigere Fransen.
+              // Vorher 2-3 Kerben von 1,5..7,5 px - im Handyfoto blieb die
+              // Grenze trotzdem eine glatte Bogenlinie. Jetzt 3-4 Kerben
+              // von 6..14 px: je Grenzkante eine deterministisch
+              // verwackelte Felszunge, die die Wiese darunter freilegt.
+              // Ein Punkt darf weiter flach bleiben (Zahnspitze aussen).
+              const nz9=el9>56? 4 : 3;
               const pts=[];
               for(let k9=1;k9<=nz9;k9++){
                 const t9=k9/(nz9+1)+(hash01(kk*17+k9*5)-0.5)*0.14;
-                let d9=2.0+hash01(kk*23+k9*11)*7.0;
-                if(hash01(kk*41+k9*13)<0.30) d9*=0.15;   // Zahnspitze bleibt aussen
+                let d9=6.0+hash01(kk*23+k9*11)*8.0;
+                if(hash01(kk*41+k9*13)<0.30) d9*=0.12;   // Zahnspitze bleibt aussen
                 pts.push([U9[0]+ex9*t9-nx9*d9, U9[1]+ey9*t9-ny9*d9]);
               }
               zackW.set(kk,pts);
@@ -2179,53 +2199,19 @@ export class Renderer {
               sg2.globalCompositeOperation='source-over';
               sg2.clearRect(0,0,w,h);
               sg2.save(); sg2.translate(-c.ox,-c.oy);
-              // Umbau 4.0 (Auftrag 1.4 / 2.3-1): QUANTISIERTE FACETTEN-
-              // SCHATTIERUNG. Die Vorlage aus dem Auftrag verlangt den
-              // kantig-facettierten Reliefkarten-Look ausdruecklich; weiches
-              // Gouraud zerstoert ihn. Zurueck kommt also die Quantisierung –
-              // aber an der richtigen Stelle:
-              //   FRUEHER (bis v81, wieder verworfen): je ECKE quantisiert und
-              //   dann interpoliert. Das ergab Baender, die exakt auf den
-              //   Dreieckskanten umsprangen, also Hoehenlinien statt Facetten.
-              //   JETZT: EIN Wert je DREIECK, flach gefuellt. Das IST die
-              //   Facette – ein Sprung an der Dreieckskante ist hier kein
-              //   Fehler, sondern das gesuchte Merkmal.
-              // Die Flaechennormale kommt aus den GEMITTELTEN ECKGRADIENTEN,
-              // nicht aus der echten Dreiecksnormalen: auf dem versetzten
-              // Gitter kippen Auf- und Ab-Dreiecke einer Wand abwechselnd nach
-              // Ost/West, echte Normalen ergaeben einen hell/dunklen
-              // Reissverschluss. Auf- und Ab-Dreieck teilen sich zwei der drei
-              // Ecken, ueber die Mittelung liegen ihre Stufen daher hoechstens
-              // eine auseinander (gemessen: 91 % der Nachbarpaare gleich oder
-              // eine Stufe).
-              // Der Zusatzauftrag ("Flaechenkacheln flach, Licht macht die
-              // Engine") macht diese Stufung zum ALLEINIGEN Lichtgeber der
-              // Flaeche. Sie ist deshalb kraeftiger ausgelegt als die alte
-              // Gouraud-Fassung: Lambert-Ausschlag 0.50 -> 0.62, lokaler
-              // Hanganteil 0.14 -> 0.30.
+              // T20: Die Quantisierungs-Maschinerie (NQ-Stufen, qStep,
+              // Facettenstufe t3.qs) ist mit dem alten Fugen-/Kantenlicht-
+              // Netz entfallen - die Schattierung ist reines Gouraud aus dem
+              // knotenweisen Relieflicht (eckShade unten), Kanten zeichnen
+              // Plattennetz (2c), Strichlagen (3b) und Wandkanten (4).
               const lerp5=(a9,b9,t9)=>a9+(b9-a9)*t9;
               // Sonnenrichtung: EINE feste Quelle aus Nordwest, unveraenderlich
               // (Auftrag 1.4). Die Gewichte sind die im ganzen Spiel benutzten –
               // staerker aus West als aus Nord, passend zur Projektion.
               const LX=0.75, LY=0.5;
-              // 10 Helligkeitsstufen (Auftrag: 8-12). SLO/SHI sind zugleich die
-              // Enden der Rampe, die colAt auf die Palette abbildet: SLO trifft
-              // PAL[0], SHI trifft PAL[4]. Gemessen am Endbild sackt die
-              // Schattenseite damit auf 36 % der Sonnenseite ab (Auftrag: ~35 %).
-              // Nutzerurteil zu v92 ("Kacheloptik? wollten wir nicht etwas
-              // gleichmaessiges"): mit zehn Stufen ist ein Schritt 0,070
-              // breit. Auf den grossen ruhigen Hochflaechen des Massivs
-              // liegen dadurch ganze Plattenfelder auf EINEM Wert, und die
-              // Facetten stehen als grosse flache Vielecke im Bild - genau
-              // die Kacheloptik. 24 Stufen (Schritt 0,029) halten den
-              // gestuften Charakter an den Kanten, lesen sich auf der
-              // Flaeche aber als gleichmaessige Modellierung.
-              const NQ=24, SLO=0.205, SHI=0.905;
-              const qStep=(s9)=>{
-                const t9=(s9-SLO)/(SHI-SLO);
-                const k9=Math.max(0,Math.min(NQ-1,Math.floor(t9*NQ)));
-                return SLO+(k9+0.5)/NQ*(SHI-SLO);
-              };
+              // SLO/SHI: Enden der Rampe, die colAt auf die Palette abbildet
+              // (SLO trifft PAL[0], SHI trifft PAL[4]).
+              const SLO=0.205, SHI=0.905;
               const colAt=(s9,u9)=>{
                 const p9=Math.max(0,Math.min(3.999,(s9-SLO)/(SHI-SLO)*4));
                 const i9=p9|0, f9=p9-i9, P0=PAL[i9], P1=PAL[Math.min(4,i9+1)];
@@ -2310,7 +2296,7 @@ export class Renderer {
               // gefuelltes Dreieck ist also eine grosse Flaeche mit harter
               // Kante - und ueber ein Massiv gelegt ergibt das genau die
               // Kacheloptik, die weg soll. Die Stufung ist deshalb wieder
-              // heraus; sie lebt nur noch als t3.qs fuer die Fugen weiter.
+              // heraus (seit T20 restlos - auch die t3.qs-Fugenstufe).
               //
               // Der Wert haengt jetzt am KNOTEN und wird im Dreieck linear
               // interpoliert. Weil benachbarte Dreiecke ihre Ecken teilen,
@@ -2318,23 +2304,74 @@ export class Renderer {
               // Die Beitraege sind dieselben wie in der Facettenfassung:
               // Grossform (ueber zwei Knotenringe geglaettet), lokaler Hang,
               // Hoehenlage im Massiv, Woelbung, Gratlicht, Tonfelder.
+              // T20 RELIEF-LICHT: je Knoten eine ECHTE Einheitsnormale aus
+              // zentralen Differenzen (dx=TILE, dy=ROWH, dz=HSCALE), dann
+              // Lambert gegen die feste Sonne aus Nordwest-oben plus
+              // Ambient. gradAt liefert [Σdh*ddx, Σdh*ddy] in Knotenmass;
+              // fuer ein lineares Feld h=a*x+b*y gilt Σddx²=3, Σddy²=4 -
+              // daraus die Steigungen in Weltpixeln:
+              //   sx = (gx/3)*HSCALE/TILE,  sy = (gy/4)*HSCALE/ROWH.
+              // Sonne staerker aus West als aus Nord (Spielkonvention
+              // LX/LY), Hoehe so gewaehlt, dass ebener Fels bei ~0.71
+              // Lambert liegt (Mittelton) und Schattenflanken auf den
+              // Palettenboden absacken. Dazu der Kruemmungsterm (curvOf =
+              // hgt minus Nachbarmittel): Grate bekommen Kantenlicht,
+              // Mulden Eigenschatten. Alles auf der ECHTEN Hoehenkarte -
+              // die Hochflaeche liest sich als gewoelbtes Relief, nicht
+              // als Platte; erfundene Terrassenbaender gibt es nicht mehr.
+              const SUNZ=0.95;
+              const SLEN=Math.hypot(LX,LY,SUNZ);
               const vsh=new Map();
               const eckShade=(q)=>{
                 let v=vsh.get(q);
                 if(v!==undefined) return v;
                 const gv=gradAt(q), gb2=gradBigAt(q);
-                const dB=(gb2[0]*LX+gb2[1]*LY)*0.62;
-                const dL=(gv[0]*LX+gv[1]*LY)*0.30;
-                const d9=Math.max(-1,Math.min(1,dB+dL));
-                v=0.55+0.62*d9;
-                v+=(uAt(q)-0.44)*0.44;
-                // G5: Woelbungsanteil angehoben (0.5/0.95 -> 0.62/1.15) -
-                // Grate und Kessel setzen sich staerker von der Flaeche ab
+                // lokale Neigung in Weltpixeln (echte Geometrie)
+                const sx=(gv[0]/3)*(HSCALE/TILE);
+                // NORD-DAEMPFUNG (sy>0 = nordgerichteter Hang): rein
+                // physikalisch faengt ein Nordhang die NW-Sonne voll - in
+                // DIESER Projektion sind Nordhaenge aber die bildschirm-
+                // gestreckten RUECKSEITEN, die die Wiese dahinter verdecken.
+                // Voll beleuchtet standen sie als grelle fahle Dreiecke
+                // ueber dem Massivrand (r6-Beleg klein_12). Der Anteil wird
+                // auf 35 % gedimmt - am KNOTEN, nicht am Dreieck, damit
+                // keine Facettenspruenge entstehen.
+                const sy0=(gv[1]/4)*(HSCALE/ROWH);
+                const sy=sy0>0? sy0*0.35 : sy0;
+                const nl=Math.hypot(sx,sy0,1);
+                // Lambert = N*S mit N=(-sx,-sy,1)/nl, S=(-LX,-LY,SUNZ)/SLEN
+                const lam=Math.max(0,(sx*LX+sy*LY+SUNZ)/(nl*SLEN));
+                // Grossform (ueber zwei Ringe gemittelt) bindet die grossen
+                // Sonnen-/Schattenhaenge ueber die Facetten hinweg
+                const sbx=(gb2[0]/3)*(HSCALE/TILE);
+                const sby0=(gb2[1]/4)*(HSCALE/ROWH);
+                const sby=sby0>0? sby0*0.35 : sby0;
+                const nlB=Math.hypot(sbx,sby0,1);
+                const lamB=Math.max(0,(sbx*LX+sby*LY+SUNZ)/(nlB*SLEN));
+                // Rampe so gelegt, dass EBENER Fels (Lambert 0.725) auf dem
+                // Mittelton 0.55 liegt, volle Sonnenflanke (Lambert->1) SHI
+                // erreicht und Schattenflanken zum Palettenboden absacken
+                v=-0.46+1.40*(lam*0.55+lamB*0.45);
+                // Runde 3: Spitzlicht-Deckel fuer voll besonnte STEILflanken
+                // (Westwaende). Ungedeckelt wuschen ihre bildschirm-
+                // gestreckten Dreiecke als grelle fahle Keile ueber die
+                // Nachbarflaechen (diag_keil_r2). Grat-/Tonlicht darf den
+                // Deckel weiter ueberschreiten - nur die reine Flaechen-
+                // helligkeit ist begrenzt.
+                if(v>0.78) v=0.78;
+                v+=(uAt(q)-0.44)*0.30;
+                // Kruemmung: Grat faengt Licht, Mulde verschattet sich
                 const cu=curvOf(q);
-                v+= cu>0? cu*0.62 : cu*1.15;
-                if(cu>0.02 && d9>0.30)
-                  v+=0.14*Math.min(1,(cu-0.02)*10)*Math.min(1,(d9-0.30)*4);
+                v+= cu>0? cu*0.72 : cu*1.25;
+                // helles Gratlicht nur auf sonnenzugewandten Graten
+                if(cu>0.02 && lam>0.74)
+                  v+=0.15*Math.min(1,(cu-0.02)*10)*Math.min(1,(lam-0.74)*8);
                 v+=tonAt(q);
+                // Sicherheitsdeckel: Gratlicht+Tonfeld+Hoehe koennen sich
+                // an Einzelknoten aufsummieren; ueber 0.82 kippte der Ton
+                // ins Kreidige (gemessen ohne sichtbaren Verlust: der
+                // Deckel greift im Normalbild praktisch nie)
+                if(v>0.82) v=0.82;
                 vsh.set(q,v);
                 return v;
               };
@@ -2348,20 +2385,17 @@ export class Renderer {
                 // je Platte die Plattenstruktur auf die ebene Hochflaeche
                 const jb=(hash01(t3.blk*13+7)-0.5)*0.05;
                 let sA=eckShade(t3.qa)+jb, sB=eckShade(t3.qb)+jb, sC=eckShade(t3.qc)+jb;
-                // Absturzwaende bleiben im Halbschatten - WEICH komprimiert,
-                // und seit B6 GRADUELL nach Wandgrad wf statt binaer: an der
-                // Wandkante faellt der Deckel sanft ab, kein Harlekin mehr
-                if(t3.wf>0){
-                  const k0=0.70*t3.wf;             // 0 = kein Deckel, 0.70 = alt (Faktor 0.30)
-                  const cap=(s0)=> s0>0.58? 0.58+(s0-0.58)*(1-k0) : s0;
-                  sA=cap(sA); sB=cap(sB); sC=cap(sC);
-                }
+                // T20: der Wand-Halbschatten-Deckel (Kappung je DREIECK nach
+                // wf) ist raus. Er setzte an einer gemeinsamen Ecke zweier
+                // Dreiecke ZWEI verschiedene Werte - an jeder Wandkante
+                // flackerten die Facetten (r1-Beleg gebirge_58_wand). Das
+                // ECHTE Lambert-Licht ohne Terrassenfiktion stellt
+                // suedseitige Waende von selbst in den Halbschatten.
                 sA=Math.max(SLO,Math.min(SHI,sA));
                 sB=Math.max(SLO,Math.min(SHI,sB));
                 sC=Math.max(SLO,Math.min(SHI,sC));
                 const uA2=uAt(t3.qa), uB2=uAt(t3.qb), uC2=uAt(t3.qc);
-                // Stufe fuer Pass 4 (Fugen/Kantenlicht) aus dem MITTEL
-                t3.qs=Math.round(((sA+sB+sC)/3-SLO)/(SHI-SLO)*NQ-0.5);
+                // (t3.qs entfallen - Pass 4 liest jetzt t3.st aus 3b)
                 const d1x=B[0]-A[0], d1y=B[1]-A[1], f1=sB-sA;
                 const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=sC-sA;
                 const det9=d1x*d2y-d1y*d2x;
@@ -2549,11 +2583,15 @@ export class Renderer {
                   g.moveTo(rand[0][0],rand[0][1]);
                   for(let k=1;k<rand.length;k++) g.lineTo(rand[k][0],rand[k][1]);
                   g.closePath();
+                  // T20: heller Plattenton 0.42 -> 0.20. Ueber echten
+                  // Klippen werden die Voronoi-Zellen vertikal verzerrt;
+                  // die hellen Fuellungen standen dann als durchscheinende
+                  // weisse Schleier-Polygone auf dem Fels (diag_klein_z22).
                   if(dev>0.012){
-                    g.fillStyle='rgba(255,247,232,'+(dev*0.42).toFixed(3)+')';
+                    g.fillStyle='rgba(255,247,232,'+(dev*0.20).toFixed(3)+')';
                     g.fill();
                   } else if(dev<-0.012){
-                    g.fillStyle='rgba(46,39,31,'+((-dev)*0.40).toFixed(3)+')';
+                    g.fillStyle='rgba(46,39,31,'+((-dev)*0.34).toFixed(3)+')';
                     g.fill();
                   }
                   // Lichtkante an der Nordwestseite: Kontur nach unten
@@ -2561,7 +2599,8 @@ export class Renderer {
                   g.save();
                   g.clip();
                   g.translate(1.7,2.2);
-                  g.strokeStyle='rgba(255,250,236,0.10)'; g.lineWidth=2.2;
+                  // T20: 0.10 -> 0.06 (Pflaster-Optik, s. Fugen unten)
+                  g.strokeStyle='rgba(255,250,236,0.06)'; g.lineWidth=2.2;
                   g.stroke();
                   g.restore();
                   // Fugen NUR EINMAL je Nachbarpaar (kanonisch: kleinerer
@@ -2579,13 +2618,12 @@ export class Renderer {
                 }
               }
               if(nFug){
-                g.strokeStyle='rgba('+fugFarbe+',0.09)'; g.lineWidth=6.5;
+                // T20: leiser (0.09/0.20 -> 0.07/0.14). Ohne die dunklen
+                // Terrassen-Vorhaenge darueber las sich das Fugennetz auf
+                // der hellen Hochflaeche als Pflaster (r1-Beleg ueber).
+                g.strokeStyle='rgba('+fugFarbe+',0.07)'; g.lineWidth=6.5;
                 g.stroke(fugenAO);
-                // Die Fuge war der zweite Traeger der Kacheloptik: ein
-                // durchgezogenes Liniennetz ueber die ganze Flaeche. Sie
-                // bleibt als leise Klueftung, zeichnet aber keine Umrisse
-                // mehr.
-                g.strokeStyle='rgba('+fugFarbe+',0.20)'; g.lineWidth=1.7;
+                g.strokeStyle='rgba('+fugFarbe+',0.14)'; g.lineWidth=1.7;
                 g.stroke(fugen);
               }
               g.restore();
@@ -2882,236 +2920,98 @@ export class Renderer {
                 }
               }
             }
-            // 3b) Umbau 2.4 (Gebirge-Papier), Klippenpass: steile Haenge
-            //     zeigen die WANDtextur ter_rock_cliff statt der Draufsicht-
-            //     Lasur. Verankerung sinngemaess zu uvCliff des Papiers:
-            //     horizontal die Welt-x-Achse, vertikal die Welt-y-Achse des
-            //     Bildschirms – die projizierte y-Koordinate enthaelt den
-            //     Hoehenversatz (worldPos zieht hgt*HSCALE ab), an einer Wand
-            //     ist sie also praktisch die Hoehenachse: die Schichtbaender
-            //     liegen waagerecht am Bildschirm und wandern mit der Hoehe.
-            //     cliffMask als smoothstep ueber die terrassierte Steilheit
-            //     (Papier: 0.42-0.62 auf normierter slope; auf die hiesige
-            //     Gradientenmetrik uebertragen: p50~2.0, p75~3.0 der
-            //     Massivknoten -> Fenster 2.0..3.2). Die Maske wird je ECKE
-            //     bestimmt und ueber das Dreieck interpoliert (drei additive
-            //     Alpha-Verlaeufe wie beim Gouraud) – kein hartes Umschalten
-            //     je Dreieck. Wanddreiecke (t3.wl) sind immer Wand.
+            // 3b) T20 STRICHLAGEN STATT WAND-VORHANG (Architektur C).
+            //     Der alte Klippenpass legte die senkrecht gestreckte
+            //     ter_rock_cliff-Kachel per Maske auf alles, was das
+            //     TERRASSIERTE Feld "Wand" nannte. Zwei Folgen, beide vom
+            //     Nutzer moniert: die Kachelkluefte liefen als global
+            //     senkrechte Schmutzschlieren quer ueber die Hochflaeche
+            //     (Handyfoto T20), und die "Waende" sassen an Stellen ohne
+            //     echtes Gefaelle. Jetzt bekommen NUR Dreiecke mit echtem
+            //     Gefaelle gerichtete Strichlagen ENTLANG der projizierten
+            //     Falllinie DES JEWEILIGEN DREIECKS: das Hoehenfeld ist
+            //     ueber dem Bildschirmdreieck linear, sein Gradient in
+            //     Bildschirmkoordinaten (gleiches Gleichungssystem wie im
+            //     Fuellpass) ist also exakt die Falllinie - nichts ist
+            //     global senkrecht, nichts haengt an erfundener Hoehe.
             {
-              // v89b: die Wandkachel laeuft jetzt genauso wie die
-              // Flaechenkacheln ueber felsMaterial() – reine Struktur ohne
-              // eingebackenes Licht, multiplizierend aufgelegt. Solange sie
-              // ihre eigene Beleuchtung mitbrachte, kaempfte diese gegen die
-              // (seit v89 deutlich kraeftigere) Facettenschattierung: ihre
-              // ueber die volle Kachelhoehe laufenden Kluefte standen als
-              // dunkle senkrechte Striche quer ueber der Bergflanke – die
-              // "Farbnasen" aus den Nutzerbildern.
-              const imC=this.felsMaterial('ter_rock_cliff');
-              if(imC){
-                const cmv=new Map();
-                const cmOf=(q)=>{
-                  let v=cmv.get(q);
-                  if(v!==undefined) return v;
-                  // Schwelle RELATIV zum Massiv-Relief (Kritik G1): kleine
-                  // Massive kippen frueher in die Wandtextur
-                  const thrC=Math.max(1.30, Math.min(2.0, relEffOf(q)*0.85));
-                  // Nutzerkritik v84 ("die Textur laesst es wie einen grossen
-                  // Steinhaufen aussehen"): allein die NEIGUNG als Kriterium
-                  // legte die senkrecht gestreckte Wandkachel ueber weite
-                  // Teile des Massivs – auf dem Handybild lief die halbe
-                  // Bergflanke als senkrechte dunkle "Farbnasen" zu. Die
-                  // Kluefte der Wandkachel laufen ueber ihre volle Hoehe;
-                  // auf einer flach geneigten Flaeche werden daraus mehrere
-                  // hundert Weltpixel lange Striche.
-                  // GEMESSEN auf den Massivknoten (zwei Karten, 2671/1383
-                  // Knoten): die alte Maske deckte im Mittel 0,52 der
-                  // Flaeche ab – mehr als die Haelfte des Berges galt als
-                  // "Wand". Ursache: auf dem TERRASSIERTEN Feld betraegt
-                  // der mediane Nachbarsprung schon 1,37 und die mediane
-                  // Steilheit 2,6; beides trennt nichts mehr.
-                  // Zweites, hartes Kriterium ist deshalb der groesste
-                  // Nachbarsprung mit einem Fenster OBERHALB des Uelichen
-                  // (1,55..1,90, also etwa das oberste Fuenftel). Damit
-                  // liegt die Abdeckung bei 0,13-0,22 – die Wandkachel
-                  // sitzt wieder auf den Abbruechen statt auf dem Hang.
-                  // Die eigentlichen Terrassentritte bleiben unabhaengig
-                  // davon Wand (t3.wl weiter unten).
-                  let dr=0;
-                  for(const b9 of m.nbs(q)){
-                    const d9=Math.abs(hgtT(q)-hgtT(b9));
-                    if(d9>dr) dr=d9;
-                  }
-                  v= m.terr[q]===TER.LAVA? 0
-                   : smT((slopeT(q)-thrC)/1.0)*smT((dr-1.55)/0.35);
-                  cmv.set(q,v);
-                  return v;
-                };
-                const mk4=this._maskTmp.getContext('2d');
-                mk4.globalCompositeOperation='source-over';
-                mk4.clearRect(0,0,w,h);
-                mk4.globalCompositeOperation='lighter';
-                mk4.save(); mk4.translate(-c.ox,-c.oy);
-                let anyC=false;
-                for(const t3 of tris){
-                  let ma=cmOf(t3.qa), mb=cmOf(t3.qb), mc=cmOf(t3.qc);
-                  // B6: Wandtextur GRADUELL nach Wandgrad statt binaer -
-                  // sonst traegt an der Wandkante jedes zweite Dreieck
-                  // Mauerwerk und der Nachbar keines (Harlekin)
-                  if(t3.wf>0){
-                    const mW=0.9*t3.wf;
-                    ma=Math.max(ma,mW); mb=Math.max(mb,mW); mc=Math.max(mc,mW);
-                  }
-                  // Rueckseite (Silhouette zur Wiese dahinter): dort keine
-                  // Mauerwerk-Textur – der Rand ist Deckflaeche/Grat
-                  if(t3.gy>0.08){ ma*=0.18; mb*=0.18; mc*=0.18; }
-                  if(ma+mb+mc<0.05) continue;
-                  anyC=true;
-                  const P=[t3.A,t3.B,t3.C], AL=[ma,mb,mc];
-                  const path=()=>{ mk4.beginPath();
-                    mk4.moveTo(P[0][0],P[0][1]); mk4.lineTo(P[1][0],P[1][1]);
-                    mk4.lineTo(P[2][0],P[2][1]); mk4.closePath(); };
-                  let flat=false;
-                  for(let k=0;k<3 && !flat;k++){
-                    const A=P[k], B=P[(k+1)%3], D=P[(k+2)%3];
-                    const ex=D[0]-B[0], ey=D[1]-B[1];
-                    const L9=ex*ex+ey*ey;
-                    if(L9<1e-6){ flat=true; break; }
-                    const t9=((A[0]-B[0])*ex+(A[1]-B[1])*ey)/L9;
-                    const fx=B[0]+ex*t9, fy=B[1]+ey*t9;
-                    if(Math.hypot(A[0]-fx,A[1]-fy)<0.5){ flat=true; break; }
-                    const gr9=mk4.createLinearGradient(fx,fy,A[0],A[1]);
-                    gr9.addColorStop(0,'rgba(255,255,255,0)');
-                    gr9.addColorStop(1,'rgba(255,255,255,'+AL[k].toFixed(3)+')');
-                    mk4.fillStyle=gr9;
-                    path(); mk4.fill();
-                  }
-                  if(flat){
-                    mk4.fillStyle='rgba(255,255,255,'+((AL[0]+AL[1]+AL[2])/3).toFixed(3)+')';
-                    path(); mk4.fill();
+              // Steilgrad je Dreieck: Anteil aus der Bildschirm-Streckung
+              // (wf, echte Absturzwaende) und aus der Knotenneigung slopeN
+              // (35-Grad-Talus = 1.0). Wird an t3 gemerkt - Pass 4 (Wand-
+              // kantenlicht und -fuss) liest denselben Wert.
+              for(const t3 of tris){
+                const sn=(slopeN(t3.qa)+slopeN(t3.qb)+slopeN(t3.qc))/3;
+                t3.st=Math.max(t3.wf, smT((sn-0.72)/0.68));
+              }
+              // T20 Runde 2: Schwelle 0.18 -> 0.32 und GESTRICHELT statt
+              // durchgezogen. Der erste Wurf zog jede Strichlage ueber die
+              // volle Dreieckshoehe; ueber mehrere Wanddreiecke gelesen
+              // ergaben sich 100+ px lange duenne Geraden - "Kratzer"
+              // (r1-Beleg diag_keil). Kurze Teilstriche mit Luecken lesen
+              // sich als Felsklueftung.
+              g.lineCap='butt';
+              for(const t3 of tris){
+                const st=t3.st;
+                if(st<0.32) continue;
+                if(m.terr[t3.qa]===TER.LAVA) continue;
+                // auf der Firndecke keine Strichlagen (Schmutz im Weiss)
+                if(hgtT(t3.qa)>fY(t3.qa)-0.4 && hgtT(t3.qb)>fY(t3.qb)-0.4) continue;
+                const {A,B,C}=t3;
+                const d1x=B[0]-A[0], d1y=B[1]-A[1], f1=hgtT(t3.qb)-hgtT(t3.qa);
+                const d2x=C[0]-A[0], d2y=C[1]-A[1], f2=hgtT(t3.qc)-hgtT(t3.qa);
+                const det9=d1x*d2y-d1y*d2x;
+                if(Math.abs(det9)<1e-6) continue;
+                const hx=(f1*d2y-f2*d1y)/det9, hy=(f2*d1x-f1*d2x)/det9;
+                const hl=Math.hypot(hx,hy);
+                if(hl<1e-5) continue;
+                // Falllinie (hangab) und Quer-Achse in Bildschirmpixeln
+                const fx=-hx/hl, fy=-hy/hl, qx9=-fy, qy9=fx;
+                // Projektionsspannen des Dreiecks auf beide Achsen
+                let pMin=1e9,pMax=-1e9,tMin=1e9,tMax=-1e9;
+                for(const P of [A,B,C]){
+                  const pp=P[0]*qx9+P[1]*qy9, tt=P[0]*fx+P[1]*fy;
+                  if(pp<pMin)pMin=pp; if(pp>pMax)pMax=pp;
+                  if(tt<tMin)tMin=tt; if(tt>tMax)tMax=tt;
+                }
+                const span=pMax-pMin, tspan=tMax-tMin;
+                const nS=Math.max(2,Math.min(7,Math.round(span/6.5)));
+                const seed=(t3.qa*7+t3.qb*13+t3.qc*3)|0;
+                g.save();
+                g.beginPath();
+                g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.lineTo(C[0],C[1]);
+                g.closePath(); g.clip();
+                // GESCHEITERTER VERSUCH (dokumentiert, nicht wiederholen):
+                // ein pauschaler dunkler "Wandschleier" je Steildreieck
+                // (fillRect mit alpha 0.05+0.14*st im Dreiecks-Clip) sollte
+                // die Waende vom hellen Plateau absetzen. Ergebnis war ein
+                // Patchwork heller und dunkler Dreiecke ueber das ganze
+                // Massiv (t20_diag_klein_wand.png) - st streut zwischen
+                // Nachbardreiecken doch zu stark fuer flaechige Fuellungen.
+                // Wand-Absetzung leisten stattdessen Strichlagen, Kanten-
+                // licht/Fusschatten (Pass 4) und das Lambert-Licht selbst.
+                for(let k=0;k<nS;k++){
+                  const h1=hash01(seed+k*17), h2=hash01(seed*3+k*29);
+                  const po=pMin+(k+0.2+h1*0.6)*span/nS;
+                  // leichte Richtungsstreuung: Handschrift statt Raster
+                  const ja=(h2-0.5)*0.14;
+                  const fxk=fx+qx9*ja, fyk=fy+qy9*ja;
+                  const dunkel=h1<0.72;
+                  g.strokeStyle= dunkel
+                    ? 'rgba(42,35,28,'+(0.06+0.16*st*(0.5+h2*0.5)).toFixed(3)+')'
+                    : 'rgba(255,246,228,'+(0.04+0.08*st*(0.5+h2*0.5)).toFixed(3)+')';
+                  g.lineWidth= dunkel? 1.1+h2*1.3 : 0.9+h2*0.8;
+                  // 1-2 Teilstriche mit Luecke, je 30-60 % der Fallhoehe
+                  const nT=h2>0.55? 2 : 1;
+                  for(let s9=0;s9<nT;s9++){
+                    const t0=tMin+tspan*(hash01(seed*7+k*31+s9*11)*0.55);
+                    const t1=t0+tspan*(0.30+hash01(seed*11+k*13+s9*5)*0.30);
+                    g.beginPath();
+                    g.moveTo(qx9*po+fxk*t0, qy9*po+fyk*t0);
+                    g.lineTo(qx9*po+fxk*t1, qy9*po+fyk*t1);
+                    g.stroke();
                   }
                 }
-                mk4.restore();
-                mk4.globalCompositeOperation='source-over';
-                if(anyC && mbw>0 && mbh>0){
-                  const tex4=this._texTmp.getContext('2d');
-                  tex4.globalCompositeOperation='source-over';
-                  tex4.clearRect(0,0,w,h);
-                  // alles auf das Massiv-Hüllrechteck beschneiden (G3-Budget)
-                  tex4.save();
-                  tex4.beginPath(); tex4.rect(mbx0,mby0,mbw,mbh); tex4.clip();
-                  tex4.save(); tex4.translate(-c.ox,-c.oy);
-                  // Bandmassstab: die Wandkachel ist 1024x1536 (Stilguide
-                  // 11.11) und traegt Bloecke von rund 135x140 Bildpixeln.
-                  // scX=0.225 -> eine Saeule ist 30 Weltpixel breit, gut ein
-                  // halber Knotenabstand; ueber eine typische Wand laufen
-                  // damit 3-5 Saeulen. 0.225 ist ein krummes Verhaeltnis zu
-                  // TILE/ROWH – kein Einrasten am Gitter.
-                  //
-                  // Stilguide 11.11: cliffScale.y = cliffScale.x * 1.5 / 0.64
-                  // (Seitenverhaeltnis x Stauchung bei 40 Grad) = 2.344.
-                  // Die Wandkachel ist mit 1024x1536 nicht quadratisch, ihre
-                  // Bloecke sind im Bild rund 135x140 px, also fast quadrat-
-                  // isch. Uniform gezeichnet stehen auf dem Schirm ebenso
-                  // quadratische Bloecke – und damit fuehrt die waagerechte
-                  // SCHICHTUNG, was 11.8 ausdruecklich verbietet
-                  // ("Wandtextur wie Trockenmauerwerk: Schichtung fuehrt
-                  // statt zu folgen -> Baender zuruecknehmen, Saeulen
-                  // dominieren lassen"). Mit der Formel wird die Kachel in
-                  // der Hoehe gestreckt: aus 30x31 px Bloecken werden
-                  // 30x74 px SAEULEN, die Baender treten zurueck. Das
-                  // arbeitet zugleich gegen Leitlinie B – waagerechte
-                  // Baender auf jeder Terrassenstufe lasen sich als Treppe.
-                  // v85: 1.75 statt 2.344. Mit der vollen Stauchungsformel
-                  // wurden aus den senkrechten Klüften der Wandkachel 74 px
-                  // lange Säulen; wo die Maske sie auf eine flach geneigte
-                  // Fläche legte, liefen sie als dunkle FARBNASEN über den
-                  // halben Berg (Handybild v84). Kürzere Säulen bleiben als
-                  // Klüftung lesbar, ohne zu verlaufen.
-                  const CST=1.75;
-                  // v238: die Massstaebe oben sind auf die 135-px-QUADER der
-                  // alten Mauerkachel gemessen ("3-5 Saeulen ueber eine
-                  // typische Wand"). ter_rock_wall traegt stattdessen
-                  // gemalte SAEULEN von 100-180 px Breite - beim alten
-                  // Massstab wurden daraus 19-34 Weltpixel schmale Streifen,
-                  // 6-10 je Wand: das Bild kippte in duenne Tropfbahnen
-                  // (w1-wand-777). Faktor 1.9 stellt die gemessene
-                  // Saeulenzahl (3-5) wieder her; die krummen Verhaeltnisse
-                  // der Lagen bleiben.
-                  const WSC=this.asset('ter_rock_wall')? 1.9 : 1.0;
-                  const patC=patOf('ter_rock_cliff',0.19*WSC,0,0,0,imC,0.19*WSC*CST);
-                  tex4.fillStyle=patC||'#8a7e68';
-                  tex4.fillRect(c.ox,c.oy,w,h);
-                  // Leitlinie B (keine gleichmaessigen TREPPEN): jedes WAND-
-                  // SEGMENT bekommt deterministisch eine eigene Lage aus
-                  // Kachel (cliff/cliff2), Massstab und PHASE. Damit laufen
-                  // die Schichtbaender nicht mehr im selben Takt quer ueber
-                  // alle Terrassenstufen. Vier Toepfe, der erste ist die
-                  // Grundfuellung oben – es bleiben drei Zusatzlagen.
-                  // v85: JEDER Block bekommt eine eigene Lage – vorher lief
-                  // ein knappes Drittel der Blöcke ungebrochen in der
-                  // Grundfüllung mit, und die Klüfte der Wandkachel (sie
-                  // laufen über deren volle Höhe, weltverankert also über
-                  // 300-500 Weltpixel) zogen sich als durchgehende dunkle
-                  // Striche über mehrere Knotenreihen. Mit fünf Phasenlagen
-                  // bricht die Klüftung alle 2,6 Knoten (Blockmaß BQ).
-                  // v238 ("LAGEN-Patchwork"): liegt ter_rock_wall im Paket,
-                  // laufen ALLE fuenf Lagen ueber DIESELBE Wandkachel (nur
-                  // Massstab/Phase wechseln). Vorher mischten die Toepfe
-                  // zwei MATERIALCHARAKTERE: imC (Wand -> Saeulen) gegen
-                  // imC2 (wandAusMauer-verwuerfeltes MAUERWERK). Im
-                  // Differenzbild (diag-diff3b) stand das als Flickenteppich
-                  // aus Ziegel-Feldern neben Rillen-Feldern, je Blockhash
-                  // wechselnd - das eigentliche "Patchwork". Nur wenn die
-                  // Wandkachel fehlt, bleibt die alte Mischung als Rueckfall.
-                  const imC2=this.asset('ter_rock_wall')? imC
-                    : (this.felsMaterial('ter_rock_cliff2')||imC);
-                  const LAGEN=[
-                    // [Bild, scX, tx, ty]
-                    [imC,  0.237,  37,  61],
-                    [imC2, 0.190,   0,   0],
-                    [imC2, 0.221,  91,  23],
-                    [imC,  0.205, 143, 117],
-                    [imC2, 0.248,  61, 189],
-                  ];
-                  // EIN Durchlauf sortiert die Dreiecke in die Toepfe, danach
-                  // je Topf ein Beschnitt-Zug (G3-Budget)
-                  const tb9=[[],[],[],[],[]];
-                  for(const t3 of tris)
-                    tb9[(hash01(t3.blk*29+3)*5)|0].push(t3);
-                  for(let k9=0;k9<5;k9++){
-                    if(!tb9[k9].length) continue;
-                    const L=LAGEN[k9];
-                    const pL=patOf(L[0]===imC?'ter_rock_cliff':'ter_rock_cliff2',
-                                   L[1]*WSC,0,L[2],L[3],L[0],L[1]*WSC*CST);
-                    if(!pL) continue;
-                    tex4.save();
-                    tex4.beginPath();
-                    for(const t3 of tb9[k9]){
-                      tex4.moveTo(t3.A[0],t3.A[1]); tex4.lineTo(t3.B[0],t3.B[1]);
-                      tex4.lineTo(t3.C[0],t3.C[1]); tex4.closePath();
-                    }
-                    tex4.clip();
-                    tex4.fillStyle=pL;
-                    tex4.fillRect(c.ox,c.oy,w,h);
-                    tex4.restore();
-                  }
-                  tex4.restore();
-                  // Der frueher noetige Weichlicht- und 'color'-Zug entfaellt:
-                  // er war die Reparatur der EIGENFARBE und EIGENBELEUCHTUNG
-                  // der Kachel. felsMaterial() liefert eine reine Graustruktur
-                  // um 236; multipliziert traegt sie nur noch Klueftung, die
-                  // Farbe und das Licht kommen aus dem Fuellpass darunter.
-                  tex4.globalCompositeOperation='destination-in';
-                  tex4.drawImage(this._maskTmp,0,0,w,h);
-                  tex4.globalCompositeOperation='source-over';
-                  tex4.restore();   // Hüllrechteck-Clip
-                  g.globalCompositeOperation='multiply';
-                  g.globalAlpha=0.85;
-                  g.drawImage(this._texTmp, mbx0*S, mby0*S, mbw*S, mbh*S,
-                              c.ox+mbx0, c.oy+mby0, mbw, mbh);
-                  g.globalAlpha=1;
-                  g.globalCompositeOperation='source-over';
-                }
+                g.restore();
               }
             }
             // 3c) GROSSFORM ÜBER DER TEXTUR
@@ -3236,99 +3136,93 @@ export class Renderer {
               g.globalCompositeOperation='source-over';
               g.restore();
             }
-            // 4) Fugen + Kantenlicht, GERICHTET statt Drahtgitter: jede
-            //    Blockfuge bekommt einen breiten, sehr weichen AO-Saum und
-            //    eine schlanke Fuge, deren Kraft mit dem TONSPRUNG wächst.
-            //    Das helle Kantenlicht liegt nur noch auf SONNENZUGEWANDTEN
-            //    Kanten der jeweils helleren Platte (Referenzen: die Platten
-            //    sind an ihrer Nordwestkante hell gesäumt, die Südostkanten
-            //    verschwinden im Fugenschatten). Ein gleichmäßiger Doppel-
-            //    strich um alles herum – das alte Drahtgitter – entfällt.
-            //    Silhouettenkanten (nur ein Dreieck) macht das Geröllband.
+            // 4) T20 WANDKANTEN AUS ECHTER GEOMETRIE (Architektur C).
+            //    Das alte Fugen-/Kantenlicht-Netz strichelte entlang der
+            //    DREIECKSKANTEN des Hoehennetzes - auf der Hochflaeche
+            //    zeichnete es das Gitter als helle und dunkle Linien nach
+            //    (t20_vor_*_ueber-Belege: "Dreieckslinien scheinen
+            //    durch"). Es ist ersatzlos raus; Plattenfugen kommen
+            //    weiter aus dem weltverankerten PLATTENNETZ (2c), das
+            //    nicht am Gitter haengt. Stattdessen werden hier die
+            //    ECHTEN Wandkanten bekleidet: eine Innenkante zwischen
+            //    steilem und flachem Dreieck (t3.st aus 3b) ist eine
+            //    Abbruchkante. Liegt das flache Dreieck OBEN, ist die
+            //    Kante die Wand-OBERKANTE und bekommt einen hellen
+            //    Kantenlicht-Saum; liegt es UNTEN, ist sie der WANDFUSS
+            //    und bekommt den dunklen Kontaktschatten. Beides folgt
+            //    der echten Kantengeometrie statt einer Terrassenfiktion.
             {
-              const ao=new Path2D(), soft=new Path2D();
-              const dark=new Path2D(), dark2=new Path2D();
-              const lite=new Path2D(), lite2=new Path2D();
-              let nE=0, nL=0;
-              const SXD=-0.552, SYD=-0.834;    // Sonne aus Nordwest
+              const rim=new Path2D();
+              const foot=new Path2D(), footS=new Path2D(), footB=new Path2D();
+              let nR=0, nF=0, nFB=0;
+              const hM=(t3)=>(hgtT(t3.qa)+hgtT(t3.qb)+hgtT(t3.qc))/3;
               for(const e of edges.values()){
                 if(!e.b) continue;
-                // Umbau 4.0: Fugen und Kantenlicht haengen jetzt an der ECHTEN
-                // Facettenstufe (t3.qs, 0..9 aus dem Fuellpass) statt an der
-                // Blockton-Hilfsstufe ci. Sie sitzen damit genau dort, wo im
-                // Bild auch ein Helligkeitssprung zu sehen ist.
-                if(e.a.blk===e.b.blk && e.a.qs===e.b.qs) continue;
+                // T20 Feinschliff 2: NICHT st (knotengemittelt) vergleichen
+                // - der Plateaurand-Knoten traegt die Wandsteilheit in die
+                // Flaechendreiecke hinein, die Differenz verschwand und
+                // kaum eine Kante bekam ihren Saum (diag_klein_fuss).
+                // wf ist das scharfe JE-DREIECK-Wandmass (Bildschirm-
+                // Streckung): Wand gegen Flaeche ist damit eindeutig.
+                const sa=e.a.wf||0, sb=e.b.wf||0;
+                if(Math.abs(sa-sb)<0.45) continue;
+                const steil=sa>sb? e.a : e.b, flach=sa>sb? e.b : e.a;
+                // nicht im Firn: weiss auf weiss braucht keine Kante, und
+                // dunkle Striche laesen sich dort als Schmutz
+                if(m.hgt[e.u]>fY(e.u)-0.4 || m.hgt[e.v]>fY(e.v)-0.4) continue;
+                if(m.terr[e.u]===TER.LAVA||m.terr[e.v]===TER.LAVA) continue;
+                const dh=hM(flach)-hM(steil);
                 const P1=pos(e.u), P2=pos(e.v);
-                if(e.a.blk===e.b.blk){
-                  // reiner Terrassen-/Bandwechsel im selben Block: nur eine
-                  // leise Knickfalte – volle Fugen ergaben auf sanften
-                  // Hängen ein Drahtgitter ohne sichtbaren Tonsprung
-                  soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
-                  nE++; continue;
-                }
-                // Wand-zu-Wand-Kanten: nur leise Knickfalte – die Wand ist
-                // EINE Fläche, Blockfugen zerschnitten sie in Einzelzähne
-                if(e.a.wl && e.b.wl){
-                  soft.moveTo(P1[0]+0.5,P1[1]+0.7); soft.lineTo(P2[0]+0.5,P2[1]+0.7);
-                  nE++; continue;
-                }
-                // Schwellen auf die 10er-Stufung umgerechnet (frueher 5 Stufen,
-                // Schwelle 1 -> jetzt 2), damit nicht jede Facettengrenze eine
-                // Fuge bekommt: bei 10 Stufen liegen Nachbarfacetten fast immer
-                // eine Stufe auseinander, das waere wieder ein Drahtgitter.
-                const qa=e.a.qs|0, qb=e.b.qs|0;
-                const dq=Math.abs(qa-qb);
-                // AO-Saum NUR an echten Tonstufen: gleichtonige Blockfugen
-                // quer über Hochflächen wurden sonst zu fetten Kapselstrichen
-                if(dq>=2){ ao.moveTo(P1[0]+0.6,P1[1]+1.1); ao.lineTo(P2[0]+0.6,P2[1]+1.1); }
-                const dst=dq>=2? dark2 : dark;
-                dst.moveTo(P1[0]+0.5,P1[1]+0.8); dst.lineTo(P2[0]+0.5,P2[1]+0.8);
-                nE++;
-                // Kantenlicht: Normale der Kante zeigt zur helleren Platte;
-                // nur wenn sie zugleich Richtung Sonne weist, wird die Kante
-                // knapp INNERHALB der hellen Platte gesäumt. Ein Teil der
-                // Kanten setzt bewusst aus – durchgehende Lichtkanten längs
-                // ganzer Terrassen lasen sich als leuchtende Paspel.
-                if(dq<2 || hash01(e.u*7+e.v*13+5)<0.62) continue;
-                const L4=qa>=qb? e.a : e.b;
-                const mx4=(P1[0]+P2[0])/2, my4=(P1[1]+P2[1])/2;
-                let nx4=L4.cx-mx4, ny4=L4.cy-my4;
-                const nl4=Math.hypot(nx4,ny4)||1; nx4/=nl4; ny4/=nl4;
-                const dot=nx4*SXD+ny4*SYD;
-                if(dot>0.25 && Math.max(qa,qb)>=4){
-                  const t7=dot>0.72? lite2 : lite;
-                  t7.moveTo(P1[0]+nx4*1.5,P1[1]+ny4*1.5);
-                  t7.lineTo(P2[0]+nx4*1.5,P2[1]+ny4*1.5);
-                  nL++;
+                // Versatz zur flachen Seite: der Saum liegt AUF der Kante,
+                // nicht in der Wandflaeche
+                let nx=flach.cx-(P1[0]+P2[0])/2, ny=flach.cy-(P1[1]+P2[1])/2;
+                const nl=Math.hypot(nx,ny)||1; nx/=nl; ny/=nl;
+                // VERWACKELT und LUECKIG (erster wf-Wurf zeichnete die
+                // Terrassenkanten als durchgehende leuchtende Sechseck-
+                // Draehte nach, diag_klein_fuss2): jede Kante bekommt
+                // eigene Endpunkt-Jitter, und nur ein Teil der Kanten
+                // zeichnet ueberhaupt.
+                const kk=e.u<e.v? e.u*131072+e.v : e.v*131072+e.u;
+                const j1=(hash01(kk*13+1)-0.5)*3.0, j2=(hash01(kk*17+5)-0.5)*3.0;
+                if(dh>0.30){
+                  // Oberkante: helles Kantenlicht - sparsam (45 %)
+                  if(hash01(kk*7+11)<0.45){
+                    rim.moveTo(P1[0]+nx*(0.9+j1),P1[1]+ny*(0.9+j1));
+                    rim.lineTo(P2[0]+nx*(0.9+j2),P2[1]+ny*(0.9+j2));
+                    nR++;
+                  }
+                } else if(dh<-0.30){
+                  // Wandfuss: dunkler Kontaktschatten in die flache Seite,
+                  // dichter als das Licht (75 %), aber nie laueckenlos
+                  if(hash01(kk*11+3)<0.75){
+                    foot.moveTo(P1[0]+nx*(2.2+j1),P1[1]+ny*(2.2+j1));
+                    foot.lineTo(P2[0]+nx*(2.2+j2),P2[1]+ny*(2.2+j2));
+                    footS.moveTo(P1[0]+nx*(0.6+j1*0.5),P1[1]+ny*(0.6+j1*0.5));
+                    footS.lineTo(P2[0]+nx*(0.6+j2*0.5),P2[1]+ny*(0.6+j2*0.5));
+                    nF++;
+                  }
+                  // hohe Abbrueche (>1.5 Einheiten) werfen zusaetzlich
+                  // einen breiten weichen Fussschatten - erdet die hohen
+                  // Plateauzungen, die sonst als Folie schwebten
+                  if(dh<-1.5){
+                    footB.moveTo(P1[0]+nx*(5+j1),P1[1]+ny*(5+j1));
+                    footB.lineTo(P2[0]+nx*(5+j2),P2[1]+ny*(5+j2));
+                    nFB++;
+                  }
                 }
               }
-              if(nE){
-                // stumpfe Kappen für Fugen+AO: vereinzelte kurze Tonstufen-
-                // kanten mitten auf Hochflächen wurden mit Rundkappen zu
-                // dunklen "Kapsel"-Strichen (Ästchen-Optik); in Ketten
-                // teilen sich die Segmente ihre Endpunkte, da braucht es
-                // keine Rundung
-                // Umbau 2.3 (Gebirge-Papier): STARK zurueckgenommen – das
-                // Fugennetz liegt jetzt in der ter_rock_top-Kachel; die
-                // gezeichneten geraden Fugenlinien lasen sich daneben wie
-                // Kratzer. Es bleibt nur ein leiser AO-Hauch an echten
-                // Tonstufen, der die grossen Blockgrenzen erdet.
-                g.lineCap='butt'; g.lineJoin='round';
-                // G5: Fugen und Kantenlicht spuerbar angehoben - mit den
-                // kleineren Bloecken sind sie das Rueckgrat der
-                // Plattenzeichnung; auf den vorherigen Werten waren sie
-                // auf der hellen Flaeche praktisch unsichtbar.
-                const fug= this.theme==='vulkan'? '20,15,12' : '56,49,41';
-                g.strokeStyle='rgba('+fug+',0.07)'; g.lineWidth=5.5; g.stroke(ao);
-                g.strokeStyle='rgba('+fug+',0.08)'; g.lineWidth=1.4; g.stroke(dark);
-                g.strokeStyle='rgba('+fug+',0.17)'; g.lineWidth=1.8; g.stroke(dark2);
-                g.lineCap='round';
-                g.strokeStyle='rgba('+fug+',0.05)'; g.lineWidth=1.2; g.stroke(soft);
+              if(nFB){
+                g.lineCap='round'; g.lineJoin='round';
+                g.strokeStyle='rgba(30,26,20,0.10)'; g.lineWidth=17; g.stroke(footB);
               }
-              if(nL){
-                g.lineCap='round';
-                g.strokeStyle='rgba(255,250,238,0.08)'; g.lineWidth=1.0; g.stroke(lite);
-                g.strokeStyle='rgba(255,251,240,0.15)'; g.lineWidth=1.1; g.stroke(lite2);
+              if(nF){
+                g.lineCap='round'; g.lineJoin='round';
+                g.strokeStyle='rgba(30,26,20,0.16)'; g.lineWidth=8.5; g.stroke(foot);
+                g.strokeStyle='rgba(30,26,20,0.26)'; g.lineWidth=2.8; g.stroke(footS);
+              }
+              if(nR){
+                g.lineCap='round'; g.lineJoin='round';
+                g.strokeStyle='rgba(255,248,232,0.20)'; g.lineWidth=1.3; g.stroke(rim);
               }
             }
             // 4b) Gebirgsfuß-AO: entlang der ECHTEN Außensilhouette dunkelt
@@ -3372,16 +3266,20 @@ export class Renderer {
               // Wand wird nach dem Massiv gezeichnet und deckt dort sauber,
               // waehrend ein Versatz nach unten eine Wiesenluecke zwischen
               // Felskante und Wandoberkante aufreissen wuerde.
+              // T20: nur noch EIN Zwischenpunkt je Kante und ein Teil der
+              // Kanten fast glatt - die alte Doppelzahnung (2 Punkte je
+              // 52-px-Kante) ergab eine gleichmaessige Sacktreppe, die
+              // zusammen mit der engen Wandtextur als Palisadenzaun las.
               const kroneOff=(q)=> -(1.4 + hash01(q*29+7)*7.0);
               const kroneWeg=(P,Q,qu,qv)=>{
                 const ay=P[1]+kroneOff(qu), by=Q[1]+kroneOff(qv);
                 const kk= qu<qv? qu*65536+qv : qv*65536+qu;   // kanonisch
                 const pts=[[P[0],ay]];
-                for(let k=1;k<=2;k++){
-                  const t=k/3+(hash01(kk*17+k*5)-0.5)*0.15;
-                  const dy9=-(0.9+hash01(kk*23+k*11)*4.6);
-                  pts.push([P[0]+(Q[0]-P[0])*t, ay+(by-ay)*t+dy9]);
-                }
+                const ruhig=hash01(kk*31+3)<0.35;   // jede dritte Kante glatt
+                const t=0.5+(hash01(kk*17+5)-0.5)*0.34;
+                const dy9=ruhig? -(0.4+hash01(kk*23+11)*1.2)
+                               : -(1.2+hash01(kk*23+11)*5.4);
+                pts.push([P[0]+(Q[0]-P[0])*t, ay+(by-ay)*t+dy9]);
                 pts.push([Q[0],by]);
                 return pts;
               };
@@ -3417,10 +3315,20 @@ export class Renderer {
                   // null. Die sichtbare Hoehe steckt in der HOEHENDIFFERENZ
                   // zur Wiese - worldPos zieht hgt*HSCALE ab, der Abstand
                   // zwischen Felskante und Wiesenknoten IST die Wandhoehe.
+                  // T20: nur kartensuedliche und SEITLICHE Aussennachbarn
+                  // zaehlen fuer den Wandfuss. An NORD-Grenzen projiziert
+                  // eine tiefe Ebene hinter einem hohen Grat UNTER dessen
+                  // Kante - der alte Test las das als "Wandhoehe" und
+                  // malte die (real unsichtbare) RUECKSEITEN-Wand quer
+                  // ueber das Massivinnere: die grosse graue Platte im
+                  // Winterbild (t20_diag_winter_forced gegen _noflanke).
+                  // Der ny9-Wächter allein hatte das nur mit der frueheren
+                  // Zeichen-Anhebung zuverlaessig erkannt.
                   const fussY=(q)=>{
                     let yy=-1e9;
                     for(const q2 of m.nbs(q)){
                       if(isMassif(q2)) continue;
+                      if(m.Y(q2)<m.Y(q)) continue;   // kartennoerdlich: Rueckseite
                       const y2=m.worldPos(q2)[1];
                       if(y2>yy) yy=y2;
                     }
@@ -3563,7 +3471,11 @@ export class Renderer {
                 // Steilheitsabzug (F9-Regression nicht wieder einreissen).
                 if(this.theme==='winter') sn -= Math.max(0, this.slopeOf(m,i2)-0.95)*0.35;
                 else if(m.terr[i2]!==TER.SNOW){
-                  sn *= 1-smT((slopeT(i2)-1.35)/1.25);
+                  // T20: Fenster von der TERRASSIERTEN Steilheit (Median
+                  // ~2.0) auf die ECHTE umgerechnet - sonst hielt sich der
+                  // Schnee an der Grenze in grossen Lappen mitten am Hang
+                  // (r1-Beleg gebirge_58_objekt)
+                  sn *= 1-smT((slopeT(i2)-0.85)/1.00);
                   // G5: FELSDURCHBRUECHE an der Schneegrenze. In der
                   // Grenzzone (Decke noch nicht satt) stanzt ein feineres
                   // Rauschen (~2 Knoten Wellenlaenge) Fels-Fenster in den
@@ -3643,6 +3555,13 @@ export class Renderer {
                 for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
                   const i=m.idx(x,y);
                   let sn=snOf(i);
+                  // T20: EINZELGAENGER-Zellen ohne verschneiten Nachbarn
+                  // fallen aus (ausser Winter): auf hohen Einzelnadeln
+                  // blieb sonst genau EINE weichgezeichnete Zelle uebrig -
+                  // der "weisse Klecks" mitten auf der Hochflaeche
+                  // (gruen 12, Knoten 10205ff, hgt 9.24 im 6.16-Plateau).
+                  if(sn>0 && sn<0.9 && this.theme!=='winter'
+                     && !m.nbs(i).some(q=>snOf(q)>0)) sn=0;
                   // Deckungsgrad hinterlegen: drawFelsFormation entscheidet
                   // damit den Schneemodus nach der GEZEICHNETEN Decke statt
                   // nach der reinen Hoehenregel (die feuerte auch auf
@@ -3764,12 +3683,17 @@ export class Renderer {
                   // Töne auf mindestens Firn-Halbdunkel; die leise
                   // Blockzeichnung der Decke bleibt erhalten. Die Alphamaske
                   // stellt das destination-in unten ohnehin wieder her.
+                  // T20: Boden 118 -> 148 und Alpha 0.62 -> 0.5. Das neue
+                  // Lambert-Licht stellt Nordflanken dunkler als die alte
+                  // Heuristik; mit Boden 118 pauste das als grosse GRAUE
+                  // PLATTE durch die Winter-Firndecke (r6/r7-Beleg
+                  // winter_lang gegen alt_winter_lang).
                   bg3.globalCompositeOperation='lighten';
-                  bg3.fillStyle='rgb(118,117,115)';
+                  bg3.fillStyle='rgb(148,147,145)';
                   bg3.fillRect(0,0,w,h);
                   bg3.globalCompositeOperation='source-over';
                   tex2.globalCompositeOperation='soft-light';
-                  tex2.globalAlpha=0.62;
+                  tex2.globalAlpha=0.5;
                   tex2.drawImage(this._blurTmp,0,0,w,h);
                   tex2.globalAlpha=1;
                 }
@@ -3988,8 +3912,11 @@ export class Renderer {
                   const pt=g.createPattern(imW,'repeat');
                   // v238: gleiche Massstabs-Anhebung wie im Klippenpass -
                   // ter_rock_wall traegt 100-180-px-Saeulen, beim alten
-                  // 0.115er-Massstab wuerden daraus 12-21-px-Streifchen
-                  const fw9=this.asset('ter_rock_wall')? 0.115*1.9 : 0.115;
+                  // 0.115er-Massstab wuerden daraus 12-21-px-Streifchen.
+                  // T20: nochmals groeber (x1.45) - die enge Saeulenfolge
+                  // las sich am Suedrand als Bretter-Palisade (r1/r2-Beleg
+                  // gruen_12_rand)
+                  const fw9=(this.asset('ter_rock_wall')? 0.115*1.9 : 0.115)*1.45;
                   if(pt && pt.setTransform)
                     pt.setTransform(new DOMMatrix().scale(fw9, fw9*1.75));
                   return pt;
@@ -3997,7 +3924,7 @@ export class Renderer {
                 if(pw){
                   g.save(); g.clip(flankeP);
                   g.globalCompositeOperation='multiply';
-                  g.globalAlpha=0.85;
+                  g.globalAlpha=0.68;
                   g.fillStyle=pw; g.fillRect(c.ox,c.oy,w,h);
                   g.restore();
                 }
@@ -4578,8 +4505,11 @@ export class Renderer {
               // weiter Verlauf läse sich wieder als grauer Nebel auf der Wiese
               // innen: deckt die Wurzeln der Dreieckszähne des Beschnitts
               // (bergseitig kleiner: dort deckt die angehobene Silhouette)
+              // T20: talseitig etwas groesser (17+5 -> 20+7) - die
+              // Innenzelle muss die Wurzeln der kuerzeren, aber weiter
+              // sichtbaren Netz-Zaehne decken (diag_rand_r3)
               cell(mk3, e, e.mx-e.ux*13+tx*tj*0.6, e.my-e.uy*11+ty*tj*0.5,
-                   (17+h4*5)*(1-0.35*Math.max(0,-e.uy)), 2);
+                   (20+h4*7)*(1-0.38*Math.max(0,-e.uy)), 2);
               // Umbau 2.8 + Kritik G1: das Band darf NIRGENDS gleichmaessig
               // breit laufen UND ist ASYMMETRISCH (e.sf): talseitig der
               // breite Schuttfuss, bergseitig faellt es weg. Aussenmasse
@@ -5021,14 +4951,24 @@ export class Renderer {
           }
           // Umbau 2.8: Bloecke DIREKT AUF der Grenze – sie ueberlappen die
           // Kante (halb Fels, halb Gras) und zerschneiden jede Restlinie,
-          // die das Band uebrig laesst
+          // die das Band uebrig laesst.
+          // T20 (Architektur D): dichter gestreut (30 % -> 45 % der Kanten,
+          // dazu haeufiger ein zweiter kleiner Kiesel) - zusammen mit den
+          // tieferen Fransen-Zungen kreuzt die Streu die Grenzlinie, statt
+          // sie nachzuzeichnen.
           for(const e of eScree){
             const h6=hash01(e.i*83+e.n*19);
-            if(h6>0.30) continue;
+            if(h6>0.45) continue;
             const sw6=(hash01(e.i*89+e.n*7)-0.5)*26;
-            const d6=-3+h6*20;
+            const d6=-3+h6*14;
             const bx6=e.mx+e.ux*d6-e.uy*sw6, by6=e.my+e.uy*d6*0.8+e.ux*sw6*0.8;
             this.rockChunklet(g, bx6, by6, 3.0+hash01(e.i*97+e.n*3)*3.4, e.i*17+e.n*11+3);
+            if(h6<0.20){
+              const sw7=(hash01(e.i*53+e.n*29)-0.5)*34;
+              this.rockChunklet(g, e.mx+e.ux*(6+h6*18)-e.uy*sw7,
+                                e.my+e.uy*(5+h6*14)*0.8+e.ux*sw7*0.8,
+                                2.0+hash01(e.i*59+e.n*13)*2.6, e.i*23+e.n*7+9);
+            }
           }
           g.restore();
         }
@@ -5118,8 +5058,25 @@ export class Renderer {
             const iE = x+1<m.w ? m.idx(x+1,y) : i;
             const iSW = m.inb(x-1+p,y+1)? m.idx(x-1+p,y+1) : i;
             const iSE = m.inb(x+p,y+1)? m.idx(x+p,y+1) : i;
-            this.triShade(sg, m, scache, i, iE, iSE);
-            this.triShade(sg, m, scache, i, iSE, iSW);
+            // T20: KEIN Weichlicht-Relief mehr auf Dreiecken MIT Massiv-
+            // Ecke. Das Massiv traegt sein Licht selbst (Lambert-eckShade
+            // im Massiv-Pass). Hier lagen ZWEI Befunde:
+            // 1) "Blasser Keil" (Diagnose-Nebenauftrag): an echten
+            //    Hochstufen (z.B. 3.1->6.2, 80 px Versatz) ueberdecken die
+            //    projizierten Wanddreiecke die dahinterliegende Hochflaeche;
+            //    im Additiv-Modus 'lighter' verdoppelte sich der Reliefwert,
+            //    der 'darken'-Deckel kappte erst bei 188, und das Weichlicht
+            //    wusch die Flaeche samt Dreieckskanten aus.
+            // 2) Weisse SCHLEIER-Dreiecke am Massivrand (diag_klein_z22):
+            //    MISCH-Dreiecke behielten das Relief, und ein Wiesenknoten
+            //    am Klippenfuss bekommt dort einen riesigen Gradienten -
+            //    nodeShade laeuft auf hi=0.94 (240) und brannte als
+            //    durchscheinender heller Keil auf dem fertigen Fels.
+            // Deshalb: schon EINE Massiv-Ecke nimmt das Dreieck heraus.
+            const rein=isMassif(i)||isMassif(iE)||isMassif(iSE);
+            const rein2=isMassif(i)||isMassif(iSE)||isMassif(iSW);
+            if(!rein)  this.triShade(sg, m, scache, i, iE, iSE);
+            if(!rein2) this.triShade(sg, m, scache, i, iSE, iSW);
           }
         }
         sg.restore();
@@ -6163,14 +6120,20 @@ export class Renderer {
                                       : m.hgt[i]>this.firnAt(i)-0.4);
     // K2-Nachsorge fuer BESTEHENDE Spielstaende (die Steilwand-Sperre der
     // Streuung in map.js greift nur bei neu erzeugten Karten): steht die
-    // Formation auf einer Wand (slopeMax > 2.6, s. Messung mess-rock:
-    // Terrassenwaende liegen bei 3.0+), wird statt Nadel/Sporn/Kuppe ein
-    // FLACHER Haufen gezeichnet - der liest sich als Geroellablage an der
-    // Wand, waehrend ein aufrechtes Objekt dort "aufgeklebt" schwebte.
+    // Formation auf einer Wand (slopeMax > 2.6), wird statt Nadel/Sporn/
+    // Kuppe eine FLACHE Ablage gezeichnet - aufrechte Objekte schwebten
+    // dort "aufgeklebt".
+    // T20 (Architektur E): der starre Zwei-Blaetter-Rueckfall (immer
+    // obj_steinhaufen ODER obj_kieshaufen in fester Groesse, dazu die
+    // schraege Kipp-Optik der Einzelstempel) ist raus. Stattdessen eine
+    // felsGruppe-Komposition aus dem Halden-Vorrat: Seed-abhaengige
+    // Stueckzahl (2-3), Groessen-Jitter, immer aufrecht gestempelt und
+    // mit Bodenkontakt (Kontaktschatten des Ankerstuecks).
     if(m.slopeMax(i)>2.6){
-      const art9= sp<0.5? 'obj_steinhaufen' : 'obj_kieshaufen';
-      if(!this.drawFelsObj(g, art9, px+ox2, py+oy2+2, (sp<0.5?0.30:0.24)*sc7,
-                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2, schnee9))
+      const sc8=(0.24+sp*0.14)*sc7;
+      const n8=2+((hash01(i*29+3)*1.9)|0);
+      if(!this.felsGruppe(g,'halde', px+ox2, py+oy2+2, sc8, i*17+5, lz,
+                          n8, true, schnee9))
         this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.5, lz);
       return;
     }
@@ -6197,11 +6160,12 @@ export class Renderer {
       const kk9=KANT9.length? KANT9[(sp*211|0)%KANT9.length] : 'obj_crag_1';
       this.drawFelsObj(g, kk9, mx8, my8+4, sc7, qx8<px, 0.24, lz, i*5+7, schnee9);
     } else if(sp<0.30){
-      // Stein-/Kieshaufen: gemalte Gruppe, sonst prozedurale Brocken
-      const art= sp<0.14? 'obj_steinhaufen' : 'obj_kieshaufen';
-      const gr= sp<0.14? 0.30 : 0.24;
-      if(!this.drawFelsObj(g, art, px+ox2, py+oy2+2, gr*sc7,
-                           hash01(i*23+5)>0.5, 0.26, lz, i*9+2, schnee9))
+      // Stein-/Kieshaufen: T20 - Komposition aus dem Halden-Vorrat statt
+      // eines einzelnen Blattes; die Wiederholung "immer derselbe Haufen"
+      // war Teil der Nutzerkritik ("die steinhaufen sehen gleich aus")
+      const sc8=(0.22+sp*0.30)*sc7;
+      if(!this.felsGruppe(g,'halde', px+ox2, py+oy2+2, sc8, i*9+2, lz,
+                          2+((hash01(i*41+7)*2.4)|0), true, schnee9))
         this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.14, lz);
     } else {
       if(!this._felsPool){
@@ -7129,7 +7093,9 @@ export class Renderer {
     //      ein flacher Buckel nicht) und aus einem weichen Rauschfeld mit
     //      etwa 6 Knoten Wellenlaenge, damit derselbe Berg an einer Stelle
     //      abbricht und an der naechsten ausläuft.
-    const RAND=1.45;
+    // (RAND=1.45 war die feste Randstufe der Zeichen-Anhebung; seit T20
+    //  historisch - s. Geometrie-Treue-Kommentar unten. rand bleibt als
+    //  Null-Feld in der Rueckgabe, damit alle Leser unveraendert arbeiten.)
     const rand=new Float32Array(N);
     const wf=new Float32Array(N);
     // kleines weiches Wertrauschen; eigenes, weil tnoise im Chunk-Bake sitzt
@@ -7156,9 +7122,17 @@ export class Renderer {
         r2=nx;
       }
       const rl=Math.max(0, crest-plainH[i]);
-      const deficit=Math.max(0, 1.7-rl);
-      const prof= dist[i]<=1? 0.55 : dist[i]===2? 0.9 : 1.0;
-      lift[i]=deficit*prof;
+      // T20 GEOMETRIE-TREUE: Die Zeichen-Anhebung (Defizit-Auffuellung auf
+      // 1,7 plus Randstufe RAND=1.45) ist ABGESCHALTET - lift bleibt 0.
+      // Grund (Nutzerkritik "der geologe laeuft ueber die klippen wie ueber
+      // eine platte"): Figuren stehen auf m.hgt (worldPos zieht hgt*HSCALE
+      // ab), die Malerei stand auf hgt+lift. Wo die beiden auseinanderlagen,
+      // liefen Figuren mitten durch gemalte Waende und Objekte "klebten" auf
+      // Flaechen ohne echtes Gefaelle. Alles Sichtbare kommt jetzt aus der
+      // ECHTEN Hoehenkarte; kleine Massive wirken dafuer ueber Relieflicht,
+      // Kantensaeume und Material erhaben, nicht ueber erfundene Hoehe.
+      // rel und wf bleiben: beides sind echte Reliefmasse (Kamm minus
+      // Vorland bzw. Fusscharakter) fuer Schwellen und Bandbreiten.
       rel[i]=rl;
     }
     // Fusscharakter je RANDknoten festlegen (s. Erlaeuterung oben)
@@ -7169,13 +7143,12 @@ export class Renderer {
       const nz=wn(X9*0.165+11.3, Y9*0.195+7.7);
       wf[i]=Math.max(0.16, Math.min(1, 0.16+0.84*(0.50*relT+0.50*nz)));
     }
-    // ... und nur auf die Aussenreihe anwenden: alles ab Reihe 2 bekommt die
-    // volle Stufe und bleibt damit untereinander flach.
+    // T20: rand bleibt ueberall 0 (s. oben) - nur der Fusscharakter wf wird
+    // weiter nach innen durchgereicht (Bergfuss-Bandbreite liest ihn).
     for(let i=0;i<N;i++){
       if(!isMas(i) || dist[i]===(1<<29)) continue;
       const s9=src[i];
       const w=(s9>=0 && wf[s9]>0)? wf[s9] : 1;
-      rand[i]=RAND*(dist[i]<=1? w : 1.0);
       if(dist[i]>1) wf[i]=w;      // Fusscharakter auch nach innen lesbar
     }
     this._liftFld={lift, rel, rand, wf};
@@ -12678,14 +12651,30 @@ export class Renderer {
         // computePasses: slopeMax > 1.80).
         const steil9=(q)=> m.steil && m.steil[q] && m.terr[q]===TER.MOUNT;
         if(steil9(i)||steil9(n)) continue;
-        const gx=Math.round(mx/34), gy=Math.round(my/30);
+        // T20 (Architektur F): zusaetzlich UNABHAENGIG von der Gelaendeart
+        // - die B4-Regel griff nur auf MOUNT-Knoten, Pfosten standen
+        // weiter auf Steilwaenden unter Massiv-Schnee (t20_vor_gebirge_58
+        // _wand, rechts unten). Ist einer der beiden Knoten steiler als
+        // slopeMax 2.2, weicht der Pfosten auf den flacheren Knoten aus;
+        // sind beide steil, faellt er aus (die Grenzlinie bleibt).
+        let posX=mx, posY=myL;
+        {
+          const sI=m.slopeMax(i), sN=m.slopeMax(n);
+          if(sI>2.2 || sN>2.2){
+            const fl= sI<=sN? i : n;
+            if(m.slopeMax(fl)>2.2) continue;
+            const P9=m.worldPos(fl);
+            posX=P9[0]; posY=P9[1]-this.liftAt(fl)*HSCALE;
+          }
+        }
+        const gx=Math.round(posX/34), gy=Math.round(posY/30);
         const key=gx+','+gy;
         if(!seen.has(key)){
           seen.add(key);
           // Lieferung F: auf Fels braucht der Pfosten einen Steinsockel –
           // ein in den Boden gerammter Pfahl geht dort nicht hinein.
           const fels=(m.terr[i]===TER.MOUNT||m.terr[n]===TER.MOUNT);
-          this.borderPosts.push({pl:o, x:mx, y:myL, fels});
+          this.borderPosts.push({pl:o, x:posX, y:posY, fels});
         }
       }
     }
