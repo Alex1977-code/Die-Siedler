@@ -536,7 +536,10 @@ export class Game {
     if(byWar){
       if(this.map.obj[b.node]===OBJ.NONE){
         this.map.obj[b.node]=OBJ.RUIN;
-        this.ruins.push({node:b.node, t0:this.t, kl});
+        // typ: seit T19 zeigt der Renderer die dritte Brandstufe des
+        // Gebaeudes als kalte Typ-Ruine (statt der Einheitsruine je
+        // Groessenklasse) - dafuer muss er wissen, WAS hier stand.
+        this.ruins.push({node:b.node, t0:this.t, kl, typ:b.type});
       }
       // Nachbau-Bremse der KI: Wer einen Militärposten (auch eine Baustelle)
       // im Kampf verliert, baut nicht sofort und endlos nach. Ohne die Pause

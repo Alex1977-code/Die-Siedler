@@ -7552,6 +7552,26 @@ export class Renderer {
   // Hintergrund: die gemalten Brandblaetter sind unterschiedlich beschnitten.
   // Die gebaeudeeigenen tragen im Mittel 3,8 % Luft unten, die generischen
   // (fx_burn_s/m/l) dagegen 20,8 % und die Minen sogar 55 %. Alle wurden mit
+  // KALTE TYP-RUINE (T19): die dritte Brandstufe eines Gebaeudes, einmalig
+  // je Typ mit einem kuehlen dunklen Schleier versehen (source-atop im
+  // eigenen Offscreen-Canvas - ctx.filter ist wegen iOS tabu). Der
+  // Schleier daempft auch Restglut und Flammenreste farblich, sodass die
+  // Ruine kalt liest. Nicht gecacht, solange das Asset noch laedt.
+  ruinKalt(typ){
+    this._ruinKalt=this._ruinKalt||new Map();
+    if(this._ruinKalt.has(typ)) return this._ruinKalt.get(typ);
+    const img=this.asset('fx_burn_'+typ+'_3');
+    if(!img || !img.naturalWidth) return null;
+    const cv=document.createElement('canvas');
+    cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+    const c2=cv.getContext('2d');
+    c2.drawImage(img,0,0);
+    c2.globalCompositeOperation='source-atop';
+    c2.fillStyle='rgba(52,54,62,0.45)';
+    c2.fillRect(0,0,cv.width,cv.height);
+    this._ruinKalt.set(typ,cv);
+    return cv;
+  }
   // demselben Anker gezeichnet - die generischen Braende schwebten deshalb
   // rund ein Fuenftel ihrer Hoehe ueber dem Boden.
   luftUnten(key){
@@ -10392,9 +10412,26 @@ export class Renderer {
         // Lieferung E: Ruinenbild je Groessenklasse. Die Klasse merkt sich
         // die Simulation beim Niederbrennen (game.ruins); ohne Eintrag oder
         // ohne Bild bleibt das eine allgemeine obj_ruin.
-        let klR=null;
+        let klR=null, typR=null;
         if(this.game.ruins) for(const r of this.game.ruins)
-          if(r.node===i){ klR=r.kl; break; }
+          if(r.node===i){ klR=r.kl; typR=r.typ; break; }
+        // T19 (Nutzerfund): die DRITTE BRANDSTUFE des Gebaeudes taugt als
+        // Ruine - die Blaetter existieren laengst (fx_burn_<typ>_3, das
+        // ausgebrannte Gerippe). Sie bleibt kalt getoent stehen, in der
+        // Groesse und Lage der letzten Brandphase, damit der Uebergang
+        // Brand -> Ruine nicht springt. Die Einheitsruine je
+        // Groessenklasse ist nur noch Rueckfall (alte Spielstaende ohne
+        // typ-Feld, fehlende Blaetter).
+        const kalt=typR? this.ruinKalt(typR) : null;
+        if(kalt){
+          const hh=this.scaleOf('fx_burn_'+typR+'_1', klR==='l'?96:klR==='m'?80:64);
+          const ww=hh*(kalt.width/kalt.height);
+          const luft=hh*this.luftUnten('fx_burn_'+typR+'_3');
+          g.globalAlpha=0.94;
+          g.drawImage(kalt, x-ww/2, y-hh+8+luft, ww, hh);
+          g.globalAlpha=1;
+          break;
+        }
         const ovR=(klR && this.asset('bld_ruin_'+klR)) || this.asset('obj_ruin');
         if(ovR){
           const hh=this.scaleOf(klR&&this.asset('bld_ruin_'+klR)?'bld_ruin_'+klR:'obj_ruin',30),
