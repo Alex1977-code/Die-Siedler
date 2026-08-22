@@ -654,7 +654,25 @@ export const POSEN = {
   // R: 5363/403/821), Stiefel und Zehen-Miniinseln bleiben unberuehrt
   // (verifiziert: Isolat = exakt die Angel, Restfigur vollstaendig).
   // Die prozedurale 'rod' an der Faust uebernimmt.
-  fisher:  { koerper: DICK, atk: ANGELN, werkzeug: IN_FAUST('rod',1.25),
+  // Getragene Rute (T20, Spielerwunsch): auch in walk/idle haelt er die
+  // Rute - GESCHULTERT wie ein Angler auf dem Weg zum Wasser (Spitze
+  // schraeg hinter-oben). Trage-Rotation per kalibrot-fisher(2).png
+  // vermessen: [0,0,0] schleifte die Spitze vorn-unten ueber den Boden,
+  // [90,0,0] (atk-Wert) lag laengs der Blickachse und verschwand in der
+  // Seitenansicht, [160,0,0]+ klebte an Kopf/Kapuze, [200,0,0] stand
+  // quer seitlich ab. [140,0,0] gibt die klarste freie Diagonale
+  // (Spitze hinter der Schulter, keine Bein-/Kapuzen-Kollision).
+  // idle EIGENER Winkel: der echte Warte-Clip des Fischers haelt die
+  // Faust ~35 Grad anders als der Geh-Zyklus - mit dem walk-Wert 140
+  // kippte die Rute fast waagerecht nach hinten (kalibrot-fisher-idle
+  // .png: 175=waagerecht, 205=haengend); 125 stellt sie wieder auf die
+  // geschulterte ~50-Grad-Diagonale (kalibrot-fisher-idle2.png).
+  fisher:  { koerper: DICK, atk: ANGELN,
+             werkzeug:{
+               walk:{ kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[140,0,0], scale:1.25 },
+               idle:{ kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[125,0,0], scale:1.25 },
+               atk: { kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[90,0,0],  scale:1.25 },
+             },
              entfernen:[1978,3663,4085,3826,2943,2739,4166,2946,3498,3840,120,4127,3704,3805,3827,4100,4053,4169,4624,4614,4766,3405,3643,3817,3732,3818,3825,3801,3917,4130,4060,4196,4325,4416,1335,3819,3891,4434,4577,4414,4578,4625,4719,1830,1519,4083,4165,3260,3568,4139,3496,3560,3726,3660,3727,3832,3796,3778,3908,3894,3939,3941,3896,4152,4019,4067,4059,4072,4087,4093,4133,4172,4134,4161,4158,4199,4171,4217,4501,4327,4415,4472,4579,4503,4505,4527,4649,4605,4720,4615,4616,4683,1449,4102,4185,3376,3500,3645,3719,3612,3738,3838,3812,3887,3888,3936,3897,3895,3892,3931,3861,3862,3934,3890,3964,3893,3928,3981,3940,3943,3933,3935,3946,4005,4145,4020,3989,3990,4075,4151,4144,4028,4094,4178,4150,4435,4245,4163,4160,4247,4220,4232,4233,4235,4288,4440,4442,4328,4378,4363,4366,4525,4417,4502,4528,4537,4475,4546,4477,4478,4479,4617,4663,4664,4679,4513,4545,4691,4548,4589,4694,4596,4653,4600,4558,4654,4658,4604,4594,4595,4657,4660,4665,4723,4724,4633,4635,4684,4662,4682,4701,4738,7164,7123,4637,7159,4737,6843,6749,6765,6746,6768,6552,6854,5186,6444,6913,3723,3970,6503,2482,2484,4730,6980,1116,4347,6381,6859,6963,4303,7175,6943,6322,6747,3906,2887,6750,6869,6931,6898,6936,6892,6995,5105,2485,3693,3767,3953,3700,1014,4061,4230,4227,5492,6576,7106,7084,107,1018,109,5069,1918,2487,1916,2489,3701,4305,4251,4275,4301,4639,6171,6173,7162,7177,7115,3460,4206,4404,4298,4308,4361,4467,6985,7094,2880,4314,4292,4354,4575,6966,7112,4190,4223,4290,4456,4372,4572,4447,7051,7064,4032,4261,4271,4340,4457,4454,4496,4498,4573,4397,4398,4445,7010,7119,7110,7093,7113,162,7073,7108,6748,7041,7092,6896,531,1705,732,5070,6808,6810,6965,6921,6981,5695,5106,6784,6785,6835,6935,7002,7042,6938,6982,6971,6941,6961,6970,6987,7013,6984,7067,6989,7007,7097,7021,7098,7191,7202,7189,7212,6903,4359,4565,6901,1982,1834,1334] },
   // Soldaten (T16): sword/spear tragen jetzt PROZEDURALE Faust-Waffen -
   // die Mesh-Waffen (nur Oberarm-geskinnt, "Golfschlag"-Grenze) fliegen
