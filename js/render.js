@@ -1341,6 +1341,10 @@ export class Renderer {
       // Huellrechteck fuer die Schlagschatten-Anwendung (wird im
       // Massiv-Pass gesetzt; Anwendung erfolgt erst nach dem Bergfuss-Band)
       let sbx0=0, sby0=0, sbw=0, sbh=0;
+      // SAUMKRONE (v238): flache Silhouettenkanten, im Massiv-Pass
+      // eingesammelt und NACH dem Bergfuss-Band als kantiger Felsrand
+      // gezeichnet (s. Umriss-Zacken-Kommentar im Massiv-Pass)
+      let saumZL=null;
       // Massiv-Zugehörigkeit: MOUNT/LAVA immer, SNOW nur als vereister Gipfelkamm.
       // Diese Knoten malt der Massiv-Pass komplett selbst – sie fallen aus den
       // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
@@ -1959,6 +1963,164 @@ export class Renderer {
               facet(i,iSE,iSW);
             }
           }
+          // UMRISS-ZACKEN (v238, Runde-2-Auftrag "Scallop-Silhouetten").
+          // Befund: an FLACHEN Aussenkanten (keine Wand, hh<=9) besteht die
+          // Silhouette aus den rohen Kantenzuegen des Sechseckgitters; weil
+          // die Rand-Anhebung (liftField.rand) jeden Randknoten einzeln
+          // hebt, woelbt sich der Zug um jeden Knoten zu einem flachen
+          // Bogen - aneinandergereiht die "Bogenkette"/Scallop-Lappen
+          // (vor-wasser-777, linke Kante). Nach der Wandkronen-Konvention
+          // (v97: Krone folgt dem Gitter, Versatz IMMER in den Fels) wird
+          // der Umriss hier gebrochen: jede flache Silhouettenkante bekommt
+          // 2-3 Zwischenpunkte, die NUR NACH INNEN (zur Facette) einruecken.
+          // Nach innen, weil der Beschnitt sonst ueber die gefuellten
+          // Dreiecke hinausgriffe und dort die blasse Grundkachel durch-
+          // schiene (gleicher Grund wie bei der Krone). Die Kerben zeigen
+          // die bereits gemalte Wiese/Wasserflaeche darunter - ein kantig
+          // ausgebrochener Felsrand statt runder Lappen. Wandkanten (hh>9,
+          // talseitig) behalten ihre Flanke samt Krone; Schnee/Firnkanten
+          // bleiben glatt (weiss auf weiss, s. 4b).
+          // ZWEITER Teil derselben Heilung: die Kerben im Beschnitt allein
+          // blieben unsichtbar - GEMESSEN (n2-kleinW2-42-winter gegen
+          // vorher): groesste Pixeldifferenz 9, denn unter dem Massivrand
+          // liegt die felsfarbene Gouraud-Grundflaeche, die Kerbe zeigt
+          // also Fels auf Fels. Der sichtbare Umriss entsteht erst aus den
+          // runden Maskenzellen des Bergfuss-Bands UND der weichen
+          // Silhouette. Deshalb wird der Rand zusaetzlich UEBERMALT: die
+          // hier gesammelten flachen Kanten bekommen nach dem Bergfuss-
+          // Band eine SAUMKRONE - ein kantiger Zahnstreifen in Felston,
+          // der die Bogenkette deckt (Analogie zur Wandkrone: dort deckt
+          // die Flanke die glatte Kante, hier der Saum). Wasser-/Lava-
+          // kanten bleiben aussen vor - dort kleidet das Felsufer (3b).
+          const zackW=new Map();
+          saumZL=[];
+          {
+            const fussYz=(q)=>{
+              let yy=-1e9;
+              for(const q2 of m.nbs(q)){
+                if(isMassif(q2)) continue;
+                const y2=m.worldPos(q2)[1];
+                if(y2>yy) yy=y2;
+              }
+              return yy;
+            };
+            // Wasser-/Lavakanten kleidet das Felsufer (3b) - keine Saumkrone
+            const nass9=(q)=>m.nbs(q).some(q2=>!isMassif(q2)
+              && (m.terr[q2]===TER.WATER||m.terr[q2]===TER.LAVA));
+            for(const e of edges.values()){
+              // --- OBERE SILHOUETTE (der eigentliche Scallop-Traeger) ---
+              // GEMESSEN (dbgsaum, 42-winter-Kleinmassiv): die sichtbare
+              // Bogenkette am Oberrand besteht NICHT zwingend aus den
+              // e.b==null-Randkanten des Beschnitts (bei angehobenen Raendern
+              // liegen die HINTER der Silhouette und projizieren nach unten,
+              // ny=+0.8..1.0). Der tragfaehige Test ist rein LOKAL: ALLE
+              // anliegenden Facetten projizieren UNTER die Kante -> oberhalb
+              // wird nichts gezeichnet, die Kante ist dort der Bildschirm-
+              // Oberrand des Massivs. Das greift bei angehobenen Silhouetten
+              // (Fels-Fels-Kanten zwischen den Randknoten) wie bei flachen
+              // unangehobenen Grenzen (Randkanten mit Wiesenecken).
+              // Beide Knoten muessen in der Randreihe liegen (Nicht-Massiv-
+              // Nachbar), sonst bekaeme jeder INNERE Gratruecken eine Krone.
+              if(m.nbs(e.u).some(q2=>!isMassif(q2))
+                 && m.nbs(e.v).some(q2=>!isMassif(q2))
+                 && !(m.terr[e.u]===TER.SNOW||m.terr[e.v]===TER.SNOW)
+                 && m.hgt[e.u]<=fY(e.u)-0.4 && m.hgt[e.v]<=fY(e.v)-0.4){
+                const Pu=pos(e.u), Pv=pos(e.v);
+                const myS=(Pu[1]+Pv[1])/2;
+                // KEINE Krone ueber Wandfacetten: an der Krone einer
+                // Absturzwand (Facette darunter stark gestreckt, wf>0)
+                // malte der erste Wurf helle Zahnbaender MITTEN auf die
+                // Wandflaeche (diag-saum-n6, 42-gruen) - dort deckt schon
+                // die Flanke samt Wandkrone (4b/7a) die Kante
+                if(e.a.wf>0.2 || (e.b&&e.b.wf>0.2)){/* Wandkante */}
+                else if(e.a.cy>myS+1 && (!e.b||e.b.cy>myS+1)){
+                  const kk2= e.u<e.v? e.u*131072+e.v : e.v*131072+e.u;
+                  const U8= e.u<e.v? Pu : Pv, V8= e.u<e.v? Pv : Pu;
+                  // Aussennormale: senkrecht zur Kante, von den Facetten weg
+                  let nx8=-(V8[1]-U8[1]), ny8=V8[0]-U8[0];
+                  const nl8=Math.hypot(nx8,ny8)||1; nx8/=nl8; ny8/=nl8;
+                  if(ny8>0){ nx8=-nx8; ny8=-ny8; }   // nach oben
+                  // Blick auf die AUSSENSEITE (jenseits der Kante):
+                  //  - Wasser/Lava dort -> keine Krone (Felsufer kleidet);
+                  //    ein Bergsee INNEN (Ringmassiv, 42-winter) sperrt nicht
+                  //  - faellt der Boden jenseits WEIT unter die Kante
+                  //    (>22 px), ist das eine KLIPPENkrone - dort zeichnete
+                  //    der zweite Wurf dunkle Zahnbaender mitten auf die
+                  //    Wandflaeche unterm Kamm (diag-w42-n7). Die Saumkrone
+                  //    gehoert nur an FLACHE Raender, wo der Boden jenseits
+                  //    etwa auf Kantenhoehe liegt.
+                  const mxS=(Pu[0]+Pv[0])/2;
+                  let nassA=false, dOut=1e9, anyOut=false;
+                  for(const q8 of [e.u,e.v]){
+                    for(const q2 of m.nbs(q8)){
+                      if(isMassif(q2)) continue;
+                      const W8=pos(q2);
+                      if((W8[0]-mxS)*nx8+(W8[1]-myS)*ny8<=0) continue;
+                      anyOut=true;
+                      if(m.terr[q2]===TER.WATER||m.terr[q2]===TER.LAVA){ nassA=true; break; }
+                      const dy8=W8[1]-myS;
+                      if(dy8<dOut) dOut=dy8;
+                    }
+                    if(nassA) break;
+                  }
+                  if(!nassA && anyOut && dOut<=22)
+                    saumZL.push({x1:U8[0],y1:U8[1],x2:V8[0],y2:V8[1],
+                                 nx:nx8,ny:ny8,kk:kk2,
+                                 el:Math.hypot(V8[0]-U8[0],V8[1]-U8[1])});
+                }
+              }
+              if(e.b) continue;
+              if(!m.nbs(e.u).some(q2=>!isMassif(q2))
+               ||!m.nbs(e.v).some(q2=>!isMassif(q2))) continue;
+              // ANDERS als beim Fuss-AO (4b) werden Schnee- und Firnkanten
+              // NICHT uebersprungen: eine Kerbe im Beschnitt malt nichts
+              // Dunkles auf den Schnee, sie laesst nur den Untergrund
+              // durchscheinen. Weiss auf Weiss bleibt sie unsichtbar; im
+              // WINTER (Fels vor Schneeboden, dort lag die glatteste
+              // Amoeben-Kante: vor-kleinW2-42-winter) bricht sie den Umriss.
+              const P1=pos(e.u), P2=pos(e.v);
+              const mx9=(P1[0]+P2[0])/2, my9=(P1[1]+P2[1])/2;
+              let nx9=mx9-e.a.cx, ny9=my9-e.a.cy;
+              const nl9=Math.hypot(nx9,ny9)||1; nx9/=nl9; ny9/=nl9;
+              // talseitige WANDkanten: dort zeichnet 4b Flanke+Krone, die
+              // Kerben laegen unter der Wand bzw. rissen neben ihr auf
+              if(ny9>-0.45){
+                const hh9=Math.min(Math.max(P1[1],fussYz(e.u))-P1[1],
+                                   Math.max(P2[1],fussYz(e.v))-P2[1]);
+                if(hh9>9) continue;
+              }
+              const kk= e.u<e.v? e.u*131072+e.v : e.v*131072+e.u;
+              const U9= e.u<e.v? P1 : P2, V9= e.u<e.v? P2 : P1;
+              const ex9=V9[0]-U9[0], ey9=V9[1]-U9[1];
+              const el9=Math.hypot(ex9,ey9)||1;
+              // 2 Punkte auf kurzen, 3 auf langen Kanten; Tiefe 1.5..7.5 px
+              // nach innen, je Punkt eigen gehasht - harte Zaehne statt
+              // paralleler Einrueckung. Ein Punkt darf flach bleiben (~0).
+              const nz9=el9>56? 3 : 2;
+              const pts=[];
+              for(let k9=1;k9<=nz9;k9++){
+                const t9=k9/(nz9+1)+(hash01(kk*17+k9*5)-0.5)*0.14;
+                let d9=2.0+hash01(kk*23+k9*11)*7.0;
+                if(hash01(kk*41+k9*13)<0.30) d9*=0.15;   // Zahnspitze bleibt aussen
+                pts.push([U9[0]+ex9*t9-nx9*d9, U9[1]+ey9*t9-ny9*d9]);
+              }
+              zackW.set(kk,pts);
+              // (Saumkrone kommt fuer diese Kanten aus dem OBERE-
+              // SILHOUETTE-Zweig oben - ein zweiter Push von hier ergab
+              // Doppelzeichnung und ungepruefte Normalen)
+            }
+          }
+          // Kantenzug mit Zacken (Richtung beachten: die Punktliste ist vom
+          // kleineren zum groesseren Knotenindex gespeichert)
+          const zackKante=(g9,qu,qv,Pv)=>{
+            const kk= qu<qv? qu*131072+qv : qv*131072+qu;
+            const z9=zackW.get(kk);
+            if(z9){
+              if(qu<qv){ for(let k9=0;k9<z9.length;k9++) g9.lineTo(z9[k9][0],z9[k9][1]); }
+              else     { for(let k9=z9.length-1;k9>=0;k9--) g9.lineTo(z9[k9][0],z9[k9][1]); }
+            }
+            g9.lineTo(Pv[0],Pv[1]);
+          };
           // Massiv-Hüllrechteck in CHUNK-LOKALEN Weltkoordinaten: die
           // teuren Vollflächen-Pässe (Klippentextur, Firn, Schlagschatten,
           // Geröllband) beschneiden ihre Füll-/Compose-Schritte darauf –
@@ -1994,11 +2156,17 @@ export class Renderer {
           if(tris.length){
             g.save(); g.translate(-c.ox,-c.oy);
             // Massiv-Umriss als EIN Beschnittpfad – alles Weitere (Decke,
-            // Lasur, Erz, Firn, Licht) bleibt exakt innerhalb des Berges
+            // Lasur, Erz, Firn, Licht) bleibt exakt innerhalb des Berges.
+            // Flache Silhouettenkanten laufen ueber ihre Umriss-Zacken
+            // (s. zackW oben) - Innenkanten haben keinen Eintrag und
+            // bleiben gerade, die Fuellung der Nachbardreiecke deckt sie.
             g.beginPath();
             for(const t3 of tris){
-              g.moveTo(t3.A[0],t3.A[1]); g.lineTo(t3.B[0],t3.B[1]);
-              g.lineTo(t3.C[0],t3.C[1]); g.closePath();
+              g.moveTo(t3.A[0],t3.A[1]);
+              zackKante(g,t3.qa,t3.qb,t3.B);
+              zackKante(g,t3.qb,t3.qc,t3.C);
+              zackKante(g,t3.qc,t3.qa,t3.A);
+              g.closePath();
             }
             g.clip();
             // 2) Facetten DECKEND und FLACH füllen – erst auf die Zwischen-
@@ -2860,7 +3028,17 @@ export class Renderer {
                   // halben Berg (Handybild v84). Kürzere Säulen bleiben als
                   // Klüftung lesbar, ohne zu verlaufen.
                   const CST=1.75;
-                  const patC=patOf('ter_rock_cliff',0.19,0,0,0,imC,0.19*CST);
+                  // v238: die Massstaebe oben sind auf die 135-px-QUADER der
+                  // alten Mauerkachel gemessen ("3-5 Saeulen ueber eine
+                  // typische Wand"). ter_rock_wall traegt stattdessen
+                  // gemalte SAEULEN von 100-180 px Breite - beim alten
+                  // Massstab wurden daraus 19-34 Weltpixel schmale Streifen,
+                  // 6-10 je Wand: das Bild kippte in duenne Tropfbahnen
+                  // (w1-wand-777). Faktor 1.9 stellt die gemessene
+                  // Saeulenzahl (3-5) wieder her; die krummen Verhaeltnisse
+                  // der Lagen bleiben.
+                  const WSC=this.asset('ter_rock_wall')? 1.9 : 1.0;
+                  const patC=patOf('ter_rock_cliff',0.19*WSC,0,0,0,imC,0.19*WSC*CST);
                   tex4.fillStyle=patC||'#8a7e68';
                   tex4.fillRect(c.ox,c.oy,w,h);
                   // Leitlinie B (keine gleichmaessigen TREPPEN): jedes WAND-
@@ -2876,7 +3054,17 @@ export class Renderer {
                   // 300-500 Weltpixel) zogen sich als durchgehende dunkle
                   // Striche über mehrere Knotenreihen. Mit fünf Phasenlagen
                   // bricht die Klüftung alle 2,6 Knoten (Blockmaß BQ).
-                  const imC2=this.felsMaterial('ter_rock_cliff2')||imC;
+                  // v238 ("LAGEN-Patchwork"): liegt ter_rock_wall im Paket,
+                  // laufen ALLE fuenf Lagen ueber DIESELBE Wandkachel (nur
+                  // Massstab/Phase wechseln). Vorher mischten die Toepfe
+                  // zwei MATERIALCHARAKTERE: imC (Wand -> Saeulen) gegen
+                  // imC2 (wandAusMauer-verwuerfeltes MAUERWERK). Im
+                  // Differenzbild (diag-diff3b) stand das als Flickenteppich
+                  // aus Ziegel-Feldern neben Rillen-Feldern, je Blockhash
+                  // wechselnd - das eigentliche "Patchwork". Nur wenn die
+                  // Wandkachel fehlt, bleibt die alte Mischung als Rueckfall.
+                  const imC2=this.asset('ter_rock_wall')? imC
+                    : (this.felsMaterial('ter_rock_cliff2')||imC);
                   const LAGEN=[
                     // [Bild, scX, tx, ty]
                     [imC,  0.237,  37,  61],
@@ -2894,7 +3082,7 @@ export class Renderer {
                     if(!tb9[k9].length) continue;
                     const L=LAGEN[k9];
                     const pL=patOf(L[0]===imC?'ter_rock_cliff':'ter_rock_cliff2',
-                                   L[1],0,L[2],L[3],L[0],L[1]*CST);
+                                   L[1]*WSC,0,L[2],L[3],L[0],L[1]*WSC*CST);
                     if(!pL) continue;
                     tex4.save();
                     tex4.beginPath();
@@ -3798,8 +3986,12 @@ export class Renderer {
               if(imW){
                 const pw=this._flankePat || (this._flankePat=(()=>{
                   const pt=g.createPattern(imW,'repeat');
+                  // v238: gleiche Massstabs-Anhebung wie im Klippenpass -
+                  // ter_rock_wall traegt 100-180-px-Saeulen, beim alten
+                  // 0.115er-Massstab wuerden daraus 12-21-px-Streifchen
+                  const fw9=this.asset('ter_rock_wall')? 0.115*1.9 : 0.115;
                   if(pt && pt.setTransform)
-                    pt.setTransform(new DOMMatrix().scale(0.115, 0.115*1.75));
+                    pt.setTransform(new DOMMatrix().scale(fw9, fw9*1.75));
                   return pt;
                 })());
                 if(pw){
@@ -4575,6 +4767,65 @@ export class Renderer {
             g.globalAlpha=0.97;
             g.drawImage(this._texTmp,0,0,w,h);
             g.globalAlpha=1;
+          }
+          // ---- 2c) SAUMKRONE flacher Silhouettenkanten (v238, Runde-2-
+          //      Auftrag "Scallop-Silhouetten"). Die im Massiv-Pass
+          //      gesammelten flachen Landkanten (saumZL) bekommen einen
+          //      kantigen Zahnstreifen in Felston, der die runden Lappen
+          //      aus Rand-Anhebung + Bandzellen uebermalt. NACH Geroell-
+          //      band und Schneewehe: gerade im Winter (dort lag die
+          //      glatteste Amoeben-Kante) soll der Fels durch die weiche
+          //      Wehe BRECHEN statt unter ihr zu verschwinden. Saegezahn
+          //      aus 2x nt+1 Punkten je Kante, Tiefen gehasht - hart und
+          //      unregelmaessig, nie zweimal dieselbe Zahnreihe.
+          if(saumZL && saumZL.length){
+            const rc9=hex2arr(cols[TER.MOUNT]||'#8a8177');
+            g.save(); g.translate(-c.ox,-c.oy);
+            g.lineJoin='miter';
+            for(const s9 of saumZL){
+              const ex9=s9.x2-s9.x1, ey9=s9.y2-s9.y1;
+              const nt9= s9.el>56? 3 : 2;
+              const IN9=3.5;
+              g.beginPath();
+              g.moveTo(s9.x1+s9.nx*(-IN9), s9.y1+s9.ny*(-IN9));
+              for(let k9=1;k9<=2*nt9;k9++){
+                const t9=k9/(2*nt9+1)+(hash01(s9.kk*19+k9*7)-0.5)*0.10;
+                // ungerade Punkte: Zahnspitze nach aussen (2..9 px),
+                // gerade Punkte: Kerbe nahe der Grundlinie
+                const d9=(k9&1)? 2.0+hash01(s9.kk*23+k9*11)*7.0
+                               : -1.0+hash01(s9.kk*31+k9*5)*2.2;
+                g.lineTo(s9.x1+ex9*t9+s9.nx*d9, s9.y1+ey9*t9+s9.ny*d9);
+              }
+              g.lineTo(s9.x2+s9.nx*(-IN9), s9.y2+s9.ny*(-IN9));
+              g.closePath();
+              // Ton aus der Themen-Felsfarbe, je Kante leicht variiert und
+              // zum Schatten gedrueckt (der Saum ist die Kantenbrechung,
+              // kein Spitzlicht); 0.88 Deckung laesst Korn durchscheinen
+              // dunkler Schattenton (erster Wurf 0.72..0.88 war ZU HELL:
+              // vor der schattierten Felsflaeche standen die Zaehne als
+              // fahle Baender, s. diag-saum-n6) - die Krone ist eine
+              // Kantenbrechung im Schatten, kein aufgesetzter Fels
+              const f9=0.44+hash01(s9.kk*13+1)*0.14;
+              g.fillStyle='rgba('+(rc9[0]*f9|0)+','+(rc9[1]*f9|0)+','
+                                 +(rc9[2]*f9|0)+',0.72)';
+              g.fill();
+              // dunkle Aussenkontur nur auf dem Zahnzug (nicht innen):
+              // setzt die Zaehne gegen Wiese/Schnee ab
+              g.beginPath();
+              let px9=s9.x1, py9=s9.y1;
+              g.moveTo(px9,py9);
+              for(let k9=1;k9<=2*nt9;k9++){
+                const t9=k9/(2*nt9+1)+(hash01(s9.kk*19+k9*7)-0.5)*0.10;
+                const d9=(k9&1)? 2.0+hash01(s9.kk*23+k9*11)*7.0
+                               : -1.0+hash01(s9.kk*31+k9*5)*2.2;
+                g.lineTo(s9.x1+ex9*t9+s9.nx*d9, s9.y1+ey9*t9+s9.ny*d9);
+              }
+              g.lineTo(s9.x2,s9.y2);
+              g.strokeStyle='rgba(38,32,25,0.30)';
+              g.lineWidth=1.2;
+              g.stroke();
+            }
+            g.restore();
           }
           // ---- 3b) FELSUFER gegen Wasser (Befund B1, Spielerkritik
           //      "uebergang ... zum wasser"). KEIN Strand, KEIN Schaum-
@@ -6609,7 +6860,21 @@ export class Renderer {
     // Rauschgrenze von 14,6 - das Gebirge wirkte deshalb wie eine
     // strukturlose Sandflaeche. W/6 (rund 64 Weltpixel) laesst die Platten
     // stehen und nimmt nur die Grossbeleuchtung.
-    const lw=Math.max(2,Math.round(W/6)), lh=Math.max(2,Math.round(H/6));
+    //
+    // v238 (Runde-2-Auftrag "fahle Schlieren grosser Wandflaechen"):
+    // fuer die WANDtextur gilt eine EIGENE, viel groebere Tiefpassbasis.
+    // Befund am Material selbst (diag-mat-wall-div6 gegen -d96):
+    // ter_rock_wall traegt gemalte Felssaeulen von 100-180 px Breite mit
+    // grossen TONflaechen; der 6er-Tiefpass ist so fein, dass genau diese
+    // Tonflaechen in der Tiefpasslage landen und vom Hochpass abgezogen
+    // werden - uebrig blieben nur die Kluft-KONTUREN als feines Rillenfeld
+    // (Std 22 -> im Bild die cordartigen "Schlieren", Stilguide-11.8-
+    // Symptom "Wandtextur wie Cord oder Rinde"). Mit Basis W/84 ueberlebt
+    // die Saeulenzeichnung den Hochpass (Std 40, tonale Saeulen), die
+    // grossflaechige Restbeleuchtung faellt weiterhin heraus. Die
+    // Flaechenkacheln behalten ihre gemessene 6er-Basis (Kommentar oben).
+    const divLP=(key==='ter_rock_wall'||key==='ter_rock_cliff'||key==='ter_rock_cliff2')? 84 : 6;
+    const lw=Math.max(2,Math.round(W/divLP)), lh=Math.max(2,Math.round(H/divLP));
     const lo=document.createElement('canvas'); lo.width=lw; lo.height=lh;
     const lg=lo.getContext('2d');
     lg.imageSmoothingEnabled=true; lg.imageSmoothingQuality='high';
@@ -6648,7 +6913,13 @@ export class Renderer {
     // Statt des harten Deckels begrenzt ein tanh weich: der alte Schnitt
     // bei MID-SPAN liess die dunkelsten Stellen zu einer Flaeche
     // zusammenlaufen, und eine solche Flaeche ist wieder Struktur weniger.
-    const MID=208, K=2.30, SPAN=82;      // 126..255 -> Kontrastverhaeltnis 2.0
+    const MID=208, SPAN=82;              // 126..255 -> Kontrastverhaeltnis 2.0
+    // v238: die Wandkachel kommt mit dem 84er-Tiefpass bereits mit voller
+    // Saeulenamplitude an - K=2.30 trieb ihre Kluefte in die tanh-
+    // Saettigung, im Bild standen harte schwarze Tropfbahnen ueber die
+    // ganze Wand (w1-wand-777). K=1.35 laesst die Kluefte dunkel, aber
+    // die Tonflaechen der Saeulen tragen die Zeichnung.
+    const K=(divLP>6)? 1.35 : 2.30;
     for(let i=0;i<a.length;i+=4){
       const L =0.299*a[i]+0.587*a[i+1]+0.114*a[i+2];
       const Lb=0.299*b[i]+0.587*b[i+1]+0.114*b[i+2];
