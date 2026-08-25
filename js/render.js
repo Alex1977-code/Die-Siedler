@@ -6405,9 +6405,10 @@ export class Renderer {
         // Manifest - vielleicht taugen sie spaeter als Ruine oder Denkmal.
         // Uebrig bleibt, was als Natur durchgeht: zwei Felsnadeln, zwei
         // Findlinge, eine Brockengruppe.
+        // obj_findling_gross und obj_steingruppe fehlen hier bewusst: sie
+        // zeigen seit v242 den ABBAUBAREN Stein (s. OBJ.STONE in drawObj).
         this._felsPool=['obj_rockspire_3','obj_rockspire_5',
-          'obj_findling_gross','obj_findling_mittel',
-          'obj_steingruppe']
+          'obj_findling_mittel','obj_steinhaufen']
           .filter(k9=>this.asset(k9));
       }
       const P9=this._felsPool;
@@ -6470,12 +6471,12 @@ export class Renderer {
     //    ihnen nur nicht an, dass sie abbaubar sind, weil ringsum dieselben
     //    Bilder als Deko liegen. Ab jetzt gilt: obj_stein_* heisst Rohstoff.
     const L={
-      halde:  ['obj_kieshaufen','obj_steingruppe'],
-      block:  ['obj_findling_gross','obj_findling_mittel','obj_steingruppe'],
+      halde:  ['obj_kieshaufen','obj_steinhaufen'],
+      block:  ['obj_findling_mittel','obj_steinhaufen'],
       zinne:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
       misch:  ['obj_rockspire_3','obj_rockspire_5',
-               'obj_findling_gross','obj_findling_mittel','obj_steingruppe',
+               'obj_findling_mittel','obj_steinhaufen',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
     }[art] || [];
     v=L.filter(k=>this.asset(k));
@@ -10666,7 +10667,14 @@ export class Renderer {
         break;
       }
       case OBJ.STONE: {
-        this.shadow(g,x,y+2,18,5.8,0.24);
+        // Schatten waechst mit der Stufe mit: der volle Bruch ist ein
+        // massiver Block, ein fester Kontaktschatten setzt ihn auf den
+        // Boden statt ihn daraufzulegen (v242).
+        {
+          const a9=m.amt? m.amt[i] : 0;
+          const r9= a9>11? 22 : a9>7? 18 : a9>3? 15 : 12;
+          this.shadow(g,x,y+2,r9,r9*0.33,0.28);
+        }
         // Lieferung D: vier Abbaustufen. Der Steinmetz traegt m.amt ab
         // (Startwert 8-16, HQ-Ring 10); die Stufen zeigen das an, statt bis
         // zum letzten Brocken gleich gross zu bleiben. Die Bilder teilen
@@ -10685,14 +10693,28 @@ export class Renderer {
         //     (er ist dafuer aus der Gebirgsdeko genommen, s. felsVorrat)
         //   - Grundhoehe 34 -> 48 px, und die Stufen schrumpfen sichtbar mit
         //     dem Restvorrat statt nur das Bild zu wechseln
-        const voll= st9===1 && this.asset('obj_steinhaufen');
-        const key9= voll? 'obj_steinhaufen'
-                        : (this.asset('obj_stein_'+st9)? 'obj_stein_'+st9 : 'obj_stone');
+        // v242 - Nutzerurteil zur ersten Fassung: "das muss nach steinquelle
+        // aussehen da reicht nicht der kieselhaufen". Richtig: obj_steinhaufen
+        // ist ein Haufen loser Broecken, also ABRAUM - er erzaehlt "hier hat
+        // jemand aufgeraeumt", nicht "hier ist Stein im Berg". Eine Steinquelle
+        // ist anstehender Fels, aus dem Bloecke gebrochen werden.
+        // Die Stufenfolge zeigt deshalb, wie der Bruch abgetragen wird:
+        //   voll      obj_findling_gross  massiver geschichteter Block
+        //   angebaut  obj_steingruppe     drei verbliebene Bloecke
+        //   knapp     obj_stein_1         letzter kleiner Rest
+        //   fast leer obj_stein_2
+        // findling_gross und steingruppe sind dafuer aus der Gebirgsdeko
+        // genommen (s. felsVorrat/_felsPool) - beide Rollen mit demselben
+        // Bild waere genau die Verwechslung, die den Vorrat unsichtbar machte.
+        const STUFEN=['','obj_findling_gross','obj_steingruppe','obj_stein_1','obj_stein_2'];
+        const wunsch=STUFEN[st9];
+        const key9= (wunsch && this.asset(wunsch))? wunsch
+                  : (this.asset('obj_stein_'+st9)? 'obj_stein_'+st9 : 'obj_stone');
         const ovO=this.asset(key9);
         if(ovO){
           // Fussluft ausgleichen: der sichtbare Haufenfuss landet auf dem
           // Schatten statt eine Bildluft darueber (Kritik R3 G1)
-          const hh=[0,48,42,36,30][st9]||34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
+          const hh=[0,54,44,36,30][st9]||34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
           g.drawImage(ovO, x-ww/2, y+8-hh+hh*this.bildFussLuft(key9), ww, hh);
           break;
         }
