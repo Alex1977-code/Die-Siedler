@@ -1371,8 +1371,40 @@ export class Game {
       u.actT++;
       if(u.actT%11===1 && u.player===0) this.onGeoProbe && this.onGeoProbe(u);
       if(u.actT>=44){
-        const ore=m.oreT[u.target]||0;
-        this.signs.set(u.target, ore);
+        // UMGEBUNG STATT EINSTICH (Nutzerbefund: "die geologen finden oft
+        // kaum etwas so dass die erz kohlekette sofort zusammenbricht").
+        // GEMESSEN ueber zwoelf Saaten fuehren nur 27 % der Bergknoten Erz
+        // (Median; Spanne 22-31 %). Wer je Probe GENAU EINEN Knoten prueft,
+        // hat also in drei von vier Faellen eine Niete - bei sieben Proben
+        // im Schnitt keine zwei Funde, und die Erzkette haengt.
+        // Ein Geologe beurteilt aber nicht den einen Schlagpunkt, sondern
+        // das Gestein ringsum; Erz liegt ohnehin in Adern und nicht in
+        // Einzelkoernern. Findet der Einstich nichts, sieht er deshalb die
+        // direkten Nachbarknoten mit an und setzt sein Schild dorthin, wo
+        // die Ader wirklich liegt. Geprueft werden nur Knoten, die auch
+        // bebaubar waeren - ein Schild auf einer Felsformation oder unter
+        // einem Haus nuetzt niemandem.
+        let ore=m.oreT[u.target]||0;
+        let ziel=u.target;
+        if(!ore){
+          for(const q of m.nbs(u.target)){
+            if(m.terr[q]!==TER.MOUNT || this.signs.has(q) || m.bld[q]>=0) continue;
+            if((m.obj[q]&127)===OBJ.ROCK) continue;
+            const o2=m.oreT[q]||0;
+            // Im NACHBARgestein zaehlt nur eine ergiebige Ader, kein kleines
+            // Nest: ein Schild soll auf etwas zeigen, das eine Grube auch
+            // traegt. Schwelle ist der Median der Vorkommensgroessen
+            // (oreA-Verteilung 16/32/43/119 fuer min/p25/median/max).
+            // EHRLICH GEMESSEN bringt sie fast nichts: die Trefferquote
+            // sinkt von 81/94/100 % nur auf 81/96/100 % (Saat 42/58/97, je
+            // 25 Spielminuten) - Erz liegt so stark in Adern, dass ein
+            // Nachbar mit Erz fast immer auch ein grosser Nachbar ist.
+            // Sie bleibt trotzdem drin, weil sie Einzelkoerner als Fundort
+            // ausschliesst; als Regelschraube fuer die Quote taugt sie nicht.
+            if(o2 && (m.oreA[q]||0)>=43){ ore=o2; ziel=q; break; }
+          }
+        }
+        this.signs.set(ziel, ore);
         u.probes--;
         if(ore) this.onGeoFind && this.onGeoFind(u);   // Jubelruf des Geologen
         if(u.player===0 && ore){
@@ -1383,7 +1415,7 @@ export class Game {
           this._geoMsgT=this._geoMsgT||{};
           if(this.t-(this._geoMsgT[ore]??-1e9)>600){
             this._geoMsgT[ore]=this.t;
-            this.msg(`Geologe: ${name} gefunden!`, 'ok', u.target, 0, 'erz');
+            this.msg(`Geologe: ${name} gefunden!`, 'ok', ziel, 0, 'erz');
           }
         }
         u.state='seek';
@@ -3224,7 +3256,19 @@ export class Game {
     // Ziel NIE. Genau das war der "Tanz" des Planierers um den Bauplatz.
     const m=this.map;
     const an=m.nearestNode(u.x+nx*15, u.y+ny*15);
-    if(an>=0 && m.flag[an]){
+    // Baeume und Felsbrocken werden genauso umgangen wie Fahnen (Nutzer-
+    // befund "kollision der figuren mit baeumen und anderen objekten klappt
+    // nicht"): dicht voraus liegender Stamm -> seitlich vorbeischieben.
+    // Setzlinge bleiben durchlaufbar (kniehoch), und wer den Baum als ZIEL
+    // hat - Holzfaeller am Stamm, Steinmetz am Brocken - weicht ihm nicht
+    // aus; das regelt dieselbe tdist-Abfrage wie bei der Fahne.
+    const hindernisN=(q)=>{
+      if(q<0) return false;
+      if(m.flag[q]) return true;
+      const o9=m.obj[q]&127;
+      return o9===OBJ.TREE || o9===OBJ.TREE2 || o9===OBJ.STONE;
+    };
+    if(hindernisN(an)){
       const [fx,fy]=m.worldPos(an);
       const tdist=Math.hypot(tx-fx, ty-fy);
       if(tdist>16){                                  // nicht ausweichen, wenn die Fahne das Ziel ist
@@ -3292,6 +3336,18 @@ export class Game {
     const m=this.map, t=m.terr[n];
     if(t===TER.WATER || t===TER.LAVA) return false;
     if((m.obj[n]&127)===OBJ.ROCK) return false;
+    // BAEUME/FELSBROCKEN: VERWORFENER ANSATZ, bewusst dokumentiert.
+    // Der naheliegende Weg zum Nutzerbefund "kollision der figuren mit
+    // baeumen und anderen objekten klappt nicht" ist, Baum- und Steinknoten
+    // hier hart zu sperren. GEMESSEN ist das ein Eigentor: die KI-Wirtschaft
+    // fiel nach zwanzig Spielminuten von 32 auf 17 Betriebe (Saat 42 und 58,
+    // A/B im selben Lauf). Grund ist nicht die Kollision selbst, sondern die
+    // Folge: jeder gesperrte Knoten auf der Luftlinie schickt moveToward in
+    // die teure Umwegsuche landDetour, und Waelder sind flaechig - Planierer
+    // und Bauarbeiter kamen dadurch spuerbar spaeter an.
+    // Geloest wird es stattdessen LOKAL in moveToward, genau wie bei Fahnen:
+    // die Figur schiebt seitlich am Stamm vorbei, ohne dass der Knoten aus
+    // dem Wegenetz faellt. Optisch dasselbe Ergebnis, ohne Wegfindungskosten.
     if(this.unterHaus(n)){
       // STRASSEN durch den Hausschatten sind BEGEHBAR. Das Wegenetz fuehrt
       // voellig legal unter Hausbildern hindurch (Torstummel an jeder Tuer,
@@ -5270,6 +5326,21 @@ export class Game {
        && milN < AM.milBase + Math.floor(this.t/AM.milGrow)
        && !kontakt)
       milAllowed=Math.min(milN+1, this.aiFeindErreichbar(p)? AM.milMax*3 : AM.milMax*2);
+    // ANLAUFSCHUTZ (Nutzerbefund: "der computergegner hat in extrem kurzer
+    // zeit lauter posten"). GEMESSEN (Saat 42 und 58, Stufe Mittel) standen
+    // nach fuenf Spielminuten VIER Posten, nach fuenfzehn acht - und
+    // durchgehend einer bis drei davon leer. In der Anfangsphase gehoert das
+    // Baumaterial aber der Wirtschaft; ein Posten, den niemand besetzen kann,
+    // verschiebt keine Grenze und bindet nur Bretter.
+    // WICHTIG ist die Stelle: NACH der Ohne-Kontakt-Verlaengerung darueber.
+    // Zuerst stand die Bremse davor - wirkungslos, denn genau diese
+    // Verlaengerung hebt jeden Deckel wieder auf milN+1 an, sobald er
+    // erreicht ist (sie soll das Einfrieren im Niemandsland verhindern, KD1).
+    // Gemessen war der Unterschied null: weiterhin vier Posten nach fuenf
+    // Minuten. Hier hinten greift sie.
+    // Stufe SCHWER bleibt ausgenommen - dort ist frueher Druck gewollt.
+    if(lvl<3 && this.t<6000)
+      milAllowed=Math.min(milAllowed, 1+Math.floor(this.t/2400));
     // MILITAER WAECHST NUR MIT DER WIRTSCHAFT (v202).
     //
     // Gemessen (Saat 11, 45 Spielminuten, ohne Materialhilfe) baute die KI
@@ -5292,6 +5363,13 @@ export class Game {
     {
       const wirtschaft=[...this.buildings.values()].filter(b=>
         b.player===p.id && b.state==='done' && b.type!=='hq' && !BLD[b.type].mil).length;
+      // VERWORFEN (v240, gemessen): Sockel 3 und je DREI Betrieben ein
+      // Posten sollte die Flut zusaetzlich bremsen. Zusammen mit dem
+      // Anlaufschutz oben war das ZU VIEL: die KI kam ueber drei Posten
+      // nicht hinaus, und weil Posten ihr einziges Mittel zur Landnahme
+      // sind, brach damit auch ihre Wirtschaft ein (Saat 42 nach zwanzig
+      // Spielminuten 20 statt 32 Betriebe). Der Anlaufschutz allein trifft
+      // den Nutzerbefund; dieser Deckel bleibt deshalb wie er war.
       let deckel=4 + Math.floor(wirtschaft/2);
       // PLATZNOT (v206): Findet die KI fuer ein Wirtschaftsgebaeude keinen
       // Platz mehr und hat sie Soldaten, dann ist ein Posten das einzige
