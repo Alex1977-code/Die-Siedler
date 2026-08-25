@@ -4111,10 +4111,10 @@ export class Renderer {
                   // die Unterkante; das Fenster deckt beides ab.
                   const dbg=typeof window!=='undefined' && window.__dbgSaum;
                   this.ditherSaum(g, (f.x1+f.x2)/2+ux*4, yq+1+uy*4, ux, uy,
-                                  el*1.10, 20, mskW,
+                                  el*1.10, 30, mskW,
                                   dbg?[255,0,255]:cf, dbg?[0,255,255]:cl,
                                   (Math.imul(f.u,3121)^Math.imul(f.v,1567))|0,
-                                  0.46, 0.94);
+                                  0.58, 0.94);
                 }
               }
               if(flankeFuss && flankeFuss.length){
@@ -5101,9 +5101,9 @@ export class Renderer {
               // kraeftig; bricht er als Wand ab, bleibt die Krone leiser -
               // dort macht der Wandfuss-Saum in 7a1b die Arbeit.
               this.ditherSaum(g, e.mx+e.ux*4, e.my+e.uy*4, e.ux, e.uy,
-                              34, 24, mskD, cf, cl,
+                              34, 32, mskD, cf, cl,
                               (Math.imul(e.i,1949)^Math.imul(e.n,769))|0,
-                              0.34+0.16*flach, 0.90);
+                              0.44+0.18*flach, 0.90);
             }
           }
           // Geröllkegel (bestelltes Bild ter_scree_cone): an Kanten mit
@@ -5121,7 +5121,14 @@ export class Renderer {
               // muss nicht mehr nachskaliert werden. Dafuer duenner
               // gestreut (0.30 statt 0.45) – ein breiter Faecher deckt
               // deutlich mehr Kantenlaenge ab als der alte kleine Stempel.
-              const clus=this.tintedSpire('obj_rockspire_6');
+              // v240: war obj_rockspire_6 - das ist aber ein STEINTISCH
+              // (Platte auf Sockel). Gedreht und entlang der Wandkante in
+              // Reihe gestempelt ergab er genau das, was die Sichtpruefung
+              // als "regelmaessiges Saegezahnband aus identischen grauen
+              // Dreiecken" und "Zackenschere" beanstandet hat. Ein
+              // Schuttkegel am Wandfuss ist eine Halde, kein Moebelstueck:
+              // dafuer gibt es obj_steinhaufen.
+              const clus=this.tintedSpire('obj_steinhaufen');
               for(const e of eScree){
                 if(e.dp<0.55 || e.uy<-0.15 || hash01(e.i*71+e.n*13)>0.30) continue;
                 const h8=hash01(e.i*91+e.n*17);
@@ -5129,8 +5136,7 @@ export class Renderer {
                 g.translate(e.mx+e.ux*9, e.my+e.uy*7);
                 g.rotate(Math.atan2(e.uy,e.ux)-Math.PI/2+(h8-0.5)*0.24);
                 if(h8>0.5) g.scale(-1,1);
-                // (Tafelfels hier weiter erlaubt: am Schuttfuss liegt er
-                //  im Geroell und hat sichtbaren Anschluss an den Hang)
+                // Haldenstueck statt Tafelfels (s. oben)
                 const im8= (clus && h8>0.34 && h8<0.48)? clus : cone;
                 const f8=FELS_F*(0.88+h8*0.24);
                 const W8=(im8.naturalWidth||im8.width), H8=(im8.naturalHeight||im8.height);
@@ -6379,14 +6385,29 @@ export class Renderer {
         // auf Gipfeln und an der Firnkante. Auch aus den felsVorrat-Pools
         // genommen - als Ankerstueck einer Gruppe stand sie dort ebenso
         // in voller Groesse. Das Blatt bleibt nur im Manifest.
-        this._felsPool=['obj_rockspire_1','obj_rockspire_2',
-          'obj_rockspire_3','obj_rockspire_4','obj_rockspire_5',
+        // v240 - Nutzerkritik "die steinhaufen sehen gleich aus und stehen
+        // unnatuerlich schraeg", und aus der Sichtpruefung ueber vier Karten:
+        // auf JEDER Karte standen Stufenpyramiden und Huenengraeber. Die
+        // Ursache liegt nicht im Code, sondern in den BLAETTERN selbst -
+        // gesichtet im Kontaktbogen sind
+        //   obj_rockspire_1  ein schlanker Stufenturm (Ziggurat)
+        //   obj_rockspire_2  ein Stapel Mauerquader
+        //   obj_rockspire_4  ein Stapel flacher Platten
+        //   obj_rockspire_6  eine Platte auf Sockel (Steintisch)
+        //   obj_steinplatte  eine Deckplatte auf Stuetzstein (Dolmen)
+        // Alle fuenf lesen als Menschenwerk und gehoeren nicht in eine
+        // Naturlandschaft; sie fliegen aus allen Auswahllisten, genau wie
+        // obj_blockstapel schon frueher (Kritik N6). Die Blaetter bleiben im
+        // Manifest - vielleicht taugen sie spaeter als Ruine oder Denkmal.
+        // Uebrig bleibt, was als Natur durchgeht: zwei Felsnadeln, zwei
+        // Findlinge, eine Brockengruppe.
+        this._felsPool=['obj_rockspire_3','obj_rockspire_5',
           'obj_findling_gross','obj_findling_mittel',
-          'obj_steingruppe','obj_steinplatte']
+          'obj_steingruppe']
           .filter(k9=>this.asset(k9));
       }
       const P9=this._felsPool;
-      const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_1';
+      const key9= P9.length? P9[(sp*137|0)%P9.length] : 'obj_rockspire_3';
       const box=this.drawFelsObj(g,key9, px+ox2, py+oy2+3, sc7,
                                  hash01(i*7+1)>0.5, 0.26, lz, i*3+1, schnee9);
       if(!box) this.felsHaufen(g, px+ox2, py+oy2+2, i, true, lz);
@@ -6427,20 +6448,31 @@ export class Renderer {
     if(!this._vorrat) this._vorrat=new Map();
     let v=this._vorrat.get(art);
     if(v) return v;
+    // v240, zwei Bereinigungen auf einmal:
+    //
+    // 1. MENSCHENWERK RAUS. obj_rockspire_1/2/4/6 und obj_steinplatte zeigen
+    //    Stufentuerme, Quaderstapel und Dolmen (s. Kontaktbogen im Bericht) -
+    //    dieselbe Begruendung wie bei obj_blockstapel, das schon frueher aus
+    //    allen Listen flog (Kritik N6). In einer Naturlandschaft haben sie
+    //    nichts verloren, und die Sichtpruefung fand sie auf jeder Karte.
+    //
+    // 2. obj_stein_1..4 GEHOERT DEM ROHSTOFF. Diese vier Blaetter zeichnen
+    //    in drawObj den ABBAUBAREN Steinhaufen (OBJ.STONE, vier Stufen nach
+    //    Restmenge). Sie hier zusaetzlich als Gebirgsdeko zu streuen, machte
+    //    Rohstoff und Kulisse ununterscheidbar - der Nutzerbefund "ich starte
+    //    immer ohne abbaubaren stein fuer den steinmetz" kommt genau daher:
+    //    GEMESSEN liegen im Startumkreis immer 5 bis 11 abbaubare Haufen mit
+    //    61 bis 145 Ladungen (16 Saaten, kein einziger Fehlstart) - man sieht
+    //    ihnen nur nicht an, dass sie abbaubar sind, weil ringsum dieselben
+    //    Bilder als Deko liegen. Ab jetzt gilt: obj_stein_* heisst Rohstoff.
     const L={
-      halde:  ['obj_kieshaufen','obj_steinhaufen','obj_stein_1','obj_stein_2',
-               'obj_stein_3','obj_stein_4','obj_steingruppe'],
-      // obj_blockstapel ueberall raus (Kritik N6): als Ankerstueck stand
-      // die geschichtete Quader-Pyramide in voller Groesse da - Ziggurat.
-      block:  ['obj_findling_gross','obj_findling_mittel',
-               'obj_steinplatte','obj_steingruppe','obj_stein_2','obj_stein_4'],
-      zinne:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
-               'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
+      halde:  ['obj_kieshaufen','obj_steinhaufen','obj_steingruppe'],
+      block:  ['obj_findling_gross','obj_findling_mittel','obj_steingruppe'],
+      zinne:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
-      misch:  ['obj_rockspire_1','obj_rockspire_2','obj_rockspire_3',
-               'obj_rockspire_4','obj_rockspire_5','obj_rockspire_6',
+      misch:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_findling_gross','obj_findling_mittel','obj_steingruppe',
-               'obj_steinplatte','obj_steinhaufen',
+               'obj_steinhaufen',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
     }[art] || [];
     v=L.filter(k=>this.asset(k));
