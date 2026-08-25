@@ -1298,10 +1298,12 @@ function ensureStartResources(map, s, rng){
   // (7 Bäume / 2 Haufen à 6 Ladungen) waren nach wenigen Spielminuten
   // abgeerntet und die Partie hing am Tropf (Kritikbericht).
   const ring=[]; const seen=new Set([s]); let q=[s];
+  const ringD=new Map();          // Ringabstand je Knoten (fuer die Nahgarantie)
   for(let d=0; d<7; d++){
     const nq=[];
     for(const i of q) for(const n of map.nbs(i)){
       if(seen.has(n)) continue; seen.add(n);
+      ringD.set(n, d+1);
       if(d>=3) ring.push(n);
       nq.push(n);
     }
@@ -1315,6 +1317,26 @@ function ensureStartResources(map, s, rng){
   while(trees<12 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.TREE; trees++; }
   // Start-Garantie 3 -> 5 Haufen: jedes Haus kostet Stein, und drei Haufen
   // (~36 Ladungen) waren nach dem ersten Ausbau aufgebraucht (Nutzerbefund)
+  //
+  // SICHTBARKEIT (Nutzerbefund "den steinvorrat am start gibt es einfach
+  // nicht"). Der Vorrat war da - GEMESSEN 5 bis 11 Haufen mit 61 bis 145
+  // Ladungen im Umkreis, auf keiner von 16 Saaten fehlte er, und ein
+  // angeschlossener Steinmetz foerdert daraus in zwanzig Spielminuten 35
+  // Stein. Er war nur NICHT ZU SEHEN: die Garantie streute in Ring 3 bis 6,
+  // das sind 156 bis 312 Weltpixel vom Hauptquartier. Auf einem Handy
+  // (430 px breit, Startzoom 1,1) reicht das Bild aber nur ~195 Weltpixel
+  // nach links und rechts, und einen Gutteil davon verdeckt die Burg selbst.
+  // Im Startbild war deshalb kein einziger Haufen zu sehen, waehrend der
+  // Tipp "Steinbruch bauen" empfiehlt.
+  // Jetzt liegen mindestens zwei Haufen im INNEREN Ring 3-4, also im
+  // sichtbaren Bildausschnitt; der Rest streut weiter wie bisher.
+  const nah=free.filter(i=> ringD.get(i)<=4);
+  let nahN=ring.filter(i=>map.obj[i]===OBJ.STONE && ringD.get(i)<=4).length;
+  while(nahN<2 && nah.length){
+    const i=nah.splice((rng()*nah.length)|0,1)[0];
+    const k=free.indexOf(i); if(k>=0) free.splice(k,1);
+    map.obj[i]=OBJ.STONE; map.amt[i]=12; stones++; nahN++;
+  }
   while(stones<5 && free.length){ const i=free.splice((rng()*free.length)|0,1)[0]; map.obj[i]=OBJ.STONE; map.amt[i]=12; stones++; }
 }
 

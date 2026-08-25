@@ -5128,7 +5128,11 @@ export class Renderer {
               // Dreiecken" und "Zackenschere" beanstandet hat. Ein
               // Schuttkegel am Wandfuss ist eine Halde, kein Moebelstueck:
               // dafuer gibt es obj_steinhaufen.
-              const clus=this.tintedSpire('obj_steinhaufen');
+              // NICHT obj_steinhaufen: der zeigt seit v241 den ABBAUBAREN
+              // Rohstoff (s. OBJ.STONE in drawObj). Als Schuttkegel gestreut
+              // waere die frisch gewonnene Trennung Rohstoff/Kulisse sofort
+              // wieder hin - der Spieler sucht dann Stein in der Deko.
+              const clus=this.tintedSpire('obj_kieshaufen');
               for(const e of eScree){
                 if(e.dp<0.55 || e.uy<-0.15 || hash01(e.i*71+e.n*13)>0.30) continue;
                 const h8=hash01(e.i*91+e.n*17);
@@ -6466,13 +6470,12 @@ export class Renderer {
     //    ihnen nur nicht an, dass sie abbaubar sind, weil ringsum dieselben
     //    Bilder als Deko liegen. Ab jetzt gilt: obj_stein_* heisst Rohstoff.
     const L={
-      halde:  ['obj_kieshaufen','obj_steinhaufen','obj_steingruppe'],
+      halde:  ['obj_kieshaufen','obj_steingruppe'],
       block:  ['obj_findling_gross','obj_findling_mittel','obj_steingruppe'],
       zinne:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
       misch:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_findling_gross','obj_findling_mittel','obj_steingruppe',
-               'obj_steinhaufen',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
     }[art] || [];
     v=L.filter(k=>this.asset(k));
@@ -10663,19 +10666,33 @@ export class Renderer {
         break;
       }
       case OBJ.STONE: {
-        this.shadow(g,x,y+2,14,4.6,0.22);
+        this.shadow(g,x,y+2,18,5.8,0.24);
         // Lieferung D: vier Abbaustufen. Der Steinmetz traegt m.amt ab
         // (Startwert 8-16, HQ-Ring 10); die Stufen zeigen das an, statt bis
         // zum letzten Brocken gleich gross zu bleiben. Die Bilder teilen
         // sich eine Grundflaeche, deshalb genuegt EIN Anker.
         const amt9=m.amt? m.amt[i] : 0;
         const st9= amt9>11? 1 : amt9>7? 2 : amt9>3? 3 : 4;
-        const key9=this.asset('obj_stein_'+st9)? 'obj_stein_'+st9 : 'obj_stone';
+        // v241 - Nutzerbefund "den steinvorrat am start gibt es einfach
+        // nicht". Er ist da (gemessen 5-11 Haufen im Startumkreis, ein
+        // angeschlossener Steinmetz foerdert daraus 35 Stein in zwanzig
+        // Spielminuten), aber er war NICHT ZU ERKENNEN: mit 34 px Hoehe war
+        // der volle Haufen kaum groesser als die Kiesel, die als Deko ueber
+        // jeder Wiese liegen - im Handy-Startbild (Lupe t22_lupe_42) ein
+        // graues Fleckchen neben lauter grauen Fleckchen.
+        // Zwei Aenderungen, damit ein Rohstoff wie ein Rohstoff aussieht:
+        //   - die VOLLE Stufe zeigt obj_steinhaufen, den grossen Blockhaufen
+        //     (er ist dafuer aus der Gebirgsdeko genommen, s. felsVorrat)
+        //   - Grundhoehe 34 -> 48 px, und die Stufen schrumpfen sichtbar mit
+        //     dem Restvorrat statt nur das Bild zu wechseln
+        const voll= st9===1 && this.asset('obj_steinhaufen');
+        const key9= voll? 'obj_steinhaufen'
+                        : (this.asset('obj_stein_'+st9)? 'obj_stein_'+st9 : 'obj_stone');
         const ovO=this.asset(key9);
         if(ovO){
           // Fussluft ausgleichen: der sichtbare Haufenfuss landet auf dem
           // Schatten statt eine Bildluft darueber (Kritik R3 G1)
-          const hh=34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
+          const hh=[0,48,42,36,30][st9]||34, ww=hh*(ovO.naturalWidth/ovO.naturalHeight);
           g.drawImage(ovO, x-ww/2, y+8-hh+hh*this.bildFussLuft(key9), ww, hh);
           break;
         }
