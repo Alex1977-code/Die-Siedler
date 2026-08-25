@@ -1345,6 +1345,63 @@ export class Renderer {
       // eingesammelt und NACH dem Bergfuss-Band als kantiger Felsrand
       // gezeichnet (s. Umriss-Zacken-Kommentar im Massiv-Pass)
       let saumZL=null;
+      let flankeP=null, flankeY=-1e9, flankeN=0, flankeFuss=null;
+      // Beschnittpfad des Massivs als Path2D aufgehoben: der DITHER-SAUM
+      // braucht die WIRKLICH gemalte Felsflaeche als Feld (s. unten).
+      let beschnittP=null;
+      // ---- Maske der gemalten Felsflaeche fuer den Dither-Saum ----
+      // Grob gerastert (DZ Weltpixel je Zelle) und beim Fuellen
+      // kantengeglaettet: die Randzellen tragen damit den Felsanteil
+      // ihrer Flaeche, und die bilineare Abfrage macht daraus eine
+      // stetige Rampe von 1 (im Fels) ueber 0,5 (auf der Grenze) nach 0
+      // (im Land). Genau das Feld, das der Saum als Dichte braucht -
+      // und es folgt der Grenze samt Umriss-Zacken und Wandflanken,
+      // statt sie aus Knotenlagen zu erraten.
+      // Chunkuebergreifend gleich: gefuellt werden dieselben Pfade, die
+      // auch den Fels malen, und die entstehen aus der Dreiecksliste MIT
+      // Knotenueberhang - keine chunk-lokale Normierung.
+      let ditherMaske=null;
+      const holeDitherMaske=()=>{
+        if(ditherMaske) return ditherMaske;
+        const DZ=11;
+        const mw=Math.ceil(w/DZ)+2, mh=Math.ceil(h/DZ)+2;
+        if(!this._ditherMsk) this._ditherMsk=document.createElement('canvas');
+        const dm=this._ditherMsk;
+        if(dm.width!==mw||dm.height!==mh){ dm.width=mw; dm.height=mh; }
+        const dg=dm.getContext('2d',{willReadFrequently:true});
+        dg.setTransform(1,0,0,1,0,0);
+        dg.clearRect(0,0,mw,mh);
+        dg.save();
+        dg.scale(1/DZ,1/DZ); dg.translate(-c.ox,-c.oy);
+        dg.fillStyle='#fff'; dg.strokeStyle='#fff';
+        dg.lineJoin='round'; dg.lineCap='round';
+        // AUFWEITUNG um GROW px. Der gemalte Fels endet NICHT am Beschnitt:
+        // darueber liegt noch das Geroellband des Bergfuss-Passes samt
+        // trockenem Saum, und das schiebt die sichtbare Grenze rund ein
+        // Dutzend Bildpunkte weiter in die Wiese (Beleg t21_d/crop_d: ohne
+        // Aufweitung sass die ganze Koernung noch im Fels, weil die Maske
+        // schon vor der Bandkante auf null gefallen war). Statt die
+        // Bandzellen hier nachzubauen - sie entstehen erst spaeter und in
+        // mehreren Durchgaengen - wird die Form aufgeweitet: EIN breiter
+        // Strich auf denselben Pfad.
+        const GROW=12;
+        dg.lineWidth=2*GROW;
+        if(beschnittP){ dg.fill(beschnittP); dg.stroke(beschnittP); }
+        if(flankeP && flankeN){ dg.fill(flankeP); dg.stroke(flankeP); }
+        dg.restore();
+        const md=dg.getImageData(0,0,mw,mh).data;
+        const ox9=c.ox, oy9=c.oy;
+        ditherMaske=(wx,wy)=>{
+          const fx=(wx-ox9)/DZ, fy=(wy-oy9)/DZ;
+          const x0=fx|0, y0=fy|0;
+          if(fx<0||fy<0||x0+1>=mw||y0+1>=mh) return -1;
+          const sx=fx-x0, sy=fy-y0;
+          const o=(y0*mw+x0)*4+3, o2=o+mw*4;
+          return ((md[o]*(1-sx)+md[o+4]*sx)*(1-sy)
+                 +(md[o2]*(1-sx)+md[o2+4]*sx)*sy)/255;
+        };
+        return ditherMaske;
+      };
       // Massiv-Zugehörigkeit: MOUNT/LAVA immer, SNOW nur als vereister Gipfelkamm.
       // Diese Knoten malt der Massiv-Pass komplett selbst – sie fallen aus den
       // weichen Boden-Schichten heraus, sonst überlagern sich beide Systeme.
@@ -2172,7 +2229,6 @@ export class Renderer {
           // Beschnitts gezeichnet werden: sie liegt unterhalb der
           // Felsdreiecke, der Clip auf die Dreiecke wuerde sie restlos
           // wegschneiden. Deshalb wird sie in 4b nur gesammelt.
-          let flankeP=null, flankeY=-1e9, flankeN=0, flankeFuss=null;
           if(tris.length){
             g.save(); g.translate(-c.ox,-c.oy);
             // Massiv-Umriss als EIN Beschnittpfad – alles Weitere (Decke,
@@ -2180,15 +2236,19 @@ export class Renderer {
             // Flache Silhouettenkanten laufen ueber ihre Umriss-Zacken
             // (s. zackW oben) - Innenkanten haben keinen Eintrag und
             // bleiben gerade, die Fuellung der Nachbardreiecke deckt sie.
-            g.beginPath();
+            // als Path2D gebaut statt als Kontextpfad: derselbe Pfad wird
+            // spaeter fuer die Dither-Maske noch einmal gebraucht (s.o.),
+            // und ihn zweimal aus der Dreiecksliste aufzubauen kostete
+            // unnoetig Zeit.
+            beschnittP=new Path2D();
             for(const t3 of tris){
-              g.moveTo(t3.A[0],t3.A[1]);
-              zackKante(g,t3.qa,t3.qb,t3.B);
-              zackKante(g,t3.qb,t3.qc,t3.C);
-              zackKante(g,t3.qc,t3.qa,t3.A);
-              g.closePath();
+              beschnittP.moveTo(t3.A[0],t3.A[1]);
+              zackKante(beschnittP,t3.qa,t3.qb,t3.B);
+              zackKante(beschnittP,t3.qb,t3.qc,t3.C);
+              zackKante(beschnittP,t3.qc,t3.qa,t3.A);
+              beschnittP.closePath();
             }
-            g.clip();
+            g.clip(beschnittP);
             // 2) Facetten DECKEND und FLACH füllen – erst auf die Zwischen-
             //    fläche (nach Farbe gebündelt: benachbarte gleichfarbige
             //    Dreiecke verschmelzen im selben Pfad nahtlos), dann in
@@ -3324,18 +3384,22 @@ export class Renderer {
                   // Winterbild (t20_diag_winter_forced gegen _noflanke).
                   // Der ny9-Wächter allein hatte das nur mit der frueheren
                   // Zeichen-Anhebung zuverlaessig erkannt.
-                  const fussY=(q)=>{
-                    let yy=-1e9;
+                  // liefert zusaetzlich den KNOTEN, an dem der Fuss aufsetzt:
+                  // dessen Gelaendefarbe braucht der Dither-Saum am Wandfuss
+                  // (7a2) als Landseite.
+                  const fussQ=(q)=>{
+                    let yy=-1e9, qb=-1;
                     for(const q2 of m.nbs(q)){
                       if(isMassif(q2)) continue;
                       if(m.Y(q2)<m.Y(q)) continue;   // kartennoerdlich: Rueckseite
                       const y2=m.worldPos(q2)[1];
-                      if(y2>yy) yy=y2;
+                      if(y2>yy){ yy=y2; qb=q2; }
                     }
-                    return yy;
+                    return [yy,qb];
                   };
-                  const y1w=Math.max(F1[1], fussY(e.u));
-                  const y2w=Math.max(F2[1], fussY(e.v));
+                  const [fy1w,qf1]=fussQ(e.u), [fy2w,qf2]=fussQ(e.v);
+                  const y1w=Math.max(F1[1], fy1w);
+                  const y2w=Math.max(F2[1], fy2w);
                   const hh9=Math.min(y1w-P1[1], y2w-P2[1]);
                   // Fuss-AO NACH WANDHOEHE gestaffelt (Befund B2): an
                   // FLACHEN Raendern kleiner Massive zeichnete der volle
@@ -3349,7 +3413,31 @@ export class Renderer {
                     const kr=kroneWeg(P1,P2,e.u,e.v);
                     wandQ.moveTo(kr[0][0],kr[0][1]);
                     for(let k=1;k<kr.length;k++) wandQ.lineTo(kr[k][0],kr[k][1]);
-                    wandQ.lineTo(P2[0],y2w); wandQ.lineTo(P1[0],y1w);
+                    // WANDFUSS verwackeln (T21). Die Unterkante der Flanke
+                    // war eine schnurgerade Strecke zwischen zwei Knoten -
+                    // aneinandergereiht der auffaelligste kuenstliche Strich
+                    // im Beleg t21_a_gruen_rand. Dieselbe Kur wie fuer die
+                    // Krone (v97): je KNOTEN ein fester Versatz, den beide
+                    // anliegenden Kanten teilen (sonst klafft die Wand an
+                    // der Naht auf), dazu je Kante ein Zwischenpunkt.
+                    // Der Zwischenpunkt geht ueberwiegend nach UNTEN, in die
+                    // Wiese hinein: die Wand deckt dort sauber, waehrend ein
+                    // Ausschlag nach oben mitten in der Kante nur die
+                    // Wandflaeche ausduennt.
+                    // Der Versatz allein loest die Linie NICHT auf - er
+                    // macht aus der Geraden nur eine flache Zickzacklinie.
+                    // Die eigentliche Aufloesung leistet der Dither-Saum in
+                    // 7a2; dieses Verwackeln nimmt ihm die perfekte Gerade
+                    // als Gegner.
+                    const fOff=(q)=>(hash01(q*37+11)-0.5)*5.0;
+                    const kf= e.u<e.v? e.u*65536+e.v : e.v*65536+e.u;
+                    const o1=fOff(e.u), o2=fOff(e.v);
+                    const tf=0.5+(hash01(kf*13+9)-0.5)*0.36;
+                    const df=-1.2+hash01(kf*23+5)*5.6;
+                    wandQ.lineTo(P2[0],y2w+o2);
+                    wandQ.lineTo(P2[0]+(P1[0]-P2[0])*tf,
+                                 (y2w+o2)+((y1w+o1)-(y2w+o2))*tf+df);
+                    wandQ.lineTo(P1[0],y1w+o1);
                     wandQ.closePath(); nW++;
                     if(y1w>wandMaxY) wandMaxY=y1w;
                     if(y2w>wandMaxY) wandMaxY=y2w;
@@ -3360,7 +3448,11 @@ export class Renderer {
                       && (m.terr[q2]===TER.WATER || m.terr[q2]===TER.LAVA));
                     if(!nass(e.u) && !nass(e.v))
                       wandFuss.push({x1:P1[0], y1:y1w, x2:P2[0], y2:y2w,
-                                     hh:hh9, u:e.u, v:e.v});
+                                     hh:hh9, u:e.u, v:e.v,
+                                     // Aussenknoten, auf dem der Fuss steht:
+                                     // seine Gelaendefarbe ist die Landseite
+                                     // des Dither-Saums in 7a2
+                                     gq: qf1>=0? qf1 : qf2});
                   }
                 }
                 // Nutzer-Leitlinien A+C: helle OBERKANTE – die sonnen-
@@ -3965,6 +4057,66 @@ export class Renderer {
               //        entscheidet, wo etwas herunterkommt. Unter einer Rinne
               //        haeuft es sich, daneben liegt blanker Fels - so sieht
               //        ein Wandfuss aus, nicht wie ein umlaufender Wall.
+              // 7a1b) DITHER-SAUM AM WANDFUSS (T21).
+              //   Die Unterkante der Flanke war bis hierher eine gerade
+              //   Strecke - im Beleg t21_a_gruen_wand die schnurgerade
+              //   senkrechte Kante rechts, in t21_a_gruen_rand die Kette
+              //   waagerechter Schnitte. Die KRONE wird seit v97 gebrochen
+              //   (kroneWeg), der FUSS war es nie.
+              //   Warum das Fransen-Gate im Beschnitt (hh9>9, ~Z.2107)
+              //   NICHT gelockert wurde: die Fransen (zackW) sitzen am
+              //   BESCHNITTRAND, also an der Krone. Sie koennen die
+              //   Fusslinie gar nicht erreichen - eine gelockerte Kerbe
+              //   saesse im Wandkopf, waehrend die gerade Kante 30 bis 100
+              //   Bildpunkte tiefer stehen bliebe, und risse zugleich die
+              //   Wandflaeche auf (genau der Grund, aus dem das Gate
+              //   ueberhaupt existiert). Stattdessen: der Fuss selbst
+              //   bekommt einen leichten Versatz (s. wandQ oben) und hier
+              //   die Koernung, die ihn aufloest.
+              if(flankeFuss && flankeFuss.length){
+                const coastW=COAST_COL[this.theme]||COAST_COL.gruen;
+                const PF=this.rockPal();
+                const mskW=holeDitherMaske();
+                for(const f of flankeFuss){
+                  let ex=f.x2-f.x1, ey=f.y2-f.y1;
+                  const el=Math.hypot(ex,ey)||1;
+                  // Normale der Fusslinie. Sie MUSS ueber die Massivlage
+                  // orientiert werden, nicht ueber "nach unten": an einer
+                  // OSTwand steht die Fusslinie fast senkrecht, dort ist
+                  // "unten" gar keine Richtung, und die Normale zeigte je
+                  // nach Punktreihenfolge mal nach aussen, mal ins Massiv
+                  // hinein (Debugbeleg sb_dbg_gruen_wand).
+                  let ux=ey/el, uy=-ex/el;
+                  const [ix9,iy9]=m.worldPos(f.u);
+                  const [ox9,oy9]= f.gq>=0? m.worldPos(f.gq) : [ix9,iy9+40];
+                  if(ux*(ox9-ix9)+uy*(oy9-iy9)<0){ ux=-ux; uy=-uy; }
+                  // Felsseite = die WANDFLAECHE, nicht das Plateau: sie liegt
+                  // im Eigenschatten (Grundton PF[1]) und wird nach unten hin
+                  // vom Fussverlauf abgedunkelt. Den Anteil rechnen wir aus
+                  // derselben Geraden, die den Verlauf zeichnet, damit der
+                  // Tupfer den Ton seiner Umgebung trifft.
+                  const yq=(f.y1+f.y2)/2;
+                  const vd=0.42*Math.max(0,Math.min(1,(yq-(flankeY-46))/50));
+                  // x0.9 fuer die multiplizierende Wandklueftung darueber
+                  const cf=mixArr(PF[1],[30,25,20],vd).map(v=>v*0.9);
+                  const cl= f.gq>=0
+                    ? this.nodeColor(m, cols, coastW, ncache, f.gq)
+                    : hex2arr(cols[TER.GRASS]);
+                  // Zone mit der Wandhoehe: eine hohe Wand wirft ihren Fuss
+                  // weiter in die Wiese als eine Stufe von zehn Pixeln.
+                  // Suchfenster: entlang der Fusslinie ihre volle Laenge,
+                  // quer dazu grosszuegig - WO in diesem Fenster die Grenze
+                  // wirklich verlaeuft, entscheidet die Maske. An einer
+                  // Ostwand ist der sichtbare Umriss die Quadratseite, nicht
+                  // die Unterkante; das Fenster deckt beides ab.
+                  const dbg=typeof window!=='undefined' && window.__dbgSaum;
+                  this.ditherSaum(g, (f.x1+f.x2)/2+ux*4, yq+1+uy*4, ux, uy,
+                                  el*1.10, 20, mskW,
+                                  dbg?[255,0,255]:cf, dbg?[0,255,255]:cl,
+                                  (Math.imul(f.u,3121)^Math.imul(f.v,1567))|0,
+                                  0.46, 0.94);
+                }
+              }
               if(flankeFuss && flankeFuss.length){
                 const hs2=(a,b)=>hash01(Math.imul(a,73856093)^Math.imul(b,19349663));
                 const smf=(t)=>t*t*(3-2*t);
@@ -4901,6 +5053,59 @@ export class Renderer {
           // dunkler Schattenseite statt runder Kiesel. Nicht auf Schnee
           // (dunkler Punkt im Weiß = Schmutz) – dort deckt die Wehe alles zu
           g.save(); g.translate(-c.ox,-c.oy);
+          // ---- 4d) DITHER-SAUM an JEDER Fels/Nicht-Fels-Grenze ----
+          // Nutzerwunsch "der uebergang aus farbigen punkten" (s. ditherSaum).
+          // Er ist die FEINE Stufe des Uebergangs und liegt deshalb ZUERST -
+          // Geröllkegel, Trümmerblöcke und Grenzkiesel dieses Passes legen
+          // sich als grobe Stufe darüber.
+          // eScree führt tatsächlich ALLE Fels/Nicht-Fels-Grenzkanten
+          // (geprüft: gesammelt wird jede Kante Massiv -> Nicht-Massiv, die
+          // weder Wasser noch Lava ist; Schneenachbarn gehen nach eSnow, und
+          // dort ist ein grauer Tupfer im Weiß Schmutz - richtig so). Steile
+          // Wandkanten sind ebenfalls dabei, dort sitzt der Saum aber an der
+          // Wand-KRONE; die Fußlinie bekommt ihren eigenen Saum in 7a2.
+          {
+            const coastD=COAST_COL[this.theme]||COAST_COL.gruen;
+            const PD=this.rockPal();
+            const mskD=holeDitherMaske();
+            for(const e of eScree){
+              // Felsseite: dieselbe Palettenwahl wie rockChunklet, damit die
+              // Tupfer und die Brocken daneben aus einem Stein sind.
+              const lz=this.felsLicht(e.i);
+              const st= lz<-0.22? -1 : lz>0.34? 1 : 0;
+              let cf=PD[Math.max(0,Math.min(4,2+st))];
+              // Liegt hier Firn, ist der Fels weiß gedeckt - ein grauer
+              // Tupfer läse sich als Schmutzkorn im Schnee.
+              const fd=this._firnDeck? (this._firnDeck.get(e.i)||0) : 0;
+              if(fd>0.25) cf=mixArr(cf, [228,234,242], Math.min(1,fd));
+              // Landseite: die ECHTE Knotenfarbe des Nachbarn - Wiese, Sand
+              // oder Küstentönung, wie der Untergrund sie an dieser Stelle
+              // wirklich trägt. Keine Konstante, sonst stünde der Saum im
+              // Winter oder am Strand in der falschen Farbe.
+              const cl=this.nodeColor(m, cols, coastD, ncache, e.n);
+              // Zonenbreite und Deckung nach dem FUSSCHARAKTER (liftField.wf,
+              // knotenlokal und global gecacht - keine Chunk-Normierung):
+              // läuft der Fels flach aus, streut es weit und dicht; bricht er
+              // als Wand ab, bleibt die Krone schmal gekörnt, weil dort die
+              // sichtbare Grenze gar nicht liegt.
+              const wfi=Math.max(0,Math.min(1,(LF.wf && LF.wf[e.i])||1));
+              const flach=1-wfi;
+              // Suchfenster um die Kantenmitte: 34 px entlang der Grenze
+              // (Kantenabstand der Knoten - benachbarte Fenster stossen
+              // damit lueckenlos aneinander) und +-24 px quer dazu. Die
+              // Kantenmitte ist NICHT die Grenze (gemessen: Median 8 px
+              // davor, Streuung -10..+22), sie ist nur die Mitte des
+              // Suchfensters; wo die Grenze liegt, sagt die Maske.
+              // Deckung nach dem Fusscharakter (liftField.wf, knotenlokal
+              // und global gecacht): laeuft der Fels flach aus, koernt es
+              // kraeftig; bricht er als Wand ab, bleibt die Krone leiser -
+              // dort macht der Wandfuss-Saum in 7a1b die Arbeit.
+              this.ditherSaum(g, e.mx+e.ux*4, e.my+e.uy*4, e.ux, e.uy,
+                              34, 24, mskD, cf, cl,
+                              (Math.imul(e.i,1949)^Math.imul(e.n,769))|0,
+                              0.34+0.16*flach, 0.90);
+            }
+          }
           // Geröllkegel (bestelltes Bild ter_scree_cone): an Kanten mit
           // hoher Absturzhöhe ein Schuttfächer hangab über dem Band –
           // ohne das Bild bleibt das prozedurale Band allein
@@ -6283,6 +6488,94 @@ export class Renderer {
                           anker? t.sd : undefined, schnee)) nz++;
     }
     return nz;
+  }
+  // ---------- DITHER-SAUM: der Uebergang aus farbigen Punkten ----------
+  // Nutzerwunsch woertlich: "was wenn wir den uebergang aus farbigen
+  // pinkten gestallten ich glaube siedler 2 hatte auch so eine grafik".
+  // Genau richtig erinnert: in der 256-Farben-Aera konnte eine feste
+  // Palette keinen weichen Verlauf mischen, also mischte man die FLAECHE -
+  // Punktdichte statt Farbmischung. Die Grenze zweier Gelaendearten ist
+  // dann keine Kante mehr, sondern eine koernige Streuung, deren Dichte
+  // von der einen Seite zur anderen ueberblendet.
+  //
+  // WORAN SICH DER SAUM AUSRICHTET (das war der teure Umweg, siehe unten):
+  // NICHT an der Kantenmitte zwischen zwei Knoten. Die gemalte Felsgrenze
+  // liegt dort gar nicht - der Beschnitt zieht die Wiesen-Ecken auf 0,48
+  // zurueck, die Umriss-Zacken kerben nach innen und die Wandflanke schiebt
+  // den Fels bis zu hundert Bildpunkte nach unten heraus. GEMESSEN
+  // (kantenmess.mjs, 140 Kanten): Median 8 px vor der Kantenmitte, Streuung
+  // -10 bis +22. Ein fester Versatz kann das nicht treffen; im ersten
+  // Versuch lagen deshalb saemtliche Felstupfer noch auf dem Fels und nur
+  // die Wiesentupfer waren zu sehen (Beleg t21_b).
+  // Der Saum richtet sich jetzt an einer MASKE der wirklich gemalten
+  // Felsflaeche aus (Beschnittpfad + Wandflanken, grob gerastert - siehe
+  // holeDitherMaske im Chunk-Bake). maske(wx,wy) liefert den Felsanteil
+  // 0..1 an dieser Weltstelle; 0,5 ist per Definition die Grenze.
+  //
+  // Uebergeben wird EIN Grenzabschnitt:
+  //   cx,cy    Mitte des Abschnitts (Weltkoordinaten)
+  //   ux,uy    Einheits-Aussennormale, zeigt vom Fels ins Land
+  //   spanne   Laenge des Suchfensters ENTLANG der Grenze
+  //   tiefe    halbe Tiefe des Suchfensters QUER zur Grenze
+  //   maske    Felsanteil-Feld (siehe oben), -1 ausserhalb
+  //   colFels/colLand  [r,g,b] der beiden Seiten - echte Nachbarfarben,
+  //                    keine Konstanten (s. Aufrufer)
+  //   deck     Flaechenanteil der Gegenfarbe DIREKT an der Grenze
+  //
+  // Dichteverlauf: p = min(b, 1-b) * 2 * deck. Direkt an der Grenze
+  // (b=0,5) traegt jede Seite `deck` Anteil der Gegenfarbe, nach beiden
+  // Seiten laeuft die Dichte mit der Maskenrampe gegen null. Der Untergrund
+  // liefert bereits den harten Sprung; zusammen ergibt das einen stetigen
+  // Verlauf des Felsanteils. Die Kante verschwindet damit IN der Koernung,
+  // statt von einem zweiten, koernigen Saum nachgezeichnet zu werden - der
+  // Saum KREUZT die Grenze, weil die Maske selbst entscheidet, welche Seite
+  // ein Punkt traegt: liegt er im Wiesengebiet, wird er Fels, und umgekehrt.
+  // Punktform: achsenparallele Quadrate (fillRect). Runde Tupfer lasen sich
+  // im Handybild als weiche Krumen - "Dreck" statt Absicht; das Quadrat
+  // traegt die Pixel-Anmutung des Vorbilds und ist zugleich der billigste
+  // Fuellbefehl, den Canvas kennt.
+  // Deterministisch aus seed (Knoten-/Kantenindex): kein Math.random, kein
+  // Date.now - sonst flackerte der Saum bei jedem Chunk-Neubau.
+  ditherSaum(g, cx, cy, ux, uy, spanne, tiefe, maske, colFels, colLand, seed, deck, alpha){
+    const tx=-uy, ty=ux;                       // Tangente entlang der Grenze
+    // Kandidaten = Rasterzellen des Suchfensters (mittlere Punktflaeche
+    // rund 10,4 px²). Angenommen wird nur der Bruchteil, den die Rampe
+    // vorgibt - das Fenster darf deshalb grosszuegig sein.
+    let N=((spanne*2*tiefe)/10.4)|0;
+    if(N<8) N=8; else if(N>300) N=300;
+    const kl=(v)=>v<0?0:v>255?255:v|0;
+    const cs=(c,f)=>'rgb('+kl(c[0]*f)+','+kl(c[1]*f)+','+kl(c[2]*f)+')';
+    // Nur sechs Farbstrings je Abschnitt (drei Helligkeitsstufen je Seite):
+    // ein eigener String je Punkt kostete mehr Zeit als das Zeichnen selbst,
+    // und drei Stufen reichen voellig, damit die Koernung lebt.
+    const F=[cs(colFels,0.84),cs(colFels,1.0),cs(colFels,1.14)];
+    const L=[cs(colLand,0.86),cs(colLand,1.0),cs(colLand,1.13)];
+    const a0=g.globalAlpha;
+    if(alpha!==undefined && alpha<1) g.globalAlpha=a0*alpha;
+    const s0=Math.imul(seed|0,2654435761);
+    const zwei=2*deck;
+    for(let k=0;k<N;k++){
+      const b9=Math.imul(k,1597334677);
+      const h0=hash01((s0^b9)|0);
+      const h1=hash01((s0^(b9+0x51ab))|0);
+      const px=cx+tx*((h0-0.5)*spanne)+ux*((h1-0.5)*2*tiefe);
+      const py=cy+ty*((h0-0.5)*spanne)+uy*((h1-0.5)*2*tiefe);
+      const b=maske(px,py);
+      if(b<0) continue;
+      const p=(b<0.5? b : 1-b)*zwei;
+      if(p<0.004) continue;
+      const h2=hash01((s0^(b9+0x2cd1))|0);
+      if(h2>=p) continue;
+      const h3=hash01((s0^(b9+0x9e37))|0);
+      const h4=hash01((s0^(b9+0x7a3b))|0);
+      const gr=1.9+h3*2.6;                     // 1,9..4,5 px - Koernung, kein Kies
+      // Der Tupfer traegt die Farbe der Seite, aus der er STAMMT: liegt er
+      // im Wiesengebiet (b<0,5), ist er ein Felskorn, das nach aussen
+      // gewandert ist - und umgekehrt.
+      g.fillStyle= b<0.5? F[(h4*3)|0] : L[(h4*3)|0];
+      g.fillRect(px-gr*0.5, py-gr*0.5, gr, gr);
+    }
+    g.globalAlpha=a0;
   }
   rockChunklet(g,x,y,r,seed,lum,schnee=false){
     const P=this.rockPal();
