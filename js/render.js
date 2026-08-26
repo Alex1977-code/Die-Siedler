@@ -3444,14 +3444,33 @@ export class Renderer {
                     // Die eigentliche Aufloesung leistet der Dither-Saum in
                     // 7a2; dieses Verwackeln nimmt ihm die perfekte Gerade
                     // als Gegner.
-                    const fOff=(q)=>(hash01(q*37+11)-0.5)*5.0;
+                    // v245: Amplituden deutlich hoch und ZWEI Zwischen-
+                    // punkte statt einem. Mit +-2,5 px Knotenversatz und
+                    // einem Ausschlag von hoechstens 4,4 px auf einer 52 px
+                    // langen Kante blieb die Fusslinie im Bild praktisch
+                    // gerade - der Beleg t21_c_gruen_wand zeigt sie
+                    // unveraendert als durchgehenden Strich, obwohl der
+                    // Dither-Saum darueber schon koernte. Jetzt +-7 px je
+                    // Knoten und bis 13 px Ausschlag an zwei Stellen der
+                    // Kante; das ergibt eine Fusslinie, die als Gelaende
+                    // liest statt als Schnitt.
+                    // Der Ausschlag geht weiterhin ueberwiegend nach UNTEN
+                    // in die Wiese: dort deckt die Wandflaeche sauber,
+                    // waehrend ein Ausschlag nach oben sie ausduennen wuerde.
+                    const fOff=(q)=>(hash01(q*37+11)-0.5)*14.0;
                     const kf= e.u<e.v? e.u*65536+e.v : e.v*65536+e.u;
                     const o1=fOff(e.u), o2=fOff(e.v);
-                    const tf=0.5+(hash01(kf*13+9)-0.5)*0.36;
-                    const df=-1.2+hash01(kf*23+5)*5.6;
+                    const zw=(t9,seed9)=>{
+                      const df9=-2.0+hash01(seed9)*15.0;
+                      return [P2[0]+(P1[0]-P2[0])*t9,
+                              (y2w+o2)+((y1w+o1)-(y2w+o2))*t9+df9];
+                    };
+                    const t1f=0.34+(hash01(kf*13+9)-0.5)*0.22;
+                    const t2f=0.68+(hash01(kf*29+4)-0.5)*0.22;
+                    const A=zw(t1f, kf*23+5), B=zw(t2f, kf*31+7);
                     wandQ.lineTo(P2[0],y2w+o2);
-                    wandQ.lineTo(P2[0]+(P1[0]-P2[0])*tf,
-                                 (y2w+o2)+((y1w+o1)-(y2w+o2))*tf+df);
+                    wandQ.lineTo(A[0],A[1]);
+                    wandQ.lineTo(B[0],B[1]);
                     wandQ.lineTo(P1[0],y1w+o1);
                     wandQ.closePath(); nW++;
                     if(y1w>wandMaxY) wandMaxY=y1w;
@@ -3798,7 +3817,36 @@ export class Renderer {
                   bg3.globalCompositeOperation='lighten';
                   bg3.fillStyle='rgb(148,147,145)';
                   bg3.fillRect(0,0,w,h);
+                  // ZWEI VERWORFENE VERSUCHE (v245), gemessen und wieder
+                  // ausgebaut - damit sie niemand erneut unternimmt:
+                  //   1. Deckung dieses Auftrags von 0,5 auf 0,8 erhoeht.
+                  //      Woelbung der Firnflaeche unveraendert: 17,6 -> 17,3
+                  //      Graustufen (Winter), 24,0 -> 24,6 (Gebirge).
+                  //   2. Zusaetzlich den gedeckelten Bereich mit multiply
+                  //      0,65 um die soft-light-Neutralschwelle gestaucht,
+                  //      damit Schattenflanken wieder abdunkeln koennen.
+                  //      Ebenfalls wirkungslos: 17,0 bzw. 23,7 - die Flaeche
+                  //      wurde nur insgesamt dunkler (Mittel 203 -> 198).
+                  // Fazit: nicht die UEBERTRAGUNG bremst, sondern die
+                  // QUELLE - die Facettentoene in _shadeTmp tragen selbst
+                  // kaum grossflaechige Variation. Wer die Firnflaeche
+                  // woelben will, muss an der Schattierung ansetzen, nicht
+                  // an diesem Auftrag.
                   bg3.globalCompositeOperation='source-over';
+                  // v245: Deckung 0.5 -> 0.8. GEMESSEN war die Firnflaeche
+                  // eine Platte: die grossflaechige Helligkeitsspanne (Bild
+                  // in 60-px-Bloecke geteilt, je Block der Mittelwert der
+                  // Schneepixel) lag bei nur 17,6 Graustufen im Winter und
+                  // 24,0 im Gebirge - und das, obwohl die Hoehenkarte dort
+                  // reichlich Relief hat (gemessen 0,85 bis 9,24 Hoehen-
+                  // einheiten, mittlere Nachbarstufe 0,5 bis 1,3).
+                  // Das Relief GING also nicht verloren, es kam nur nicht
+                  // durch: erst kappt der Dunkel-Deckel oben alle Toene auf
+                  // mindestens 148, dann trug soft-light den Rest mit halber
+                  // Deckung auf. Der Deckel bleibt (er haelt die fast
+                  // schwarzen Absturzwaende aus der Decke heraus, s.o.);
+                  // gehoben wird nur die Deckung, damit die Woelbung
+                  // zwischen Licht- und Schattenflanke sichtbar wird.
                   tex2.globalCompositeOperation='soft-light';
                   tex2.globalAlpha=0.5;
                   tex2.drawImage(this._blurTmp,0,0,w,h);
@@ -7548,6 +7596,7 @@ export class Renderer {
   nodeShade(m, scache, i){
     let v=scache.get(i);
     if(v!==undefined) return v;
+    const t=m.terr[i];
     let gx=0, gy=0;
     for(const n of m.nbs(i)){
       const ddx=(m.X(n)+((m.Y(n)&1)*0.5))-(m.X(i)+((m.Y(i)&1)*0.5));
@@ -7555,7 +7604,6 @@ export class Renderer {
       const dh=m.hgt[n]-m.hgt[i];
       gx+=dh*ddx; gy+=dh*ddy;
     }
-    const t=m.terr[i];
     // Gebirge nur noch SCHWACH: das Licht liefern die flachen Blockfacetten
     // des Massiv-Passes – ein kräftiger Weichlicht-Verlauf darüber würde
     // die flachen Tonflächen wieder zu weichem Relief verschmieren
@@ -7564,6 +7612,16 @@ export class Renderer {
     if(t===TER.MOUNT){ lo=0.30; hi=0.76; }
     // unter der Firndecke nur noch sanft modellieren: eine einzelne
     // Steilstufe mitten im Eisfeld stünde sonst als dunkler Pfeil im Weiß
+    // DRITTER VERWORFENER VERSUCH zur flachen Firnflaeche (v245), gemessen:
+    // Gradient aus ueber die Nachbarschaft GEGLAETTETEN Hoehen bilden (damit
+    // Einzelstufen keine dunklen Pfeile geben) und dafuer hier kraeftig
+    // beleuchten (k 1,05 statt 0,45, Bereich 0,20..0,88 statt 0,30..0,78).
+    // Woelbung blieb bei 17,6 bzw. 23,8 Graustufen - unveraendert.
+    // Zusammen mit den beiden Versuchen an der Firndecke (s. dort) heisst
+    // das: nodeShade ist fuer die Firnflaeche gar nicht der Hebel. Das Licht
+    // dort liefern die Blockfacetten des Massiv-Passes, und die weisse Decke
+    // darueber deckt sie fast vollstaendig zu. Wer die Flaeche woelben will,
+    // muss an der DECKE ansetzen (Deckkraft/Einfaerbung), nicht am Licht.
     if((t===TER.MOUNT || (t===TER.SNOW && this.massifSnow()[i])) && m.hgt[i]>this.firnAt(i)-1.2){
       k=0.45; lo=0.30; hi=0.78;
     }
