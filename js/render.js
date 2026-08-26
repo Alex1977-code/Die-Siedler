@@ -1127,6 +1127,13 @@ export class Renderer {
     this.fogCore=mk(3,'#05080d');        // dichter Kern im Unerforschten
     this.fogMist=mk(20,'#8ea2b4');       // vorgelagerte Nebelschwaden
   }
+  // Weichzeichner am Bildrand ist seit v164 Opt-in (der Nutzer hatte ihn
+  // zweimal als stoerend gemeldet). Der Vorgabewert gehoert deshalb HIERHIN
+  // und nicht allein in die Bedienoberflaeche - siehe den Befund in ui.js:
+  // dort wurde er beim Start verschluckt, weil es den Renderer noch nicht
+  // gab, und der Weichzeichner lief seither doch.
+  get tiltAus(){ return this._tiltAus!==false; }
+  set tiltAus(v){ this._tiltAus=!!v; }
   resize(w,h,dpr){
     this.cv.width=w*dpr; this.cv.height=h*dpr;
     this.dpr=dpr; this.vw=w; this.vh=h;
@@ -1156,21 +1163,19 @@ export class Renderer {
     }
     return s;
   }
-  // OFFEN (v243, vermessen aber nicht behoben): zwei waagerechte Haarlinien
-  // im fertigen Bild. GEMESSEN auf allen vier Kartenthemen an derselben
-  // Stelle - bei 900x620 in Bildzeile 117 und 501, also rund 117 px vom
-  // oberen und 118 px vom unteren Rand, mit einem Sprung von gut drei
-  // Graustufen ueber die halbe Bildbreite.
-  // Was schon ausgeschlossen ist:
-  //   - Gelaende/Chunk-Naht: die Linien wandern NICHT mit, wenn die Kamera
-  //     um 37 px verschoben wird - sie sind bildfest, nicht weltfest.
-  //   - Nebelebene: bleiben unveraendert, wenn fogDark/fogCore/fogMist
-  //     abgeschaltet werden.
-  //   - Vignette: die ist ein RADIALer Verlauf; ihr innerer Stopp laege bei
-  //     Zeile 50 und 570, nicht bei 117/501.
-  // Naechster Verdacht fuer die Fortsetzung: ein Zwischenpuffer oder eine
-  // Bildschirmauflage, deren Rand bei rund 19 % der Bildhoehe sitzt.
-  // Messrezept steht in scratchpad/ (Zeilen mit >45 % Spaltensprung zaehlen).
+  // ERLEDIGT in v248: die zwei waagerechten Haarlinien im fertigen Bild.
+  // Es war die INNENKANTE des Tilt-Shift-Bandes (s. draw(), "Tilt-Shift").
+  // Wie sie gefunden wurde - das Rezept taugt fuer jede bildfeste Linie:
+  // die Zeilen nach ihrem mittleren Sprung zur Nachbarzeile sortieren und
+  // die staerksten mit der WELTkoordinate ausgeben. Dann drei Dinge
+  // variieren und schauen, woran die Linie haengt:
+  //   Kamera verschoben (0/57/220 px): Linie blieb auf Zeile 118 -> bildfest
+  //   Fensterhoehe 620 -> 760:          118 -> 144
+  //   Zoom 1,2 -> 1,8:                  118 -> 67
+  // Die Bandformel band+b2 = round(min(vw,vh)*0,14*zf)*1,55 trifft alle
+  // drei Werte auf die Zeile genau; mit abgeschaltetem Weichzeichner war
+  // die Linie restlos weg. Vorher waren Chunknaht, Nebel und Vignette
+  // ausgeschlossen worden - richtig, aber eben nicht ausreichend.
   // ---------- Chunks (Terrain) ----------
   chunkKey(cx,cy){ return cx+cy*1000; }
   markDirtyNode(i){
@@ -10746,12 +10751,36 @@ export class Renderer {
       // starkes Band aussen, halbstarkes innen (wie zuvor 2.4/1.2)
       g.globalAlpha=1;
       g.drawImage(t, 0,0,sw2,band*fTop, 0,0,this.vw,band);
-      g.globalAlpha=0.55;
-      g.drawImage(t, 0,band*fTop,sw2,b2*fTop, 0,band,this.vw,b2);
       g.globalAlpha=1;
       g.drawImage(t, 0,shTop+b2*fTop,sw2,band*fTop, 0,this.vh-band,this.vw,band);
-      g.globalAlpha=0.55;
-      g.drawImage(t, 0,shTop,sw2,b2*fTop, 0,this.vh-band-b2,this.vw,b2);
+      // INNENKANTE AUSLAUFEN LASSEN (v248).
+      // Bisher lag das halbstarke Innenband mit fester Deckung 0,55 auf und
+      // endete an seiner Innenkante abrupt bei null. GEMESSEN stand genau
+      // dort eine waagerechte Haarlinie ueber die ganze Bildbreite - bei
+      // 900x620 und z=1,2 in Bildzeile 118 und 502, rund drei Graustufen
+      // Sprung. Sie war BILDfest (Kamera um 220 Weltpixel verschoben: die
+      // Linie blieb stehen) und folgte auf die Zeile genau der Bandformel
+      // band+b2: 620/1,2 -> 118, 760/1,2 -> 144, 620/1,8 -> 67, alle drei
+      // getroffen. Mit abgeschaltetem Tilt-Shift verschwand sie restlos.
+      // Statt EINER Stufe von 0,55 auf 0 laeuft die Deckung jetzt ueber
+      // sechs schmale Streifen aus; der Rest-Sprung an der Innenkante ist
+      // ein Sechstel davon und liegt unter dem Rauschen der Flaeche.
+      // Sechs Streifen und kein Verlauf ueber eine eigene Zwischenflaeche:
+      // der Weichzeichner liest ohnehin schon zweimal je Bild aus dem
+      // Canvas zurueck (Haltepunkt fuer die Grafikeinheit) - ein weiterer
+      // Puffer waere hier der teuerste Weg zum billigsten Ziel.
+      const NS=6;
+      for(let k=0;k<NS;k++){
+        const a9=0.55*(1-(k+0.5)/NS);
+        const sA=b2*fTop*k/NS, sH=b2*fTop/NS;     // Quellstreifen im Kleinbild
+        const dA=b2*k/NS,      dH=b2/NS;          // Zielstreifen im Bild
+        g.globalAlpha=a9;
+        // oben: innen ist UNTEN, also nimmt die Deckung mit k ab
+        g.drawImage(t, 0,band*fTop+sA,sw2,sH, 0,band+dA,this.vw,dH);
+        // unten: innen ist OBEN, der Streifen k liegt spiegelbildlich
+        g.drawImage(t, 0,shTop+b2*fTop-sA-sH,sw2,sH,
+                       0,this.vh-band-dA-dH,this.vw,dH);
+      }
       g.globalAlpha=1;
       }                                           // band>=6
     }

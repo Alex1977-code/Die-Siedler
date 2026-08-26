@@ -55,6 +55,9 @@ export class UI {
     this.cam={x:0,y:0,z:1};
     this.state={ sel:-1, mode:'view', roadFrom:-1, roadPath:null, buildCat:'basis', msgSeen:0, msgUngelesen:0 };
     this.renderer=new Renderer($('#cv'));
+    // Einstellung nachziehen: buildDOM() lief oben, da gab es den Zeichner
+    // noch nicht (siehe Befund dort).
+    this.renderer.tiltAus=!this.tiltAn;
     setupInput($('#cv'), {
       cam:this.cam,
       bounds:()=> this.game? {w:this.game.map.w*TILE, h:this.game.map.h*ROWH} : {w:1000,h:1000},
@@ -351,8 +354,17 @@ export class UI {
     // zweimal als stoerend gemeldet (oben am Massiv, unten am Bildrand) -
     // die Diorama-Anmutung ist Geschmackssache und jetzt Opt-in. Wer sie
     // frueher ausdruecklich angehakt hat (tilt===true), behaelt sie.
+    // BEFUND v248: buildDOM() laeuft im Konstruktor VOR `new Renderer(...)`.
+    // Die Zeile darunter hiess frueher `if(this.renderer) ...` - beim Start
+    // war das immer falsch, die Einstellung kam nie am Zeichner an, und der
+    // Weichzeichner lief trotz "standardmaessig aus" bei jedem Spielstart
+    // mit. Aufgefallen ist es erst ueber seine Innenkante: die zwei
+    // waagerechten Haarlinien im Bild (siehe render.js, Tilt-Shift).
+    // Jetzt kennt der Renderer den Vorgabewert selbst, und hier wird nur
+    // noch nachgezogen, wenn es ihn schon gibt.
     const tiltAn=(this.opts.tilt===true);
     $('#o-tilt').checked=tiltAn;
+    this.tiltAn=tiltAn;
     if(this.renderer) this.renderer.tiltAus=!tiltAn;
     $('#o-tilt').onchange=(e)=>{ this.opts.tilt=e.target.checked;
       if(this.renderer) this.renderer.tiltAus=!e.target.checked;
