@@ -1755,20 +1755,36 @@ export class UI {
         const offen=g.objectives.filter(o=>!o.done);
         const n=g.objectives.length, fertig=n-offen.length;
         const o=offen[0];
-        // Kritik S5: "Besiege alle Gegner" stand 45 Minuten unveraendert da.
-        // Als Fortschritt dient die Zahl der FEINDPOSTEN (stehende Gebaeude
-        // nicht besiegter Gegner) - sie sinkt sichtbar mit jeder Eroberung
-        // und steigt, wenn der Feind expandiert.
-        // Kritik R3 S4: auf Handybreite wurde der Text abgeschnitten
-        // ("...(Feindposte..."). Unter 520 px die Kurzfassung.
+        // Kritik R3 S4: auf Handybreite wurde der Text abgeschnitten.
+        // Unter 520 px die Kurzfassung.
         const schmal=(window.innerWidth||9999)<520;
         let zusatz='', desc9=o? o.desc : '';
         if(o && o.type==='destroyEnemies'){
-          let fp=0;
-          for(const b of g.buildings.values())
-            if(b.player!==0 && b.state!=='burn' && !g.players[b.player].defeated) fp++;
-          if(schmal){ desc9='Gegner besiegen'; zusatz=` <b>· Posten: ${fp}</b>`; }
-          else zusatz=` <b>(Feindposten: ${fp})</b>`;
+          // NUTZERKRITIK (v252), woertlich: "bei mir im handy steht 6 posten
+          // aber das sind 6 gebaeude vom gegner keine militaergebaeude und
+          // die info sollte eigentlich weg um die spannung zu halten."
+          // Beides trifft zu, und zwar auf dieselbe Zeile:
+          //  1. Gezaehlt wurden ALLE stehenden Gebaeude nicht besiegter
+          //     Gegner - Saegewerk, Bauernhof, Brunnen - und das Ergebnis
+          //     hiess "Posten". Ein Posten ist im ganzen Spiel sonst ein
+          //     MILITAERgebaeude (Baracke, Wachhaus, Burg).
+          //  2. Schwerer wiegt: die Zahl fragte die Simulation direkt und
+          //     kannte keinen Nebel. Man las die Groesse des Gegners vom
+          //     ersten Takt an ab, ohne je einen Spaeher losgeschickt zu
+          //     haben. Das nimmt der Partie genau die Spannung, von der sie
+          //     lebt.
+          // Der Chip zeigt jetzt, was der Fortschritt WIRKLICH ist und was
+          // der Spieler ohnehin weiss: wie viele Gegner schon besiegt sind.
+          // Eine Niederlage wird gemeldet, diese Zahl verraet also nichts,
+          // was nicht schon im Meldungsbuch steht.
+          // (Der urspruengliche Anlass, Kritik S5 - "Besiege alle Gegner"
+          // stand 45 Minuten unveraendert da -, bleibt damit teilweise
+          // stehen. Das ist der Preis; ein Fortschrittsbalken, der die
+          // Aufklaerung ersetzt, ist der schlechtere Handel.)
+          const gesamt=Math.max(1, g.players.length-1);
+          const weg=Math.min(o.prog||0, gesamt);
+          if(schmal) desc9='Gegner besiegen';
+          zusatz=` <b>(${weg}/${gesamt})</b>`;
         }
         chip.innerHTML = o
           ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${desc9}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
