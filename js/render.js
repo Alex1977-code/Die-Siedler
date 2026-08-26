@@ -5218,7 +5218,12 @@ export class Renderer {
       // Band, damit Geroell, Saum und Grasbueschel mit im Schatten liegen.
       // Wiese x0.78 laut Papier -> deckendes Dunkel mit Alpha 0.22; im
       // Winter kuehler und leiser (Schnee schattet blaugrau).
-      if(castShadow){
+      // _ohneCast ist eine DIAGNOSEHILFE (v244): im Messlauf laesst sich der
+      // Schlagschatten abschalten, um zu pruefen, ob ein dunkler Fleck von
+      // ihm stammt. Genau damit wurde der grosse graue Fleck im Winterbild
+      // ENTLASTET - mit und ohne Schatten misst die Zone identisch 151,9
+      // Grauwert gegen 200,8 im Schnee ringsum. Seine Ursache ist noch offen.
+      if(castShadow && !this._ohneCast){
         const bgS=this._blurTmp.getContext('2d');
         bgS.globalCompositeOperation='copy';
         bgS.fillStyle='rgba(0,0,0,0)'; bgS.fillRect(0,0,w,h);
@@ -8869,9 +8874,17 @@ export class Renderer {
     const h2=hash01(i*29+11);
     const ox=(h2-0.5)*22, oy=(hash01(i*31+7)-0.5)*16;
     if(t===TER.DESERT){
-      if(h<0.1){ // Steinchen
-        g.fillStyle='rgba(150,135,105,0.7)';
-        g.beginPath(); g.arc(x+ox,y+oy,2.2,0,7); g.arc(x+ox+4,y+oy+1.6,1.6,0,7); g.fill();
+      if(h<0.1){ // Steinchen - gestreut statt gestempelt (s. Kiesel unten)
+        g.fillStyle='rgba('+(142+(hash01(i*47+3)*20|0))+','+(128+(hash01(i*53+7)*16|0))+',100,0.7)';
+        const nS=2+((hash01(i*59+1)*2.4)|0);
+        g.beginPath();
+        for(let k=0;k<nS;k++){
+          const a9=hash01(i*61+k*17)*6.283;
+          const d9=k? 2.4+hash01(i*67+k*5)*4.4 : 0;
+          const r9=(k? 1.0 : 1.8)+hash01(i*71+k*9)*1.6;
+          g.arc(x+ox+Math.cos(a9)*d9, y+oy+Math.sin(a9)*d9*0.6, r9, 0, 7);
+        }
+        g.fill();
       } else { // trockenes Büschel
         g.strokeStyle='rgba(150,140,90,0.8)'; g.lineWidth=1.4;
         for(let k=-1;k<=1;k++){ g.beginPath(); g.moveTo(x+ox+k*2,y+oy); g.quadraticCurveTo(x+ox+k*3,y+oy-4,x+ox+k*4.5,y+oy-6); g.stroke(); }
@@ -8895,15 +8908,38 @@ export class Renderer {
       g.fillStyle='#d0453a';
       g.beginPath(); g.arc(x+ox-2,y+oy-2,0.9,0,7); g.arc(x+ox+1.6,y+oy-3.2,0.9,0,7); g.arc(x+ox+3,y+oy-0.8,0.9,0,7); g.fill();
     } else if(h<0.2){ // Grasbüschel
-      g.strokeStyle='rgba(62,118,52,0.75)'; g.lineWidth=1.6;
-      for(let k=-1;k<=1;k++){
-        g.beginPath(); g.moveTo(x+ox+k*2.2,y+oy);
-        g.quadraticCurveTo(x+ox+k*3,y+oy-4.4, x+ox+k*4.6,y+oy-6.6);
+      // ebenfalls entstempelt (v244): Halmzahl, Hoehe, Neigung und Gruenton
+      // kommen aus dem Knoten-Hash - drei identische Halme in identischer
+      // Bogenform standen sonst ueber die ganze Wiese verteilt.
+      const nH=3+((hash01(i*79+5)*2.4)|0);
+      g.strokeStyle='rgba('+(54+(hash01(i*83+3)*18|0))+','+(108+(hash01(i*89+7)*22|0))+',52,0.75)';
+      g.lineWidth=1.3+hash01(i*97+2)*0.6;
+      for(let k=0;k<nH;k++){
+        const s9=(k-(nH-1)/2);
+        const hh9=3.6+hash01(i*101+k*13)*3.8;
+        const nb9=s9*(0.9+hash01(i*103+k*7)*0.7);
+        g.beginPath(); g.moveTo(x+ox+s9*2.0, y+oy);
+        g.quadraticCurveTo(x+ox+nb9*3, y+oy-hh9*0.66, x+ox+nb9*4.6, y+oy-hh9);
         g.stroke();
       }
     } else { // Kiesel
-      g.fillStyle='rgba(140,140,130,0.55)';
-      g.beginPath(); g.arc(x+ox,y+oy,2,0,7); g.arc(x+ox+3.6,y+oy+1.2,1.4,0,7); g.fill();
+      // v244 - Sichtpruefung: "15 schablonengleiche Kopien in einem Bild".
+      // Zu Recht: hier standen zwei Kreise mit FESTEM Radius (2 und 1,4) im
+      // FESTEN Abstand (3,6/1,2); variabel war allein die Position. Jeder
+      // Kiesel der ganzen Karte sah damit gleich aus.
+      // Jetzt streuen Anzahl (2-4), Radius, Lage und Ton aus dem Knoten-Hash.
+      const nK=2+((hash01(i*47+3)*2.4)|0);
+      const gr9=hash01(i*53+9);
+      g.fillStyle='rgba('+(132+(gr9*18|0))+','+(132+(hash01(i*59+2)*16|0))+','
+                 +(122+(hash01(i*61+5)*16|0))+',0.55)';
+      g.beginPath();
+      for(let k=0;k<nK;k++){
+        const a9=hash01(i*67+k*13)*6.283;
+        const d9=k? 2.2+hash01(i*71+k*7)*4.2 : 0;
+        const r9=(k? 0.9 : 1.6)+hash01(i*73+k*11)*1.5;
+        g.arc(x+ox+Math.cos(a9)*d9, y+oy+Math.sin(a9)*d9*0.6, r9, 0, 7);
+      }
+      g.fill();
     }
   }
 
