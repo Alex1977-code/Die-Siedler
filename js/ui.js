@@ -286,6 +286,7 @@ export class UI {
           <button id="gm-objectives" class="mbtn">🎯 Missionsziele</button>
           <button id="gm-stats" class="mbtn">📊 Statistik</button>
           <button id="gm-transport" class="mbtn">🚚 Transport-Rangfolge</button>
+          <button id="gm-test" class="mbtn">🧪 Testmodus</button>
           <button id="gm-msgs" class="mbtn">🔔 Meldungen</button>
           <button id="gm-export" class="mbtn">📤 Spielstand exportieren</button>
           <button id="gm-quit" class="mbtn back">Zum Hauptmenü</button>
@@ -294,6 +295,7 @@ export class UI {
       </div>
       <div id="stats" class="hidden"></div>
       <div id="transport" class="hidden"></div>
+      <div id="testmode" class="hidden"></div>
       <div id="msglog" class="hidden"></div>
       <div id="dlg" class="hidden"></div>
     </div>`;
@@ -382,6 +384,7 @@ export class UI {
     $('#gm-objectives').onclick=()=>{ this.pauseMenu(false); this.toggleObjectives(true); };
     $('#gm-stats').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openStats(); };
     $('#gm-transport').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openTransport(); };
+    $('#gm-test').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openTestMode(); };
     $('#gm-msgs').onclick=()=>{ Sound.sfx('tap'); this.pauseMenu(false); this.openMsgLog(); };
     $('#g-msgs').onclick=()=>{ Sound.sfx('tap'); this.openMsgLog(); };
     $('#gm-quit').onclick=()=>{
@@ -1472,6 +1475,75 @@ export class UI {
     document.querySelectorAll('#transport .tr-top').forEach(b=>
       b.onclick=()=>schieben(b.dataset.g, 0));
     $('#tr-std').onclick=()=>setze(RANG_STD.slice());
+  }
+
+  // ================= Testmodus ("Gottmodus") =================
+  // Werkzeug zum Ausprobieren, kein Spielinhalt. Drei Dinge, um die es beim
+  // Testen wirklich geht: die ganze Karte sehen, selbst nie an Material
+  // scheitern, und dem Gegner Material geben oder nehmen, um zu spueren,
+  // wie sich die Partie unter anderen Voraussetzungen anfuehlt.
+  // Bewusst im Pausenmenue und nicht auf dem Spielfeld: es soll nichts sein,
+  // was man im Eifer versehentlich antippt.
+  openTestMode(){
+    const g=this.game; if(!g) return;
+    if(!g.gott) g.gott={nebel:false, vorrat:false};
+    const zahl=(n)=>n>=1000? (n/1000).toFixed(1).replace('.',',')+'k' : String(n);
+    const summe=(pl)=>{ const t=g.invTotal(pl); let s2=0; for(const k in t) s2+=t[k]; return s2; };
+    const gegner=g.players.filter(p=>p.id!==0).map(p=>{
+      const farbe=PLAYER_COLORS[p.id]||'#888';
+      return `<div class="tm-zeile">
+        <span class="tm-punkt" style="background:${farbe}"></span>
+        <span class="tm-name">${p.name}${p.defeated?' (besiegt)':''}</span>
+        <span class="tm-zahl">${zahl(summe(p.id))}</span>
+        <button class="mbtn tm-voll" data-pl="${p.id}">+ Waren</button>
+        <button class="mbtn tm-leer" data-pl="${p.id}">Lager leeren</button>
+      </div>`;
+    }).join('') || '<p class="note">Diese Partie hat keine Gegner.</p>';
+    $('#testmode').innerHTML=`<div class="panel">
+      <div class="sh-head"><b>🧪 Testmodus</b>
+        <button class="hbtn" id="tm-x">✕</button></div>
+      <p class="note">Zum Ausprobieren gedacht, nicht zum Spielen. Die Schalter
+      wandern mit in den Spielstand – ein gespeichertes Spiel läuft also nicht
+      heimlich anders weiter, als es gespeichert wurde.</p>
+      <label class="opt"><input type="checkbox" id="tm-nebel" ${g.gott.nebel?'checked':''}>
+        Nebel weg – ganze Karte sichtbar</label>
+      <p class="note">Einmal aufgedeckt bleibt aufgedeckt; der Haken lässt sich
+      danach nicht mehr sinnvoll zurücknehmen.</p>
+      <label class="opt"><input type="checkbox" id="tm-vorrat" ${g.gott.vorrat?'checked':''}>
+        Unerschöpfliche Vorräte – dein Hauptquartier bleibt voll</label>
+      <p class="note">Alle 3 Sekunden wird jede Ware im Hauptquartier auf 80
+      aufgefüllt. Deine Betriebe ruhen dabei NICHT: die Sättigungsbremse ist
+      für dich ausgesetzt, solange der Haken steht.</p>
+      <div class="tm-selbst">
+        <span class="tm-name">Du</span>
+        <span class="tm-zahl">${zahl(summe(0))}</span>
+        <button class="mbtn" id="tm-mir">+ Waren</button>
+        <button class="mbtn" id="tm-mir-leer">Lager leeren</button>
+      </div>
+      <h3 class="opt-h">Gegner</h3>
+      <p class="note">„+ Waren“ füllt das gegnerische Hauptquartier auf 80 je Ware
+      auf, „Lager leeren“ setzt alle seine Vorräte auf null. Waren, die gerade
+      getragen werden, bleiben unterwegs.</p>
+      ${gegner}
+    </div>`;
+    $('#testmode').classList.remove('hidden');
+    const zu=()=>{ Sound.sfx('tap'); $('#testmode').classList.add('hidden'); };
+    $('#tm-x').onclick=zu;
+    $('#tm-nebel').onchange=(e)=>{
+      if(e.target.checked) g.gottNebelWeg(); else { g.gott.nebel=false; }
+      this.openTestMode();
+    };
+    $('#tm-vorrat').onchange=(e)=>{
+      g.gott.vorrat=!!e.target.checked;
+      if(g.gott.vorrat) g.gottNachschub(0);
+      this.openTestMode();
+    };
+    $('#tm-mir').onclick=()=>{ Sound.sfx('tap'); g.gottNachschub(0); this.openTestMode(); };
+    $('#tm-mir-leer').onclick=()=>{ Sound.sfx('tap'); g.gottLeeren(0); this.openTestMode(); };
+    document.querySelectorAll('#testmode .tm-voll').forEach(b=>
+      b.onclick=()=>{ Sound.sfx('tap'); g.gottNachschub(+b.dataset.pl); this.openTestMode(); });
+    document.querySelectorAll('#testmode .tm-leer').forEach(b=>
+      b.onclick=()=>{ Sound.sfx('tap'); g.gottLeeren(+b.dataset.pl); this.openTestMode(); });
   }
 
   // ================= Meldungsbuch =================

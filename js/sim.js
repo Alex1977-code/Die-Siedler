@@ -51,6 +51,10 @@ export class Game {
     this.fx = [];                     // kosmetische Effekte (Pfeile, Feuer, Staub) – nicht gespeichert
     this.ruins = [];                  // niedergebrannte Plätze: [{node, t0}] – zerfallen nach einer Weile
     this.signs = new Map();           // nodeIdx -> Erztyp (0=nichts,1=Kohle,2=Eisen,3=Gold,4=Granit)
+    // TESTMODUS ("Gottmodus"): Schalter zum Ausprobieren, nicht zum Spielen.
+    // Er steckt bewusst IM Spielstand, damit ein geladenes Spiel nicht
+    // heimlich in einem anderen Zustand weiterlaeuft als das gespeicherte.
+    this.gott = { nebel:false, vorrat:false };
     this.animals = [];                // Wild (Reh/Hase/Wildschwein) – Beute des Jägers
     this.difficulty = setup.difficulty || 'normal';
     const dm = Game.diffMods(this.difficulty);
@@ -1124,6 +1128,46 @@ export class Game {
     }
     return t;
   }
+
+  // ---------- Testmodus ("Gottmodus") ----------
+  // Werkzeug zum Ausprobieren, kein Spielinhalt: Nebel abschalten, das eigene
+  // Lager unerschoepflich machen, und einem Gegner Waren geben oder nehmen,
+  // um zu sehen, wie sich eine Partie unter anderen Voraussetzungen anfuehlt.
+  // Alles laeuft ueber dieselben Felder wie das normale Spiel - es gibt keine
+  // Sonderpfade in der Wirtschaft, die spaeter auseinanderlaufen koennten.
+
+  // Ganze Karte aufdecken. Nur ein Einwegschalter: aufgedeckte Knoten werden
+  // im Spiel nie wieder verdunkelt, das Zuruecknehmen waere also gelogen.
+  gottNebelWeg(){
+    this.map.explored.fill(1);
+    this.gott.nebel=true;
+    // Kein weiterer Anstoss noetig: der Zeichner baut die Nebelschichten neu,
+    // sobald sich die Zahl der unerforschten Knoten aendert (rebuildFog).
+  }
+  // Lager auffuellen: jede Ware im HAUPTQUARTIER auf mindestens `ziel`.
+  // Bewusst nur das HQ und nicht jedes Lagerhaus - sonst laegen die Waren
+  // ueber die halbe Karte verstreut und der Transport haette nichts zu tun.
+  gottNachschub(pl, ziel=80){
+    const hq=this.buildings.get(this.players[pl]?.hq);
+    if(!hq || !hq.inv) return 0;
+    let dazu=0;
+    for(const g of GOOD_LIST){
+      const ist=hq.inv[g]||0;
+      if(ist<ziel){ dazu+=ziel-ist; hq.inv[g]=ziel; }
+    }
+    return dazu;
+  }
+  // Lager leeren: alle Vorraete dieses Spielers auf null. Waren, die schon
+  // unterwegs sind (Traeger, Fahnenstapel), bleiben liegen - sie kommen an
+  // und der naechste Griff zur Leerung raeumt sie mit ab.
+  gottLeeren(pl){
+    let weg=0;
+    for(const b of this.buildings.values()){
+      if(b.player!==pl || !b.inv) continue;
+      for(const g in b.inv){ weg+=b.inv[g]; b.inv[g]=0; }
+    }
+    return weg;
+  }
   // Gesamtbestand je Spieler, kurz gecacht: die Bedarfsbremse fragt ihn für
   // jeden Erzeuger in jedem Takt ab – frisch gerechnet wäre das O(Gebäude²).
   invCached(pl){
@@ -1157,6 +1201,11 @@ export class Game {
   // läuft bei Unterschreitung von selbst wieder an. Sichtbar im Gebäudemenü
   // ("Lager voll – ruht"), KEIN hartes Abschalten der Kette.
   satHold(b){
+    // Testmodus "unerschoepfliche Vorraete": ohne diese Ausnahme staende
+    // beim Fuellen SOFORT jeder eigene Betrieb auf "Lager voll - ruht"
+    // (Saettigungsschwelle 60, bei Werkzeug schon 8..12). Das saehe wie ein
+    // Fehler aus, obwohl es die normale Bremse waere.
+    if(this.gott && this.gott.vorrat && b.player===0) return false;
     const g=this.brakeGood(b);
     if(!g) return false;
     const tot=this.invCached(b.player)[g]||0;
@@ -1611,6 +1660,7 @@ export class Game {
     if(this.t%10===3) this.tickAI();
     if(this.t%20===7) this.checkObjectives();
     if(this.t%300===23) this.statistikTakt();
+    if(this.gott && this.gott.vorrat && this.t%30===17) this.gottNachschub(0);
     if(this.t%300===141) this.warenUmwidmen();
     if(this.t%300===201) this.ringRotation();
     if(this.t%300===167) this.wegeTeilen();
@@ -6488,6 +6538,7 @@ export class Game {
         oreT:enc(m.oreT), oreA:enc(m.oreA), fish:enc(m.fish), owner:Array.from(m.owner),
         flag:enc(m.flag), explored:enc(m.explored) },
       gate:this.gate,
+      gott:this.gott,
       players:this.players.map(p=>({...p})),
       buildings:[...this.buildings.values()],
       roads:[...this.roads.values()],
@@ -6514,6 +6565,7 @@ export class Game {
     m.bld=new Int32Array(md.w*md.h).fill(-1);
     m.computePasses();                       // aus Gelände+Höhe ableitbar
     g.map=m; g.gate=data.gate; g.t=data.t;
+    g.gott=Object.assign({nebel:false, vorrat:false}, data.gott||{});
     g.over=data.over; g.winner=data.winner;
     g.msgs=data.msgs||[]; g.changedNodes=[];
     // ABSTURZ NACH DEM LADEN: hoehenNeu legt nur der Konstruktor an, nicht
