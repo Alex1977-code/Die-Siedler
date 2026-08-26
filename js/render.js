@@ -1298,6 +1298,8 @@ export class Renderer {
     // braucht seine harte Zellmaske und die weichgezeichnete Fassung
     // gleichzeitig – _blurTmp liegt in Bake-Aufloesung und passt nicht).
     mkTmp1('_maskTmp2');
+    // Firn-Wehen: die Zelltoene der Schneedecke (weiche Form, 1x reicht)
+    mkTmp1('_weheTmp');
     const cols=TER_COL[this.theme]||TER_COL.gruen;
     const ncache=new Map();
     // 1) Dreiecksnetz auf Zwischenfläche zeichnen (mit breitem Überstand für nahtlose Chunks)
@@ -3677,6 +3679,7 @@ export class Renderer {
                   }
               }
               if(!this._firnDeck) this._firnDeck=new Map();
+              const firnZellen=[];
               for(let y=Math.max(0,y0); y<Math.min(m.h-1,y1); y++)
                 for(let x=Math.max(0,x0); x<Math.min(m.w-1,x1); x++){
                   const i=m.idx(x,y);
@@ -3730,13 +3733,21 @@ export class Renderer {
                   // dem Gestein, statt als weisse Flaeche eingelegt zu sein.
                   // Der Zuschlag 1.10 gleicht aus, was der Weichzeichner am
                   // Rand wegnimmt.
-                  mk2.beginPath();
+                  // die Eckpunkte einmal rechnen und mitschreiben: die
+                  // Wehen weiter unten fuellen DIESELBEN Zellen noch einmal
+                  // mit ihrem eigenen Ton, damit die Woelbung in der
+                  // kantigen Zellsprache der Decke steht statt als weicher
+                  // Fleck darueber zu schweben
+                  const ecken=[];
                   for(let k=0;k<6;k++){
                     const a3=k*1.047 + hash01(i*11+1)*0.8 + (hash01(i*19+k*7)-0.5)*0.5;
                     const rr2=47*1.10*(0.80+hash01(i*17+k*5)*0.36)*(0.72+0.28*sn)*shrink;
-                    const qx=px+Math.cos(a3)*rr2, qy=py+Math.sin(a3)*rr2*0.95*ystr;
-                    if(k===0) mk2.moveTo(qx,qy); else mk2.lineTo(qx,qy);
+                    ecken.push(px+Math.cos(a3)*rr2, py+Math.sin(a3)*rr2*0.95*ystr);
                   }
+                  firnZellen.push(ecken);
+                  mk2.beginPath();
+                  mk2.moveTo(ecken[0],ecken[1]);
+                  for(let k=1;k<6;k++) mk2.lineTo(ecken[k*2],ecken[k*2+1]);
                   mk2.closePath();
                   mk2.fill();
                 }
@@ -3775,11 +3786,116 @@ export class Renderer {
                 // (Grundton = Firn hell #E4E6E2 aus Papier §3)
                 tex2.fillStyle='#e4e6e2';
                 tex2.fillRect(c.ox,c.oy,w,h);
+                // ---------- FIRN-WEHEN: die Decke bringt ihre eigene
+                // Woelbung mit ----------
+                // GEMESSEN (v246, firndecke.mjs faengt den Zeichenaufruf ab
+                // und tastet die Quelle in genau dem Augenblick der
+                // Uebertragung ab): unter der Firndecke liegt die Facetten-
+                // schattierung fast flach - p10=140, p50=184, p90=188.
+                // Zwischen Mitte und oberem Zehntel liegen VIER Graustufen,
+                // die halbe Flaeche ist ein Plateau bei 184..190.
+                // Das ist kein Fehler, sondern die Folge der Geometrietreue
+                // aus T20: Firn liegt auf der HOCHFLAECHE, und die ist
+                // geometrisch eben. Aus einer ebenen Flaeche kann geometrie-
+                // treues Licht keine Woelbung holen - deshalb blieben alle
+                // fuenf Versuche an Deckung, Blend-Modus, Deckel und
+                // Knotenlicht wirkungslos (Notizen unten und in nodeShade):
+                // sie zapften samt und sonders dieselbe leere Quelle an.
+                //
+                // Also AN DER DECKE angesetzt: Schnee liegt nicht als Folie
+                // auf dem Gestein, er weht sich zu Duenen. Die Wehen sind
+                // ein eigenes glattes Hoehenfeld ueber der WELTkarte; sie
+                // aendern die Geometrie NICHT - Figuren laufen weiter auf
+                // m.hgt, die Silhouette bleibt unangetastet -, sie tragen
+                // nur Licht. Weltverankert, damit Nachbarchunks dasselbe
+                // Feld sehen.
+                //
+                // VERWORFEN (gemessen und angesehen, damit es niemand
+                // wiederholt): dasselbe Feld als weichgezeichnetes BILD
+                // ueber die Decke zu legen. Rechnerisch stieg die
+                // Blockspanne von 17,6 auf 26,1 - im Bild aber las es sich
+                // als weiche runde Flecken, Wattewolken auf dem Firn.
+                // Anisotrope Zellen (132x58 statt 78x78) und eine
+                // Kammschaerfung aenderten daran nichts: ein stufenloser
+                // Verlauf hat keine Kante, an der das Auge die Form
+                // festmacht.
+                // Deshalb steht die Woelbung jetzt in DERSELBEN kantigen
+                // Zellsprache wie die Decke selbst: jede Firnzelle bekommt
+                // EINEN Ton aus dem Wehenfeld. Benachbarte Zellen liegen
+                // im Feld dicht beieinander, also entsteht ueber viele
+                // Zellen hinweg eine grosse Licht-/Schattenflanke - mit
+                // Kanten dazwischen, wie beim Fels darunter.
+                {
+                  const LWX=240, LWY=110;            // Wehenlaenge in Weltpixeln
+                  const hL=(u,v)=>hash01(Math.imul(u,7919) ^ Math.imul(v,104729));
+                  // glattes Wertrauschen: bilinear mit Smoothstep, damit das
+                  // Feld ueberall stetig ist (kein Weichzeichner noetig)
+                  const wH=(wx,wy)=>{
+                    const fx=wx/LWX, fy=wy/LWY;
+                    const a=Math.floor(fx), b=Math.floor(fy);
+                    const tx=fx-a, ty=fy-b;
+                    const sx=tx*tx*(3-2*tx), sy=ty*ty*(3-2*ty);
+                    return (hL(a,b)*(1-sx)+hL(a+1,b)*sx)*(1-sy)
+                         + (hL(a,b+1)*(1-sx)+hL(a+1,b+1)*sx)*sy;
+                  };
+                  // Endfarben: Lichtflanke fast weiss, Schattenflanke kuehl -
+                  // Schnee im Schatten nimmt das Himmelsblau an.
+                  const HL=[252,253,255], DK=[196,206,214];
+                  const wgc=this._weheTmp.getContext('2d');
+                  wgc.setTransform(1,0,0,1,0,0);
+                  wgc.globalCompositeOperation='source-over';
+                  wgc.clearRect(0,0,w,h);
+                  wgc.save(); wgc.translate(-c.ox,-c.oy);
+                  const dx9=LWX*0.5, dy9=LWY*0.5;
+                  // _ohneWehe / _ohneSastr: Diagnoseschalter wie _ohneCast -
+                  // einen Pass abschalten, um im Beleg zu sehen, was ohne
+                  // ihn uebrig bleibt. Im Spiel nie gesetzt.
+                  for(const e of (this._ohneWehe? [] : firnZellen)){
+                    const px=(e[0]+e[4]+e[8])/3, py=(e[1]+e[5]+e[9])/3;
+                    const gx=(wH(px+dx9,py)-wH(px-dx9,py))*0.5;
+                    const gy0=(wH(px,py+dy9)-wH(px,py-dy9))*0.5;
+                    // dieselbe Nord-Daempfung wie im Relieflicht (eckShade):
+                    // nordgerichtete Haenge sind in dieser Projektion die
+                    // bildschirmgestreckten Rueckseiten und duerfen nicht
+                    // grell aufreissen
+                    const gy=gy0>0? gy0*0.35 : gy0;
+                    const s2=gx*0.75+gy*0.5;         // LX/LY, Sonne aus Nordwest
+                    const t2=Math.max(-1,Math.min(1,4.0*s2));
+                    // Wurzelkurve: zieht die Mitteltoene zu den Enden, damit
+                    // Kamm und Mulde stehen statt im Grau zu verschwimmen
+                    const f2=0.5+0.5*Math.sign(t2)*Math.pow(Math.abs(t2),0.7);
+                    wgc.fillStyle='rgb('+((DK[0]+(HL[0]-DK[0])*f2)|0)+','
+                                       +((DK[1]+(HL[1]-DK[1])*f2)|0)+','
+                                       +((DK[2]+(HL[2]-DK[2])*f2)|0)+')';
+                    wgc.beginPath();
+                    wgc.moveTo(e[0],e[1]);
+                    for(let k=1;k<6;k++) wgc.lineTo(e[k*2],e[k*2+1]);
+                    wgc.closePath(); wgc.fill();
+                  }
+                  wgc.restore();
+                  // ACHTUNG: hier laeuft tex2 noch in WELTkoordinaten
+                  // (translate(-c.ox,-c.oy) weiter oben). Die Zwischen-
+                  // flaeche beginnt am Chunkursprung, also dort ansetzen -
+                  // mit 0,0 landet sie um einen ganzen Chunk verschoben
+                  // ausserhalb und ist wirkungslos.
+                  tex2.drawImage(this._weheTmp,c.ox,c.oy,w,h);
+                }
                 const sastr=patOf('ter_ridge_snow',0.5)||patOf('ter_firn',0.4);
-                if(sastr){
+                if(sastr && !this._ohneSastr){
                   tex2.globalAlpha=0.55;
                   tex2.fillStyle=sastr;
                   tex2.fillRect(c.ox,c.oy,w,h);
+                  tex2.globalAlpha=1;
+                }
+                // Wehen ein zweites Mal, halb deckend, ueber die Sastrugi:
+                // die Kachel wird sonst mit ihren 0,55 Deckung ueber die
+                // Zelltoene gelegt und LOESCHT mehr als die Haelfte davon
+                // wieder (GEMESSEN: Blockspanne 22,1 statt der aus dem Feld
+                // selbst erwarteten). Zweimal aufgetragen wirkt das Feld mit
+                // rund 0,9, die Windzeichnung bleibt mit 0,3 erhalten.
+                if(anySnow){
+                  tex2.globalAlpha=0.45;
+                  tex2.drawImage(this._weheTmp,c.ox,c.oy,w,h);
                   tex2.globalAlpha=1;
                 }
                 tex2.restore();
@@ -3949,6 +4065,16 @@ export class Renderer {
                       texG.fillStyle=patG||'#c2cacc';
                       texG.fillRect(c.ox,c.oy,w,h);
                       texG.restore();
+                      // Die Wehen auch AUF das Spaltenfeld: der Gletscher
+                      // wird mit 0,55 ueber den Firn gelegt und loeschte
+                      // dessen Woelbung dort zur Haelfte wieder weg.
+                      // GEMESSEN im Gebirge (Saat 58), Blockspanne:
+                      // 23,8 ohne Wehen - 27,9 mit Wehen nur auf dem Firn -
+                      // 30,9 mit diesem Auftrag. Die Spaltenzeichnung der
+                      // Kachel bleibt mit 0,55 erhalten.
+                      texG.globalAlpha=0.45;
+                      texG.drawImage(this._weheTmp,0,0,w,h);
+                      texG.globalAlpha=1;
                       texG.globalCompositeOperation='destination-in';
                       texG.drawImage(this._maskTmp,0,0,w,h);
                       texG.globalCompositeOperation='source-over';
