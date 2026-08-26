@@ -6094,6 +6094,37 @@ export class Renderer {
       g2.fillRect(0,0,c2.width,c2.height);
       img=c2;
     }
+    // WINTERWIESE (v250, Fehlerliste "gruenes Grasvieleck im Schnee").
+    // GEMESSEN ist die Winterkarte fast zur Haelfte Wiese (Saat 3: 4621
+    // Wiesenknoten gegen 3904 Schneeknoten), und 13 dieser Wiesenflaechen
+    // liegen zu ueber 60 % von Schnee umgeben mitten im Weiss - zusammen
+    // 280 Knoten. Das ist kein Fehler der Kartenerzeugung: aperes Land
+    // gehoert in eine Winterlandschaft. Der Fehler war die FARBE - sie
+    // trugen die volle Sommerwiese, ein sattes Gruen neben Schneefeld und
+    // kahlen Baeumen. Es gibt nur eine ter_grass-Kachel; sie bekommt im
+    // Winter deshalb hier beim Musteraufbau eine Glasur (einmal je Spiel,
+    // nicht je Bild): 'color' nimmt Farbton und Saettigung aus der Fuellung
+    // und laesst die Helligkeitszeichnung der Kachel stehen - aus der
+    // Sommerwiese wird verdorrtes Wintergras, die Grasnarbe bleibt lesbar.
+    // Der Deckel darueber setzt einen Hauch Raureif obendrauf.
+    // NUR im Winter: das Thema 'gebirge' teilt sich zwar die Farbtabelle
+    // mit dem Winter, ist aber ein Sommertal mit Birken und Fichten.
+    if(t===TER.GRASS && this.theme==='winter'){
+      const c2=document.createElement('canvas');
+      c2.width=img.naturalWidth||img.width; c2.height=img.naturalHeight||img.height;
+      const g2=c2.getContext('2d');
+      g2.drawImage(img,0,0);
+      g2.globalCompositeOperation='color';
+      g2.globalAlpha=0.82;
+      g2.fillStyle='#96997f';
+      g2.fillRect(0,0,c2.width,c2.height);
+      g2.globalAlpha=1;
+      g2.globalCompositeOperation='source-atop';
+      g2.fillStyle='rgba(228,233,231,0.13)';
+      g2.fillRect(0,0,c2.width,c2.height);
+      g2.globalCompositeOperation='source-over';
+      img=c2;
+    }
     const pat=g.createPattern(img,'repeat');
     if(pat.setTransform){
       const mtx=variant
@@ -9113,7 +9144,13 @@ export class Renderer {
     // oben gestreut werden. Zwei Sorten Blumen nebeneinander sahen aus wie
     // zwei verschiedene Spiele. Der Bereich bleibt bewusst leer, damit die
     // Wiese nicht plötzlich mit Beerenstraeuchern zuwaechst.
+    // v250: im WINTER traegt die apere Wiese verdorrtes Gras (s. die Glasur
+    // in terrainPattern). Die gemalte Deko musste mit - sonst standen auf
+    // der fahlen Flaeche weiter sattgruene Bueschel und rote Beeren, und
+    // genau die stachen im Beleg als "gruenes Gras im Schnee" heraus.
+    const win9=this.theme==='winter';
     if(h<0.105){ /* frei - hier uebernimmt die Deko-Grafik */ }
+    else if(h<0.14 && win9){ /* kein Beerenstrauch im Winter */ }
     else if(h<0.14){ // Beerenstrauch
       g.fillStyle='#3f7d3a';
       g.beginPath(); g.arc(x+ox,y+oy-2.5,4,0,7); g.arc(x+ox+3.4,y+oy-1.5,3,0,7); g.arc(x+ox-3.4,y+oy-1.5,3,0,7); g.fill();
@@ -9126,7 +9163,9 @@ export class Renderer {
       // kommen aus dem Knoten-Hash - drei identische Halme in identischer
       // Bogenform standen sonst ueber die ganze Wiese verteilt.
       const nH=3+((hash01(i*79+5)*2.4)|0);
-      g.strokeStyle='rgba('+(54+(hash01(i*83+3)*18|0))+','+(108+(hash01(i*89+7)*22|0))+',52,0.75)';
+      g.strokeStyle= win9
+        ? 'rgba('+(146+(hash01(i*83+3)*16|0))+','+(142+(hash01(i*89+7)*16|0))+',112,0.7)'
+        : 'rgba('+(54+(hash01(i*83+3)*18|0))+','+(108+(hash01(i*89+7)*22|0))+',52,0.75)';
       g.lineWidth=1.3+hash01(i*97+2)*0.6;
       for(let k=0;k<nH;k++){
         const s9=(k-(nH-1)/2);
