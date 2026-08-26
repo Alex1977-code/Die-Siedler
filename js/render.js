@@ -1539,7 +1539,9 @@ export class Renderer {
         tex.fillRect(c.ox,c.oy,w,h);
         // Varianz: dieselbe Kachel ein zweites Mal, größer und versetzt, als
         // fleckige Auflage -> die Wiederholung der einen Kachel verschwindet
-        const pat2=this.terrainPattern(L.pat, tex, 1);
+        // _ohnePat2: Diagnoseschalter - die zweite Musterlage abschalten, um
+        // zu sehen, ob eine Linie aus ihr kommt. Im Spiel nie gesetzt.
+        const pat2=this._ohnePat2? null : this.terrainPattern(L.pat, tex, 1);
         if(pat2){
           tex.globalAlpha=0.16;
           tex.fillStyle=pat2;
@@ -6043,6 +6045,7 @@ export class Renderer {
              ||key.startsWith('obj_summit')||key.startsWith('obj_cliff')
              ||key.startsWith('obj_glacier')) img.onload=()=>{
             this._terPat=null; this._rockPats=null; this._oreBlobs=null;
+            this._kachelC=null;           // Randausgleich neu rechnen
             this._screeTile=null; this._screePatC=null; this._fbr=null;
             this._spireTint=null; this._schneeHaube=null; this._lasurC=null; this._matC=null;
             this._felsPool=null;
@@ -6060,6 +6063,84 @@ export class Renderer {
   // Anzeigehöhe aus dem Asset-Paket (Sheet-Proportionen, Wohnhaus=Anker)
   scaleOf(key, fb){
     return (this._scales && this._scales[key]) || fb;
+  }
+  // ---------- KACHELRAND AUSGLEICHEN ----------
+  // Nutzerkritik woertlich: "ich moechte diese komischen linien im gras
+  // nicht". GEMESSEN sind es keine Chunknaehte - sie bleiben stehen, wenn
+  // man den Chunkzuschnitt von 24 auf 0 oder 60 aendert -, sondern die
+  // Kachel selbst: ter_grass ist an allen vier Raendern rund 6 % dunkler
+  // als in der Mitte (aeussere zehn Bildpunkte 91 gegen 97..100 innen,
+  // Alpha ueberall 255 - es ist also kein Freistellungsrand, sondern ein
+  // eingebackener Abfall). Beim Kacheln treffen zwei solche Raender
+  // aufeinander: alle 225 Weltpixel - 512 px Kachel bei Skala 0,44 - steht
+  // eine dunkle Linie, waagerecht wie senkrecht. Nachgemessen im Bild lagen
+  // die staerksten Spalten und Zeilen genau 225 px auseinander.
+  //
+  // Statt neue Kacheln zu bestellen rechnet der Ausgleich aus der Kachel
+  // SELBST, wie stark jede Randzeile und -spalte gegen den Kern abfaellt,
+  // und hebt sie multiplikativ an. Der Faktor laeuft zur Kachelmitte hin
+  // linear auf 1 aus, damit an der Innenkante der Korrektur keine neue
+  // Stufe entsteht. Einmal je Kachel und Spiel.
+  //
+  // NUR fuer die Flaechenkacheln aus terrainPattern. Der FELS wurde
+  // mitgemessen und braucht ihn nicht: seine Flaeche kommt aus
+  // felsMaterial ueber vorbereitete Zwischenflaechen, und im Beleg
+  // (gruen 12, Wandansicht) liegt die staerkste Spalte bei -1,5 - das ist
+  // das Rauschen der Kachel selbst. Ein Versuch, den Ausgleich auch dort
+  // einzuhaengen, aenderte gemessen 113 von 558000 Bildpunkten und wurde
+  // wieder ausgebaut. Die Randwerte stehen fuer den Fall, dass es doch
+  // einmal auffaellt: ter_rock_top 6,5 % dunkler, ter_rock_wall 6,4 %
+  // heller am Rand.
+  kachelEben(img){
+    if(!this._kachelC) this._kachelC=new Map();
+    const W=img.naturalWidth||img.width, H=img.naturalHeight||img.height;
+    if(!W || !H) return img;                    // noch nicht geladen
+    const key=(img.src||'')+'|'+W+'x'+H;
+    const c9=this._kachelC.get(key);
+    if(c9!==undefined) return c9 || img;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const t9=cv.getContext('2d');
+    t9.drawImage(img,0,0);
+    let d;
+    try{ d=t9.getImageData(0,0,W,H); }
+    catch(_){ this._kachelC.set(key,null); return img; }   // fremde Herkunft
+    const px=d.data;
+    const B=Math.max(4, Math.min(24, Math.round(Math.min(W,H)*0.03)));
+    const hell=(i)=>(px[i]+px[i+1]+px[i+2])/3;
+    let ref=0, n=0;
+    for(let y=B;y<H-B;y+=3) for(let x=B;x<W-B;x+=3){ ref+=hell((y*W+x)*4); n++; }
+    if(!n){ this._kachelC.set(key,null); return img; }
+    ref/=n;
+    const mSp=(x)=>{ let s=0,c=0; for(let y=0;y<H;y+=2){ s+=hell((y*W+x)*4); c++; } return s/c; };
+    const mZe=(y)=>{ let s=0,c=0; for(let x=0;x<W;x+=2){ s+=hell((y*W+x)*4); c++; } return s/c; };
+    // Grenzen: mehr als ein Viertel Korrektur waere keine Randschwaeche
+    // mehr, sondern ein Gestaltungsmerkmal - da bleibt die Kachel, wie sie ist.
+    const fak=(m)=> m>1? Math.max(0.8, Math.min(1.25, ref/m)) : 1;
+    const sp=new Float32Array(W).fill(1), ze=new Float32Array(H).fill(1);
+    for(let x=0;x<B;x++){
+      const w9=1-x/B;
+      sp[x]     = 1+(fak(mSp(x))-1)*w9;
+      sp[W-1-x] = 1+(fak(mSp(W-1-x))-1)*w9;
+    }
+    for(let y=0;y<B;y++){
+      const w9=1-y/B;
+      ze[y]     = 1+(fak(mZe(y))-1)*w9;
+      ze[H-1-y] = 1+(fak(mZe(H-1-y))-1)*w9;
+    }
+    for(let y=0;y<H;y++){
+      const fz=ze[y];
+      for(let x=0;x<W;x++){
+        const f=sp[x]*fz;
+        if(f===1) continue;
+        const i=(y*W+x)*4;
+        px[i]  =Math.max(0,Math.min(255,px[i]*f));
+        px[i+1]=Math.max(0,Math.min(255,px[i+1]*f));
+        px[i+2]=Math.max(0,Math.min(255,px[i+2]*f));
+      }
+    }
+    t9.putImageData(d,0,0);
+    this._kachelC.set(key,cv);
+    return cv;
   }
   // Terrain-Kacheln als durchgehendes, weltverankertes Muster (völlig nahtlos)
   terrainPattern(t, g, variant=0){
@@ -6080,6 +6161,7 @@ export class Renderer {
     if(this._terPat[ck]) return this._terPat[ck];
     let img=this.asset(e[0]);
     if(!img) return null;
+    img=this.kachelEben(img);           // Randabfall der Kachel ausgleichen
     // Kritik G3: die Sumpfkachel ist ein kraeftiges Braun - auf der Wiese
     // lasen sich die Flecken als "Kaffeeflecken"/Schmutz statt als Moor.
     // Eine Moosgruen-Glasur (source-atop, einmalig beim Musteraufbau)
@@ -9477,7 +9559,12 @@ export class Renderer {
         // endete in senkrechter Kante). 24 px sind der Mittelweg: die Naht
         // liegt klar hinter der Klemmzone der Weichzeichner (Radius 9),
         // und der Nachbar deckt Objektueberhaenge weiter mit ab.
-        const SAUM=24;
+        // _saum: Diagnoseschalter wie _ohneCast. Mit ihm laesst sich eine
+        // Linie im Bild als Chunknaht ENTLARVEN oder ausschliessen - wandert
+        // sie mit dem Zuschnitt, ist es eine Naht; bleibt sie stehen, kommt
+        // sie aus der Kachel oder dem Gelaende (so wurden v251 die Linien im
+        // Gras der Kachel zugeordnet). Im Spiel nie gesetzt.
+        const SAUM=(this._saum!==undefined? this._saum : 24);
         const sc=c.scale||1;
         const ix0=Math.max(c.ox+SAUM, wx0-8), ix1=Math.min(c.ox+c.dw-SAUM, wx1+8);
         const iy0=Math.max(c.oy+SAUM, wy0-8), iy1=Math.min(c.oy+c.dh-SAUM, wy1+8);
