@@ -1156,6 +1156,21 @@ export class Renderer {
     }
     return s;
   }
+  // OFFEN (v243, vermessen aber nicht behoben): zwei waagerechte Haarlinien
+  // im fertigen Bild. GEMESSEN auf allen vier Kartenthemen an derselben
+  // Stelle - bei 900x620 in Bildzeile 117 und 501, also rund 117 px vom
+  // oberen und 118 px vom unteren Rand, mit einem Sprung von gut drei
+  // Graustufen ueber die halbe Bildbreite.
+  // Was schon ausgeschlossen ist:
+  //   - Gelaende/Chunk-Naht: die Linien wandern NICHT mit, wenn die Kamera
+  //     um 37 px verschoben wird - sie sind bildfest, nicht weltfest.
+  //   - Nebelebene: bleiben unveraendert, wenn fogDark/fogCore/fogMist
+  //     abgeschaltet werden.
+  //   - Vignette: die ist ein RADIALer Verlauf; ihr innerer Stopp laege bei
+  //     Zeile 50 und 570, nicht bei 117/501.
+  // Naechster Verdacht fuer die Fortsetzung: ein Zwischenpuffer oder eine
+  // Bildschirmauflage, deren Rand bei rund 19 % der Bildhoehe sitzt.
+  // Messrezept steht in scratchpad/ (Zeilen mit >45 % Spaltensprung zaehlen).
   // ---------- Chunks (Terrain) ----------
   chunkKey(cx,cy){ return cx+cy*1000; }
   markDirtyNode(i){
@@ -3867,7 +3882,10 @@ export class Renderer {
                       {
                         const mg2=this._maskTmp2.getContext('2d');
                         mg2.globalCompositeOperation='copy';
-                        this.blurInto(mg2, this._maskTmp, 7);
+                        // Radius 7 -> 12: bei 44 px Zellradius blieb die
+                        // Feldgrenze trotz Weichzeichnung als geschlossener
+                        // Umriss lesbar (s. Deckungs-Kommentar oben).
+                        this.blurInto(mg2, this._maskTmp, 12);
                         mg2.globalCompositeOperation='source-over';
                         mkG.globalCompositeOperation='copy';
                         mkG.drawImage(this._maskTmp2,0,0,w,h);
@@ -3888,7 +3906,14 @@ export class Renderer {
                       texG.globalCompositeOperation='source-over';
                       // halbtransparent ueber dem Firn: die Sastrugi-Decke
                       // bleibt am Rand sichtbar, die Spaltenzeichnung traegt
-                      g.globalAlpha=0.85;
+                      // v243: Deckung 0.85 -> 0.55. Mit 0.85 lag das
+                      // Spaltenfeld als eigenstaendige, deutlich blauere
+                      // Platte AUF dem Firn - im Beleg t24_lupe_vieleck ein
+                      // glattflaechiger Fremdkoerper mit harter Kante
+                      // mitten in der feinkoernigen Schneeflaeche. Leiser
+                      // aufgelegt liest es als Spaltenzeichnung IM Firn,
+                      // also als Struktur derselben Flaeche.
+                      g.globalAlpha=0.55;
                       g.drawImage(this._texTmp, fbx0*S, fby0*S, fbw*S, fbh*S,
                                   c.ox+fbx0, c.oy+fby0, fbw, fbh);
                       g.globalAlpha=1;
