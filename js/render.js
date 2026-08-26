@@ -6592,6 +6592,24 @@ export class Renderer {
                           2+((hash01(i*41+7)*2.4)|0), true, schnee9))
         this.felsHaufen(g, px+ox2, py+oy2+2, i, sp<0.14, lz);
     } else {
+      // T20-RESTBEFUND, behoben in v249. Dieser Zweig traf GEMESSEN die
+      // MEHRHEIT aller Felsformationen - 72 % auf Gruenland Saat 12, 62 %
+      // im Gebirge Saat 58, 63 % im Winter Saat 3 - und stempelte dort ein
+      // EINZELNES Blatt aus einem Topf von vier. Auf der Gebirgskarte
+      // trugen damit 45 Knoten exakt dasselbe Bild in fast derselben
+      // Groesse; genau das meinte die Nutzerkritik "die steinhaufen sehen
+      // gleich aus". Die anderen Zweige waren in T20 schon auf
+      // Kompositionen umgestellt, dieser blieb liegen.
+      // Jetzt dieselbe Behandlung: zwei bis vier Stuecke aus dem frei
+      // stehenden Vorrat, Ankerstueck in voller Groesse, die uebrigen
+      // kleiner und ueberlappend davor - das liest als EIN verwitterter
+      // Koerper mit Schutt am Fuss statt als aufgeklebtes Bild.
+      const nz9=this.felsGruppe(g,'natur', px+ox2, py+oy2+3, sc7,
+                                i*3+1, lz,
+                                2+((hash01(i*61+13)*2.6)|0), true, schnee9);
+      if(nz9) return;
+      // Rueckfall, falls kein Blatt geladen ist: erst das alte Einzelbild,
+      // dann die prozeduralen Brocken.
       if(!this._felsPool){
         // OHNE obj_blockstapel (Kritik N6): die lagenweise geschichtete
         // Quader-Pyramide las sich als Ziggurat/Menschenwerk, besonders
@@ -6687,6 +6705,13 @@ export class Renderer {
       misch:  ['obj_rockspire_3','obj_rockspire_5',
                'obj_findling_mittel','obj_steinhaufen',
                'obj_crag_1','obj_crag_2','obj_crag_3','obj_crag_4'],
+      // FREI STEHEND: was mitten auf der Flaeche fuer sich allein stehen
+      // kann. Die crag-Blaetter fehlen hier bewusst - sie sind Kantenstuecke
+      // und lehnen sich an eine Abbruchkante; allein auf der Hochflaeche
+      // stehen sie wie abgebrochen da. Als Beiwerk in einer Gruppe an der
+      // Kante bleiben sie ueber 'misch' und 'zinne' weiter im Spiel.
+      natur:  ['obj_rockspire_3','obj_rockspire_5',
+               'obj_findling_mittel','obj_steinhaufen','obj_kieshaufen'],
     }[art] || [];
     v=L.filter(k=>this.asset(k));
     this._vorrat.set(art,v);
