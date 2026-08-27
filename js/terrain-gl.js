@@ -62,6 +62,8 @@ uniform vec3  uMass;        // TILE, ROWH, HSCALE
 varying vec3  vNrm;
 varying vec3  vCol;
 varying vec2  vWorld;
+varying vec2  vGrid;
+varying float vHgt;
 varying vec4  vW1;
 varying vec4  vW2;
 void main(){
@@ -75,6 +77,8 @@ void main(){
                      1.0 - s.y / uView.y * 2.0, 0.0, 1.0);
   vNrm = aNrm;
   vCol = aCol;
+  vGrid = aGrid;
+  vHgt = aHgt;
   // Die Materialanteile sind je Knoten 1 fuer die eigene Art und 0 sonst.
   // Die Interpolation ueber das Dreieck macht daraus von selbst einen
   // weichen Uebergang - dasselbe, was der 2D-Weg mit weichgezeichneten
@@ -89,9 +93,13 @@ precision mediump float;
 varying vec3 vNrm;
 varying vec3 vCol;
 varying vec2 vWorld;
+varying vec2 vGrid;
+varying float vHgt;
 varying vec4 vW1;
 varying vec4 vW2;
 uniform vec3 uSun;          // Richtung zur Sonne (normiert)
+uniform sampler2D tHgt;     // Hoehenfeld der ganzen Karte (R, 0..uHMax)
+uniform vec3 uHfeld;        // Kartenbreite, -hoehe, uHMax
 uniform vec2 uPix;          // Puffergroesse in Geraetepixeln (goldene Stunde)
 uniform float uTint;        // wie stark die Themenfarbe das Material faerbt
 uniform sampler2D tWiese, tWueste, tSchnee, tMoor, tWasser, tFels, tLava;
@@ -127,6 +135,35 @@ void main(){
   if (n.y > 0.0) n.y *= 0.35;
   n = normalize(n);
   float lam = max(0.0, dot(n, uSun));
+
+  // ---- Schlagschatten: Marsch durchs Hoehenfeld zur Sonne ----
+  // Die ganze Karte liegt als winzige Textur an (max 160x160). Der Strahl
+  // laeuft vom Fragment in Weltrichtung der Sonne (LX, LY, SUNZ*HSCALE);
+  // steht auf dem Weg ein Knoten hoeher als der Strahl, liegt das Fragment
+  // im Schatten. 16 Schritte decken rund sechs Knoten - weiter wirft in
+  // diesem Massstab kein Berg. Genau das, was der 2D-Weg als eigene
+  // Silhouetten-Geometrie je Chunk gebaut hat (castShadow), nur aus der
+  // echten Hoehe und mit weichem Rand aus der Blocker-Ueberhoehung.
+  // Der Halbspalten-Versatz ungerader Zeilen wird ignoriert - unter einem
+  // halben Knoten Fehler quer zum Strahl, dem weichen Rand nicht anzusehen.
+  float schatten = 1.0;
+  {
+    // Sonnenrichtung in Weltpixeln je Schritt (zur Sonne: +LX/+LY im
+    // Bildsinn heisst nach Nordwest = -x/-y in Weltkoordinaten)
+    vec2 dW = vec2(-0.75, -0.5) * 26.0;      // 26 px je Schritt
+    float dZ = 0.95 * 26.0;                  // Steigung des Strahls
+    float z0 = vHgt * 26.0;                  // HSCALE
+    vec2 gSchritt = vec2(dW.x / 52.0, dW.y / 44.0);  // TILE, ROWH
+    for(int k = 1; k <= 16; k++){
+      vec2 gp = vGrid + gSchritt * float(k);
+      if(gp.x < 0.0 || gp.y < 0.0 || gp.x > uHfeld.x-1.0 || gp.y > uHfeld.y-1.0) break;
+      float hb = texture2D(tHgt, (gp + 0.5) / uHfeld.xy).r * uHfeld.z;
+      float ueber = hb * 26.0 - (z0 + dZ * float(k));
+      // weicher Rand: knapp drueber daemmert, deutlich drueber deckt
+      schatten = min(schatten, 1.0 - clamp(ueber / 30.0, 0.0, 0.62));
+    }
+  }
+  lam *= schatten;
   float v = 0.42 + 0.86 * lam;
   // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
   vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
@@ -218,6 +255,8 @@ export class TerrainGL {
     this.uSun  = gl.getUniformLocation(p, 'uSun');
     this.uTint = gl.getUniformLocation(p, 'uTint');
     this.uPix  = gl.getUniformLocation(p, 'uPix');
+    this.uHfeld= gl.getUniformLocation(p, 'uHfeld');
+    this.uTHgt = gl.getUniformLocation(p, 'tHgt');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
     this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
@@ -240,6 +279,14 @@ export class TerrainGL {
       return t;
     });
     this.skala = KANAL.map(()=>225);   // Vorgabe: 512-px-Kachel bei 0,44
+    // Hoehenfeld-Textur fuer den Schattenmarsch (8 Bit reichen: Hoehen
+    // 0..~12 auf 0..255 sind 0,05 Einheiten Aufloesung, der weiche
+    // Schattenrand deckt das dreifache davon)
+    this.texHgt = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.texHgt);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, 1, 1, 0, gl.LUMINANCE,
+                  gl.UNSIGNED_BYTE, new Uint8Array([0]));
+    this._hMax = 1;
     if(this._bilder) this._bilderAnwenden();
   }
 
@@ -351,6 +398,24 @@ export class TerrainGL {
     gl.bufferData(gl.ARRAY_BUFFER, hgt, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufNrm);
     gl.bufferData(gl.ARRAY_BUFFER, nrm, gl.DYNAMIC_DRAW);
+    // Hoehenfeld als Textur (Schattenmarsch im Fragment-Shader)
+    {
+      let mx = 1;
+      for(let i=0; i<n; i++) if(H[i] > mx) mx = H[i];
+      this._hMax = mx;
+      const px = new Uint8Array(n);
+      for(let i=0; i<n; i++) px[i] = Math.max(0, Math.min(255, Math.round(H[i]/mx*255)));
+      gl.bindTexture(gl.TEXTURE_2D, this.texHgt);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE,
+                    gl.UNSIGNED_BYTE, px);
+      // bilinear: der Marsch tastet zwischen den Knoten ab
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    }
   }
 
   // Materialgewichte je Knoten: 1 fuer die eigene Terrainart, 0 sonst.
@@ -451,6 +516,11 @@ export class TerrainGL {
       gl.bindTexture(gl.TEXTURE_2D, this.tex[k]);
       gl.uniform1i(this.uTex[k], k);
     }
+    gl.activeTexture(gl.TEXTURE0 + KANAL.length);
+    gl.bindTexture(gl.TEXTURE_2D, this.texHgt);
+    gl.uniform1i(this.uTHgt, KANAL.length);
+    const km = this._karte;
+    gl.uniform3f(this.uHfeld, km? km.w : 1, km? km.h : 1, this._hMax || 1);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.bufIdx);
     gl.drawElements(gl.TRIANGLES, this.anzIdx, gl.UNSIGNED_SHORT, 0);
     return true;
