@@ -266,8 +266,15 @@ void main(){
   // Verfahren ist dasselbe wie die 'color'-Glasur im 2D-Weg: die
   // HELLIGKEITSzeichnung der Kachel bleibt stehen, Farbton und Saettigung
   // kommen aus der Palette.
+  // Nenner ist die Luminanz der PALETTENFARBE, nicht pauschal 0,5: das
+  // Mischziel bekommt so genau die Helligkeit der Kachel (echte color-
+  // Glasur). Mit /0.5 wurde die fast weisse Schnee-/Firnpalette um das
+  // 1,6-fache verstaerkt - die Firnflaeche sass VOR dem Licht schon bei
+  // 1,2 und klippte trotz Lichtschulter komplett aus (Beleg t34: 92 %
+  // der Flaeche >= 250, Kachelzeichnung unsichtbar).
   float lum = dot(alb, vec3(0.299, 0.587, 0.114));
-  alb = mix(alb, vCol * (lum / 0.5), uTint);
+  float lumP = dot(vCol, vec3(0.299, 0.587, 0.114));
+  alb = mix(alb, vCol * (lum / max(0.2, lumP)), uTint);
 
   // ---- Licht ----
   vec3 n = normalize(vNrm);
@@ -329,6 +336,16 @@ void main(){
                  col.g + 0.49 * (sqrt(col.g) - col.g),
                  col.b - 0.059 * col.b * (1.0 - col.b));
   col = mix(col, sl, 0.16);
+
+  // ---- Weiche Lichtschulter statt hartem Klipp ----
+  // v laeuft bis 1,28; auf hellen Albedos (Schnee/Firn ~0,82) klippte das
+  // Produkt und die sonnige Firnflaeche stand als reinweisse Flaeche ohne
+  // jede Zeichnung da (Beleg t34: 98 % der Flaeche >= 250 - schon MIT der
+  // alten ter_snow-Kachel waren es 94 %, kein Lieferungsfehler). Unterhalb
+  // der Schulter s aendert sich nichts, darueber laeuft alles asymptotisch
+  // gegen 1 aus - die Albedo-Zeichnung ueberlebt komprimiert.
+  vec3 ue = max(col - vec3(0.86), vec3(0.0)) / 0.14;
+  col = min(col, vec3(0.86)) + 0.14 * (1.0 - exp(-ue));
   // Debug-Ansichten: 1 = Gewichte (Fels rot, Schnee/Firn blau, Wiese
   // gruen, Rest tuerkis), 2 = reines Licht. Nur von Messwerkzeugen gesetzt.
   if(uDebug > 0.5 && uDebug < 1.5){

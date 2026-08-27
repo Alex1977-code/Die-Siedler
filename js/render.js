@@ -382,36 +382,56 @@ export class Renderer {
   // ergeben 225-256 Weltpixel; die 1024er-Felskacheln bewusst groeber.
   glMaterialNeu(){
     if(!this.glTerrain || !this.game) return;
-    const wahl=(neu9, alt9, skala, glasur)=>{
+    const wahl=(neu9, alt9, skala, glasur, glasurAuf='alt')=>{
       const a=this.asset(neu9), b=this.asset(alt9);
       let im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
       if(!im) return null;
-      // Glasur (z. B. Moor-Moosgruen) NUR auf die alten ter_-Kacheln -
-      // bestellte mat_-Kacheln kommen fertig getoent
-      if(glasur && im!==a) im=glasur(im);
+      // Glasur je nach Fall: 'alt' nur auf die ter_-Rueckfaelle (bestellte
+      // mat_-Kacheln kommen fertig getoent, z. B. Moor-Moosgruen), 'neu'
+      // nur auf die mat_-Kachel (Schnee-Daempfung), 'beide' immer
+      // (Winterwiese - es gibt nur EINE Wiesenkachel je Weg).
+      const istNeu=(im===a);
+      if(glasur && (glasurAuf==='beide' || (glasurAuf==='neu')===istNeu)) im=glasur(im);
       // kachelEben auch hier: die GL-Ebene bekam zuerst die ROHE Kachel,
       // und das Randabfall-Gitter aus v251 stand wieder im Gras - alle 225
       // Weltpixel eine dunkle Linie. Derselbe Ausgleich, dieselbe Stelle.
       return {img:this.kachelEben(im), skala};
     };
+    const lasur=(schritte)=>(im)=>{
+      const c2=document.createElement('canvas');
+      c2.width=im.naturalWidth||im.width; c2.height=im.naturalHeight||im.height;
+      const g2=c2.getContext('2d');
+      g2.drawImage(im,0,0);
+      for(const [op,farbe,alpha] of schritte){
+        g2.globalCompositeOperation=op; g2.globalAlpha=alpha;
+        g2.fillStyle=farbe; g2.fillRect(0,0,c2.width,c2.height);
+      }
+      g2.globalAlpha=1; g2.globalCompositeOperation='source-over';
+      return c2;
+    };
     const b={
-      wiese:  wahl('mat_wiese_alb',  'ter_grass', 225),
+      // Wiese: im Winter dieselbe Glasur wie im 2D-Musteraufbau (v250) -
+      // 'color' nimmt der Sommerwiese die Saettigung und laesst die
+      // Grasnarbe stehen, der Deckel legt einen Hauch Raureif auf. Ohne
+      // sie stand die kraeftig gruene Lieferkachel neben dem Schnee wie
+      // ein Sommerbeet (Spielbeleg t33 winter).
+      wiese:  wahl('mat_wiese_alb',  'ter_grass', 225,
+                   this.theme==='winter'? lasur([['color','#96997f',0.82],
+                                                 ['source-atop','rgba(228,233,231,1)',0.13]]) : null,
+                   'beide'),
       wueste: wahl('mat_sand_alb',   'ter_sand',  256),
-      schnee: wahl('mat_schnee_alb', 'ter_snow',  256),
+      // Schnee: die bestellte Kachel liegt im Mittel bei 233 - unter vollem
+      // Shaderlicht brannte die Firnflaeche aus (Spielbeleg t33 gebirge:
+      // Wehenzeichnung weg, Flaeche weiss). Multiplikativ auf das Niveau
+      // der alten ter_snow (~208), die Zeichnung bleibt.
+      schnee: wahl('mat_schnee_alb', 'ter_snow',  256,
+                   lasur([['multiply','rgb(228,228,230)',1]]), 'neu'),
       // ter_swamp bekommt dieselbe Moosgruen-Glasur wie in terrainPattern
       // (Kritik G3: das rohe Braun las sich als Kaffeefleck) - im NUR-GL-
       // Beleg stand eine Moorsenke sonst als brauner Schmutzfleck in der
       // Wiese
-      moor:   wahl('mat_moor_alb',   'ter_swamp', 256, (im)=>{
-        const c2=document.createElement('canvas');
-        c2.width=im.naturalWidth||im.width; c2.height=im.naturalHeight||im.height;
-        const g2=c2.getContext('2d');
-        g2.drawImage(im,0,0);
-        g2.globalCompositeOperation='source-atop';
-        g2.fillStyle='rgba(62,94,44,0.38)';
-        g2.fillRect(0,0,c2.width,c2.height);
-        return c2;
-      }),
+      moor:   wahl('mat_moor_alb',   'ter_swamp', 256,
+                   lasur([['source-atop','rgba(62,94,44,1)',0.38]])),
       wasser: wahl('mat_wasser_alb', 'ter_water', 133),
       // FELS: bestellte mat_-Kachel, sonst die alte ter_fels-Kachel des
       // Themas DURCH felsMaterial. Roh eingeladen stand ihr Mauerwerk als
@@ -6181,6 +6201,14 @@ export class Renderer {
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this._waterStamps=null;       // Glanzlichter und Schaum neu stempeln
             this.chunks.clear();
+          };
+          // mat_-Kacheln (Lieferung 8) wirken NUR in die GPU-Ebene. Ohne
+          // diesen Zweig gewann das Laden gegen glKarteNeu das Rennen nicht
+          // immer: kam die Kachel NACH dem Kartenaufbau an, blieb der alte
+          // Rueckfall (felsMaterial/ter_-Kachel) fuer immer stehen.
+          else if(key.startsWith('mat_')) img.onload=()=>{
+            this._kachelC=null;
+            this.glMaterialNeu();
           };
           img.src='assets/'+name;
           this.assets.set(key, img);

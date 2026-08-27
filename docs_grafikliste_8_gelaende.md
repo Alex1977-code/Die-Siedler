@@ -397,3 +397,30 @@ Zwei schnelle Prüfungen, bevor du eine Kachel schickst:
    dunkler Saum ergibt später ein Gitter über die ganze Karte.
 
 Beides messe ich beim Einbau ohnehin nach und melde die Zahlen zurück.
+
+---
+
+## Lieferstand (27.08., eingebaut mit v261)
+
+Alle 12 Dateien geliefert (1024x1024, RGB, Benennung exakt). Messwerte
+der Abnahme:
+
+- **Bestanden ohne Nacharbeit:** die vier Fels-Albedo, Sand, Schnee —
+  Nähte auf Referenzniveau, Randabfall ≤ 3 %.
+- **Wiese:** Wickelnaht 4–6× über Referenz (Büschel an den Rändern
+  geschnitten). Per Kreuzblende geheilt (80-px-Band, Kachelmitte ersetzt
+  die Kante), die geheilte Fassung liegt in assets/.
+- **Geröll:** Naht 3× über Referenz; Heilung erzeugt sichtbare
+  Geisterkiesel, Original ist an der Kreuzung unauffällig → Original
+  übernommen. Noch ohne Verwendungsort (GL-Gebirgsfuß später).
+- **Höhenkarten:** Zeichnung gut, echte Graustufen. Alle vier stiegen
+  zum Rand an (bis +12 %), Wüste/Vulkan mit echten Nähten (20–22 gegen
+  Referenz 2–3). Nach Randhebung + Kreuzblende auf Referenzniveau;
+  geheilte Fassungen in assets/. Werden erst vom Normal-Map-Schritt
+  gelesen — sieht man dort Gitter, diese zwei neu erzeugen lassen.
+- Grundtöne nahe Bestellung (Winter exakt; Fels/Wüste/Sand etwas wärmer
+  und satter, übernommen).
+
+Für nächste Bestellungen dieser Art: die Wickelnaht (links↔rechts UND
+oben↔unten) ist der häufigste Fehler — die Kachelprobe aus der Abnahme
+oben hätte alle vier Fälle gezeigt.
