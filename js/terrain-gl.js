@@ -586,24 +586,54 @@ export class TerrainGL {
     // Schneefelder der Winterebene, deren Kante zur aperen Wiese die
     // Gruppe genauso schaerft.
     const ZIEL = [ [w2,0], [w1,0], [w1,1], [w2,1], [w2,3], [w1,3], [w2,2] ];
+    // Schneedeckung auf dem Massiv VOR dem Upload glaetten: die
+    // Schneeknoten liegen knotenweise 0/1 gestreut, und die Interpolation
+    // KANN aus 0/1-Nachbarn nichts Weiches machen - im Shader war dagegen
+    // kein Kraut gewachsen (drei Parameterversuche an sMix, gemessen kaum
+    // Wirkung). Hier, einen Schritt frueher, ist es ein Mittel ueber die
+    // Nachbarn - aus Einzelknoten werden Schneeflecken mit Saum.
+    //
+    // EINORDNUNG des Restbefunds (Knotendump kantenprobe.mjs): die blassen
+    // rechteckigen Schneefelder im Fels sind ECHTE KARTENDATEN. Die
+    // Kartenerzeugung baut das Massiv aus Terrassen mit exakten
+    // Hoehenspruengen (9,2 / 6,2 / 2,x), der Schnee sitzt knotengenau auf
+    // den Plateaus, und Terrassenkanten laufen im versetzten Gitter teils
+    // achsenparallel. Der 2D-Weg VERSTECKTE diese Kanten hinter gemalten
+    // Wandflanken und Zellmasken; die GL-Ebene zeigt sie ehrlich. Wer die
+    // Flecken anders will, muss an die Kartenerzeugung oder eine
+    // gestalterische Klippenkante - nicht an diese Glaettung.
+    const deck = (map.nbs && fv) ? (()=>{
+      const roh = new Float32Array(n);
+      for(let i=0; i<n; i++){
+        const t = map.terr[i];
+        roh[i] = t === 4 ? 1 : (t === 3 ? fv(i) : 0);
+      }
+      const d = new Float32Array(n);
+      for(let i=0; i<n; i++){
+        let s9 = roh[i]*2, c9 = 2;
+        for(const q of map.nbs(i)){ s9 += roh[q]; c9++; }
+        d[i] = s9/c9;
+      }
+      return d;
+    })() : null;
     for(let i=0; i<n; i++){
       const t = map.terr[i];
       const z = ZIEL[t] || ZIEL[1];
       let g9 = 1;
-      if(fv && t === 3){                 // TER.MOUNT
-        // Firn in den EIGENEN Kanal (w2.w), nicht in den Ebenen-Schnee:
-        // der Kantenpass im Shader schaerft Materialgrenzen - eine
-        // Schneedecke AUF dem Fels ist aber keine Grenze, sondern eine
-        // breite Mischzone. In w1.z gepresst wurde sie von der Schaerfung
-        // zu einer harten Kante mitten im Firn zusammengeschoben, die den
-        // Dreieckskanten folgte (Beleg t32: senkrechte Stufen; erst der
-        // Mauerkachel, dann dem Schatten zugeschrieben - beide per
-        // Diagnoseschalter freigesprochen). Im eigenen Kanal bildet sie
-        // mit dem Fels eine GRUPPE: aussen scharf zur Wiese, innen weich.
+      // Firn und Kamm-Schnee in den GRUPPEN-Kanal (w2.w), nicht in den
+      // Ebenen-Schnee: der Kantenpass im Shader schaerft Materialgrenzen -
+      // eine Schneedecke AUF dem Fels ist aber keine Grenze, sondern eine
+      // Mischzone. In w1.z gepresst wurde sie von der Schaerfung zu einer
+      // harten Kante mitten im Firn zusammengeschoben (Beleg t32).
+      if(deck && (t === 3 || t === 4)){   // TER.MOUNT / TER.SNOW
+        const sn = deck[i];
+        w2[i*4+3] = sn; g9 = 1 - sn;
+        if(t === 4){ w2[i*4+1] += g9; g9 = 0; }   // Rest des Kammknotens: Fels
+      } else if(fv && t === 3){
         const sn = fv(i);
         if(sn > 0){ w2[i*4+3] = sn; g9 = 1 - sn; }
       }
-      z[0][i*4 + z[1]] += g9;
+      if(g9 > 0) z[0][i*4 + z[1]] += g9;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufW1);
     gl.bufferData(gl.ARRAY_BUFFER, w1, gl.DYNAMIC_DRAW);
