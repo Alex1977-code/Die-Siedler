@@ -6,13 +6,14 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v252';
+const BUILD = 'v253';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
   './icon-192.png', './icon-512.png', './icon-mask.png',
   './js/main.js', './js/ui.js', './js/sim.js', './js/render.js', './js/map.js',
   './js/core.js', './js/sound.js', './js/input.js', './js/save.js', './js/levels.js',
+  './js/terrain-gl.js',
 ];
 // Alles, was Programm oder Layout ist – hier zählt Aktualität, nicht Tempo
 const isCode = (url)=> /\.(js|css|html|json|webmanifest)$/i.test(url) || url.endsWith('/');

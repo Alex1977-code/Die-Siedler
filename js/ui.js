@@ -54,7 +54,7 @@ export class UI {
     }
     this.cam={x:0,y:0,z:1};
     this.state={ sel:-1, mode:'view', roadFrom:-1, roadPath:null, buildCat:'basis', msgSeen:0, msgUngelesen:0 };
-    this.renderer=new Renderer($('#cv'));
+    this.renderer=new Renderer($('#cv'), $('#cvgl'));
     // Einstellung nachziehen: buildDOM() lief oben, da gab es den Zeichner
     // noch nicht (siehe Befund dort).
     this.renderer.tiltAus=!this.tiltAn;
@@ -252,6 +252,11 @@ export class UI {
       </div>
     </div>
     <div id="scr-game" class="screen hidden">
+      <!-- GELAENDE AUF DER GPU: eigene Leinwand UNTER der 2D-Ebene.
+           Beide teilen sich dieselbe Kamera; #cv bleibt durchsichtig,
+           solange die GPU-Ebene laeuft (s. render.js, draw). Fehlt WebGL,
+           bleibt diese Leinwand leer und #cv malt wie bisher. -->
+      <canvas id="cvgl"></canvas>
       <canvas id="cv"></canvas>
       <div id="title-banner"><span>Neuland</span></div>
       <div id="hud-top">
@@ -449,6 +454,8 @@ export class UI {
     cv.style.width=window.innerWidth+'px';
     cv.style.height=window.innerHeight+'px';
     this.renderer.resize(window.innerWidth, window.innerHeight, dpr);
+    if(this.renderer.glTerrain)
+      this.renderer.glTerrain.resize(window.innerWidth, window.innerHeight, dpr);
   }
 
   // ================= Spielstart =================

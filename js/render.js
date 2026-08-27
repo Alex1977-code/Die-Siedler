@@ -1,6 +1,7 @@
 // Neuland – Renderer: komplett prozedural gezeichnete 2D-Grafik (Canvas), poliert.
 import { TER, OBJ, BLD, PLAYER_COLORS, PLAYER_COLORS_DARK } from './core.js';
 import { TILE, ROWH, HSCALE } from './map.js';
+import { TerrainGL } from './terrain-gl.js';
 
 // Haarfarben der Bewohner (T5, Nutzerwunsch: Farbstil an den Asterix-
 // Figuren orientiert, verschiedene Haarfarben). Die Palette folgt den
@@ -289,8 +290,17 @@ const VOGEL_FARBEN = [
 ];
 
 export class Renderer {
-  constructor(canvas){
+  constructor(canvas, glCanvas){
     this.cv=canvas; this.ctx=canvas.getContext('2d');
+    // GELAENDE AUF DER GPU (s. terrain-gl.js). Liegt als eigene Leinwand
+    // UNTER der 2D-Ebene; Figuren, Gebaeude, Nebel und HUD bleiben in 2D
+    // darueber. Fehlt WebGL, bleibt glTerrain null und alles laeuft wie
+    // bisher - der 2D-Weg ist der Rueckfall, nicht Altlast.
+    this.glTerrain = glCanvas? new TerrainGL(glCanvas) : null;
+    if(this.glTerrain && !this.glTerrain.verfuegbar()) this.glTerrain=null;
+    // Schalter fuer den A/B-Vergleich und fuer Messungen. Vorgabe: an,
+    // sobald WebGL da ist.
+    this.glAn = !!this.glTerrain;
     this.chunks=new Map();
     this.chunkVer=new Map();
     this._signsSeen=new Set();
@@ -322,6 +332,27 @@ export class Renderer {
     this._mineApronC=undefined;                 // Minen-Schürze haengt an der Felstönung
     this._vogelFlucht=null; this._zugSchar=null;   // Kleintier-Deko neu anfangen
     this.initSheep();
+    this.glKarteNeu();
+  }
+  // Die GPU-Ebene mit der neuen Karte bestuecken. Die Terrainfarbe kommt
+  // aus DERSELBEN Palette wie der 2D-Weg (TER_COL) - der Umbau soll die
+  // Beleuchtung treuer rechnen, nicht die Farbwelt aendern.
+  glKarteNeu(){
+    if(!this.glTerrain || !this.game) return;
+    const cols=TER_COL[this.theme]||TER_COL.gruen;
+    const rgb=new Map();
+    const holen=(hex)=>{
+      let v=rgb.get(hex);
+      if(!v){
+        const n=parseInt(hex.slice(1),16);
+        v=[((n>>16)&255)/255, ((n>>8)&255)/255, (n&255)/255];
+        rgb.set(hex,v);
+      }
+      return v;
+    };
+    const m=this.game.map;
+    this.glTerrain.setzeKarte(m, this.theme,
+      (i)=>holen(cols[m.terr[i]]||cols[TER.GRASS]));
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
   initSheep(){
@@ -9375,13 +9406,24 @@ export class Renderer {
     this.animTime=(this.animTime||0)+(dtAnim!==undefined? dtAnim : dtMs);
     this._lastCam=cam;
     g.setTransform(this.dpr,0,0,this.dpr,0,0);
-    // Hintergrund: Tiefwasser mit leichtem Verlauf
     const cols=TER_COL[this.theme]||TER_COL.gruen;
-    const bg=g.createLinearGradient(0,0,0,this.vh);
-    bg.addColorStop(0, shade(cols[TER.WATER],0.95));
-    bg.addColorStop(1, shade(cols[TER.WATER],0.85));
-    g.fillStyle=bg;
-    g.fillRect(0,0,this.vw,this.vh);
+    // GELAENDE AUF DER GPU: liegt auf einer eigenen Leinwand DARUNTER.
+    // Ist sie aktiv, bleibt die 2D-Ebene durchsichtig - sonst deckte der
+    // Wasserhintergrund das Gelaende zu.
+    const glAktiv = this.glAn && this.glTerrain && this.glTerrain.verfuegbar();
+    if(glAktiv){
+      const wc=parseInt((cols[TER.WATER]||'#4a83a6').slice(1),16);
+      this.glTerrain.zeichne(cam,
+        [((wc>>16)&255)/255*0.9, ((wc>>8)&255)/255*0.9, (wc&255)/255*0.9]);
+      g.clearRect(0,0,this.vw,this.vh);
+    } else {
+      // Hintergrund: Tiefwasser mit leichtem Verlauf
+      const bg=g.createLinearGradient(0,0,0,this.vh);
+      bg.addColorStop(0, shade(cols[TER.WATER],0.95));
+      bg.addColorStop(1, shade(cols[TER.WATER],0.85));
+      g.fillStyle=bg;
+      g.fillRect(0,0,this.vw,this.vh);
+    }
     // Kamera
     g.save();
     g.translate(this.vw/2, this.vh/2);
@@ -9538,9 +9580,9 @@ export class Renderer {
       const kx=cam.x/(CHUNK*TILE)-0.5, ky=cam.y/(CHUNK*ROWH)-0.5;
       const naeher=[...sichtbar].sort((a,b)=>
         Math.hypot(a[0]-kx,a[1]-ky) - Math.hypot(b[0]-kx,b[1]-ky));
-      for(const [cx,cy] of naeher) this.getChunk(cx,cy);
+      if(!glAktiv) for(const [cx,cy] of naeher) this.getChunk(cx,cy);
     }
-    for(const [cx,cy] of sichtbar){
+    for(const [cx,cy] of (glAktiv? [] : sichtbar)){
         const c=this.getChunk(cx,cy);
         if(!c) continue;               // noch nicht gebacken, kommt im naechsten Bild
         // Nur den SICHTBAREN Ausschnitt zeichnen (Quellrechteck in

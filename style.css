@@ -159,7 +159,11 @@ h1::after{
 
 /* ---------- Spiel-HUD ---------- */
 #scr-game{ overflow:hidden; }
-#cv{ position:absolute; inset:0; touch-action:none; }
+/* Zwei Leinwaende uebereinander: #cvgl traegt das Gelaende von der GPU,
+   #cv alles andere (Figuren, Gebaeude, Nebel, Auswahl). Gleiche Groesse,
+   gleiche Lage; die Kamera fuehren beide aus derselben Quelle. */
+#cvgl{ position:absolute; inset:0; z-index:0; pointer-events:none; }
+#cv{ position:absolute; inset:0; z-index:1; touch-action:none; }
 /* Titelbanner: blaues Wimpelband mit Goldkante, mittig über dem HUD */
 /* Titelbanner über die gesamte Breite, unten mit Wimpelzacken */
 #title-banner{
