@@ -181,6 +181,53 @@ void main(){
     + hol(tLava,   uSk2.z) * w2.z;
   alb /= max(0.001, sum);
 
+  // ---- KLIPPENKANTE: Terrassenabbrueche als Bruchkante zeigen ----
+  // Die Kartenerzeugung baut das Massiv aus Terrassen mit exakten
+  // Hoehenspruengen (Knotendump in gewichteNeu). Der 2D-Weg versteckte
+  // diese Kanten hinter gemalten Wandflanken; hier werden sie GEZEIGT -
+  // ehrliche Geometrie als Stilmittel. Das Hoehenfeld liegt bilinear
+  // gefiltert an, also kann jedes Fragment seine Steilheit selbst messen:
+  // die WANDflaeche wird dunkler und kuehler abgesetzt, an der OBERKANTE
+  // (Steilheit nimmt bergauf ab) sitzt eine helle Bruchkante, am FUSS
+  // (Steilheit nimmt bergab ab) eine dunkle Fuge. Nur auf dem Massiv -
+  // ein steiler Wiesenhang ist keine Felswand.
+  {
+    vec2 texel = 1.0 / uHfeld.xy;
+    vec2 uvH = (vGrid + 0.5) * texel;
+    float hE = texture2D(tHgt, uvH + vec2(texel.x*0.5, 0.0)).r;
+    float hW = texture2D(tHgt, uvH - vec2(texel.x*0.5, 0.0)).r;
+    float hS = texture2D(tHgt, uvH + vec2(0.0, texel.y*0.5)).r;
+    float hN = texture2D(tHgt, uvH - vec2(0.0, texel.y*0.5)).r;
+    // Steigung in Weltpixel je Weltpixel (26/52 bzw. 26/44 je Knoten)
+    vec2 gradH = vec2((hE - hW) * uHfeld.z * 0.5,
+                      (hS - hN) * uHfeld.z * 0.591);
+    float steil = length(gradH);
+    // Schwelle auf ECHTE Terrassenabbrueche (3 Hoeheneinheiten je Knoten
+    // ~ Steigung 1,5): mit 0,55 feuerte die Kante auch auf mittlere
+    // Schneehaenge - das Massiv las sich zerkratzt (Beleg t35, erster Wurf)
+    float wand = smoothstep(0.85, 1.55, steil) * smoothstep(0.12, 0.4, mas);
+    if(wand > 0.01){
+      // bergauf ist -gradH (h nimmt dorthin zu)
+      vec2 rauf = -normalize(gradH) * 0.45;
+      float steilO = length(vec2(
+        (texture2D(tHgt, uvH + (rauf + vec2(0.5,0.0))*texel).r
+       - texture2D(tHgt, uvH + (rauf - vec2(0.5,0.0))*texel).r) * uHfeld.z * 0.5,
+        (texture2D(tHgt, uvH + (rauf + vec2(0.0,0.5))*texel).r
+       - texture2D(tHgt, uvH + (rauf - vec2(0.0,0.5))*texel).r) * uHfeld.z * 0.591));
+      // Wandflaeche: dunkler, leicht kuehler - liest als Bruchflaeche
+      alb = mix(alb, alb * vec3(0.70, 0.69, 0.70), wand * 0.42);
+      // Oberkante: bergauf wird es flach -> helle Bruchkante, leicht
+      // verrauscht, damit sie nicht als Draht liest
+      float kante = clamp((steil - steilO) * 0.9, 0.0, 1.0) * wand;
+      alb += vec3(0.24, 0.22, 0.19) * kante * wand * (0.55 + 0.45*rausch);
+      // Fussfuge: bergab wird es flach -> dunkle Fuge (gleiches Mass,
+      // gegenlaeufig gemessen waere eine dritte Abtastreihe - die
+      // Differenz steilO-steil unter der Kante reicht als Naeherung)
+      float fuge = clamp((steilO - steil) * 0.7, 0.0, 1.0) * smoothstep(0.3, 0.9, steil);
+      alb *= 1.0 - 0.30 * fuge;
+    }
+  }
+
   // ---- Kueste: Flachwasser und Schaumsaum ----
   // Der Wasseranteil aw laeuft vom offenen Wasser (1) ueber die Ufer-
   // dreiecke stetig auf 0 - dieselbe Interpolation, die die Material-
