@@ -413,10 +413,38 @@ export class Renderer {
         return c2;
       }),
       wasser: wahl('mat_wasser_alb', 'ter_water', 133),
-      fels:   wahl(this.theme==='winter'? 'mat_fels_winter_alb'
-                 : this.theme==='wueste'? 'mat_fels_wueste_alb'
-                 : this.theme==='vulkan'? 'mat_fels_vulkan_alb'
-                 : 'mat_fels_alb',      'ter_fels_1', 430),
+      // FELS: bestellte mat_-Kachel, sonst die alte ter_fels-Kachel des
+      // Themas DURCH felsMaterial. Roh eingeladen stand ihr Mauerwerk als
+      // achsenparallele Rechteck-Stufen in der Firnkante (NUR-GL-Beleg t32;
+      // erst als Schattenfehler verdaechtigt, der Schalter ohneSchatten
+      // sprach ihn frei) - dieselbe Quader-Kachel, die schon Kritik R3 G3
+      // war. felsMaterial nimmt die eingebackene Beleuchtung per Tief-/
+      // Hochpass heraus, genau wie im 2D-Weg.
+      fels:   (()=>{
+        const mk=this.theme==='winter'? 'mat_fels_winter_alb'
+               : this.theme==='wueste'? 'mat_fels_wueste_alb'
+               : this.theme==='vulkan'? 'mat_fels_vulkan_alb'
+               : 'mat_fels_alb';
+        const a=this.asset(mk);
+        if(a&&a.naturalWidth) return {img:this.kachelEben(a), skala:430};
+        const tk='ter_fels_1'+(this.theme==='winter'? '_winter'
+                : this.theme==='wueste'? '_wueste'
+                : this.theme==='vulkan'? '_vulkan' : '');
+        const m9=this.felsMaterial(this.asset(tk)? tk : 'ter_fels_1');
+        if(!m9) return null;
+        // felsMaterial ist auf den 2D-Weg kalibriert und liegt um Mittel
+        // ~208 - im Shader wurde der Fels damit kreidig (Beleg t32,
+        // Fels kaum vom Firn unterscheidbar). Multiplikativ zurueck auf
+        // die ~150er-Mitte der Rohkacheln; die Zeichnung bleibt.
+        const c9=document.createElement('canvas');
+        c9.width=m9.width; c9.height=m9.height;
+        const g9=c9.getContext('2d');
+        g9.drawImage(m9,0,0);
+        g9.globalCompositeOperation='multiply';
+        g9.fillStyle='rgb(186,186,186)';
+        g9.fillRect(0,0,c9.width,c9.height);
+        return {img:this.kachelEben(c9), skala:430};
+      })(),
       lava:   wahl('mat_lava_alb',   'ter_lava',  256),
     };
     for(const k in b) if(!b[k]) delete b[k];

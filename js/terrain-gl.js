@@ -106,6 +106,8 @@ uniform sampler2D tWiese, tWueste, tSchnee, tMoor, tWasser, tFels, tLava;
 uniform vec4 uSk1;          // Kachelmass in Weltpixeln: Wiese,Wueste,Schnee,Moor
 uniform vec4 uSk2;          //                          Wasser,Fels,Lava,(frei)
 uniform float uZeit;        // Sekunden, Echtzeit (Wasser lebt auch in Pause)
+uniform float uSchattenAn;  // Diagnoseschalter wie _ohneCast im 2D-Weg
+uniform float uDebug;       // 0 normal, 1 Gewichte als Farben, 2 Licht als Grau
 
 vec3 hol(sampler2D t, float sk){ return texture2D(t, vWorld / sk).rgb; }
 
@@ -127,13 +129,56 @@ vec3 wasser(){
 }
 
 void main(){
-  // ---- Material: gewichtete Summe der Terrainarten ----
-  float sum = dot(vW1, vec4(1.0)) + dot(vW2, vec4(1.0));
+  // Ortsrauschen aus zwei Sinuszuegen (60-150 px Wellenlaenge). Vorgezogen:
+  // es steuert jetzt KANTENPASS und Gischt gemeinsam - dieselbe Quelle,
+  // damit Uferfransen und Schaumflecken zueinander passen.
+  float r1 = sin(vWorld.x*0.083 + vWorld.y*0.047 + 2.1*sin(vWorld.y*0.031));
+  float r2 = sin(vWorld.x*0.021 - vWorld.y*0.036);
+  float rausch = 0.5 + 0.24*r1 + 0.16*r2;
+
+  // ---- KANTENPASS: Materialgrenzen schaerfen und fransen ----
+  // Roh laeuft jede Grenze linear ueber die volle Dreiecksbreite - 52
+  // Weltpixel Matsch, in denen Wiese und Fels sich zu einem Brei mischen.
+  // Der 2D-Weg brauchte dagegen den Dither-Saum (eigener Pass mit
+  // Feldmaske). Hier der Splatting-Trick: nur Gewichte nahe am MAXIMUM
+  // ueberleben, band ist die Uebergangsbreite - und band haengt am
+  // Ortsrauschen, also franst die Grenze statt der Dreiecksgeraden zu
+  // folgen. Fels- und Schneegewicht werden zusaetzlich multiplikativ
+  // verrauscht (multiplikativ, damit nie Material entsteht, wo roh keins
+  // ist): die Felskante und die Firngrenze wandern +-, die zwei Grenzen,
+  // die das Gebirge lesbar machen.
+  float sumR = dot(vW1, vec4(1.0)) + dot(vW2, vec4(1.0));
+  vec4 q1 = vW1 / max(0.001, sumR);
+  vec4 q2 = vW2 / max(0.001, sumR);
+  // Kueste braucht die ROHE Rampe (Tiefen-Ersatz) - vor der Schaerfung
+  float aw = q2.x;
+  float landWeich = q1.x + q1.y;    // Wiese+Wueste am Ufer -> Strand erlaubt
+  // Massivgruppe: Fels + Firn (w2.w) werden ALS EINS geschaerft - die
+  // Kante zur Wiese bleibt hart, die Firngrenze im Inneren bleibt Decke
+  float mas = q2.y + q2.w;
+  float sAnteil = q2.w / max(0.001, mas);
+  q2.y = mas; q2.w = 0.0;
+  q2.y *= 1.0 + (rausch - 0.5)*0.8;
+  float mx = max(max(max(q1.x, q1.y), max(q1.z, q1.w)),
+                 max(max(q2.x, q2.y), q2.z));
+  float band = 0.14 + 0.26*rausch;
+  vec4 w1 = max(vec4(0.0), q1 - (mx - band));
+  vec4 w2 = max(vec4(0.0), q2 - (mx - band));
+  float sum = dot(w1, vec4(1.0)) + dot(w2, vec4(1.0));
+  // Firndecke: weiche, leicht gestraffte und gefranste Rampe INNERHALB
+  // der Gruppe - die Rolle der weichgezeichneten Firnmaske im 2D-Weg
+  // Spanne 0,15..0,85 statt 0,30..0,70 und Rauschamplitude 0,34: die
+  // vereisten Kammknoten liegen knotenweise 0/1 gestreut - straff
+  // gefasst standen ihre halbdeckenden Dreieckspaare als blasse
+  // Rechtecke im Fels (Reststufen nach der Normalenglaettung). Breiter
+  // und staerker verrauscht lesen sie sich als Schneeflecken.
+  float sMix = smoothstep(0.15, 0.85, sAnteil + (rausch - 0.5)*0.34);
+  vec3 massiv = mix(hol(tFels, uSk2.y), hol(tSchnee, uSk1.z), sMix);
   vec3 alb =
-      hol(tWiese,  uSk1.x) * vW1.x + hol(tWueste, uSk1.y) * vW1.y
-    + hol(tSchnee, uSk1.z) * vW1.z + hol(tMoor,   uSk1.w) * vW1.w
-    + wasser()               * vW2.x + hol(tFels,   uSk2.y) * vW2.y
-    + hol(tLava,   uSk2.z) * vW2.z;
+      hol(tWiese,  uSk1.x) * w1.x + hol(tWueste, uSk1.y) * w1.y
+    + hol(tSchnee, uSk1.z) * w1.z + hol(tMoor,   uSk1.w) * w1.w
+    + wasser()               * w2.x + massiv       * w2.y
+    + hol(tLava,   uSk2.z) * w2.z;
   alb /= max(0.001, sum);
 
   // ---- Kueste: Flachwasser und Schaumsaum ----
@@ -144,21 +189,19 @@ void main(){
   // die 0,4-Linie laeuft ein schmaler, leise atmender Schaumsaum - die
   // Rolle von trans_sand/trans_foam im 2D-Weg, nur als Feld statt als
   // Stempelkette.
-  float aw = vW2.x / max(0.001, sum);
   if(aw > 0.03 && aw < 0.97){
     // Die Isolinie linear interpolierter Gewichte ist je Dreieck eine
     // GERADE - unverrauscht zeichnete der Saum das Dreiecksnetz als
     // Leuchtdraht nach (Beleg t31, Kuestenkontur aus geraden Segmenten).
-    // Die Wasserkachel selbst liefert das Ortsrauschen: ihre Gruenwerte
-    // verschieben Schwelle und Breite, die Kante franst wie eine echte
-    // Uferlinie. Dazu Deckung 0,45 -> 0,26: Gischt ist ein Hauch, keine
-    // Kontur.
-    // Rauschen aus zwei Sinuszuegen mit 60-150 px Wellenlaenge - die
-    // Kachelabfrage (erster Versuch, /181) war zu niederfrequent, die
-    // Segmente blieben sichtbar gerade
-    float r1 = sin(vWorld.x*0.083 + vWorld.y*0.047 + 2.1*sin(vWorld.y*0.031));
-    float r2 = sin(vWorld.x*0.021 - vWorld.y*0.036);
-    float rausch = 0.5 + 0.24*r1 + 0.16*r2;
+    // Das Ortsrauschen kommt seit dem Kantenpass von oben.
+    // STRAND: die Landseite des Uferbands bekommt Sand statt nassen
+    // Grases - aber NUR, wo weiches Land ans Wasser stoesst (landWeich).
+    // Ein Bergsee hat ein Felsufer, keinen Strand - derselbe Befund stand
+    // im 2D-Weg schon als v101-Kommentar am Sandpinsel; und die
+    // Winterkueste behaelt ihren Schnee.
+    float strand = smoothstep(0.02, 0.16, aw) * (1.0 - smoothstep(0.28, 0.52, aw));
+    strand *= clamp(landWeich / max(0.001, 1.0 - aw), 0.0, 1.0);
+    alb = mix(alb, hol(tWueste, uSk1.y), strand * 0.55);
     float kante = smoothstep(0.10, 0.45, aw) * (1.0 - smoothstep(0.45, 0.85, aw));
     alb = mix(alb, vec3(0.42, 0.61, 0.72), kante * 0.24);
     float puls = 0.5 + 0.5*sin(uZeit*0.8 + (vWorld.x + vWorld.y)*0.011);
@@ -199,7 +242,7 @@ void main(){
   // Der Halbspalten-Versatz ungerader Zeilen wird ignoriert - unter einem
   // halben Knoten Fehler quer zum Strahl, dem weichen Rand nicht anzusehen.
   float schatten = 1.0;
-  {
+  if(uSchattenAn > 0.5){
     // Sonnenrichtung in Weltpixeln je Schritt (zur Sonne: +LX/+LY im
     // Bildsinn heisst nach Nordwest = -x/-y in Weltkoordinaten)
     vec2 dW = vec2(-0.75, -0.5) * 26.0;      // 26 px je Schritt
@@ -239,6 +282,13 @@ void main(){
                  col.g + 0.49 * (sqrt(col.g) - col.g),
                  col.b - 0.059 * col.b * (1.0 - col.b));
   col = mix(col, sl, 0.16);
+  // Debug-Ansichten: 1 = Gewichte (Fels rot, Schnee/Firn blau, Wiese
+  // gruen, Rest tuerkis), 2 = reines Licht. Nur von Messwerkzeugen gesetzt.
+  if(uDebug > 0.5 && uDebug < 1.5){
+    col = vec3(w2.y, q1.x, sAnteil) / max(0.001, max(w2.y, max(q1.x, sAnteil)));
+  } else if(uDebug > 1.5){
+    col = vec3(v * 0.6);
+  }
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -309,6 +359,8 @@ export class TerrainGL {
     this.uPix  = gl.getUniformLocation(p, 'uPix');
     this.uHfeld= gl.getUniformLocation(p, 'uHfeld');
     this.uZeit = gl.getUniformLocation(p, 'uZeit');
+    this.uSchattenAn = gl.getUniformLocation(p, 'uSchattenAn');
+    this.uDebug = gl.getUniformLocation(p, 'uDebug');
     this.uTHgt = gl.getUniformLocation(p, 'tHgt');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
@@ -447,6 +499,35 @@ export class TerrainGL {
       nrm[i*3+1] = -sy/l;
       nrm[i*3+2] =  1/l;
     }
+    // EINE Glaettungsrunde ueber die Nachbarn. Ohne sie standen im Licht
+    // pixelscharfe Kanten (Beleg t33: erst der Mauerkachel, dann dem
+    // Schatten, dann dem Kantenpass zugeschrieben - die Debug-Ansicht
+    // 'reines Licht' ueberfuehrte die Normalen, und geglaettete Hoehen
+    // sprachen das Rendering frei). Der Mechanismus: an einer Klippe
+    // stehen Wand- und Plateaunormale ueber 80 Grad auseinander; die
+    // Interpolation fast gegensaetzlicher Normalen kippt auf kurzer
+    // Strecke, der Uebergang kollabiert zur harten Linie. Der 2D-Weg
+    // kannte das laengst - eckShade mittelt die Grossform ueber zwei
+    // Ringe (gradBigAt). Gewicht 2:1 Zentrum:Nachbarmittel behaelt die
+    // lokale Zeichnung.
+    // Zwei Runden wie gradBigAt im 2D-Weg (zwei Ringe): nach einer Runde
+    // blieben schwache Reststufen an den hoechsten Klippen sichtbar.
+    for(let runde=0; runde<2; runde++){
+      const ng = new Float32Array(nrm);
+      for(let y=0; y<h; y++) for(let x=0; x<w; x++){
+        const i = y*w + x;
+        let ax=0, ay=0, az=0, c=0;
+        for(const q of [x>0? i-1:-1, x<w-1? i+1:-1, y>0? i-w:-1, y<h-1? i+w:-1]){
+          if(q<0) continue;
+          ax+=ng[q*3]; ay+=ng[q*3+1]; az+=ng[q*3+2]; c++;
+        }
+        const bx=ng[i*3]*2 + ax/Math.max(1,c)*2;
+        const by=ng[i*3+1]*2 + ay/Math.max(1,c)*2;
+        const bz=ng[i*3+2]*2 + az/Math.max(1,c)*2;
+        const l2=Math.hypot(bx,by,bz)||1;
+        nrm[i*3]=bx/l2; nrm[i*3+1]=by/l2; nrm[i*3+2]=bz/l2;
+      }
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufHgt);
     gl.bufferData(gl.ARRAY_BUFFER, hgt, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufNrm);
@@ -456,18 +537,22 @@ export class TerrainGL {
       let mx = 1;
       for(let i=0; i<n; i++) if(H[i] > mx) mx = H[i];
       this._hMax = mx;
-      const px = new Uint8Array(n);
-      for(let i=0; i<n; i++) px[i] = Math.max(0, Math.min(255, Math.round(H[i]/mx*255)));
+      // RGBA statt LUMINANCE: SwiftShader filtert LUMINANCE mit NEAREST -
+      // der Schattenmarsch bekam texelscharfe Kanten, im Beleg t32 standen
+      // knotengrosse achsenparallele Stufen in der Firnkante (erst der
+      // Mauerkachel zugeschrieben; der Nahzoom ueberfuehrte den Schatten:
+      // die Stufen skalieren mit dem Zoom und sind messerscharf). RGBA
+      // filtert jede Implementierung bilinear.
+      const px = new Uint8Array(n*4);
+      for(let i=0; i<n; i++) px[i*4] = Math.max(0, Math.min(255, Math.round(H[i]/mx*255)));
       gl.bindTexture(gl.TEXTURE_2D, this.texHgt);
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE,
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA,
                     gl.UNSIGNED_BYTE, px);
       // bilinear: der Marsch tastet zwischen den Knoten ab
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     }
   }
 
@@ -490,14 +575,33 @@ export class TerrainGL {
     const w2 = new Float32Array(n*4);
     // Terrainwert -> (Puffer, Kanal): Reihenfolge aus KANAL
     //   w1 = wiese, wueste, schnee, moor   w2 = wasser, fels, lava, frei
-    const ZIEL = [ [w2,0], [w1,0], [w1,1], [w2,1], [w1,2], [w1,3], [w2,2] ];
+    // TER.SNOW (Index 4) geht in den GRUPPEN-Kanal w2.w, nicht in w1.z:
+    // auf den Massiven liegen die vereisten Kammknoten kleinteilig
+    // zwischen Felsknoten verstreut (Gebirge Saat 58: 1819 Schneeknoten
+    // auf den Gratlinien) - als eigener Kanal presste der Kantenpass
+    // dieses Gemisch zu harten knotengrossen Flecken (Beleg t32, dritter
+    // Anlauf: Mauerkachel und Schatten waren per Schalter freigesprochen,
+    // erst die Gruppe hat es behoben). In der Gruppe gilt: aussen scharf
+    // zur Wiese, innen weiche Fels/Schnee-Rampe - auch fuer die
+    // Schneefelder der Winterebene, deren Kante zur aperen Wiese die
+    // Gruppe genauso schaerft.
+    const ZIEL = [ [w2,0], [w1,0], [w1,1], [w2,1], [w2,3], [w1,3], [w2,2] ];
     for(let i=0; i<n; i++){
       const t = map.terr[i];
       const z = ZIEL[t] || ZIEL[1];
       let g9 = 1;
       if(fv && t === 3){                 // TER.MOUNT
+        // Firn in den EIGENEN Kanal (w2.w), nicht in den Ebenen-Schnee:
+        // der Kantenpass im Shader schaerft Materialgrenzen - eine
+        // Schneedecke AUF dem Fels ist aber keine Grenze, sondern eine
+        // breite Mischzone. In w1.z gepresst wurde sie von der Schaerfung
+        // zu einer harten Kante mitten im Firn zusammengeschoben, die den
+        // Dreieckskanten folgte (Beleg t32: senkrechte Stufen; erst der
+        // Mauerkachel, dann dem Schatten zugeschrieben - beide per
+        // Diagnoseschalter freigesprochen). Im eigenen Kanal bildet sie
+        // mit dem Fels eine GRUPPE: aussen scharf zur Wiese, innen weich.
         const sn = fv(i);
-        if(sn > 0){ w1[i*4+2] = sn; g9 = 1 - sn; }
+        if(sn > 0){ w2[i*4+3] = sn; g9 = 1 - sn; }
       }
       z[0][i*4 + z[1]] += g9;
     }
@@ -563,6 +667,8 @@ export class TerrainGL {
     gl.uniform1f(this.uTint, 0.5);
     gl.uniform2f(this.uPix, this.cv.width, this.cv.height);
     gl.uniform1f(this.uZeit, zeit || 0);
+    gl.uniform1f(this.uSchattenAn, this.ohneSchatten? 0 : 1);
+    gl.uniform1f(this.uDebug, this.debug || 0);
     gl.uniform4f(this.uSk1, this.skala[0], this.skala[1], this.skala[2], this.skala[3]);
     gl.uniform4f(this.uSk2, this.skala[4], this.skala[5], this.skala[6], 225);
     for(let k=0; k<KANAL.length; k++){
