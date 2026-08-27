@@ -351,8 +351,26 @@ export class Renderer {
       return v;
     };
     const m=this.game.map;
+    // Firndeckung je Massivknoten: dieselbe Formel wie der 2D-Weg (snOf im
+    // Massiv-Pass), nur ohne Zellgeometrie - Hoehe gegen die Firngrenze des
+    // eigenen Massivs, im Winter zusaetzlich alles Flache; Steilwaende
+    // halten keinen Schnee. Die Werte 0..1 gehen als Materialgewicht in die
+    // GPU (gewichteNeu bucht den Fels-Kanal anteilig auf Schnee um).
+    const firnVon=(i)=>{
+      if(m.terr[i]!==TER.MOUNT) return 0;
+      const fg=this.firnAt(i);
+      let sn=(m.hgt[i]-(fg-0.4))/0.8;
+      if(this.theme==='winter'){
+        let sAvg=this.slopeOf(m,i), nn=1;
+        for(const q of m.nbs(i)){ sAvg+=this.slopeOf(m,q); nn++; }
+        sn=Math.max(sn, 1.15-(sAvg/nn)*1.5);
+      }
+      // Steilwaende apern aus - wie im 2D-Weg (Abzug an der Steilheit)
+      sn-=Math.max(0, this.slopeOf(m,i)-1.6)*0.7;
+      return Math.max(0, Math.min(1, sn));
+    };
     this.glTerrain.setzeKarte(m, this.theme,
-      (i)=>holen(cols[m.terr[i]]||cols[TER.GRASS]));
+      (i)=>holen(cols[m.terr[i]]||cols[TER.GRASS]), firnVon);
     this.glMaterialNeu();
   }
   // Materialkacheln an die GPU-Ebene reichen. Solange die bestellten
@@ -10911,21 +10929,34 @@ export class Renderer {
       g.globalAlpha=1;
     }
     g.restore();
-    // goldene Stunde: warmes Streiflicht von Nordwest, kühle Schatten im Südosten
-    const sun=g.createLinearGradient(0,0,this.vw,this.vh);
-    sun.addColorStop(0,'rgba(255,206,140,0.12)');
-    sun.addColorStop(0.55,'rgba(255,206,140,0.02)');
-    sun.addColorStop(1,'rgba(38,52,92,0.1)');
-    g.fillStyle=sun;
-    g.fillRect(0,0,this.vw,this.vh);
+    // goldene Stunde und warmer Gesamtfarbton: NUR auf dem 2D-Weg. Mit der
+    // GL-Ebene darunter ist der 2D-Canvas TRANSPARENT, und beide Auftraege
+    // kippen dann um: der Verlauf malt orange Deckfarbe statt das Bild zu
+    // toenen, und soft-light schreibt auf leerem Grund die QUELLFARBE
+    // direkt (Canvas-Blendregel: wo das Ziel Alpha 0 hat, gibt es nichts zu
+    // mischen). GEMESSEN lag so ein 16%-Orange-Schleier ueber dem ganzen
+    // Bild - die GL-Schneeflaeche war reines Weiss, im Endbild beige
+    // (250,238,223). Auf der GL-Seite rechnet der Shader beide Auftraege
+    // selbst (uGold in terrain-gl.js) - fuer die Sprites darueber entfaellt
+    // der Hauch; bei 12-16 % Deckung ist das im A/B nicht auszumachen.
+    if(!glAktiv){
+      const sun=g.createLinearGradient(0,0,this.vw,this.vh);
+      sun.addColorStop(0,'rgba(255,206,140,0.12)');
+      sun.addColorStop(0.55,'rgba(255,206,140,0.02)');
+      sun.addColorStop(1,'rgba(38,52,92,0.1)');
+      g.fillStyle=sun;
+      g.fillRect(0,0,this.vw,this.vh);
+    }
     // Kriegs-Ping (Kritik R2 S6 / R3 S5): gemeldeter Angriff ausserhalb
     // des Bildes -> pulsierender Richtungspfeil am Bildrand
     this.warPingDraw(g, cam);
-    // warmer Gesamtfarbton (painterly, keine Sterilität)
-    g.globalCompositeOperation='soft-light';
-    g.fillStyle='rgba(255,190,120,0.16)';
-    g.fillRect(0,0,this.vw,this.vh);
-    g.globalCompositeOperation='source-over';
+    if(!glAktiv){
+      // warmer Gesamtfarbton (painterly, keine Sterilität)
+      g.globalCompositeOperation='soft-light';
+      g.fillStyle='rgba(255,190,120,0.16)';
+      g.fillRect(0,0,this.vw,this.vh);
+      g.globalCompositeOperation='source-over';
+    }
     // Tilt-Shift: weiche Unschärfebänder oben/unten -> Diorama-Gefühl.
     // Ohne ctx.filter (siehe blurInto: WebKit-Falschmeldung G2). SCHNELL:
     // EIN kleiner Schnappschuss der beiden Randbänder je Frame (bilinear,

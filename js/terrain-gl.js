@@ -92,6 +92,7 @@ varying vec2 vWorld;
 varying vec4 vW1;
 varying vec4 vW2;
 uniform vec3 uSun;          // Richtung zur Sonne (normiert)
+uniform vec2 uPix;          // Puffergroesse in Geraetepixeln (goldene Stunde)
 uniform float uTint;        // wie stark die Themenfarbe das Material faerbt
 uniform sampler2D tWiese, tWueste, tSchnee, tMoor, tWasser, tFels, tLava;
 uniform vec4 uSk1;          // Kachelmass in Weltpixeln: Wiese,Wueste,Schnee,Moor
@@ -129,7 +130,27 @@ void main(){
   float v = 0.42 + 0.86 * lam;
   // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
   vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
-  gl_FragColor = vec4(alb * v + amb * (1.0 - lam), 1.0);
+  vec3 col = alb * v + amb * (1.0 - lam);
+
+  // ---- Goldene Stunde (vom 2D-Weg uebernommen) ----
+  // Dort lagen zwei Vollbild-Auftraege AUF dem fertigen Bild: ein
+  // Diagonalverlauf warm (NW) nach kuehl (SO) und ein soft-light-Warmton.
+  // Mit der GL-Ebene kippen beide auf dem transparenten 2D-Canvas um
+  // (s. Kommentar in render.js) - hier stehen dieselben Rechnungen im
+  // Shader, mit denselben Farben und Deckungen.
+  vec2 uv = gl_FragCoord.xy / uPix;
+  float d = (uv.x + (1.0 - uv.y)) * 0.5;      // 0 oben links .. 1 unten rechts
+  float aW = mix(0.12, 0.02, clamp(d/0.55, 0.0, 1.0));
+  float aK = 0.10 * clamp((d-0.55)/0.45, 0.0, 1.0);
+  col = mix(col, vec3(1.0, 0.808, 0.549), aW);
+  col = mix(col, vec3(0.149, 0.204, 0.361), aK);
+  // soft-light mit fester Quelle (255,190,120), Deckung 0,16.
+  // W3C-Formel je Kanal; fuer s>0,5 mit der sqrt-Naeherung.
+  vec3 sl = vec3(sqrt(col.r),
+                 col.g + 0.49 * (sqrt(col.g) - col.g),
+                 col.b - 0.059 * col.b * (1.0 - col.b));
+  col = mix(col, sl, 0.16);
+  gl_FragColor = vec4(col, 1.0);
 }`;
 
 // Reihenfolge der Materialkanaele. Sie steht an EINER Stelle, damit
@@ -196,6 +217,7 @@ export class TerrainGL {
     this.uMass = gl.getUniformLocation(p, 'uMass');
     this.uSun  = gl.getUniformLocation(p, 'uSun');
     this.uTint = gl.getUniformLocation(p, 'uTint');
+    this.uPix  = gl.getUniformLocation(p, 'uPix');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
     this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
@@ -264,11 +286,11 @@ export class TerrainGL {
   //   p = zeile & 1
   //   Dreieck 1: (x,y) (x+1,y)   (x+p,   y+1)
   //   Dreieck 2: (x,y) (x+p,y+1) (x-1+p, y+1)
-  setzeKarte(map, thema, farbeVon){
+  setzeKarte(map, thema, farbeVon, firnVon){
     const gl = this.gl;
     if(!gl || !this.prog) return;
     this._karte = map; this._thema = thema; this._farbeVon = farbeVon;
-    this.gewichteNeu(map);
+    this.gewichteNeu(map, firnVon);
     const w = map.w, h = map.h, n = w*h;
     const grid = new Float32Array(n*2);
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){
@@ -335,8 +357,16 @@ export class TerrainGL {
   // Die Interpolation ueber die Dreiecke macht daraus den weichen
   // Uebergang (s. Vertex-Shader). Terrainwerte wie in core.js:
   // WATER 0, GRASS 1, DESERT 2, MOUNT 3, SNOW 4, SWAMP 5, LAVA 6.
-  gewichteNeu(map){
+  // firnVon (optional): liefert je Knoten den Schneedeckungsgrad 0..1 auf
+  // dem MASSIV. Damit traegt die Hochflaeche ihre Firndecke: der Fels-
+  // Kanal wird anteilig auf den Schnee-Kanal umgebucht. Die Grenze laeuft
+  // ueber die Knotengewichte und interpoliert weich den Hang hinab -
+  // genau die Uebergangszone, die der 2D-Weg mit Zellmasken, Weich-
+  // zeichnern und der Alphakurve 1-(1-a)^3 von Hand gebaut hat.
+  gewichteNeu(map, firnVon){
     const gl = this.gl; if(!gl || !this.prog) return;
+    this._firnVon = firnVon || this._firnVon;
+    const fv = this._firnVon;
     const n = map.w * map.h;
     const w1 = new Float32Array(n*4);
     const w2 = new Float32Array(n*4);
@@ -344,8 +374,14 @@ export class TerrainGL {
     //   w1 = wiese, wueste, schnee, moor   w2 = wasser, fels, lava, frei
     const ZIEL = [ [w2,0], [w1,0], [w1,1], [w2,1], [w1,2], [w1,3], [w2,2] ];
     for(let i=0; i<n; i++){
-      const z = ZIEL[map.terr[i]] || ZIEL[1];
-      z[0][i*4 + z[1]] = 1;
+      const t = map.terr[i];
+      const z = ZIEL[t] || ZIEL[1];
+      let g9 = 1;
+      if(fv && t === 3){                 // TER.MOUNT
+        const sn = fv(i);
+        if(sn > 0){ w1[i*4+2] = sn; g9 = 1 - sn; }
+      }
+      z[0][i*4 + z[1]] += g9;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufW1);
     gl.bufferData(gl.ARRAY_BUFFER, w1, gl.DYNAMIC_DRAW);
@@ -407,6 +443,7 @@ export class TerrainGL {
     // Themenfarbe halb auftragen: die Kacheln liefern die Zeichnung, die
     // Palette den Klimaton (Winterwiese fahl, Wuestenfels sandig).
     gl.uniform1f(this.uTint, 0.5);
+    gl.uniform2f(this.uPix, this.cv.width, this.cv.height);
     gl.uniform4f(this.uSk1, this.skala[0], this.skala[1], this.skala[2], this.skala[3]);
     gl.uniform4f(this.uSk2, this.skala[4], this.skala[5], this.skala[6], 225);
     for(let k=0; k<KANAL.length; k++){
