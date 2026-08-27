@@ -105,8 +105,26 @@ uniform float uTint;        // wie stark die Themenfarbe das Material faerbt
 uniform sampler2D tWiese, tWueste, tSchnee, tMoor, tWasser, tFels, tLava;
 uniform vec4 uSk1;          // Kachelmass in Weltpixeln: Wiese,Wueste,Schnee,Moor
 uniform vec4 uSk2;          //                          Wasser,Fels,Lava,(frei)
+uniform float uZeit;        // Sekunden, Echtzeit (Wasser lebt auch in Pause)
 
 vec3 hol(sampler2D t, float sk){ return texture2D(t, vWorld / sk).rgb; }
+
+// ---- Wasser: zwei driftende Lagen + leises Glitzern ----
+// Der 2D-Weg brauchte dafuer Muster-Transformationen je Frame, einen
+// 1/6-Offscreen und Stempel-Schleifen (waterStamps). Hier sind es zwei
+// Texturabfragen mit wandernden Koordinaten und zwei Sinuszuege, deren
+// Produkt nur an den Spitzen ueber die Schwelle kommt - Funkeln statt
+// Streifen, deterministisch aus Ort und Zeit.
+vec3 wasser(){
+  vec2 uv = vWorld / uSk2.x;
+  vec3 a = texture2D(tWasser, uv + vec2(uZeit*0.010, uZeit*0.006)).rgb;
+  vec3 b = texture2D(tWasser, uv*1.7 + vec2(-uZeit*0.007, uZeit*0.011)).rgb;
+  vec3 w = mix(a, b, 0.40);
+  float g1 = sin(vWorld.x*0.055 + uZeit*1.9) * sin(vWorld.y*0.043 - uZeit*1.3);
+  float g2 = sin((vWorld.x + vWorld.y)*0.037 + uZeit*1.1);
+  float gl = max(0.0, g1*g2 - 0.62) * 1.1;
+  return w + vec3(gl);
+}
 
 void main(){
   // ---- Material: gewichtete Summe der Terrainarten ----
@@ -114,9 +132,43 @@ void main(){
   vec3 alb =
       hol(tWiese,  uSk1.x) * vW1.x + hol(tWueste, uSk1.y) * vW1.y
     + hol(tSchnee, uSk1.z) * vW1.z + hol(tMoor,   uSk1.w) * vW1.w
-    + hol(tWasser, uSk2.x) * vW2.x + hol(tFels,   uSk2.y) * vW2.y
+    + wasser()               * vW2.x + hol(tFels,   uSk2.y) * vW2.y
     + hol(tLava,   uSk2.z) * vW2.z;
   alb /= max(0.001, sum);
+
+  // ---- Kueste: Flachwasser und Schaumsaum ----
+  // Der Wasseranteil aw laeuft vom offenen Wasser (1) ueber die Ufer-
+  // dreiecke stetig auf 0 - dieselbe Interpolation, die die Material-
+  // uebergaenge macht, ist hier gratis ein Tiefen-Ersatz: mittlere aw
+  // heisst ufernah. Dort hellt Flachwasser auf (COAST_COL-Ton), und um
+  // die 0,4-Linie laeuft ein schmaler, leise atmender Schaumsaum - die
+  // Rolle von trans_sand/trans_foam im 2D-Weg, nur als Feld statt als
+  // Stempelkette.
+  float aw = vW2.x / max(0.001, sum);
+  if(aw > 0.03 && aw < 0.97){
+    // Die Isolinie linear interpolierter Gewichte ist je Dreieck eine
+    // GERADE - unverrauscht zeichnete der Saum das Dreiecksnetz als
+    // Leuchtdraht nach (Beleg t31, Kuestenkontur aus geraden Segmenten).
+    // Die Wasserkachel selbst liefert das Ortsrauschen: ihre Gruenwerte
+    // verschieben Schwelle und Breite, die Kante franst wie eine echte
+    // Uferlinie. Dazu Deckung 0,45 -> 0,26: Gischt ist ein Hauch, keine
+    // Kontur.
+    // Rauschen aus zwei Sinuszuegen mit 60-150 px Wellenlaenge - die
+    // Kachelabfrage (erster Versuch, /181) war zu niederfrequent, die
+    // Segmente blieben sichtbar gerade
+    float r1 = sin(vWorld.x*0.083 + vWorld.y*0.047 + 2.1*sin(vWorld.y*0.031));
+    float r2 = sin(vWorld.x*0.021 - vWorld.y*0.036);
+    float rausch = 0.5 + 0.24*r1 + 0.16*r2;
+    float kante = smoothstep(0.10, 0.45, aw) * (1.0 - smoothstep(0.45, 0.85, aw));
+    alb = mix(alb, vec3(0.42, 0.61, 0.72), kante * 0.24);
+    float puls = 0.5 + 0.5*sin(uZeit*0.8 + (vWorld.x + vWorld.y)*0.011);
+    float d9 = (aw - 0.18 - 0.38*rausch - 0.04*puls) / (0.05 + 0.05*rausch);
+    float schaum = exp(-d9*d9);
+    // LAENGS der Kueste in Flecken aufloesen: geschlossene Girlanden lesen
+    // sich als Draht, echte Gischt kommt und geht
+    schaum *= 0.35 + 0.65*max(0.0, sin(vWorld.x*0.024 - vWorld.y*0.019 + uZeit*0.35));
+    alb = mix(alb, vec3(0.95, 0.97, 1.0), schaum * 0.30);
+  }
 
   // ---- Themenfarbe daruebergelegt ----
   // Die Kacheln sind fuer alle Klimazonen dieselben; Winterwiese und
@@ -256,6 +308,7 @@ export class TerrainGL {
     this.uTint = gl.getUniformLocation(p, 'uTint');
     this.uPix  = gl.getUniformLocation(p, 'uPix');
     this.uHfeld= gl.getUniformLocation(p, 'uHfeld');
+    this.uZeit = gl.getUniformLocation(p, 'uZeit');
     this.uTHgt = gl.getUniformLocation(p, 'tHgt');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
@@ -477,7 +530,7 @@ export class TerrainGL {
     this.cv.style.height = vh+'px';
   }
 
-  zeichne(cam, himmel){
+  zeichne(cam, himmel, zeit){
     const gl = this.gl;
     if(!gl || !this.prog || !this.bereit || this._verloren) return false;
     gl.viewport(0, 0, this.cv.width, this.cv.height);
@@ -509,6 +562,7 @@ export class TerrainGL {
     // Palette den Klimaton (Winterwiese fahl, Wuestenfels sandig).
     gl.uniform1f(this.uTint, 0.5);
     gl.uniform2f(this.uPix, this.cv.width, this.cv.height);
+    gl.uniform1f(this.uZeit, zeit || 0);
     gl.uniform4f(this.uSk1, this.skala[0], this.skala[1], this.skala[2], this.skala[3]);
     gl.uniform4f(this.uSk2, this.skala[4], this.skala[5], this.skala[6], 225);
     for(let k=0; k<KANAL.length; k++){

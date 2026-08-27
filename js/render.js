@@ -382,19 +382,36 @@ export class Renderer {
   // ergeben 225-256 Weltpixel; die 1024er-Felskacheln bewusst groeber.
   glMaterialNeu(){
     if(!this.glTerrain || !this.game) return;
-    const wahl=(neu9, alt9, skala)=>{
+    const wahl=(neu9, alt9, skala, glasur)=>{
       const a=this.asset(neu9), b=this.asset(alt9);
-      const im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
+      let im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
+      if(!im) return null;
+      // Glasur (z. B. Moor-Moosgruen) NUR auf die alten ter_-Kacheln -
+      // bestellte mat_-Kacheln kommen fertig getoent
+      if(glasur && im!==a) im=glasur(im);
       // kachelEben auch hier: die GL-Ebene bekam zuerst die ROHE Kachel,
       // und das Randabfall-Gitter aus v251 stand wieder im Gras - alle 225
       // Weltpixel eine dunkle Linie. Derselbe Ausgleich, dieselbe Stelle.
-      return im? {img:this.kachelEben(im), skala} : null;
+      return {img:this.kachelEben(im), skala};
     };
     const b={
       wiese:  wahl('mat_wiese_alb',  'ter_grass', 225),
       wueste: wahl('mat_sand_alb',   'ter_sand',  256),
       schnee: wahl('mat_schnee_alb', 'ter_snow',  256),
-      moor:   wahl('mat_moor_alb',   'ter_swamp', 256),
+      // ter_swamp bekommt dieselbe Moosgruen-Glasur wie in terrainPattern
+      // (Kritik G3: das rohe Braun las sich als Kaffeefleck) - im NUR-GL-
+      // Beleg stand eine Moorsenke sonst als brauner Schmutzfleck in der
+      // Wiese
+      moor:   wahl('mat_moor_alb',   'ter_swamp', 256, (im)=>{
+        const c2=document.createElement('canvas');
+        c2.width=im.naturalWidth||im.width; c2.height=im.naturalHeight||im.height;
+        const g2=c2.getContext('2d');
+        g2.drawImage(im,0,0);
+        g2.globalCompositeOperation='source-atop';
+        g2.fillStyle='rgba(62,94,44,0.38)';
+        g2.fillRect(0,0,c2.width,c2.height);
+        return c2;
+      }),
       wasser: wahl('mat_wasser_alb', 'ter_water', 133),
       fels:   wahl(this.theme==='winter'? 'mat_fels_winter_alb'
                  : this.theme==='wueste'? 'mat_fels_wueste_alb'
@@ -9465,8 +9482,11 @@ export class Renderer {
     const glAktiv = this.glAn && this.glTerrain && this.glTerrain.verfuegbar();
     if(glAktiv){
       const wc=parseInt((cols[TER.WATER]||'#4a83a6').slice(1),16);
+      // Echtzeituhr wie die 2D-Wasserkulisse (this.time): Wasser lebt
+      // auch in der Pause weiter
       this.glTerrain.zeichne(cam,
-        [((wc>>16)&255)/255*0.9, ((wc>>8)&255)/255*0.9, (wc&255)/255*0.9]);
+        [((wc>>16)&255)/255*0.9, ((wc>>8)&255)/255*0.9, (wc&255)/255*0.9],
+        this.time/1000);
       g.clearRect(0,0,this.vw,this.vh);
     } else {
       // Hintergrund: Tiefwasser mit leichtem Verlauf
