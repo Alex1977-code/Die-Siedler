@@ -9742,6 +9742,25 @@ export class Renderer {
         g.drawImage(c.cv, (ix0-c.ox)*sc, (iy0-c.oy)*sc, (ix1-ix0)*sc, (iy1-iy0)*sc,
                     ix0, iy0, ix1-ix0, iy1-iy0);
       }
+    // Erzflecken der Geologenfunde auf der GL-Ebene: im 2D-Weg sind sie in
+    // die Chunks eingebacken (Bake-Schritt 5), die GPU-Ebene kennt sie
+    // nicht - im Gesamt-A/B t35 fehlten sie. Nach dem Schilder-Verfall
+    // (KD5) ist der Bodenfleck die EINZIGE bleibende Fundmarke, deshalb
+    // je Bild nachgemalt: wenige Funde, ein drawImage je Fund, derselbe
+    // Anhebungsversatz wie beim Schild (drawSign).
+    if(glAktiv && game.signs && game.signs.size){
+      const OREK={1:'ter_ore_coal',2:'ter_ore_iron',3:'ter_ore_gold',4:'ter_ore_granite'};
+      for(const [q,v] of game.signs){
+        if(!v || !OREK[v]) continue;
+        const t9=m.terr[q];
+        if(t9!==TER.MOUNT && t9!==TER.LAVA && t9!==TER.SNOW) continue;
+        const [qx,qy0]=m.worldPos(q);
+        const qy=qy0-this.liftAt(q)*HSCALE;
+        if(qx<wx0-60||qx>wx1+60||qy<wy0-60||qy>wy1+60) continue;
+        const blob=this.oreBlob(OREK[v]);
+        if(blob) g.drawImage(blob, qx-54, qy-44, 108, 88);
+      }
+    }
     // VORAUSBACKEN: ist in diesem Bild kein sichtbarer Chunk gebaut worden,
     // wird EIN Chunk aus dem Ring knapp ausserhalb des Blickfelds vorbereitet.
     // Der Hakler faellt damit in ein ruhiges Bild statt mitten in den Schwenk -
