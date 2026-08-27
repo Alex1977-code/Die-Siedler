@@ -39,8 +39,24 @@ export async function starteSpiel(page, {saat, groesse='M', gegner='1', thema=nu
   if(thema) await page.selectOption('#f-theme', thema);
   await page.selectOption('#f-ais', String(gegner));
   await page.fill('#f-seed', String(saat));
-  await page.click('#f-start');
-  await page.waitForFunction(()=> !!(window.__ui && window.__ui.game), null, {timeout:15000});
+  // noWaitAfter: der Startklick baut sofort synchron die Welt; Playwright
+  // wartet sonst auf "scheduled navigations", die nie kommen, und laeuft
+  // in den Timeout (beobachtet ab v254 mit der WebGL-Ebene). Auf das
+  // Spiel wartet ohnehin die Zeile darunter.
+  await page.click('#f-start', {noWaitAfter:true});
+  // EIGENE Abfrageschleife statt page.waitForFunction: unter SwiftShader
+  // (Messumgebung ohne echte GPU) kann ein WebGL-Bild den Hauptfaden
+  // sekundenlang halten; der von waitForFunction injizierte Poller kam
+  // dann nie zum Zug und lief in den Timeout, waehrend ein schlichtes
+  // evaluate dieselbe Frage sofort beantwortete (gemessen v254).
+  {
+    let da=false;
+    for(let k9=0; k9<40 && !da; k9++){
+      await page.waitForTimeout(500);
+      da=await page.evaluate(()=> !!(window.__ui && window.__ui.game)).catch(()=>false);
+    }
+    if(!da) throw new Error('Spiel nicht gestartet (20 s)');
+  }
   // Beweis mitliefern: wer hier nicht bei 0 steht, misst nicht das, was er glaubt
   return await page.evaluate(()=> window.__ui.game.t);
 }

@@ -353,6 +353,39 @@ export class Renderer {
     const m=this.game.map;
     this.glTerrain.setzeKarte(m, this.theme,
       (i)=>holen(cols[m.terr[i]]||cols[TER.GRASS]));
+    this.glMaterialNeu();
+  }
+  // Materialkacheln an die GPU-Ebene reichen. Solange die bestellten
+  // mat_*-Kacheln (Grafiklieferung 8) nicht da sind, gehen die alten
+  // ter_*-Kacheln hinein - sie tragen eingemaltes Licht, aber die Flaeche
+  // liest sich schon einmal als Material statt als Farbflaeche. Sobald eine
+  // mat_*-Datei im Paket liegt, gewinnt sie automatisch.
+  // Kachelmasse wie in terrainPattern: 512er-Kacheln bei Skala 0,44-0,5
+  // ergeben 225-256 Weltpixel; die 1024er-Felskacheln bewusst groeber.
+  glMaterialNeu(){
+    if(!this.glTerrain || !this.game) return;
+    const wahl=(neu9, alt9, skala)=>{
+      const a=this.asset(neu9), b=this.asset(alt9);
+      const im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
+      // kachelEben auch hier: die GL-Ebene bekam zuerst die ROHE Kachel,
+      // und das Randabfall-Gitter aus v251 stand wieder im Gras - alle 225
+      // Weltpixel eine dunkle Linie. Derselbe Ausgleich, dieselbe Stelle.
+      return im? {img:this.kachelEben(im), skala} : null;
+    };
+    const b={
+      wiese:  wahl('mat_wiese_alb',  'ter_grass', 225),
+      wueste: wahl('mat_sand_alb',   'ter_sand',  256),
+      schnee: wahl('mat_schnee_alb', 'ter_snow',  256),
+      moor:   wahl('mat_moor_alb',   'ter_swamp', 256),
+      wasser: wahl('mat_wasser_alb', 'ter_water', 133),
+      fels:   wahl(this.theme==='winter'? 'mat_fels_winter_alb'
+                 : this.theme==='wueste'? 'mat_fels_wueste_alb'
+                 : this.theme==='vulkan'? 'mat_fels_vulkan_alb'
+                 : 'mat_fels_alb',      'ter_fels_1', 430),
+      lava:   wahl('mat_lava_alb',   'ter_lava',  256),
+    };
+    for(const k in b) if(!b[k]) delete b[k];
+    this.glTerrain.setzeMaterial(b);
   }
   // ---------- Schafe: kleine Wander-Deko auf den Wiesen ----------
   initSheep(){
@@ -6081,6 +6114,7 @@ export class Renderer {
             this._spireTint=null; this._schneeHaube=null; this._lasurC=null; this._matC=null;
             this._felsPool=null;
             this._felsBox=null;
+            this.glMaterialNeu();         // GPU-Ebene bekommt die Kachel auch
             this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
             this._waterStamps=null;       // Glanzlichter und Schaum neu stempeln
             this.chunks.clear();

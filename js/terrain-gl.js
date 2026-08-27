@@ -52,7 +52,9 @@ const VERT = `
 attribute vec2  aGrid;      // Spalte, Zeile
 attribute float aHgt;       // Hoehe in Hoeheneinheiten
 attribute vec3  aNrm;       // Knotennormale (schon normiert)
-attribute vec3  aCol;       // Grundfarbe der Terrainart an diesem Knoten
+attribute vec3  aCol;       // Themenfarbe der Terrainart an diesem Knoten
+attribute vec4  aW1;        // Anteil Wiese, Wueste, Schnee, Moor
+attribute vec4  aW2;        // Anteil Wasser, Fels, Lava, (frei)
 uniform vec2  uCam;         // Kameramitte in Weltpixeln
 uniform float uZoom;
 uniform vec2  uView;        // Ansichtsgroesse in CSS-Pixeln
@@ -60,6 +62,8 @@ uniform vec3  uMass;        // TILE, ROWH, HSCALE
 varying vec3  vNrm;
 varying vec3  vCol;
 varying vec2  vWorld;
+varying vec4  vW1;
+varying vec4  vW2;
 void main(){
   // GENAU die Projektion des Spiels - kein Modell, keine Perspektive
   float wx = (aGrid.x + mod(aGrid.y, 2.0) * 0.5) * uMass.x;
@@ -71,6 +75,13 @@ void main(){
                      1.0 - s.y / uView.y * 2.0, 0.0, 1.0);
   vNrm = aNrm;
   vCol = aCol;
+  // Die Materialanteile sind je Knoten 1 fuer die eigene Art und 0 sonst.
+  // Die Interpolation ueber das Dreieck macht daraus von selbst einen
+  // weichen Uebergang - dasselbe, was der 2D-Weg mit weichgezeichneten
+  // Zellmasken je Terrainart von Hand aufbauen musste, nur umsonst und
+  // ohne Kante.
+  vW1 = aW1;
+  vW2 = aW2;
 }`;
 
 const FRAG = `
@@ -78,23 +89,52 @@ precision mediump float;
 varying vec3 vNrm;
 varying vec3 vCol;
 varying vec2 vWorld;
+varying vec4 vW1;
+varying vec4 vW2;
 uniform vec3 uSun;          // Richtung zur Sonne (normiert)
+uniform float uTint;        // wie stark die Themenfarbe das Material faerbt
+uniform sampler2D tWiese, tWueste, tSchnee, tMoor, tWasser, tFels, tLava;
+uniform vec4 uSk1;          // Kachelmass in Weltpixeln: Wiese,Wueste,Schnee,Moor
+uniform vec4 uSk2;          //                          Wasser,Fels,Lava,(frei)
+
+vec3 hol(sampler2D t, float sk){ return texture2D(t, vWorld / sk).rgb; }
+
 void main(){
+  // ---- Material: gewichtete Summe der Terrainarten ----
+  float sum = dot(vW1, vec4(1.0)) + dot(vW2, vec4(1.0));
+  vec3 alb =
+      hol(tWiese,  uSk1.x) * vW1.x + hol(tWueste, uSk1.y) * vW1.y
+    + hol(tSchnee, uSk1.z) * vW1.z + hol(tMoor,   uSk1.w) * vW1.w
+    + hol(tWasser, uSk2.x) * vW2.x + hol(tFels,   uSk2.y) * vW2.y
+    + hol(tLava,   uSk2.z) * vW2.z;
+  alb /= max(0.001, sum);
+
+  // ---- Themenfarbe daruebergelegt ----
+  // Die Kacheln sind fuer alle Klimazonen dieselben; Winterwiese und
+  // Wuestenboden bekommen ihren Ton aus der Palette des Spiels. Das
+  // Verfahren ist dasselbe wie die 'color'-Glasur im 2D-Weg: die
+  // HELLIGKEITSzeichnung der Kachel bleibt stehen, Farbton und Saettigung
+  // kommen aus der Palette.
+  float lum = dot(alb, vec3(0.299, 0.587, 0.114));
+  alb = mix(alb, vCol * (lum / 0.5), uTint);
+
+  // ---- Licht ----
   vec3 n = normalize(vNrm);
   // NORD-DAEMPFUNG wie im 2D-Pass (eckShade): nordgerichtete Haenge sind
   // in dieser Projektion die bildschirmgestreckten Rueckseiten. Voll
   // beleuchtet standen sie als grelle fahle Dreiecke ueber dem Massivrand.
-  // n.y > 0 heisst hier: die Flaeche kippt nach Norden.
   if (n.y > 0.0) n.y *= 0.35;
   n = normalize(n);
   float lam = max(0.0, dot(n, uSun));
-  // Rampe wie im 2D-Pass: ebener Boden (Lambert ~0,72) liegt auf dem
-  // Mittelton, Schattenflanken sacken ab, volle Sonnenflanke leuchtet auf.
   float v = 0.42 + 0.86 * lam;
   // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
   vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
-  gl_FragColor = vec4(vCol * v + amb * (1.0 - lam), 1.0);
+  gl_FragColor = vec4(alb * v + amb * (1.0 - lam), 1.0);
 }`;
+
+// Reihenfolge der Materialkanaele. Sie steht an EINER Stelle, damit
+// Shader, Attributaufbau und Renderer nicht auseinanderlaufen koennen.
+const KANAL = ['wiese','wueste','schnee','moor','wasser','fels','lava'];
 
 export class TerrainGL {
   constructor(canvas){
@@ -103,7 +143,12 @@ export class TerrainGL {
     this.bereit = false;
     this._verloren = false;
     try {
-      const opt = { alpha:false, antialias:true, depth:false, stencil:false,
+      // antialias:false - MSAA kostet auf schwachen und Software-GPUs ein
+      // Vielfaches (im Messlauf unter SwiftShader blockierte das ERSTE
+      // Bild den Hauptfaden laenger als 20 Sekunden). Die Gitterdreiecke
+      // sind gross; Treppen sieht man nur an der Silhouette, und die
+      // bekommt spaeter einen gezielten Kantenpass statt Voll-MSAA.
+      const opt = { alpha:false, antialias:false, depth:false, stencil:false,
                     powerPreference:'high-performance', preserveDrawingBuffer:false };
       this.gl = canvas.getContext('webgl2', opt) || canvas.getContext('webgl', opt);
     } catch(_){ this.gl = null; }
@@ -143,16 +188,74 @@ export class TerrainGL {
     this.aHgt  = gl.getAttribLocation(p, 'aHgt');
     this.aNrm  = gl.getAttribLocation(p, 'aNrm');
     this.aCol  = gl.getAttribLocation(p, 'aCol');
+    this.aW1   = gl.getAttribLocation(p, 'aW1');
+    this.aW2   = gl.getAttribLocation(p, 'aW2');
     this.uCam  = gl.getUniformLocation(p, 'uCam');
     this.uZoom = gl.getUniformLocation(p, 'uZoom');
     this.uView = gl.getUniformLocation(p, 'uView');
     this.uMass = gl.getUniformLocation(p, 'uMass');
     this.uSun  = gl.getUniformLocation(p, 'uSun');
+    this.uTint = gl.getUniformLocation(p, 'uTint');
+    this.uSk1  = gl.getUniformLocation(p, 'uSk1');
+    this.uSk2  = gl.getUniformLocation(p, 'uSk2');
+    this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
+      't'+k.charAt(0).toUpperCase()+k.slice(1)));
     this.bufGrid = gl.createBuffer();
     this.bufHgt  = gl.createBuffer();
     this.bufNrm  = gl.createBuffer();
     this.bufCol  = gl.createBuffer();
+    this.bufW1   = gl.createBuffer();
+    this.bufW2   = gl.createBuffer();
     this.bufIdx  = gl.createBuffer();
+    // 1x1-Ersatztextur je Kanal: solange (oder falls) ein Bild fehlt,
+    // liefert der Kanal neutrales Mittelgrau - die Themenfarbe aus aCol
+    // traegt dann allein, und nichts ist schwarz.
+    this.tex = KANAL.map(()=>{
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA,
+                    gl.UNSIGNED_BYTE, new Uint8Array([128,128,128,255]));
+      return t;
+    });
+    this.skala = KANAL.map(()=>225);   // Vorgabe: 512-px-Kachel bei 0,44
+    if(this._bilder) this._bilderAnwenden();
+  }
+
+  // ---------- Materialtexturen ----------
+  // bilder: { wiese: {img, skala}, fels: {...}, ... } - der Renderer reicht
+  // fertig geladene Bilder samt Kachelmass in Weltpixeln herein. Fehlende
+  // Kanaele behalten die neutrale Ersatztextur.
+  setzeMaterial(bilder){
+    this._bilder = bilder;
+    this._bilderAnwenden();
+  }
+  _bilderAnwenden(){
+    const gl = this.gl; if(!gl || !this.prog || !this._bilder) return;
+    const p2 = (n)=> (n & (n-1)) === 0;
+    KANAL.forEach((k, ix)=>{
+      const e = this._bilder[k];
+      if(!e || !e.img) return;
+      const im = e.img;
+      const w = im.naturalWidth||im.width, h = im.naturalHeight||im.height;
+      if(!w || !h) return;
+      gl.bindTexture(gl.TEXTURE_2D, this.tex[ix]);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      // Mipmaps nur bei Zweierpotenz (WebGL1-Regel; die Kacheln sind
+      // 512/768/1024, also fast immer erfuellt). 768er wie ter_snow
+      // laufen ohne Mipmap mit LINEAR - sichtbar erst bei weitem
+      // Herauszoomen als leichtes Flirren.
+      if(p2(w) && p2(h)){
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      } else {
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      }
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      if(e.skala) this.skala[ix] = e.skala;
+    });
   }
 
   // ---------- Netz aufbauen ----------
@@ -165,6 +268,7 @@ export class TerrainGL {
     const gl = this.gl;
     if(!gl || !this.prog) return;
     this._karte = map; this._thema = thema; this._farbeVon = farbeVon;
+    this.gewichteNeu(map);
     const w = map.w, h = map.h, n = w*h;
     const grid = new Float32Array(n*2);
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){
@@ -227,6 +331,27 @@ export class TerrainGL {
     gl.bufferData(gl.ARRAY_BUFFER, nrm, gl.DYNAMIC_DRAW);
   }
 
+  // Materialgewichte je Knoten: 1 fuer die eigene Terrainart, 0 sonst.
+  // Die Interpolation ueber die Dreiecke macht daraus den weichen
+  // Uebergang (s. Vertex-Shader). Terrainwerte wie in core.js:
+  // WATER 0, GRASS 1, DESERT 2, MOUNT 3, SNOW 4, SWAMP 5, LAVA 6.
+  gewichteNeu(map){
+    const gl = this.gl; if(!gl || !this.prog) return;
+    const n = map.w * map.h;
+    const w1 = new Float32Array(n*4);
+    const w2 = new Float32Array(n*4);
+    // Terrainwert -> (Puffer, Kanal): Reihenfolge aus KANAL
+    //   w1 = wiese, wueste, schnee, moor   w2 = wasser, fels, lava, frei
+    const ZIEL = [ [w2,0], [w1,0], [w1,1], [w2,1], [w1,2], [w1,3], [w2,2] ];
+    for(let i=0; i<n; i++){
+      const z = ZIEL[map.terr[i]] || ZIEL[1];
+      z[0][i*4 + z[1]] = 1;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufW1);
+    gl.bufferData(gl.ARRAY_BUFFER, w1, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufW2);
+    gl.bufferData(gl.ARRAY_BUFFER, w2, gl.DYNAMIC_DRAW);
+  }
   // Grundfarbe je Knoten. farbeVon(i) liefert [r,g,b] in 0..1 - der
   // Renderer reicht seine Terrainpalette herein, damit die Themenfarben
   // an EINER Stelle stehen bleiben.
@@ -268,6 +393,8 @@ export class TerrainGL {
     bind(this.bufHgt,  this.aHgt,  1);
     bind(this.bufNrm,  this.aNrm,  3);
     bind(this.bufCol,  this.aCol,  3);
+    bind(this.bufW1,   this.aW1,   4);
+    bind(this.bufW2,   this.aW2,   4);
     gl.uniform2f(this.uCam, cam.x, cam.y);
     gl.uniform1f(this.uZoom, cam.z);
     gl.uniform2f(this.uView, this.vw, this.vh);
@@ -277,6 +404,16 @@ export class TerrainGL {
     // dot(N,(−LX,−LY,SUNZ)) mit N=(−sx,−sy,1) da; ausmultipliziert ist das
     // dasselbe wie hier mit N=(−sx,−sy,1) und S=(−LX,−LY,SUNZ).
     gl.uniform3f(this.uSun, -LX/sl, -LY/sl, SUNZ/sl);
+    // Themenfarbe halb auftragen: die Kacheln liefern die Zeichnung, die
+    // Palette den Klimaton (Winterwiese fahl, Wuestenfels sandig).
+    gl.uniform1f(this.uTint, 0.5);
+    gl.uniform4f(this.uSk1, this.skala[0], this.skala[1], this.skala[2], this.skala[3]);
+    gl.uniform4f(this.uSk2, this.skala[4], this.skala[5], this.skala[6], 225);
+    for(let k=0; k<KANAL.length; k++){
+      gl.activeTexture(gl.TEXTURE0 + k);
+      gl.bindTexture(gl.TEXTURE_2D, this.tex[k]);
+      gl.uniform1i(this.uTex[k], k);
+    }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.bufIdx);
     gl.drawElements(gl.TRIANGLES, this.anzIdx, gl.UNSIGNED_SHORT, 0);
     return true;
