@@ -441,32 +441,20 @@ export class Renderer {
       // war. felsMaterial nimmt die eingebackene Beleuchtung per Tief-/
       // Hochpass heraus, genau wie im 2D-Weg.
       fels:   (()=>{
-        // 2x2-SPIEGEL-GROSSKACHEL gegen das Wiederholraster. Nutzerkritik
-        // am Handyfoto (v262): "das gebirge sieht kachelartig aus" - die
-        // markante Plattenzeichnung verriet ihre 430-px-Wiederholung.
-        // Original + drei Spiegelfassungen ergeben eine perfekt nahtlose
-        // Kachel doppelter Periode (860 Weltpixel), in der sich keine
-        // Platte mehr identisch wiederholt. Auf der TEXTURSEITE geloest,
-        // weil eine Zufallsspiegelung im Shader mit fract() die Mip-Wahl
-        // an den Zellgrenzen zerreisst (Ableitungssprung -> Artefaktlinien)
-        // und texture2DGradEXT eine Extension braeuchte.
-        const spiegel4=(im)=>{
-          const w=im.naturalWidth||im.width, h=im.naturalHeight||im.height;
-          const c2=document.createElement('canvas');
-          c2.width=w*2; c2.height=h*2;
-          const g2=c2.getContext('2d');
-          g2.drawImage(im,0,0);
-          g2.save(); g2.scale(-1,1);  g2.drawImage(im,-w*2,0);     g2.restore();
-          g2.save(); g2.scale(1,-1);  g2.drawImage(im,0,-h*2);     g2.restore();
-          g2.save(); g2.scale(-1,-1); g2.drawImage(im,-w*2,-h*2);  g2.restore();
-          return c2;
-        };
+        // Gegen das Wiederholraster ("kachelartig", Nutzerfoto v262) war
+        // hier kurz eine 2x2-Spiegel-Grosskachel im Einsatz (v263) - die
+        // erzeugte aber SYMMETRIEACHSEN: an den Spiegellinien liefen die
+        // Fugen als Schmetterlingsmuster aufeinander zu, dem Auge faellt
+        // Symmetrie noch schneller auf als Wiederholung (Nutzerfoto v264).
+        // Die Wiederholung bricht jetzt stattdessen der Koordinaten-Warp
+        // im Shader (hol in terrain-gl.js): jede Kachelinstanz wird von
+        // traegen Ortswellen individuell verbogen.
         const mk=this.theme==='winter'? 'mat_fels_winter_alb'
                : this.theme==='wueste'? 'mat_fels_wueste_alb'
                : this.theme==='vulkan'? 'mat_fels_vulkan_alb'
                : 'mat_fels_alb';
         const a=this.asset(mk);
-        if(a&&a.naturalWidth) return {img:spiegel4(this.kachelEben(a)), skala:860};
+        if(a&&a.naturalWidth) return {img:this.kachelEben(a), skala:430};
         const tk='ter_fels_1'+(this.theme==='winter'? '_winter'
                 : this.theme==='wueste'? '_wueste'
                 : this.theme==='vulkan'? '_vulkan' : '');
@@ -483,7 +471,7 @@ export class Renderer {
         g9.globalCompositeOperation='multiply';
         g9.fillStyle='rgb(186,186,186)';
         g9.fillRect(0,0,c9.width,c9.height);
-        return {img:spiegel4(this.kachelEben(c9)), skala:860};
+        return {img:this.kachelEben(c9), skala:430};
       })(),
       lava:   wahl('mat_lava_alb',   'ter_lava',  256),
     };

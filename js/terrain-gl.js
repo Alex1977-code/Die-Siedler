@@ -109,7 +109,20 @@ uniform float uZeit;        // Sekunden, Echtzeit (Wasser lebt auch in Pause)
 uniform float uSchattenAn;  // Diagnoseschalter wie _ohneCast im 2D-Weg
 uniform float uDebug;       // 0 normal, 1 Gewichte als Farben, 2 Licht als Grau
 
-vec3 hol(sampler2D t, float sk){ return texture2D(t, vWorld / sk).rgb; }
+// Materialprobe mit KOORDINATEN-WARP gegen das Wiederholraster: traege
+// Ortswellen (571/698 px, bewusst inkommensurabel zur 430er-Felskachel)
+// verbiegen die Abtastkoordinate um bis zu +-30 px - jede Kachelinstanz
+// sieht dadurch anders aus, Fugen laufen nicht mehr als gerade Rasterlinien.
+// Der Vorgaenger (2x2-Spiegel-Grosskachel, v263) erzeugte Symmetrieachsen
+// mit Schmetterlingsfugen - Symmetrie faellt dem Auge noch schneller auf
+// als Wiederholung (Nutzerfoto v264). Der Warp ist GLATT, die Ableitungen
+// bleiben stetig - die Mip-Wahl kippt nirgends.
+vec3 hol(sampler2D t, float sk){
+  vec2 w = vWorld + vec2(
+    30.0*sin(vWorld.y*0.011 + 1.7*sin(vWorld.x*0.0043)),
+    26.0*sin(vWorld.x*0.009 - 1.3*sin(vWorld.y*0.0047)));
+  return texture2D(t, w / sk).rgb;
+}
 
 // ---- Wasser: zwei driftende Lagen + leises Glitzern ----
 // Der 2D-Weg brauchte dafuer Muster-Transformationen je Frame, einen
