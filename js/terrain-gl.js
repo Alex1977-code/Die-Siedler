@@ -119,11 +119,23 @@ vec3 hol(sampler2D t, float sk){ return texture2D(t, vWorld / sk).rgb; }
 // Streifen, deterministisch aus Ort und Zeit.
 vec3 wasser(){
   vec2 uv = vWorld / uSk2.x;
-  vec3 a = texture2D(tWasser, uv + vec2(uZeit*0.010, uZeit*0.006)).rgb;
-  vec3 b = texture2D(tWasser, uv*1.7 + vec2(-uZeit*0.007, uZeit*0.011)).rgb;
+  // Nutzerkritik (Handyfoto v262): "wellen im wasser zu schnell und
+  // regelmaessig". Zwei Aenderungen: das Tempo auf rund ein Drittel
+  // (Drift halbiert, Funkel-Uhren 1.9/1.3/1.1 -> 0.55/0.41/0.33), und
+  // gegen das Punktgitter laufen die Funkel-Sinusse auf VERBOGENEN
+  // Koordinaten (Ortswellen schieben x und y je +-26 px) mit
+  // inkommensurablen Frequenzen - die Spitzen des Produkts stehen dann
+  // nicht mehr in Reih und Glied.
+  vec3 a = texture2D(tWasser, uv + vec2(uZeit*0.005, uZeit*0.003)).rgb;
+  vec3 b = texture2D(tWasser, uv*1.7 + vec2(-uZeit*0.0035, uZeit*0.0055)).rgb;
   vec3 w = mix(a, b, 0.40);
-  float g1 = sin(vWorld.x*0.055 + uZeit*1.9) * sin(vWorld.y*0.043 - uZeit*1.3);
-  float g2 = sin((vWorld.x + vWorld.y)*0.037 + uZeit*1.1);
+  // Warp-Uhren bewusst traege (erster Wurf 0.21/0.17 liess das ganze
+  // Funkelfeld wandern und frass die Verlangsamung wieder auf - gemessen
+  // fiel die 0,6-s-Bilddifferenz nur von 1,26 auf 1,04)
+  float wx = vWorld.x + 26.0*sin(vWorld.y*0.013 + uZeit*0.07);
+  float wy = vWorld.y + 22.0*sin(vWorld.x*0.011 - uZeit*0.055);
+  float g1 = sin(wx*0.051 + uZeit*0.55) * sin(wy*0.0407 - uZeit*0.41);
+  float g2 = sin((wx*0.83 + wy)*0.0343 + uZeit*0.33);
   float gl = max(0.0, g1*g2 - 0.62) * 1.1;
   return w + vec3(gl);
 }
@@ -266,6 +278,15 @@ void main(){
   // Verfahren ist dasselbe wie die 'color'-Glasur im 2D-Weg: die
   // HELLIGKEITSzeichnung der Kachel bleibt stehen, Farbton und Saettigung
   // kommen aus der Palette.
+  // ---- Grossflaechige Tonvariation ----
+  // Zweiter Teil der Antwort auf "kachelartig": selbst mit der
+  // Spiegel-Grosskachel bleibt die Flaeche in sich gleichfoermig. Zwei
+  // sehr niederfrequente Ortswellen (~675/800 px, inkommensurabel zur
+  // Kachelperiode) heben und senken den Ton um +-5 % - wie Patina.
+  float ton = sin(vWorld.x*0.0093 + 1.9*sin(vWorld.y*0.0061))
+            * sin(vWorld.y*0.0079 - 1.3*sin(vWorld.x*0.0053));
+  alb *= 1.0 + 0.05*ton;
+
   // Nenner ist die Luminanz der PALETTENFARBE, nicht pauschal 0,5: das
   // Mischziel bekommt so genau die Helligkeit der Kachel (echte color-
   // Glasur). Mit /0.5 wurde die fast weisse Schnee-/Firnpalette um das
