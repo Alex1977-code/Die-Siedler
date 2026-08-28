@@ -6,7 +6,7 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v263';
+const BUILD = 'v264';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
@@ -19,6 +19,13 @@ const FILES = [
 const isCode = (url)=> /\.(js|css|html|json|webmanifest)$/i.test(url) || url.endsWith('/');
 
 self.addEventListener('install', (e)=>{
+  // NUR den Programmcode vorladen - das sind wenige Dateien und geht in
+  // Sekunden. Die ~560 Grafiken hingen frueher MIT in diesem Schritt:
+  // auf dem Handy dauerte das so lange, dass der Spieler laengst in der
+  // Partie war, bevor die neue Fassung "activated" wurde - der Wechsel
+  // schob sich auf den naechsten Start ("v264 nicht am handy"). Die
+  // Grafiken laedt jetzt der activate-Schritt NACH der Uebernahme nach;
+  // bis dahin faellt Cache-zuerst einfach aufs Netz zurueck.
   e.waitUntil(caches.open(CACHE).then(async (c)=>{
     // am Browser-Cache vorbei: sonst landen die alten Bytes im neuen Cache
     await Promise.all(FILES.map(f=>
@@ -26,23 +33,25 @@ self.addEventListener('install', (e)=>{
         .then(r=> r.ok? c.put(f, r) : null)
         .catch(()=>null)
     ));
-    // HD-Grafik-Assets zusätzlich vorladen – Fehler einzelner Dateien
-    // blockieren die Installation nicht (prozedurale Sprites als Fallback)
-    try{
-      const r=await fetch(new Request('./assets/manifest.json', {cache:'reload'}));
-      if(r.ok){
-        const list=await r.clone().json();
-        await c.put('./assets/manifest.json', r);
-        await Promise.allSettled(list.map(f=>c.add('./assets/'+f)));
-      }
-    }catch(_){ /* offline/fehlend: Spiel läuft prozedural weiter */ }
   }).then(()=>self.skipWaiting()));
 });
 
 self.addEventListener('activate', (e)=>{
   e.waitUntil(caches.keys().then(keys=>Promise.all(
     keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))
-  )).then(()=>self.clients.claim()));
+  )).then(()=>self.clients.claim()).then(async ()=>{
+    // Grafik-Assets nachladen, NACHDEM die neue Fassung uebernommen hat -
+    // Fehler einzelner Dateien sind egal (prozedurale Sprites als Fallback)
+    try{
+      const c=await caches.open(CACHE);
+      const r=await fetch(new Request('./assets/manifest.json', {cache:'reload'}));
+      if(r.ok){
+        const list=await r.clone().json();
+        await c.put('./assets/manifest.json', r);
+        await Promise.allSettled(list.map(f=>c.add('./assets/'+f)));
+      }
+    }catch(_){ /* offline/fehlend: Spiel laeuft prozedural weiter */ }
+  }));
 });
 
 // Die Seite kann die laufende Fassung erfragen – so lässt sich im Spiel

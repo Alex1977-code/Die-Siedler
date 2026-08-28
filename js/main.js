@@ -32,6 +32,14 @@ window.addEventListener('DOMContentLoaded', ()=>{
           if(nw.state==='activated' && hatteWorker) uebernehmen();
         });
       });
+      // Als Heimbildschirm-App wird auf dem Handy meist nur in den
+      // Hintergrund gewechselt, nie neu gestartet - ohne diesen Anstoß
+      // sucht der Browser dann NIE nach einer neuen Fassung ("v264 nicht
+      // am handy"). Bei jeder Rückkehr in den Vordergrund nachsehen; die
+      // updatefound-Kette oben übernimmt den Rest.
+      document.addEventListener('visibilitychange',()=>{
+        if(document.visibilityState==='visible') reg.update().catch(()=>{});
+      });
     }).catch(()=>{});
     // laufende Fassung erfragen und im Pausemenü anzeigen
     navigator.serviceWorker.addEventListener('message',(ev)=>{
