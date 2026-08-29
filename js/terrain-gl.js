@@ -302,6 +302,21 @@ void main(){
   // Beanstandung wie die Schlangenhaut in v268; die Spez nennt fuer
   // Texturen ohnehin nur 15-20 % Deckkraft)
   vec3 fels = uG[5] * mix(vec3(1.0), hol(tFels, uSk2.y) * 4.8, 0.16) * (0.97 + 0.05*korn);
+  // ---- BERGWIESE: das Gras klettert den Berg hinauf ----
+  // Referenzbild (Diorama-Huegel): der Berg ist unten GRUEN, der Fels
+  // bricht erst oben und an Steilflanken durch. Bisher war das ganze
+  // Massiv vom Fuss bis zum Gipfel grau - der grosse leere Teppich im
+  // Nutzerfoto v272 war der Hauptabstand zur Referenz. Die Grenze liegt
+  // in ABSOLUTEN Hoeheneinheiten (gemessen, Saat 58 M: Massivfuss
+  // 1,7-3, Firngrenze 6,2, Gipfel 9,2): Gras bis ~3, Fels ab ~5,
+  // dazwischen der Uebergang, am Ortsrauschen ausgefranst. Steile
+  // Flanken bleiben immer Fels (Detailnormale), die Firndecke (sMix)
+  // liegt unveraendert darueber.
+  float hbM = texture2D(tHgt, (vGrid + 0.5) / uHfeld.xy).g * uHfeld.z;
+  float gipfel = smoothstep(3.0, 5.0, hbM + (rausch - 0.5) * 1.6);
+  float sanft = smoothstep(0.78, 0.92, normalize(vNrm).z);
+  vec3 berggras = mix(mWiese, mWueste, 0.40);   // trockenes Berggras
+  fels = mix(fels, berggras, (1.0 - gipfel) * sanft * 0.9);
   vec3 massiv = mix(fels, mSchnee, sMix);
   vec3 alb =
       mWiese * w1.x + mWueste * w1.y + mSchnee * w1.z + mMoor * w1.w
@@ -405,6 +420,23 @@ void main(){
   // Dreipunktlicht plus Hemisphaeren-Ambient, linear gerechnet. Ersetzt
   // Lambert + Nord-Daempfung + Toon-Stufen + goldene Stunde + Schulter.
   vec3 n = normalize(vNrm);
+  // ---- Kuppelform: grobe Normale aus der voll geglaetteten Hoehe ----
+  // Das Massivinnere ist nach der Darstellungs-Glaettung fast eben; die
+  // Detailnormale gibt dem Hauptlicht dort NICHTS zu modellieren - der
+  // Berg las sich als flacher Teppich (Nutzerfoto v272). Die Steigung
+  // des hBlur-Felds (G-Kanal, gleiche Quelle wie das AO) traegt die
+  // grosse Huegelform; Key und Fill mischen sie zur Haelfte ein (Faktor
+  // 1,6 ueberhoeht die sanfte Kuppel), Rim und Glanz behalten die
+  // Detailnormale - Kanten bleiben knackig.
+  vec2 tk = 1.0 / uHfeld.xy;
+  vec2 uvK = (vGrid + 0.5) * tk;
+  float kE = texture2D(tHgt, uvK + vec2(tk.x, 0.0)).g;
+  float kW = texture2D(tHgt, uvK - vec2(tk.x, 0.0)).g;
+  float kS = texture2D(tHgt, uvK + vec2(0.0, tk.y)).g;
+  float kN = texture2D(tHgt, uvK - vec2(0.0, tk.y)).g;
+  vec3 nGrob = normalize(vec3(-(kE - kW) * uHfeld.z * 0.25 * 1.6,
+                              -(kS - kN) * uHfeld.z * 0.295 * 1.6, 1.0));
+  vec3 nK = normalize(mix(n, nGrob, 0.55));
 
   // ---- Schlagschatten: Marsch durchs Hoehenfeld zur Sonne ----
   // Die ganze Karte liegt als winzige Textur an (max 160x160). Der Strahl
@@ -436,8 +468,8 @@ void main(){
   // Key mit Subsurface-Anteil (weicher, warm auslaufender Terminator);
   // der Schattenmarsch geht nur noch WEICH ein und steht standardmaessig
   // aus (Spez: keine harten Schlagschatten)
-  float ndk = max(dot(n, C_KEYDIR), 0.0);
-  float sss = pow(clamp(dot(n, C_KEYDIR)*0.5 + 0.5, 0.0, 1.0), 2.2);
+  float ndk = max(dot(nK, C_KEYDIR), 0.0);
+  float sss = pow(clamp(dot(nK, C_KEYDIR)*0.5 + 0.5, 0.0, 1.0), 2.2);
   float key = (ndk*0.82 + sss*0.18) * (0.55 + 0.45*schatten);
   // AO: Hoehe gegen weichgezeichnete Hoehe (G-Kanal von tHgt, CPU-seitig
   // vorgerechnet) - Senken und Stufenfuesse liegen im weichen Eigenschatten
@@ -452,7 +484,7 @@ void main(){
   float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
   vec3 amb = mix(vec3(0.40, 0.33, 0.22), vec3(0.60, 0.64, 0.74), up) * 0.26;
   vec3 direct = vec3(1.18, 0.98, 0.72) * key * 1.10
-              + vec3(0.50, 0.58, 0.78) * max(dot(n, C_FILLDIR), 0.0) * 0.26;
+              + vec3(0.50, 0.58, 0.78) * max(dot(nK, C_FILLDIR), 0.0) * 0.26;
   vec3 col = alb * (direct * ao + amb * ao * ao);
   // Specular aus der Materialrauheit: matt auf Land, scharf nur auf Wasser
   float shin = 2.0 / max(0.02, rough * rough);
