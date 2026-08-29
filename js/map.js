@@ -511,7 +511,15 @@ export function genWorld(opts){
       if(e < SEA){ map.terr[i]=TER.WATER; }
       else if(sp > 0){
         // Kern vereist, Flanke blanker Fels
-        map.terr[i] = (sp>0.62 && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
+        // SCHNEEGRENZE: fuer das Gebirge von 0,62 auf 0,88 - bei 0,62 lag
+        // Firn auf ueber einem Drittel des Massivs (gemessen 2629 Knoten),
+        // und weil die Firnfarbe fast weiss ist, verschwand die Form des
+        // Berges unter einem hellen Schleier (Beleg t39 neu1/neu2). Die
+        // Referenz zeigt einen FELSGIPFEL, keine Schneehaube; Schnee bleibt
+        // damit die Ausnahme auf den hoechsten Spitzen. Das Winterthema
+        // behaelt seine Decke - dort IST Schnee das Thema.
+        const schneeAb = theme==='winter' ? 0.62 : 0.88;
+        map.terr[i] = (sp>schneeAb && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
       }
       else {
         map.terr[i]=TER.GRASS;
@@ -546,8 +554,16 @@ export function genWorld(opts){
           // Gipfelaufsätze setzen einzelne Spitzen statt eines Plateaus.
           // Das Gratrauschen moduliert nur die Flanke – Grate und Rinnen auf
           // dem Körper, keine eigenständige Form mehr.
-          hv += Math.pow(sp,0.70)*4.5*(0.80+0.38*ridgeAt(X,Y))
-              + Math.pow(sp,1.8)*1.1
+          // PROFIL (Diorama-Umbau): der Exponent 0,70 zog den Fuss breit
+          // auseinander und flachte oben ab - das ergab eine HOCHEBENE,
+          // und genau die stand als grauer Teppich in den Nutzerfotos.
+          // Die Referenz zeigt einen Huegel, der sanft ansteigt und in
+          // einer Kuppe endet: Exponent ueber 1. Die Amplitude steigt
+          // mit, damit der Gipfel seine Hoehe behaelt, und das
+          // Gratrauschen tritt zurueck (0,38 -> 0,26) - die KOERPERFORM
+          // soll den Berg tragen, nicht die Zeichnung auf ihm.
+          hv += Math.pow(sp,1.30)*6.2*(0.86+0.26*ridgeAt(X,Y))
+              + Math.pow(sp,2.6)*1.6
               + mtop[i]*1.9;
         }
       }
@@ -557,7 +573,14 @@ export function genWorld(opts){
       // verwischen sie.
       const rocky = map.terr[i]===TER.MOUNT || map.terr[i]===TER.SNOW || map.terr[i]===TER.LAVA;
       let step = rocky? 0.55 : 0.42;
-      const q  = rocky? 1.00 : 0.14;
+      // RASTERSTAERKE q: frueher 1,00 auf Fels - die Hoehe rastete dort auf
+      // ganze Stufen ein, und GENAU daraus entstanden die Facettenbaender
+      // des alten Gebirgsstils. Fuer den Diorama-Look ist das die falsche
+      // Grundform: die Referenz zeigt eine RUNDE Kuppel, auf der nur
+      // einzelne Felsen sitzen - keine Treppe. q faellt deshalb auf 0,12;
+      // die Plateaustufe darunter wirkt jetzt als leichte Abflachung der
+      // Gipfelflaechen (Minenstandorte bleiben), nicht mehr als Absatz.
+      const q  = rocky? 0.12 : 0.10;
       // PLATEAUBILDUNG (Auftrag 2.4: "Quantisierung der Höhe auf Vielfache
       // von N Stufen oberhalb einer Schwelle"). Unterhalb PLAT_H bleibt die
       // feine 0,55er-Rasterung – dort braucht die Flanke ihre Zeichnung.

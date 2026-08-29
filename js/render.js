@@ -11089,7 +11089,13 @@ export class Renderer {
     // nicht zum Arbeiten am Detail (ab z=2.6 ganz aus).
     if(!this.tiltAus) {
       const zf=Math.max(0, Math.min(1, (2.6-cam.z)/1.6));
-      const dpr=this.dpr, band=Math.round(Math.min(this.vw,this.vh)*0.14*zf);
+      // BANDBREITE 0,14 -> 0,05: bei 14 % lagen im Hochformat oben UND
+      // unten je rund 135 px im Weichzeichner - und weil die Massive
+      // typisch am oberen Bildrand stehen, verschwammen genau sie zu
+      // hellem Nebel (Belege t39 neu1-neu4: Fels unscharf, Baeume daneben
+      // scharf). Das Referenzbild ist eine scharfe Diorama-Aufnahme mit
+      // nur einem Hauch Unschaerfe an den aeussersten Raendern.
+      const dpr=this.dpr, band=Math.round(Math.min(this.vw,this.vh)*0.05*zf);
       const b2=Math.round(band*0.55);
       if(band>=6){
       const K=4;                                  // Verkleinerungsfaktor

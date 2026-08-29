@@ -258,7 +258,11 @@ void main(){
   q2.y *= 1.0 + (rausch - 0.5)*0.8;
   float mx = max(max(max(q1.x, q1.y), max(q1.z, q1.w)),
                  max(max(q2.x, q2.y), q2.z));
-  float band = 0.14 + 0.26*rausch;
+  // BAND: Breite der Materialgrenze. Frueher 0,14-0,40 - eine schmale,
+  // GESCHAERFTE Kante, die den Sechsecken des Knotengitters folgte. Fuer
+  // den Diorama-Look ist die Grenze breit und weich (Gras laeuft in Sand,
+  // Sand in Wasser), und die Ortswelle franst sie organisch aus.
+  float band = 0.34 + 0.44*rausch;
   vec4 w1 = max(vec4(0.0), q1 - (mx - band));
   vec4 w2 = max(vec4(0.0), q2 - (mx - band));
   // WASSER NUR AUF WASSERHOEHE: alles Wasser der Karte liegt auf
@@ -281,7 +285,10 @@ void main(){
   // gefasst standen ihre halbdeckenden Dreieckspaare als blasse
   // Rechtecke im Fels (Reststufen nach der Normalenglaettung). Breiter
   // und staerker verrauscht lesen sie sich als Schneeflecken.
-  float sMix = smoothstep(0.15, 0.85, sAnteil + (rausch - 0.5)*0.34);
+  // Rampe von 0,15..0,85 auf 0,45..0,95: ein Zehntel Schneeanteil machte
+  // die Flaeche vorher schon halb weiss. Firn ist jetzt eine Gipfeldecke,
+  // kein Schleier ueber dem ganzen Koerper.
+  float sMix = smoothstep(0.45, 0.95, sAnteil + (rausch - 0.5)*0.34);
   // FELS OHNE KACHEL (Nutzerentscheid, Variante B der Berg-Optik): die
   // Plattenkachel las sich auf den grossen Hochflaechen als Pflasterplatz,
   // nicht als Berg - drei Anlaeufe, sie per Spiegelung/Warp zu retten,
@@ -332,8 +339,23 @@ void main(){
   // Flanken bleiben immer Fels (Detailnormale), die Firndecke (sMix)
   // liegt unveraendert darueber.
   float hbM = texture2D(tHgt, (vGrid + 0.5) / uHfeld.xy).g * uHfeld.z;
-  float gipfel = smoothstep(3.0, 5.0, hbM + (rausch - 0.5) * 1.6);
-  float sanft = smoothstep(0.78, 0.92, normalize(vNrm).z);
+  // Schwellen nach der Messung der NEUEN Hoehenverteilung (Saat 58 M:
+  // Massiv p10 1,7 / p50 3,0 / p90 5,3, Firn ab 5,4): Gras traegt den
+  // Koerper bis 3,5 und laeuft bis 6,0 aus - wie in der Referenz, wo nur
+  // die Gipfelzone Fels zeigt.
+  // Grenze RELATIV zur Kartenhoehe (uHfeld.z), nicht absolut: das Profil
+  // der Massive haengt am Thema und an der Saat - feste 3,5/6,0 lagen
+  // nach dem Kuppel-Umbau (Kartenhoehe 12,4 statt 9,2) viel zu tief, das
+  // sichtbare Massiv stand komplett darueber und blieb grau (gemessen mit
+  // der Diagnoseansicht: Hoehe 9,5, Neigungsfenster offen, aber
+  // Hoehenfenster 0,03). Jetzt Gras bis 42 % der Kartenhoehe, Fels ab
+  // 72 % - der Koerper ist gruen, die Kuppe Fels, wie in der Referenz.
+  float gipfel = smoothstep(uHfeld.z*0.42, uHfeld.z*0.72, hbM + (rausch - 0.5) * 1.6);
+  // NEIGUNGSFENSTER: mit HSCALE 40 (Kamera-Umbau) sind alle Haenge
+  // steiler als vorher - 0,78..0,92 liess fast nichts mehr durch, das
+  // Massiv blieb grau (Beleg t39 neu1). Jetzt greift Gras auch an
+  // maessig geneigten Flanken; nur die echten Steilstellen bleiben Fels.
+  float sanft = smoothstep(0.42, 0.72, normalize(vNrm).z);
   vec3 berggras = mix(mWiese, mWueste, 0.40);   // trockenes Berggras
   fels = mix(fels, berggras, (1.0 - gipfel) * sanft * 0.9);
   vec3 massiv = mix(fels, mSchnee, sMix);
@@ -537,8 +559,12 @@ void main(){
   // gruen, Rest tuerkis), 2 = reines Licht. Nur von Messwerkzeugen gesetzt.
   if(uDebug > 0.5 && uDebug < 1.5){
     col = vec3(w2.y, q1.x, sAnteil) / max(0.001, max(w2.y, max(q1.x, sAnteil)));
-  } else if(uDebug > 1.5){
+  } else if(uDebug > 1.5 && uDebug < 2.5){
     col = vec3(key * 0.8);
+  } else if(uDebug > 2.5){
+    // Diagnose Bergwiese: R = Hoehe/10, G = sanft (Neigungsfenster),
+    // B = 1-gipfel (Hoehenfenster). Gras entsteht aus G*B.
+    col = vec3(clamp(hbM/10.0,0.0,1.0), sanft, 1.0 - gipfel);
   }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -851,7 +877,12 @@ export class TerrainGL {
     // exakt stehen, nur das Kleinrelief auf den Flaechen laeuft zu
     // weichen Woelbungen aus. Der Versatz gegen die 2D-Objektanker
     // (liftAt) bleibt dadurch unter einer halben Hoeheneinheit.
-    const SCHWELLE = 1.6, RUNDEN = 3;
+    // RUNDEN von 3 auf 1: die Kartenerzeugung liefert seit dem
+    // Diorama-Umbau selbst weiche Hoehen (Rasterstaerke q 1,00 -> 0,12).
+    // Drei weitere Runden darueber machten das Massiv teigig - es hatte
+    // keine Form mehr (Beleg t39 neu1). Eine Runde nimmt das Restkorn,
+    // laesst die Kuppe aber stehen.
+    const SCHWELLE = 1.6, RUNDEN = 1;
     const H = new Float32Array(map.hgt);
     for(let r=0; r<RUNDEN; r++){
       const Q = new Float32Array(H);
@@ -1035,6 +1066,34 @@ export class TerrainGL {
         if(sn > 0){ w2[i*4+3] = sn; g9 = 1 - sn; }
       }
       if(g9 > 0) z[0][i*4 + z[1]] += g9;
+    }
+    // ---- RUNDE UMRISSE statt Sechsecke (Diorama-Umbau) ----
+    // Die Gewichte liegen je KNOTEN, also je Sechseckzelle. Ein kleiner
+    // See deckt ~7 Knoten - sein Umriss WAR damit zwangslaeufig eine
+    // Wabe, egal wie fein interpoliert wird (Nutzerfotos v276/v277: die
+    // Bergseen als klare Sechsecke mit hartem Sandring). Zwei Runden
+    // Nachbarmittel ueber ALLE Kanaele verschmieren die Zellgrenzen zu
+    // einem stetigen Feld; die Uferlinie folgt danach dem Mittelwert,
+    // nicht mehr der Zellkante. Dieselbe Mechanik, die oben schon die
+    // Schneedeckung gerettet hat (deck) - nur fuer alles.
+    if(map.nbs){
+      for(let r = 0; r < 2; r++){
+        const a1 = new Float32Array(w1), a2 = new Float32Array(w2);
+        for(let i = 0; i < n; i++){
+          const nb = map.nbs(i);
+          for(let c = 0; c < 4; c++){
+            let s1 = a1[i*4+c]*2, s2 = a2[i*4+c]*2, cc = 2;
+            for(const q of nb){ s1 += a1[q*4+c]; s2 += a2[q*4+c]; cc++; }
+            w1[i*4+c] = s1/cc;
+            // Kanal 3 von w2 ist der FIRN. Er hat oben schon seine eigene
+            // Glaettung (deck) - noch zwei Runden darueber trugen den
+            // Schnee zwei Knoten weit in den Fels hinein, und das Massiv
+            // lag unter einem weissen Schleier (gemessen: 3 % Gruen,
+            // Felsmittel 193 bei Std 21). Firn bleibt deshalb scharf.
+            if(c < 3) w2[i*4+c] = s2/cc;
+          }
+        }
+      }
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufW1);
     gl.bufferData(gl.ARRAY_BUFFER, w1, gl.DYNAMIC_DRAW);
