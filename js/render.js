@@ -6852,7 +6852,13 @@ export class Renderer {
     // Bloecke die Kuppe. Zusammen mit der halbierten Setzdichte (map.js)
     // bleibt die Felsmenge aehnlich, aber der einzelne Koerper wird
     // markant statt kleinteilig.
-    const sc7=1.30+hash01(i*43+7)*0.36;
+    // 1,30-1,66 war ZU gross: ein Block wurde damit breiter als der
+    // Knotenabstand (52 Weltpixel), und zwei Formationen ein bis zwei
+    // Knoten auseinander liefen ineinander - im Bild ein Haufen Eier
+    // statt einzelner Findlinge (Nutzerbefund "steinanhaeufungen unreal").
+    // Gemessen stehen die Formationen NICHT dicht (0,75 Nachbarn im
+    // Umkreis von zwei Knoten) - es war allein die Zeichengroesse.
+    const sc7=1.05+hash01(i*43+7)*0.30;
     const lz=this.felsLicht(i);
     const sp=hash01(i*53+11);
     const msn=this.massifSnow();

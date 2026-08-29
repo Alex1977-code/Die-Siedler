@@ -783,15 +783,32 @@ export function genWorld(opts){
   };
   // Bergsee im Kessel: das Tal eines großen Ringmassivs bekommt gelegentlich
   // ein kleines Gewässer. Der begehbare Talboden ringsum bleibt erhalten.
+  // WASSERSPIEGEL AUF TALBODENHÖHE (v285). Vorher bekam der Bergsee
+  // map.hgt = -0,10, also MEERESHÖHE - mitten im Gebirge. Gemessen auf
+  // Saat 58 (M): der See lag auf -0,09, seine Nachbarknoten auf 7,03. Das
+  // sind 7,1 Höheneinheiten auf einen Knotenabstand, bei HSCALE 40 also
+  // 284 px Wand auf 52 px Grundriss - eine senkrechte Klippe rund um ein
+  // Loch im Berghang. Im Bild war das die grosse, unbeleuchtete Flaeche
+  // mit der schnurgeraden Kante (Beleg t55_dbg2: dort liegt das Hauptlicht
+  // vollstaendig auf null, weil die Wand von der Sonne wegzeigt).
+  // Der Spiegel liegt jetzt knapp unter dem TIEFSTEN Talbodenknoten, den
+  // der See einnimmt - ein See füllt eine Senke bis zu ihrem Abfluss,
+  // er schneidet kein Loch in den Hang.
   for(const M of massive){
     if(M.form!=='ring' || M.R<11 || rng()>=0.45) continue;
+    const seeK=[];
     for(let Y=Math.max(0,Math.floor((M.cy-M.R*0.4)/ROWQ)); Y<=Math.min(h-1,Math.ceil((M.cy+M.R*0.4)/ROWQ)); Y++)
       for(let X=Math.max(0,Math.floor(M.cx-M.R*0.4)); X<=Math.min(w-1,Math.ceil(M.cx+M.R*0.4)); X++){
         const i=map.idx(X,Y);
         if(!kessel[i]) continue;
         if(Math.hypot(X+(Y&1)*0.5-M.cx, Y*ROWQ-M.cy) > M.R*0.22) continue;
-        map.terr[i]=TER.WATER; map.hgt[i]=-0.10;
+        seeK.push(i);
       }
+    if(!seeK.length) continue;
+    let boden=Infinity;
+    for(const i of seeK) if(map.hgt[i]<boden) boden=map.hgt[i];
+    const spiegel=Math.max(-0.10, boden-0.25);
+    for(const i of seeK){ map.terr[i]=TER.WATER; map.hgt[i]=spiegel; }
   }
 
   // ---- Wälder ----
@@ -912,7 +929,14 @@ export function genWorld(opts){
       const nb=map.nbs(i);
       if(nb.some(q=>map.pass && map.pass[q])) continue;
       if(nb.some(q=>!istBerg(q))) continue;              // Randreihe frei
+      // Mindestabstand ZWEI Knoten statt einem: bei einem Knoten standen
+      // zwei Formationen 52 Weltpixel auseinander und beruehrten sich mit
+      // ihren Bloecken. Einzelne Findlinge, wie im Referenzbild.
       if(nb.some(q=>(map.obj[q]&127)===OBJ.ROCK)) continue;
+      let nah=false;
+      for(const q of nb){ for(const q2 of map.nbs(q))
+        if((map.obj[q2]&127)===OBJ.ROCK){ nah=true; break; } if(nah) break; }
+      if(nah) continue;
       if(rng()>=dichte) continue;
       map.obj[i]=OBJ.ROCK;
     }
@@ -1125,7 +1149,16 @@ export function genWorld(opts){
         // Steilwände stehen ("Steilwände bleiben"). Ohne diese Klausel
         // frisst die Erosion in 28 Durchläufen genau die Absätze weg, die
         // die Plateau-Quantisierung erst erzeugt hat.
-        if(map.hgt[i]>PLAT_H+PLAT_BAND) continue;
+        // HOCHLAGEN-SCHUTZ ENTFERNT (Diorama-Umbau): er liess alles ueber
+        // Hoehe 3,6 unangetastet, um die TERRASSENKANTEN zu bewahren, die
+        // die Hoehen-Quantisierung erzeugt hatte. Diese Quantisierung ist
+        // seit v278 weg (Rasterstaerke 1,00 -> 0,12) - es gibt keine
+        // Terrassen mehr zu schuetzen. Geschuetzt wurden stattdessen die
+        // EINZELSPITZEN des Gipfelbereichs: gemessen sprang die Hoehe
+        // zwischen Nachbarknoten im 99. Perzentil um 5,4 bis 8,2 Einheiten,
+        // bei HSCALE 40 also ueber 300 px auf 52 px Abstand - senkrechte
+        // Waende statt Berg (Nutzerbefund "hoehentopologie ... pruefen").
+        // Jetzt erodiert der ganze Koerper, und die Kuppe wird rund.
         const nb=map.nbs(i);
         let sum=0, dmax=0;
         for(const b of nb){
@@ -1188,6 +1221,76 @@ export function genWorld(opts){
     }
   }
 
+  // ---- WANDBRECHER: Talus-Umlagerung gegen echte Wände (v285) ----
+  // Die thermische Erosion oben lässt Wasserknoten AUS: aktiv[] schließt
+  // TER.WATER aus, als Quelle wie als Ziel. Jede Kante, an der Land auf
+  // Wasser trifft, überlebt darum alle 40 Durchläufe unverändert - und
+  // genau dort standen die Wände. Gemessen auf Saat 58 (M) grenzte ein
+  // Seeknoten auf Höhe -0,09 unmittelbar an Land auf 7,03: 284 px Wand
+  // auf 52 px Grundriss. Meine erste Topologie-Messung hatte das nicht
+  // gesehen, weil sie Wasser AUSGEKLAMMERT hatte - der Fehler saß in der
+  // Lücke der Messung.
+  // ERSTER VERSUCH, VERWORFEN: eine harte Deckelung (hgt[i] = tiefster
+  // Nachbar + 1,30). Sie hat die Wand zwar weggenommen, aber dabei eine
+  // exakte TREPPE gebaut - gemessen standen die Knoten danach auf 1,2 /
+  // 2,5 / 3,8 / 5,1, Stufen von genau 1,30. Das ist derselbe Terrassen-
+  // Look, den v278 mit der Quantisierung ausgebaut hat.
+  // JETZT: dieselbe Talus-Umlagerung wie oben, aber über die GANZE Karte
+  // und mit hoher Schwelle (1,10 ~ 40 Grad bei HSCALE 40 auf TILE 52).
+  // Sie verschiebt Material, statt Höhen zu setzen - dadurch entsteht
+  // eine Böschung mit Rundung statt einer Stufe. Auf gewachsenem Land
+  // feuert sie fast nie (dort lag das 99. Perzentil der Nachbarsprünge
+  // bei 0,93 bis 1,00), sie trifft die Uferkanten und die Abbrüche zur
+  // See - und legt damit die Uferböschung an, die das Referenzbild zeigt.
+  // Der Wasserspiegel bleibt eben: Wasserknoten geben nichts ab und
+  // werden nach jedem Durchlauf auf ihren Pegel zurückgesetzt (das
+  // eingespülte Material gilt als weggeschwemmt).
+  {
+    const n=w*h, TALUS=1.10, RATE=0.55, ITER=70;
+    const wasser=new Uint8Array(n), pegel=new Float32Array(n);
+    for(let i=0;i<n;i++) if(map.terr[i]===TER.WATER){ wasser[i]=1; pegel[i]=map.hgt[i]; }
+    const delta=new Float32Array(n);
+    // ARBEITSLISTE statt Vollscan: 110 Durchläufe über die ganze Karte
+    // kosteten gemessen 300 ms zusätzliche Erzeugungszeit (196 -> 481 ms
+    // auf Größe M). Übersteil ist aber nur ein Bruchteil eines Prozents
+    // der Knoten. Der erste Durchlauf sieht alles, danach nur noch die
+    // Knoten, an denen sich etwas bewegt hat, samt ihrem Umfeld - dorthin
+    // kann sich die Übersteilung im nächsten Durchlauf fortpflanzen.
+    // Das Ergebnis ist rechnerisch dasselbe (gegengeprüft: identische
+    // p90/p99/max auf drei Saaten).
+    const inListe=new Uint8Array(n);
+    let liste=[];
+    for(let i=0;i<n;i++) if(!wasser[i]){ liste.push(i); inListe[i]=1; }
+    for(let it=0; it<ITER && liste.length; it++){
+      const beruehrt=[];
+      for(const i of liste){
+        const nb=map.nbs(i);
+        let sum=0, dmax=0;
+        for(const b of nb){
+          const d=map.hgt[i]-map.hgt[b];
+          if(d>TALUS){ sum+=d-TALUS; if(d>dmax) dmax=d; }
+        }
+        if(sum<=0) continue;
+        const move=Math.min((dmax-TALUS)*0.5, sum)*RATE;
+        for(const b of nb){
+          const d=map.hgt[i]-map.hgt[b];
+          if(d>TALUS){ delta[b]+=move*(d-TALUS)/sum; beruehrt.push(b); }
+        }
+        delta[i]-=move; beruehrt.push(i);
+      }
+      if(!beruehrt.length) break;
+      // Höhen fortschreiben (delta wird dabei geleert, doppelte Einträge
+      // in beruehrt schaden deshalb nicht), Wasserspiegel bleibt eben
+      for(const i of beruehrt) if(delta[i]){ map.hgt[i]+=delta[i]; delta[i]=0; }
+      for(const i of beruehrt) if(wasser[i]) map.hgt[i]=pegel[i];
+      for(const i of liste) inListe[i]=0;
+      liste=[];
+      for(const i of beruehrt){
+        if(!wasser[i] && !inListe[i]){ inListe[i]=1; liste.push(i); }
+        for(const b of map.nbs(i)) if(!wasser[b] && !inListe[b]){ inListe[b]=1; liste.push(b); }
+      }
+    }
+  }
   // ---- Erz in LAGERSTÄTTEN statt flächendeckend ----
   // Nutzerurteil v98: "bergwerke fördern aktuell immer ohne geologen
   // erkundung ob dort etwas ist. kann man ja per zufall treffen auch ohne

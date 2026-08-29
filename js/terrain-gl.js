@@ -545,9 +545,23 @@ void main(){
   // Key mit Subsurface-Anteil (weicher, warm auslaufender Terminator);
   // der Schattenmarsch geht nur noch WEICH ein und steht standardmaessig
   // aus (Spez: keine harten Schlagschatten)
-  float ndk = max(dot(nK, C_KEYDIR), 0.0);
-  float sss = pow(clamp(dot(nK, C_KEYDIR)*0.5 + 0.5, 0.0, 1.0), 2.2);
-  float key = (ndk*0.82 + sss*0.18) * (0.55 + 0.45*schatten);
+  // WEICHER TERMINATOR (v285). Gemessen am Hangbeleg (t55_dbg2, reines
+  // Key-Licht): die sonnenabgewandte Bergflanke lag vollstaendig auf
+  // null, und weil die Flanke plan ist, lief die Grenze als SCHNURGERADE
+  // Kante quer durchs Bild - die "blasse Flaeche mit gerader Kante".
+  // Ursache ist der Knick von max(dot,0) bei genau 90 Grad.
+  // ERSTER VERSUCH, VERWORFEN: reines Halb-Lambert pow(nd*0.5+0.5, 2.2).
+  // Die Kante verschwand, aber gemessen stieg die Schattenflanke von
+  // Helligkeit 134,5 auf 143,2 und lag damit HELLER als die Sonnenseite
+  // (141,3) - der Schatten war weg, das warme Hauptlicht flutete die
+  // abgewandte Seite (Faktor 5,6 bei nd 0).
+  // JETZT: Wrap-Diffus mit kleinem Ueberhang (0,18) und Toe-Gamma 1,31.
+  // Das Gamma legt die besonnte Haelfte exakt auf die alten Werte
+  // zurueck (nd 1,0 -> 1,000 wie vorher, nd 0,699 - ebener Boden ->
+  // 0,700 wie vorher), waehrend bei nd 0 kein Knick mehr sitzt; der
+  // verbliebene Knick liegt bei nd -0,18, wo ohnehin nur Ambient traegt.
+  float nd  = dot(nK, C_KEYDIR);
+  float key = pow(max((nd + 0.18) / 1.18, 0.0), 1.31) * (0.55 + 0.45*schatten);
   // AO: Hoehe gegen weichgezeichnete Hoehe (G-Kanal von tHgt, CPU-seitig
   // vorgerechnet) - Senken und Stufenfuesse liegen im weichen Eigenschatten
   float hRel = vHgt / max(1.0, uHfeld.z);
@@ -558,6 +572,20 @@ void main(){
   // (Diorama-Insel im Abendlicht) - die Sonne deutlich warm, der Himmel
   // nur noch mild blau, der Bodenreflex goldig. Die Variante-5-Spez
   // stand auf neutralem Tageslicht; die Referenz sticht die Spez.
+  // VERSUCH UND IRRTUM (v285, hier dokumentiert damit es niemand noch
+  // einmal probiert): die blasse Bergflanke sah nach zu schwachem
+  // Schatten aus - gemessen 134,5 Helligkeit gegen 144,0 auf der
+  // Sonnenseite, Saettigung 0,28 gegen 0,60. Ich habe daraufhin das
+  // Fuell-Licht auf 0,14 gesenkt und beides entschieden blau gefaerbt
+  // (0,30/0,46/0,86 statt 0,50/0,58/0,78), Ambient 0,26 -> 0,20.
+  // Gemessen brachte das die Saettigung NICHT zurueck (0,278 -> 0,267)
+  // und nahm dem ganzen Bild vier Helligkeitspunkte. Verworfen.
+  // Die Ursache lag nicht im Licht, sondern in der Geometrie: dort stand
+  // eine senkrechte Wand aus der Kartenerzeugung (siehe Wandbrecher in
+  // map.js). Die Messung war ausserdem irrefuehrend, weil "Schattenseite"
+  // und "Sonnenseite" hier zugleich verschiedene MATERIALIEN waren -
+  // Fels gegen Wiese; ein Grossteil des Saettigungsunterschieds war die
+  // Felsfarbe (#7E7669, Saettigung 0,17), nicht die Beleuchtung.
   float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
   vec3 amb = mix(vec3(0.40, 0.33, 0.22), vec3(0.60, 0.64, 0.74), up) * 0.26;
   vec3 direct = vec3(1.18, 0.98, 0.72) * key * 1.10
