@@ -127,6 +127,43 @@ vec3 hol(sampler2D t, float sk){
   return texture2D(t, w / sk).rgb;
 }
 
+// ---- Steinblockwerk: der Fels im Stil der gemalten Steinhaufen ----
+// Nutzerentscheid nach v267: "die berge sollen den stil der steinhaufen
+// haben" - also einzelne, plastisch gewoelbte Bloecke mit eigenem Ton
+// und schmalen dunklen Fugen, wie die obj_-Felsobjekte. Prozedural als
+// Voronoi: jede Zelle ein Stein. Der Ton kommt aus dem Zell-Hash, die
+// Woelbung aus der Richtung zum Steinzentrum (Nordwest-Seite hell, wie
+// die Sprites gemalt sind), die Fuge aus dem Abstand zweier Zentren.
+vec2 sh2(vec2 z){
+  float h = fract(sin(dot(z, vec2(127.1, 311.7))) * 43758.5453);
+  return vec2(h, fract(h * 167.17));
+}
+vec3 steine(vec3 grund){
+  float SK = 34.0;                       // Steingroesse in Weltpixeln
+  vec2 u = vWorld / SK;
+  // Zellraster leicht verbiegen, sonst stehen die Steine in Reihen
+  u += 0.35 * vec2(sin(u.y*1.7), sin(u.x*1.9));
+  vec2 zi = floor(u), zf = u - zi;
+  float d1 = 8.0, d2 = 8.0; vec2 best = vec2(0.0); vec2 bid = vec2(0.0);
+  for(int dy=-1; dy<=1; dy++)
+  for(int dx=-1; dx<=1; dx++){
+    vec2 nb = vec2(float(dx), float(dy));
+    vec2 p = nb + sh2(zi + nb) - zf;     // Fragment -> Nachbarzentrum
+    float d = dot(p, p);
+    if(d < d1){ d2 = d1; d1 = d; best = p; bid = zi + nb; }
+    else if(d < d2){ d2 = d; }
+  }
+  vec2 h = sh2(bid + 7.3);
+  float ton = 0.84 + 0.30 * h.x;         // jeder Stein ein eigener Ton
+  // Woelbung: best zeigt vom Fragment zum Zentrum; auf der Nordwest-
+  // Seite des Steins zeigt es nach Suedost (x+y > 0) -> Lichtseite
+  vec2 nrm = best / max(0.001, length(best));
+  float licht = 0.5 + 0.5 * clamp((nrm.x + nrm.y) * 0.7, -1.0, 1.0);
+  float fuge = 1.0 - smoothstep(0.04, 0.16, sqrt(d2) - sqrt(d1));
+  vec3 c = grund * ton * (0.82 + 0.34 * licht);
+  return mix(c, grund * 0.45, fuge * 0.7);
+}
+
 // ---- Wasser: zwei driftende Lagen + leises Glitzern ----
 // Der 2D-Weg brauchte dafuer Muster-Transformationen je Frame, einen
 // 1/6-Offscreen und Stempel-Schleifen (waterStamps). Hier sind es zwei
@@ -218,7 +255,7 @@ void main(){
              * sin(vWorld.y*0.037 - 1.5*sin(vWorld.x*0.019))
              + 0.6 * sin(vWorld.x*0.089 - 1.7*sin(vWorld.y*0.047))
                    * sin(vWorld.y*0.079 + 1.3*sin(vWorld.x*0.053));
-  vec3 fels = uFelsCol * (0.97 + 0.05*korn);
+  vec3 fels = steine(uFelsCol * (0.97 + 0.05*korn));
   vec3 massiv = mix(fels, hol(tSchnee, uSk1.z), sMix);
   vec3 alb =
       hol(tWiese,  uSk1.x) * w1.x + hol(tWueste, uSk1.y) * w1.y
@@ -355,16 +392,15 @@ void main(){
   // Felsobjekte darauf wie aufgeklebt wirkten (Nutzerfoto v266, "mehr
   // kontur ... felsobjekte gut integriert") - die feine Lage bringt das
   // Detailniveau des Bodens an das der Objekte heran.
+  // Seit dem Steinblockwerk (steine) traegt das MATERIAL die
+  // Kleinteiligkeit - der Zellkipp ist auf eine dezente grobe Lage
+  // zurueckgenommen, sonst doppeln sich die Facetten unruhig.
   {
     float m9 = clamp(mas, 0.0, 1.0);
     vec2 z9 = floor(vGrid + 0.5);
     float f1 = fract(sin(dot(z9, vec2(127.1, 311.7))) * 43758.5453);
     float f2 = fract(f1 * 167.17);
-    n.xy += (vec2(f1, f2) - 0.5) * 0.32 * m9;
-    vec2 z8 = floor(vGrid * 2.0 + 0.5);
-    float g1 = fract(sin(dot(z8, vec2(269.5, 183.3))) * 43758.5453);
-    float g2 = fract(g1 * 113.13);
-    n.xy += (vec2(g1, g2) - 0.5) * 0.18 * m9;
+    n.xy += (vec2(f1, f2) - 0.5) * 0.18 * m9;
   }
   n = normalize(n);
   float lam = max(0.0, dot(n, uSun));
