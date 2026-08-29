@@ -406,11 +406,20 @@ void main(){
     // Ein Bergsee hat ein Felsufer, keinen Strand - derselbe Befund stand
     // im 2D-Weg schon als v101-Kommentar am Sandpinsel; und die
     // Winterkueste behaelt ihren Schnee.
+    float weich = clamp(landWeich / max(0.001, 1.0 - aw), 0.0, 1.0);
     float strand = smoothstep(0.02, 0.16, aw) * (1.0 - smoothstep(0.28, 0.52, aw));
-    strand *= clamp(landWeich / max(0.001, 1.0 - aw), 0.0, 1.0);
+    strand *= weich;
     alb = mix(alb, mWueste, strand * 0.55);
-    // Flachwasser-Aufhellung und Schaum macht seit Variante 5 wasser()
-    // selbst (Tiefengradient + rechnerische Uferkante)
+    // NASSER SAND (Referenz-Diorama): direkt unter der Wasserlinie
+    // dunkelt der Strand feucht ab ...
+    float nass = smoothstep(0.24, 0.42, aw) * (1.0 - smoothstep(0.46, 0.60, aw)) * weich;
+    alb *= 1.0 - 0.16 * nass;
+    // ... und GENAU auf der Wasserlinie laeuft die duenne weisse
+    // Schaumkante, leicht verrauscht; die fleckigen Schaumkronen im
+    // Flachwasser macht wasser() weiter selbst. Beide nur an weichen
+    // Ufern - ein Bergsee hat keinen Schaumstrand.
+    float linie = clamp(1.0 - abs(aw - 0.47 - 0.05*(rausch - 0.5)) * 11.0, 0.0, 1.0);
+    alb += vec3(1.0) * linie * weich * 0.30;
   }
 
   // ---- Themenfarbe daruebergelegt ----
