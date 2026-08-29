@@ -8390,18 +8390,29 @@ export class Renderer {
     this._uMask.set(key,out);
     return out;
   }
-  // Welcher Baum steht hier? Landschaft, Nachbarschaft und Wachstumsstufe
+  // Welcher Baum steht hier? Landschaft, Nachbarschaft und Wachstumsstufe.
+  // Liefert { key, art } - art ist die Tonlage der Krone (s. tintedTree).
+  // Die Lieferung enthaelt naemlich nur ZWEI Laubbaeume und EINEN
+  // Nadelbaum: tree_leaf und tree_birch sind dieselbe Datei, tree_beech
+  // und tree_oak ebenfalls, tree_conifer und tree_spruce auch (gemessen
+  // ueber die Pruefsummen). Der ganze Wald bestand damit aus drei Bildern.
+  // Die Tonlage faechert das auf, ohne neue Grafik zu brauchen.
   treeKindOf(m,i,st,hsh){
-    if(st===1 && this.asset('tree_sapling')) return 'tree_sapling';
+    const art=(hash01(i*11+3)*4)|0;
+    if(st===1 && this.asset('tree_sapling')) return {key:'tree_sapling', art};
     const th=this.theme;
     const nearWater=m.nbs(i).some(n=>m.terr[n]===TER.WATER);
-    // Trauerweide nur auf Sommerwiese (Kritik N9): in ihr Blatt ist ein
-    // gruener Teich samt Seerosen eingebacken - auf Schnee, Strand oder in
-    // der Winterwelt stand der Baum mit seinem eigenen Sommerbiotop da.
-    if(nearWater && this.asset('tree_willow') && hsh<0.55
-       && th!=='winter' && m.terr[i]===TER.GRASS
-       && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT))
-      return 'tree_willow';
+    // TRAUERWEIDE RAUS (v287). Nutzerbefund "ich sehe noch alte baeume":
+    // sie war der letzte Baum im alten Zeichenstil - Linienzeichnung mit
+    // dunklen Konturen, blassem Salbeigruen und einem EINGEBACKENEN
+    // Biotop (Teich mit Seerosen, Steine, Grasbueschel) unter der Krone.
+    // Die Diorama-Lieferung (v276) hat Eiche, Buche, Birke, Laubbaum und
+    // Setzling ersetzt, die Weide aber nicht - am Wasser stand deshalb
+    // zwischen lauter Kugelbaeumen ein Baum aus einem anderen Spiel, und
+    // weil die Regel bei 55 Prozent zuschlug, stand er dort sogar oft.
+    // Am Wasser waechst jetzt der Laubbaum in seiner tiefsten Tonlage
+    // (Spielart 2, s. tintedTree): dunkleres, kuehleres Gruen, wie es am
+    // Ufer steht - gleiche Zeichensprache, trotzdem unterscheidbar.
     // tree_conifer nicht mehr NEBEN tree_spruce (Kritik N11): die glatte,
     // hellgruene "Gummibaum"-Tanne und die detaillierte dunkle Fichte sind
     // zwei Zeichensprachen - im selben Waldstueck beissen sie sich. Die
@@ -8413,24 +8424,66 @@ export class Renderer {
       winter: ['tree_winter','tree_spruce','tree_dead'],
       wueste: ['tree_palm','tree_dead','tree_stump'],
       vulkan: ['tree_dead','tree_conifer','tree_stump'],
-      sumpf:  ['tree_willow','tree_birch','tree_dead','tree_beech'],
+      sumpf:  ['tree_leaf','tree_birch','tree_dead','tree_beech'],
       gebirge:['tree_spruce','tree_birch'],
     };
     const list=(SETS[th]||SETS.gruen).filter(k=>this.asset(k));
-    if(!list.length) return this.asset('tree_leaf')?'tree_leaf':'tree_conifer';
-    return list[Math.floor(hsh*list.length)%list.length];
+    if(!list.length) return {key: this.asset('tree_leaf')?'tree_leaf':'tree_conifer', art};
+    const key=list[Math.floor(hsh*list.length)%list.length];
+    // Am Wasser die tiefste Tonlage - dort, wo frueher die Weide stand,
+    // steht jetzt ein dunkler, kuehler Laubbaum. Nadelbaeume bleiben bei
+    // ihrer eigenen Streuung, sie sind ohnehin dunkel.
+    if(nearWater && th!=='winter' && m.terr[i]===TER.GRASS
+       && key!=='tree_spruce' && key!=='tree_conifer'
+       && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT))
+      return {key, art:2};
+    return {key, art};
   }
   // Baumbilder einmalig an die Wiesenpalette anpassen + zum Boden hin abdunkeln
-  tintedTree(key){
+  tintedTree(key, art=0){
     const img=this.asset(key);
     if(!img) return null;
     if(!this._tint) this._tint=new Map();
-    let cv=this._tint.get(key);
+    const ck=key+'#'+art;
+    let cv=this._tint.get(ck);
     if(cv) return cv;
     cv=document.createElement('canvas');
     cv.width=img.naturalWidth; cv.height=img.naturalHeight;
     const t=cv.getContext('2d');
     t.drawImage(img,0,0);
+    // TONLAGE DER KRONE (v287). Der Wald bestand aus drei Bildern (s.
+    // treeKindOf) und sah deshalb gestempelt aus; im Referenzbild stehen
+    // Baeume in mehreren Gruentoenen beieinander, von gelbgruen bis tief
+    // und kuehl. Verschoben wird NUR die Krone: Blattpixel erkennt man
+    // daran, dass Gruen fuehrt. Der Stamm bleibt unangetastet, sonst
+    // haetten die Baeume auch verschiedenfarbige Staemme.
+    // 0 bleibt wie geliefert, damit der Grundton der Lieferung erhalten
+    // bleibt und die Faecherung um ihn herum liegt.
+    if(art>0){
+      try{
+        const id=t.getImageData(0,0,cv.width,cv.height), d=id.data;
+        // [Rot, Gruen, Blau, Helligkeit] als Faktoren
+        const F=[[1,1,1,1],
+                 [1.06,1.00,0.86,1.03],   // 1: waermer, gelbgruener, heller
+                 [0.86,0.93,1.06,0.86],   // 2: tiefer und kuehler (Ufer)
+                 [0.99,1.02,1.00,1.08]][art] || [1,1,1,1];
+        // Blatt oder Stamm? Erster Versuch war "Gruen fuehrt" (g>r+6 und
+        // g>b+6) - der hat die GELBEN LICHTER der Krone ausgelassen, weil
+        // dort r und g gleichauf liegen. Ergebnis war ein fleckiger Baum:
+        // obere Krone unveraendert gelb, untere dunkelgruen (Beleg
+        // tonlagen.png). Der Stamm ist das eindeutige Merkmal - er ist
+        // braun, r liegt dort rund 55 ueber g. Alles andere ist Krone.
+        for(let q=0;q<d.length;q+=4){
+          if(d[q+3]<8) continue;
+          const r=d[q], g2=d[q+1], b=d[q+2];
+          if(r > g2+28) continue;                  // braun -> Stamm
+          d[q]  =Math.max(0,Math.min(255, r *F[0]*F[3]));
+          d[q+1]=Math.max(0,Math.min(255, g2*F[1]*F[3]));
+          d[q+2]=Math.max(0,Math.min(255, b *F[2]*F[3]));
+        }
+        t.putImageData(id,0,0);
+      }catch(_){ /* Tonlage ist Kuer - notfalls bleibt der Grundton */ }
+    }
     t.globalCompositeOperation='source-atop';
     // die neuen Bäume sind bereits farblich abgestimmt – kein Farbstich mehr
     const gr=t.createLinearGradient(0,cv.height*0.72,0,cv.height);
@@ -8439,7 +8492,7 @@ export class Renderer {
     t.fillStyle=gr;
     t.fillRect(0,0,cv.width,cv.height);
     t.globalCompositeOperation='source-over';
-    this._tint.set(key,cv);
+    this._tint.set(ck,cv);
     return cv;
   }
   // G9: Anteil der DURCHSICHTIGEN Luft unter dem sichtbaren Inhalt eines
@@ -11623,11 +11676,15 @@ export class Renderer {
       case OBJ.SAPLING: case OBJ.TREE2: case OBJ.TREE: {
         const st=o===OBJ.SAPLING?1:o===OBJ.TREE2?2:3;
         const hsh=hash01(i);
-        const sc=0.85+hash01(i*7+1)*0.3;
+        // GROESSENSTREUUNG (v287). 0,85-1,15 war ein Unterschied von 30
+        // Prozent - im Bild standen praktisch gleich grosse Baeume in
+        // Reihen. Im Referenzbild steht in jeder Gruppe ein grosser Baum
+        // neben zwei kleineren, Verhaeltnis fast 2:1. Jetzt 0,74-1,30.
+        const sc=0.74+hash01(i*7+1)*0.56;
         // Baumarten je Landschaft; Setzlinge und Jungbäume haben eigene Bilder
-        const treeKey=this.treeKindOf(m,i,st,hsh);
+        const {key:treeKey, art:treeArt}=this.treeKindOf(m,i,st,hsh);
         const species=treeKey==='tree_conifer'||treeKey==='tree_spruce'?0:1;
-        const ovT=this.tintedTree(treeKey);
+        const ovT=this.tintedTree(treeKey, treeArt);
         // Jungbaum ist deutlich kleiner als der ausgewachsene Stamm, der
         // Setzling bringt seine eigene (kleine) Grafik mit
         const grow=(treeKey==='tree_sapling')?1:(st===3?1:st===2?0.52:0.34);
