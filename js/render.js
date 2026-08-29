@@ -6828,7 +6828,22 @@ export class Renderer {
   felsFormPos(i){
     const m=this.game.map;
     const [px,py]=m.worldPos(i);
-    return [px, py-this.liftAt(i)*HSCALE];
+    // Auf die ANZEIGEHOEHE setzen: die GPU-Ebene zeichnet den Boden an der
+    // geglaetteten Hoehe, worldPos liefert die rohe Kartenhoehe. Auf einem
+    // Hang klaffte dazwischen eine Luecke - und seit die Bloecke deutlich
+    // groesser sind (v281), sieht man sie sofort: der Stein haengt in der
+    // Luft (Nutzerbefund "die steine passen nicht zur topologie").
+    // EINSINKEN: zusaetzlich ein Stueck in den Boden, damit auch am Hang
+    // keine Fuge unter der Bergseite stehen bleibt. Ein Findling liegt
+    // eingebettet, er steht nicht auf der Wiese.
+    const yl=py+(m.hgt[i]-this.anzeigeH(i))*HSCALE-this.liftAt(i)*HSCALE;
+    return [px, yl+this.felsEinsinken(i)];
+  }
+  // Wie tief sinkt der Block ein? Mit der Neigung: auf ebenem Grund reicht
+  // ein Hauch, an einer Flanke muss die Bergseite ganz verschwinden.
+  felsEinsinken(i){
+    const s=this.slopeOf ? this.slopeOf(this.game.map, i) : 0;
+    return 3 + Math.min(14, s*9);
   }
   drawFelsFormation(g, m, i){
     const [px,py]=this.felsFormPos(i);
@@ -11306,7 +11321,13 @@ export class Renderer {
     return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f];
   }
   drawObj(g, m, i, o){
-    const [x,y]=m.worldPos(i);
+    const [x,yRoh]=m.worldPos(i);
+    // ANZEIGEHOEHE statt Kartenhoehe: die GPU-Ebene zeichnet den Boden an
+    // der geglaetteten Hoehe. Baeume, Steinhaufen und Deko standen sonst
+    // um die Differenz daneben - am Hang sichtbar als Luftspalt unter dem
+    // Objekt. Der Fels hat seinen eigenen Anker (felsFormPos), der
+    // dieselbe Korrektur schon mitbringt.
+    const y=yRoh+(m.hgt[i]-this.anzeigeH(i))*HSCALE;
     switch(o){
       case OBJ.SAPLING: case OBJ.TREE2: case OBJ.TREE: {
         const st=o===OBJ.SAPLING?1:o===OBJ.TREE2?2:3;
