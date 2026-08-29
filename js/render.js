@@ -296,11 +296,28 @@ export class Renderer {
     // UNTER der 2D-Ebene; Figuren, Gebaeude, Nebel und HUD bleiben in 2D
     // darueber. Fehlt WebGL, bleibt glTerrain null und alles laeuft wie
     // bisher - der 2D-Weg ist der Rueckfall, nicht Altlast.
+    this.glCv = glCanvas || null;      // fuer den Ueberstrahl-Pass gebraucht
     this.glTerrain = glCanvas? new TerrainGL(glCanvas) : null;
     if(this.glTerrain && !this.glTerrain.verfuegbar()) this.glTerrain=null;
     // Schalter fuer den A/B-Vergleich und fuer Messungen. Vorgabe: an,
     // sobald WebGL da ist.
     this.glAn = !!this.glTerrain;
+    // UEBERSTRAHL VORGABE AUS - und zwar aus einem gemessenen Grund, nicht
+    // aus Vorsicht. Der Pass liest die Hauptleinwand zurueck
+    // (drawImage + getImageData). Gemessen kippt Chromium eine Leinwand,
+    // die jedes Bild zurueckgelesen wird, aus der Beschleunigung in den
+    // Software-Pfad: unter swiftshader wurde das Bild dadurch SCHNELLER
+    // (22,8 / 23,3 ms mit Ueberstrahl gegen 137,9 / 139,9 ms ohne, in
+    // beiden Reihenfolgen gemessen). Auf einem Geraet mit echter
+    // Grafikeinheit wirkt derselbe Mechanismus andersherum - dort wuerde
+    // die 2D-Ebene ihre Beschleunigung verlieren. Solange das nicht auf
+    // einem echten Telefon nachgemessen ist, bleibt der Pass Opt-in
+    // (renderer.bloomAus=false schaltet ihn zu), genau wie der
+    // Tilt-Shift-Weichzeichner, der aus demselben Grund aus ist.
+    // Der richtige Ort waere ein GL-Nachbearbeitungsschritt auf einem
+    // Zwischenpuffer des Gelaendes - der braeuchte kein Zurueckreden und
+    // wuerde nebenbei GTAO und Tiefenunschaerfe ermoeglichen.
+    this.bloomAus = true;
     this.chunks=new Map();
     this.chunkVer=new Map();
     this._signsSeen=new Set();
@@ -1320,7 +1337,7 @@ export class Renderer {
     const g=v.getContext('2d');
     const rad=g.createRadialGradient(w/2,h/2, Math.min(w,h)*0.42, w/2,h/2, Math.hypot(w,h)*0.62);
     rad.addColorStop(0,'rgba(8,12,20,0)');
-    rad.addColorStop(1,'rgba(8,12,20,0.22)');
+    rad.addColorStop(1,'rgba(8,12,20,0.20)');   // Stilguide: Vignette 0,20
     g.fillStyle=rad; g.fillRect(0,0,w,h);
     this.vignette=v;
   }
@@ -11604,6 +11621,65 @@ export class Renderer {
       if(R+F<this.vw) g.fillRect(R+F,0,this.vw-(R+F),this.vh);
       if(T-F>0) g.fillRect(0,0,this.vw,T-F);
       if(B+F<this.vh) g.fillRect(0,B+F,this.vw,this.vh-(B+F));
+    }
+    // ---- UEBERSTRAHL / BLOOM (Stilguide: schwach, hoher Schwellwert,
+    //      Intensitaet 0,15) ----
+    // Die Karte liegt auf ZWEI Leinwaenden - das Gelaende in GL darunter,
+    // alles andere in 2D darueber. Fuer einen Ueberstrahl ueber das ganze
+    // Bild muss beides erst in einem kleinen Bild zusammengefuehrt
+    // werden. Ein Achtel der Sichtgroesse reicht: der Ueberstrahl ist
+    // ohnehin unscharf, und das Hochziehen beim Zurueckzeichnen IST die
+    // Weichzeichnung (bilinear, kein eigener Weichzeichner, kein
+    // ctx.filter - das bleibt wegen iOS tabu).
+    // Der Schwellwert kommt NICHT aus einem Blendmodus, sondern aus der
+    // Luminanz je Bildpunkt, die zur DECKKRAFT wird. Das ist der Kern:
+    // mit voller Deckkraft legt 'lighter' auf den DURCHSICHTIGEN Teil der
+    // 2D-Ebene (also ueberall dort, wo man das GL-Gelaende sieht) eine
+    // graue Folie und zieht das Bild herunter, statt nur die Lichter zu
+    // heben. Mit Deckkraft aus der Luminanz tragen dunkle Punkte nichts
+    // bei - genau das, was ein Ueberstrahl tun soll.
+    if(!this.bloomAus){
+      const bw9=Math.max(24, Math.round(this.vw/10)), bh9=Math.max(24, Math.round(this.vh/10));
+      if(!this._blC) this._blC=document.createElement('canvas');
+      const bc=this._blC;
+      if(bc.width!==bw9||bc.height!==bh9){ bc.width=bw9; bc.height=bh9; this._blNeu=true; }
+      // NUR JEDES DRITTE BILD NEU RECHNEN. Gemessen kostete der Pass bei
+      // jedem Bild 16,3 ms (swiftshader, 920x1000, Zoom 1,4). Der teure
+      // Teil ist das Verkleinern der beiden Leinwaende, nicht die
+      // Schwellwertschleife (bei einem Zehntel sind das 9200 Bildpunkte).
+      // Der Ueberstrahl ist stark unscharf und liegt mit 15 Prozent auf -
+      // ein zwei Bilder alter Stand faellt darin nicht auf. Genau dieselbe
+      // Ueberlegung wie beim Tilt-Shift-Band.
+      this._blZ=(this._blZ||0)+1;
+      const neu9 = this._blNeu || (this._blZ%3===0);
+      this._blNeu=false;
+      const q9=bc.getContext('2d', {willReadFrequently:true});
+      if(neu9){
+        q9.setTransform(1,0,0,1,0,0);
+        q9.globalCompositeOperation='copy';
+        if(glAktiv && this.glCv) q9.drawImage(this.glCv, 0,0,bw9,bh9);
+        else { q9.fillStyle='#000'; q9.fillRect(0,0,bw9,bh9); }
+        q9.globalCompositeOperation='source-over';
+        q9.drawImage(this.cv, 0,0,bw9,bh9);
+        try{
+          const id9=q9.getImageData(0,0,bw9,bh9), d9=id9.data;
+          const SCHW=0.78;                    // hoher Schwellwert (Stilguide)
+          for(let p9=0;p9<d9.length;p9+=4){
+            const L9=(0.2126*d9[p9]+0.7152*d9[p9+1]+0.0722*d9[p9+2])/255;
+            d9[p9+3]= L9<=SCHW ? 0 : Math.round(255*Math.min(1,(L9-SCHW)/(1-SCHW)));
+          }
+          q9.putImageData(id9,0,0);
+          this._blOk=true;
+        }catch(_){ this._blOk=false; }        // getImageData gesperrt
+      }
+      if(this._blOk){
+        g.save();
+        g.globalCompositeOperation='lighter';
+        g.globalAlpha=0.15;
+        g.imageSmoothingEnabled=true;
+        g.drawImage(bc, 0,0,this.vw,this.vh);
+        g.restore();
+      }
     }
     // Vignette (Bildschirmraum)
     if(this.vignette) g.drawImage(this.vignette,0,0);

@@ -138,14 +138,36 @@ vec3 hol(sampler2D t, float sk){
   return pow(texture2D(t, w / sk).rgb, vec3(2.2));   // sRGB -> linear
 }
 
-// Filmlicht-Richtungen (Cartoon-Spez Variante 5, vornormalisiert):
-// Key warm von oben links, Fill kuehl von rechts, Rim von hinten oben,
-// Blick leicht von vorn oben. Gleiche Achsen wie uSun (x rechts,
-// y nach unten im Bild, z aus dem Boden).
-const vec3 C_KEYDIR  = vec3(-0.459, -0.549, 0.699);
-const vec3 C_FILLDIR = vec3( 0.623,  0.382, 0.683);
+// ---- LICHTAUFBAU NACH DEM STILGUIDE "STYLIZED DIORAMA RENDER" (v288) ----
+// Verbindlich sind: EINE warme, tiefstehende Sonne von oben links
+// (#FFE2B8, Hoehenwinkel 35 Grad), eine Hemisphaeren-Aufhellung
+// (Himmel #CFE2FF, Boden #8A7A5C) und ein neutrales Rundum-Licht.
+// KEIN zweites gerichtetes Licht - das frueher hier stehende C_FILLDIR
+// ist raus (Spez: "Fill: HemisphereLight"). Die Form auf der
+// Schattenseite traegt jetzt die Verdeckungsrechnung (AO), nicht ein
+// zweiter Scheinwerfer; genau so entsteht der Diorama-Eindruck.
+//
+// Hoehenwinkel: sin(35 Grad) = 0,574. Der Azimut bleibt wie gehabt
+// (Einheitsrichtung in der Bildebene -0,641/-0,767), mit cos(35 Grad)
+// = 0,819 skaliert. Vorher standen 0,699, also 44,4 Grad - die Sonne
+// steht jetzt tiefer und streift die Haenge staerker.
+const vec3 C_KEYDIR  = vec3(-0.525, -0.628, 0.574);
 const vec3 C_RIMDIR  = vec3( 0.200,  0.750, 0.630);
 const vec3 C_VDIR    = vec3( 0.000, -0.349, 0.937);
+// Lichtfarben und -staerken aus dem Stilguide. Die Zahlen dort sind
+// three.js-Einheiten (die Sprite-Baeckerei rechnet damit), hier steht ein
+// eigener Shader: uebernommen werden die FARBEN und die VERHAELTNISSE,
+// die Gesamthelligkeit stellt LICHT_SKALA. Sie ist so kalibriert, dass
+// die mittlere Bildhelligkeit gegenueber v287 (gemessen 141,3) gleich
+// bleibt - die Umstellung soll als Lichtwechsel lesen, nicht als
+// Belichtungssprung.
+const vec3  C_SONNE  = vec3(1.000, 0.886, 0.722);   // #FFE2B8
+const vec3  C_HIMMEL = vec3(0.812, 0.886, 1.000);   // #CFE2FF
+const vec3  C_GRUND  = vec3(0.541, 0.478, 0.361);   // #8A7A5C
+const float I_SONNE  = 2.50;
+const float I_HEMI   = 0.60;
+const float I_ENV    = 0.30;
+const float LICHT_SKALA = 0.402;
 
 // ACES-Tonemapping (Spez Abschnitt 6)
 vec3 aces(vec3 x){
@@ -387,8 +409,12 @@ void main(){
     + wasser(aw, rausch) * w2.x + massiv * w2.y + mLava * w2.z;
   alb /= max(0.001, sum);
   // Rauheit je Material (Spez-Tabelle), gleich gewichtet wie alb
-  float rough = (0.82*w1.x + 0.86*w1.y + 0.72*w1.z + 0.85*w1.w
-               + 0.14*w2.x + 0.66*w2.y + 0.70*w2.z) / max(0.001, sum);
+  // Rauheit nach Stilguide: alle Landmaterialien 0,85-0,95, metalness 0,
+  // keine Glanzeffekte ausser Wasser. Vorher lagen Schnee (0,72) und Fels
+  // (0,66) deutlich darunter und trugen ein sichtbares Glanzlicht - die
+  // Spez verlangt ausdruecklich matte Materialien.
+  float rough = (0.90*w1.x + 0.92*w1.y + 0.88*w1.z + 0.90*w1.w
+               + 0.14*w2.x + 0.88*w2.y + 0.86*w2.z) / max(0.001, sum);
 
   // ---- KLIPPENKANTE: Terrassenabbrueche als Bruchkante zeigen ----
   // Die Kartenerzeugung baut das Massiv aus Terrassen mit exakten
@@ -566,30 +592,29 @@ void main(){
   // vorgerechnet) - Senken und Stufenfuesse liegen im weichen Eigenschatten
   float hRel = vHgt / max(1.0, uHfeld.z);
   float hB = texture2D(tHgt, (vGrid + 0.5) / uHfeld.xy).g;
-  float ao = clamp(1.0 - (hB - hRel) * 2.4, 0.55, 1.0);
-  // Hemisphaeren-Ambient: Himmel von oben, warmer Bodenreflex von unten.
-  // LICHTSTIMMUNG seit v272: goldene Stunde nach der Nutzer-Referenz
-  // (Diorama-Insel im Abendlicht) - die Sonne deutlich warm, der Himmel
-  // nur noch mild blau, der Bodenreflex goldig. Die Variante-5-Spez
-  // stand auf neutralem Tageslicht; die Referenz sticht die Spez.
+  // AO SPUERBAR STARK (Stilguide): kleiner Radius, kraeftig in jeder
+  // Vertiefung. Vorher Faktor 2,4 mit Boden 0,55; jetzt 3,6 mit Boden
+  // 0,40. Weil das gerichtete Fuell-Licht weggefallen ist, traegt die
+  // Verdeckung die Form auf der Schattenseite - sie darf und muss
+  // deshalb deutlicher sein.
+  float ao = clamp(1.0 - (hB - hRel) * 3.6, 0.40, 1.0);
+  // Hemisphaere plus neutrales Rundum-Licht - das ist die GANZE
+  // Aufhellung. Ein zweites gerichtetes Fuell-Licht gibt es nicht mehr
+  // (s. Lichtaufbau oben).
   // VERSUCH UND IRRTUM (v285, hier dokumentiert damit es niemand noch
   // einmal probiert): die blasse Bergflanke sah nach zu schwachem
   // Schatten aus - gemessen 134,5 Helligkeit gegen 144,0 auf der
   // Sonnenseite, Saettigung 0,28 gegen 0,60. Ich habe daraufhin das
-  // Fuell-Licht auf 0,14 gesenkt und beides entschieden blau gefaerbt
-  // (0,30/0,46/0,86 statt 0,50/0,58/0,78), Ambient 0,26 -> 0,20.
-  // Gemessen brachte das die Saettigung NICHT zurueck (0,278 -> 0,267)
-  // und nahm dem ganzen Bild vier Helligkeitspunkte. Verworfen.
-  // Die Ursache lag nicht im Licht, sondern in der Geometrie: dort stand
-  // eine senkrechte Wand aus der Kartenerzeugung (siehe Wandbrecher in
-  // map.js). Die Messung war ausserdem irrefuehrend, weil "Schattenseite"
-  // und "Sonnenseite" hier zugleich verschiedene MATERIALIEN waren -
-  // Fels gegen Wiese; ein Grossteil des Saettigungsunterschieds war die
-  // Felsfarbe (#7E7669, Saettigung 0,17), nicht die Beleuchtung.
+  // Fuell-Licht gesenkt und entschieden blau gefaerbt. Gemessen brachte
+  // das die Saettigung NICHT zurueck (0,278 -> 0,267) und nahm dem Bild
+  // vier Helligkeitspunkte. Verworfen. Die Ursache lag in der Geometrie:
+  // dort stand eine senkrechte Wand aus der Kartenerzeugung (Wandbrecher
+  // in map.js). Die Messung war ausserdem irrefuehrend, weil
+  // "Schattenseite" und "Sonnenseite" zugleich verschiedene MATERIALIEN
+  // waren - Fels gegen Wiese.
   float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
-  vec3 amb = mix(vec3(0.40, 0.33, 0.22), vec3(0.60, 0.64, 0.74), up) * 0.26;
-  vec3 direct = vec3(1.18, 0.98, 0.72) * key * 1.10
-              + vec3(0.50, 0.58, 0.78) * max(dot(nK, C_FILLDIR), 0.0) * 0.26;
+  vec3 amb = (mix(C_GRUND, C_HIMMEL, up) * I_HEMI + vec3(I_ENV)) * LICHT_SKALA;
+  vec3 direct = C_SONNE * I_SONNE * key * LICHT_SKALA;
   vec3 col = alb * (direct * ao + amb * ao * ao);
   // Specular aus der Materialrauheit: matt auf Land, scharf nur auf Wasser
   float shin = 2.0 / max(0.02, rough * rough);
@@ -599,11 +624,24 @@ void main(){
   // Seit v272 GOLDEN statt blau: in der Referenz traegt die warme
   // Sonnenkante die Felskuppen und Baumkronen.
   float rim = pow(1.0 - max(dot(n, C_VDIR), 0.0), 2.6) * max(dot(n, C_RIMDIR), 0.0);
-  col += vec3(1.00, 0.86, 0.60) * rim * 0.24;
+  // Rim gedaempft (0,24 -> 0,10): der Stilguide kennt nur EINE Sonne und
+  // verlangt "keine harten Glanzlichter". Ganz raus fliegt er nicht - er
+  // haelt die Silhouette gegen den Hintergrund lesbar, was auf einer
+  // Spielkarte mehr zaehlt als auf einem Standbild. Bewusste Abweichung.
+  col += vec3(1.00, 0.86, 0.60) * rim * 0.10;
 
   // ---- Belichtung, ACES, Gamma (Reihenfolge bindend, Spez Abschn. 6) ----
-  col *= 0.92;
+  col *= 1.05;                       // Exposure 1.05 (Stilguide)
   col = aces(col);
+  // WARME FARBKORREKTUR (Stilguide): Schatten leicht ins Blaue, Lichter
+  // ins Warme. Als Split-Toning ueber die Luminanz nach dem Tonemapping.
+  // Es sitzt im Shader und nicht in einem Post-Pass, weil unter der
+  // GL-Ebene der 2D-Canvas DURCHSICHTIG ist: eine Vollbild-Mischung dort
+  // wuerde auf leerem Grund die Quellfarbe schreiben statt zu toenen
+  // (dieselbe Falle, an der der frueher gemalte Goldschleier haengt).
+  float lum9 = dot(col, vec3(0.2126, 0.7152, 0.0722));
+  col *= mix(vec3(0.955, 0.975, 1.055), vec3(1.045, 1.010, 0.945),
+             smoothstep(0.18, 0.72, lum9));
   col = pow(col, vec3(1.0 / 2.2));
 
   // Debug-Ansichten: 1 = Gewichte (Fels rot, Schnee/Firn blau, Wiese
