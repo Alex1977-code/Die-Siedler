@@ -509,7 +509,14 @@ export function genWorld(opts){
       const i=map.idx(X,Y);
       const e=raw[i], sp=mv[i];
       if(e < SEA){ map.terr[i]=TER.WATER; }
-      else if(sp > 0){
+      // FELS ERST AB DER OBEREN HAELFTE DES KOERPERS (Referenz-Diorama):
+      // frueher wurde JEDER Knoten im Massiv-Fussabdruck zu Fels (sp > 0),
+      // auch der flache Saum - daher der riesige graue Teppich, den die
+      // Nutzerfotos zeigen. Im Referenzbild ist der Huegel GRUENES LAND,
+      // aus dem oben Fels bricht. Die HOEHE bleibt unveraendert (der
+      // Koerper steht weiter), nur die Oberflaeche unterhalb 0,45 ist
+      // Wiese - damit wachsen dort auch Baeume, wie in der Referenz.
+      else if(sp > 0.45){
         // Kern vereist, Flanke blanker Fels
         // SCHNEEGRENZE: fuer das Gebirge von 0,62 auf 0,88 - bei 0,62 lag
         // Firn auf ueber einem Drittel des Massivs (gemessen 2629 Knoten),

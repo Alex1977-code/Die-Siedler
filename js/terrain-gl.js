@@ -327,7 +327,11 @@ void main(){
   // trat das Zellnetz der Risskachel als Muster hervor - dieselbe Sorte
   // Beanstandung wie die Schlangenhaut in v268; die Spez nennt fuer
   // Texturen ohnehin nur 15-20 % Deckkraft)
-  vec3 fels = uG[5] * mix(vec3(1.0), hol(tFels, uSk2.y) * 4.8, 0.16) * (0.97 + 0.05*korn);
+  // Kachelanteil 0,16 -> 0,40: mit der flachen Kachel (Std 3,3) war 16 %
+  // gleichbedeutend mit "keine Zeichnung". Die Kachel traegt jetzt
+  // wieder Kontrast (Std 16, wie die Wiese), damit darf sie auch
+  // deutlicher durchkommen - sonst bleibt der Fels eine leere Flaeche.
+  vec3 fels = uG[5] * mix(vec3(1.0), hol(tFels, uSk2.y) * 4.8, 0.40) * (0.97 + 0.05*korn);
   // ---- BERGWIESE: das Gras klettert den Berg hinauf ----
   // Referenzbild (Diorama-Huegel): der Berg ist unten GRUEN, der Fels
   // bricht erst oben und an Steilflanken durch. Bisher war das ganze
@@ -368,7 +372,15 @@ void main(){
   // Hoehenunterschied. Deckung voll (1,0 statt 0,9), sonst schimmert der
   // Fels als grauer Schleier durch die Wiese.
   vec3 berggras = mix(mWiese, mWueste, 0.12);
-  fels = mix(fels, berggras, (1.0 - gipfel) * sanft);
+  // ENTSCHIEDENE GRENZE statt Mischbrei: (1-gipfel)*sanft lieferte ueber
+  // weite Flaechen Werte um 0,5 - und ein halb-halb aus grauem Fels und
+  // gruenem Gras ist ein texturloser grau-gruener Teppich. Genau der
+  // stand als heller Keil im Nutzerfoto (Ebenenprobe t47: der Keil sitzt
+  // in der GL-Ebene, nicht in einer Ueberlagerung). Die Referenz kennt
+  // nur Gras ODER Fels, mit Bloecken darauf. Die Schwelle macht daraus
+  // eine Kante, die das Ortsrauschen ausfranst.
+  float gras = smoothstep(0.34, 0.62, (1.0 - gipfel) * sanft + (rausch - 0.5)*0.18);
+  fels = mix(fels, berggras, gras);
   vec3 massiv = mix(fels, mSchnee, sMix);
   vec3 alb =
       mWiese * w1.x + mWueste * w1.y + mSchnee * w1.z + mMoor * w1.w
@@ -572,6 +584,9 @@ void main(){
     col = vec3(w2.y, q1.x, sAnteil) / max(0.001, max(w2.y, max(q1.x, sAnteil)));
   } else if(uDebug > 1.5 && uDebug < 2.5){
     col = vec3(key * 0.8);
+  } else if(uDebug > 3.5){
+    // Diagnose 4: R = Firnanteil sMix, G = Massivgruppe mas, B = Grasmix
+    col = vec3(sMix, mas, gras);
   } else if(uDebug > 2.5){
     // Diagnose Bergwiese: R = Hoehe/10, G = sanft (Neigungsfenster),
     // B = 1-gipfel (Hoehenfenster). Gras entsteht aus G*B.

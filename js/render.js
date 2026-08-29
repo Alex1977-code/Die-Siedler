@@ -474,7 +474,14 @@ export class Renderer {
       // felsFarbe. Fehlt die Kachel, liefert die 1x1-Grau-Ersatztextur
       // exakt die Themenfarbe. Die grossen Plattenkacheln (mat_fels_*)
       // bleiben im Bestand, liegen aber nicht mehr auf dem Massiv.
-      fels: wahl('mat_fels_ruhig_alb', null, 512),
+      // KACHELMASS 512 -> 210: bei 512 Weltpixeln fuellte EINE Felskachel
+      // im Spielzoom fast den Bildschirm - der Fels hatte damit gar keine
+      // sichtbare Zeichnung und las sich als grauer Nebel (Nutzerfoto
+      // "hoehen sehen komisch aus"; die Gewichtsdiagnose t48 hat die
+      // Flaeche als reinen Fels ueberfuehrt, das Problem war allein die
+      // Darstellung). Gras laeuft auf 225, Sand auf 256 - der Fels passt
+      // sich ein.
+      fels: wahl('mat_fels_ruhig_alb', null, 210),
       felsFarbe: (()=>{
         const fc=parseInt((cols[TER.MOUNT]||'#8a7f6a').slice(1),16);
         return [((fc>>16)&255)/255, ((fc>>8)&255)/255, (fc&255)/255];
