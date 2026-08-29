@@ -10395,6 +10395,22 @@ export class Renderer {
           // Kreis bei der Nonzero-Fuellung gegenseitig aus
           band.moveTo(ax-nx,ay-ny); band.lineTo(bx-nx,by-ny);
           band.lineTo(bx+nx,by+ny); band.lineTo(ax+nx,ay+ny); band.closePath();
+          // AUSGEFRANSTE KANTE (Referenzbild): der Pfad dort hat keine
+          // gezogene Linie, er franst ins Gras aus. Ueber das Rechteck
+          // legt sich deshalb eine Kette leicht versetzter Kreise mit
+          // wechselndem Halbmesser - ihre Vereinigung gibt eine wellige
+          // Aussenkante. Die Streuung haengt an der WELTposition (gerundet),
+          // nicht an einem Zaehler: sonst zappelte der Rand beim Schwenken.
+          const schritt=half*0.72;
+          for(let t=0; t<=L2; t+=schritt){
+            const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+            const k9=Math.round(fx9*0.6)*131 + Math.round(fy9*0.6)*17;
+            const rr9=half*(0.76+hash01(k9)*0.54);
+            const ox9=(hash01(k9+3)-0.5)*half*0.55;
+            const oy9=(hash01(k9+7)-0.5)*half*0.55;
+            band.moveTo(fx9+ox9+rr9, fy9+oy9);
+            band.arc(fx9+ox9, fy9+oy9, rr9, 0, 6.2832);
+          }
         }
         for(const [px2,py2] of pts){ band.moveTo(px2+half,py2); band.arc(px2,py2,half,0,6.2832); }
         // Anschlussrichtungen je Knoten sammeln (fuer die Kreuzungskacheln)
@@ -10437,6 +10453,10 @@ export class Renderer {
           for(let k=1;k<pts.length;k++) saum.lineTo(pts[k][0],pts[k][1]);
         }
         for(const st of stummel){ saum.moveTo(st.a[0],st.a[1]); saum.lineTo(st.b[0],st.b[1]); }
+        // Der Uebergang zur Wiese laeuft im Referenzbild WEIT aus: erst
+        // ausgetretenes, duenner werdendes Gras, dann Erde. Drei Lagen
+        // statt zwei, die aeusserste deutlich breiter und sehr zart.
+        g.strokeStyle='rgba(112,92,60,0.10)'; g.lineWidth=BAND+26; g.stroke(saum);
         g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=BAND+13; g.stroke(saum);
         g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=BAND+6;  g.stroke(saum);
         g.restore();
@@ -10653,6 +10673,33 @@ export class Renderer {
           g.restore();
         }
         g.restore();
+        // ---- Kiesel am Wegrand (Referenzbild) ----
+        // Dort liegen entlang des Pfads kleine Steine im Gras - sie sind
+        // es, die den Uebergang glaubhaft machen: der Weg endet nicht an
+        // einer Linie, er verliert sich in Kies und Gras. AUSSERHALB des
+        // Bandes gezeichnet, also nach dem Clip. Streuung wieder aus der
+        // Weltposition, damit nichts beim Schwenken springt.
+        for(const {pts} of wege){
+          for(let k=0;k<pts.length-1;k++){
+            const [ax,ay]=pts[k], [bx,by]=pts[k+1];
+            const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+            const nx=-dy/L2, ny=dx/L2;
+            for(let t=0; t<L2; t+=half*1.5){
+              const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+              const k9=Math.round(fx9*0.5)*911 + Math.round(fy9*0.5)*37;
+              if(hash01(k9)>0.42) continue;               // nur vereinzelt
+              const seite=hash01(k9+5)<0.5? -1 : 1;
+              const ab=half*(1.02+hash01(k9+9)*0.45);     // knapp neben dem Band
+              const cx=fx9+nx*ab*seite, cy=fy9+ny*ab*seite;
+              const rx=1.5+hash01(k9+13)*2.6, ry=rx*(0.62+hash01(k9+17)*0.22);
+              g.fillStyle='rgba(24,30,18,0.16)';
+              g.beginPath(); g.ellipse(cx+0.7,cy+1.1,rx,ry,0,0,6.2832); g.fill();
+              const hell=0.72+hash01(k9+23)*0.28;
+              g.fillStyle='rgb('+Math.round(150*hell)+','+Math.round(142*hell)+','+Math.round(128*hell)+')';
+              g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,6.2832); g.fill();
+            }
+          }
+        }
       }
     }
     // Straßen: sanft geschwungen und gepflastert
