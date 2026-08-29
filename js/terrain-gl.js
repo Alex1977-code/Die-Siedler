@@ -108,6 +108,9 @@ uniform vec4 uSk2;          //                          Wasser,Fels,Lava,(frei)
 uniform float uZeit;        // Sekunden, Echtzeit (Wasser lebt auch in Pause)
 uniform float uSchattenAn;  // Diagnoseschalter wie _ohneCast im 2D-Weg
 uniform float uDebug;       // 0 normal, 1 Gewichte als Farben, 2 Licht als Grau
+uniform vec3 uFelsCol;      // Felsfarbe des Themas (fester Ton, NICHT das
+                            // interpolierte vCol - das mischt am Massivrand
+                            // Wiesengruen hinein)
 
 // Materialprobe mit KOORDINATEN-WARP gegen das Wiederholraster: traege
 // Ortswellen (571/698 px, bewusst inkommensurabel zur 430er-Felskachel)
@@ -198,7 +201,22 @@ void main(){
   // Rechtecke im Fels (Reststufen nach der Normalenglaettung). Breiter
   // und staerker verrauscht lesen sie sich als Schneeflecken.
   float sMix = smoothstep(0.15, 0.85, sAnteil + (rausch - 0.5)*0.34);
-  vec3 massiv = mix(hol(tFels, uSk2.y), hol(tSchnee, uSk1.z), sMix);
+  // FELS OHNE KACHEL (Nutzerentscheid, Variante B der Berg-Optik): die
+  // Plattenkachel las sich auf den grossen Hochflaechen als Pflasterplatz,
+  // nicht als Berg - drei Anlaeufe, sie per Spiegelung/Warp zu retten,
+  // haben das Grundproblem nicht geloest. Der Fels traegt jetzt die feste
+  // Themenfarbe mit feinem prozeduralem Korn; die ZEICHNUNG macht das
+  // kantige Facettenlicht (Lichtblock unten). Die Schneewehen-Kachel der
+  // Firndecke bleibt. tFels haengt weiter als Slot am Programm, wird aber
+  // nicht mehr aufs Massiv gelegt.
+  // Fleckigkeit statt Korn: der erste Wurf (20-px-Sinusse) interferierte
+  // als Schachbrett ueber die ganzen Flaechen (A/B-Beleg t34 winter,
+  // ohne Korn glatt). Jetzt ~150-px-Wellen mit verbogenen Traegern -
+  // liest sich als Felston-Wechsel, nicht als Raster.
+  float korn = sin(vWorld.x*0.043 + 1.9*sin(vWorld.y*0.023))
+             * sin(vWorld.y*0.037 - 1.5*sin(vWorld.x*0.019));
+  vec3 fels = uFelsCol * (0.97 + 0.05*korn);
+  vec3 massiv = mix(fels, hol(tSchnee, uSk1.z), sMix);
   vec3 alb =
       hol(tWiese,  uSk1.x) * w1.x + hol(tWueste, uSk1.y) * w1.y
     + hol(tSchnee, uSk1.z) * w1.z + hol(tMoor,   uSk1.w) * w1.w
@@ -230,7 +248,10 @@ void main(){
     // Schwelle auf ECHTE Terrassenabbrueche (3 Hoeheneinheiten je Knoten
     // ~ Steigung 1,5): mit 0,55 feuerte die Kante auch auf mittlere
     // Schneehaenge - das Massiv las sich zerkratzt (Beleg t35, erster Wurf)
-    float wand = smoothstep(0.85, 1.55, steil) * smoothstep(0.12, 0.4, mas);
+    // Schwelle seit dem Facetten-Umbau frueher (0,60 statt 0,85) und die
+    // Wandflaeche deutlich dunkler: ohne Kachelzeichnung sind die Waende
+    // der Haupttraeger der Berg-Lesbarkeit
+    float wand = smoothstep(0.60, 1.30, steil) * smoothstep(0.12, 0.4, mas);
     if(wand > 0.01){
       // bergauf ist -gradH (h nimmt dorthin zu)
       vec2 rauf = -normalize(gradH) * 0.45;
@@ -240,7 +261,7 @@ void main(){
         (texture2D(tHgt, uvH + (rauf + vec2(0.0,0.5))*texel).r
        - texture2D(tHgt, uvH + (rauf - vec2(0.0,0.5))*texel).r) * uHfeld.z * 0.591));
       // Wandflaeche: dunkler, leicht kuehler - liest als Bruchflaeche
-      alb = mix(alb, alb * vec3(0.70, 0.69, 0.70), wand * 0.42);
+      alb = mix(alb, alb * vec3(0.62, 0.61, 0.64), wand * 0.60);
       // Oberkante: bergauf wird es flach -> helle Bruchkante, leicht
       // verrauscht, damit sie nicht als Draht liest
       float kante = clamp((steil - steilO) * 0.9, 0.0, 1.0) * wand;
@@ -252,6 +273,13 @@ void main(){
       alb *= 1.0 - 0.30 * fuge;
     }
   }
+
+  // ---- Hoehenstaffelung: der Berg wird nach oben hin heller ----
+  // Ohne Kachel braucht das Auge einen zweiten Hinweis auf "hinauf":
+  // der Fuss liegt gedeckt, Kamm und Gipfel hell - die klassische
+  // Bergstaffelung. Nur auf dem Massiv.
+  alb *= mix(1.0, 0.80 + 0.42*clamp(vHgt / max(1.0, uHfeld.z), 0.0, 1.0),
+             clamp(mas, 0.0, 1.0));
 
   // ---- Kueste: Flachwasser und Schaumsaum ----
   // Der Wasseranteil aw laeuft vom offenen Wasser (1) ueber die Ufer-
@@ -316,6 +344,16 @@ void main(){
   // in dieser Projektion die bildschirmgestreckten Rueckseiten. Voll
   // beleuchtet standen sie als grelle fahle Dreiecke ueber dem Massivrand.
   if (n.y > 0.0) n.y *= 0.35;
+  // FACETTEN (Variante B): je Gitterzelle kippt die Normale um einen
+  // festen kleinen Zufallsbetrag - das Facettenmosaik des alten 2D-Wegs,
+  // nur aus der echten Normalen statt gemalter Bloecke. Nur auf dem
+  // Massiv; die Wiese bleibt weich.
+  {
+    vec2 z9 = floor(vGrid + 0.5);
+    float f1 = fract(sin(dot(z9, vec2(127.1, 311.7))) * 43758.5453);
+    float f2 = fract(f1 * 167.17);
+    n.xy += (vec2(f1, f2) - 0.5) * 0.26 * clamp(mas, 0.0, 1.0);
+  }
   n = normalize(n);
   float lam = max(0.0, dot(n, uSun));
 
@@ -347,7 +385,10 @@ void main(){
     }
   }
   lam *= schatten;
-  float v = 0.42 + 0.86 * lam;
+  float v = 0.36 + 0.98 * lam;
+  // Kantige Lichtstufen auf dem Massiv (5 Stufen, +0,1 zentriert die
+  // Stufe): zusammen mit dem Zellkipp oben entsteht das Facettenmosaik.
+  v = mix(v, floor(v*5.0)/5.0 + 0.1, clamp(mas, 0.0, 1.0));
   // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
   vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
   vec3 col = alb * v + amb * (1.0 - lam);
@@ -462,6 +503,7 @@ export class TerrainGL {
     this.uTHgt = gl.getUniformLocation(p, 'tHgt');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
+    this.uFelsCol = gl.getUniformLocation(p, 'uFelsCol');
     this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
       't'+k.charAt(0).toUpperCase()+k.slice(1)));
     this.bufGrid = gl.createBuffer();
@@ -499,6 +541,9 @@ export class TerrainGL {
   // Kanaele behalten die neutrale Ersatztextur.
   setzeMaterial(bilder){
     this._bilder = bilder;
+    // Felsfarbe des Themas (0..1) - traegt seit dem Facetten-Umbau den
+    // Fels allein, die tFels-Kachel liegt nicht mehr auf dem Massiv
+    if(bilder && bilder.felsFarbe) this._felsCol = bilder.felsFarbe;
     this._bilderAnwenden();
   }
   _bilderAnwenden(){
@@ -793,6 +838,8 @@ export class TerrainGL {
     // Themenfarbe halb auftragen: die Kacheln liefern die Zeichnung, die
     // Palette den Klimaton (Winterwiese fahl, Wuestenfels sandig).
     gl.uniform1f(this.uTint, 0.5);
+    const fc = this._felsCol || [0.55, 0.52, 0.50];
+    gl.uniform3f(this.uFelsCol, fc[0], fc[1], fc[2]);
     gl.uniform2f(this.uPix, this.cv.width, this.cv.height);
     gl.uniform1f(this.uZeit, zeit || 0);
     gl.uniform1f(this.uSchattenAn, this.ohneSchatten? 0 : 1);

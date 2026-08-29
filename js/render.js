@@ -382,6 +382,7 @@ export class Renderer {
   // ergeben 225-256 Weltpixel; die 1024er-Felskacheln bewusst groeber.
   glMaterialNeu(){
     if(!this.glTerrain || !this.game) return;
+    const cols=TER_COL[this.theme]||TER_COL.gruen;
     const wahl=(neu9, alt9, skala, glasur, glasurAuf='alt')=>{
       const a=this.asset(neu9), b=this.asset(alt9);
       let im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
@@ -440,38 +441,17 @@ export class Renderer {
       // sprach ihn frei) - dieselbe Quader-Kachel, die schon Kritik R3 G3
       // war. felsMaterial nimmt die eingebackene Beleuchtung per Tief-/
       // Hochpass heraus, genau wie im 2D-Weg.
-      fels:   (()=>{
-        // Gegen das Wiederholraster ("kachelartig", Nutzerfoto v262) war
-        // hier kurz eine 2x2-Spiegel-Grosskachel im Einsatz (v263) - die
-        // erzeugte aber SYMMETRIEACHSEN: an den Spiegellinien liefen die
-        // Fugen als Schmetterlingsmuster aufeinander zu, dem Auge faellt
-        // Symmetrie noch schneller auf als Wiederholung (Nutzerfoto v264).
-        // Die Wiederholung bricht jetzt stattdessen der Koordinaten-Warp
-        // im Shader (hol in terrain-gl.js): jede Kachelinstanz wird von
-        // traegen Ortswellen individuell verbogen.
-        const mk=this.theme==='winter'? 'mat_fels_winter_alb'
-               : this.theme==='wueste'? 'mat_fels_wueste_alb'
-               : this.theme==='vulkan'? 'mat_fels_vulkan_alb'
-               : 'mat_fels_alb';
-        const a=this.asset(mk);
-        if(a&&a.naturalWidth) return {img:this.kachelEben(a), skala:430};
-        const tk='ter_fels_1'+(this.theme==='winter'? '_winter'
-                : this.theme==='wueste'? '_wueste'
-                : this.theme==='vulkan'? '_vulkan' : '');
-        const m9=this.felsMaterial(this.asset(tk)? tk : 'ter_fels_1');
-        if(!m9) return null;
-        // felsMaterial ist auf den 2D-Weg kalibriert und liegt um Mittel
-        // ~208 - im Shader wurde der Fels damit kreidig (Beleg t32,
-        // Fels kaum vom Firn unterscheidbar). Multiplikativ zurueck auf
-        // die ~150er-Mitte der Rohkacheln; die Zeichnung bleibt.
-        const c9=document.createElement('canvas');
-        c9.width=m9.width; c9.height=m9.height;
-        const g9=c9.getContext('2d');
-        g9.drawImage(m9,0,0);
-        g9.globalCompositeOperation='multiply';
-        g9.fillStyle='rgb(186,186,186)';
-        g9.fillRect(0,0,c9.width,c9.height);
-        return {img:this.kachelEben(c9), skala:430};
+      // FELS: seit dem Facetten-Umbau (Nutzerentscheid Variante B) traegt
+      // das Massiv KEINE Kachel mehr - die grosse Plattenkachel las sich
+      // auf den Hochflaechen als Pflasterplatz, nicht als Berg, und weder
+      // Spiegel-Grosskachel (v263, Symmetrieachsen) noch Koordinaten-Warp
+      // (v265) haben das geheilt. Der Shader bekommt nur noch die
+      // Felsfarbe des Themas; Zeichnung machen Facettenlicht, Waende und
+      // Hoehenstaffelung in terrain-gl.js. Die mat_fels-Kacheln bleiben
+      // im Bestand (Nahzoom-Ideen, Normal-Map-Quelle).
+      felsFarbe: (()=>{
+        const fc=parseInt((cols[TER.MOUNT]||'#8a7f6a').slice(1),16);
+        return [((fc>>16)&255)/255, ((fc>>8)&255)/255, (fc&255)/255];
       })(),
       lava:   wahl('mat_lava_alb',   'ter_lava',  256),
     };
