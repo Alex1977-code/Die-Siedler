@@ -10324,7 +10324,11 @@ export class Renderer {
     //      ueberlagern, ohne dass sich halbdurchsichtige Raender addieren.
     //      Die ausgefransten Kachelraender liegen ausserhalb und fallen weg.
     const tStr=this.asset('road_str');
-    if(tStr){
+    // wegeAus: Messschalter. Der ganze Wegpass laeuft in JEDEM Bild (g ist
+    // die Hauptleinwand, nicht ein Chunk-Cache) - mit ihm laesst sich seine
+    // Kosten in einem einzigen Lauf beziffern, indem man dieselbe Kamera
+    // einmal mit und einmal ohne Wege misst.
+    if(tStr && !this.wegeAus){
       // ERDPFAD: bevorzugt die gelieferte Wegkachel (mat_weg_alb,
       // ausgetretene Erde mit Kieseln - Diorama-Lieferung). Sie lag bisher
       // ungenutzt im Bestand; der Weg war ein flaches braunes Band ohne
@@ -10336,6 +10340,15 @@ export class Renderer {
       // Bei Bandbreite gezeichnet waere ihre Koernung so fein, dass sie
       // wieder als glatte Flaeche liest.
       const flaechenErde = !!this.asset('mat_weg_alb');
+      // ZEICHENAUFWAND AM ZOOM (v286). Der Wegpass laeuft in jedem Bild auf
+      // der Hauptleinwand. Gemessen (swiftshader, 920x1000, drei Strassen,
+      // Zoom 1,6): vorher lag er unter der Messschwelle, mit der neuen
+      // Zeichnung bei 4,5 ms je Bild - und er waechst mit der sichtbaren
+      // Weglaenge. Weit herausgezoomt sind Trittspuren, Steinchen und
+      // Grashalme kleiner als ein Bildpunkt, dort ist jeder davon
+      // verschwendet. Genau dann sind aber die meisten Abschnitte im Bild.
+      // Also: Feinzeichnung nur ab Zoom 0,85, Randflecken ab 0,70.
+      const wegFein = cam.z >= 0.85, wegSaum = cam.z >= 0.70;
       // Zielgroesse auf dem Schirm – danach richtet sich der Kachel-Vorrat
       const zpx=(w2)=> w2*cam.z*(this.dpr||1);
       const BAND=TILE*0.30, half=BAND/2;
@@ -10396,7 +10409,12 @@ export class Renderer {
         for(let k=0;k<pts.length-1;k++){
           const [ax,ay]=pts[k], [bx,by]=pts[k+1];
           const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
-          const nx=-dy/L2*half, ny=dx/L2*half;
+          // Das Rechteck ist SCHMALER als die Kreiskette (0,82 statt 1,0).
+          // Sonst liegt seine schnurgerade Kante ueberall dort obenauf, wo
+          // ein Kreis gerade einmal klein ausfaellt - im Beleg lupe4 lief
+          // die Wegkante ueber lange Strecken als Lineal. So kommt die
+          // Silhouette immer aus den Kreisen, das Rechteck fuellt nur.
+          const nx=-dy/L2*half*0.82, ny=dx/L2*half*0.82;
           // Umlaufsinn wie beim Kreis, sonst loeschen sich Rechteck und
           // Kreis bei der Nonzero-Fuellung gegenseitig aus
           band.moveTo(ax-nx,ay-ny); band.lineTo(bx-nx,by-ny);
@@ -10407,15 +10425,26 @@ export class Renderer {
           // wechselndem Halbmesser - ihre Vereinigung gibt eine wellige
           // Aussenkante. Die Streuung haengt an der WELTposition (gerundet),
           // nicht an einem Zaehler: sonst zappelte der Rand beim Schwenken.
-          const schritt=half*0.72;
-          for(let t=0; t<=L2; t+=schritt){
-            const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
-            const k9=Math.round(fx9*0.6)*131 + Math.round(fy9*0.6)*17;
-            const rr9=half*(0.76+hash01(k9)*0.54);
-            const ox9=(hash01(k9+3)-0.5)*half*0.55;
-            const oy9=(hash01(k9+7)-0.5)*half*0.55;
-            band.moveTo(fx9+ox9+rr9, fy9+oy9);
-            band.arc(fx9+ox9, fy9+oy9, rr9, 0, 6.2832);
+          // ZWEI OKTAVEN statt einer (v286). Die alte Kette lief mit
+          // Schritt 0,72*half und Halbmessern bis 1,30*half bei einer
+          // Auslenkung von 0,275*half: die Bandkante beulte damit bis auf
+          // das 1,58-fache der halben Bandbreite aus, und zwar in grossen,
+          // gleich grossen Bogen - im Telefonbild eine Girlande aus
+          // Kreisen. Jetzt traegt eine ruhige Grundwelle die Form und eine
+          // feine Oktave krisselt nur noch; groesste Ausbeulung 1,16*half
+          // statt 1,58, die Fahrbahn wird dadurch nebenbei ein Viertel
+          // schmaler.
+          for(const [sch, rMin, rSpan, aus, mix] of [[half*0.55, 0.88, 0.20, 0.22, 0],
+                                                     [half*0.26, 0.62, 0.18, 0.55, 5]]){
+            for(let t=0; t<=L2; t+=sch){
+              const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+              const k9=Math.round(fx9*0.8)*131 + Math.round(fy9*0.8)*17 + mix;
+              const rr9=half*(rMin+hash01(k9)*rSpan);
+              const ox9=(hash01(k9+3)-0.5)*half*aus;
+              const oy9=(hash01(k9+7)-0.5)*half*aus;
+              band.moveTo(fx9+ox9+rr9, fy9+oy9);
+              band.arc(fx9+ox9, fy9+oy9, rr9, 0, 6.2832);
+            }
           }
         }
         for(const [px2,py2] of pts){ band.moveTo(px2+half,py2); band.arc(px2,py2,half,0,6.2832); }
@@ -10459,12 +10488,16 @@ export class Renderer {
           for(let k=1;k<pts.length;k++) saum.lineTo(pts[k][0],pts[k][1]);
         }
         for(const st of stummel){ saum.moveTo(st.a[0],st.a[1]); saum.lineTo(st.b[0],st.b[1]); }
-        // Der Uebergang zur Wiese laeuft im Referenzbild WEIT aus: erst
-        // ausgetretenes, duenner werdendes Gras, dann Erde. Drei Lagen
-        // statt zwei, die aeusserste deutlich breiter und sehr zart.
-        g.strokeStyle='rgba(112,92,60,0.10)'; g.lineWidth=BAND+26; g.stroke(saum);
-        g.strokeStyle='rgba(112,92,60,0.16)'; g.lineWidth=BAND+13; g.stroke(saum);
-        g.strokeStyle='rgba(112,92,60,0.20)'; g.lineWidth=BAND+6;  g.stroke(saum);
+        // Der Saum war eine gleichmaessige HELLE Lasur, BAND+26 breit -
+        // fast das Dreifache der Fahrbahn, ohne jede Zeichnung. Im
+        // Telefonbild las er sich als zweiter, blasser Weg neben dem Weg;
+        // zusammen mit der Fahrbahn nahm der Pfad einen ganzen
+        // Knotenabstand ein. Ausgetretene Erde ist ausserdem DUNKLER als
+        // die Wiese, nicht heller.
+        // Jetzt schmal und dunkel - die Zeichnung des Uebergangs machen
+        // die Trittflecken weiter unten, nicht dieser Wisch.
+        g.strokeStyle='rgba(96,76,48,0.09)'; g.lineWidth=BAND+15; g.stroke(saum);
+        g.strokeStyle='rgba(88,68,42,0.15)'; g.lineWidth=BAND+7;  g.stroke(saum);
         g.restore();
         // ---- Kacheln im Band ----
         g.save();
@@ -10552,6 +10585,24 @@ export class Renderer {
             const bwE=flaechenErde? bw*2.2 : bw;
             const kBasis=this.roadKachel(tDirt,'dirt',zpx(bwE));
             for(let yy=off-bwE; yy<L2+bwE*1.6; yy+=bwE) g.drawImage(kBasis, -bwE/2, yy, bwE, bwE);
+            // QUERVERLAUF - die Trittspur (v286). Die Fahrbahn war EIN
+            // flacher Ton ueber die ganze Breite; im Telefonbild las sie
+            // sich als hingelegter Sandfleck, nicht als ausgetretener Weg.
+            // Ein echter Pfad ist in der Mitte hell ausgetreten und laeuft
+            // zum Rand hin dunkel und feucht aus. Der Verlauf steht quer
+            // zur Fahrtrichtung (lokales x); die ausgefransten Zipfel
+            // ausserhalb bekommen den Randton, weil Verlaeufe klemmen -
+            // damit sitzt die dunkle Kontaktkante automatisch auf der
+            // ECHTEN, welligen Silhouette und nicht auf einer Hilfslinie.
+            const gq=g.createLinearGradient(-half*1.06,0,half*1.06,0);
+            gq.addColorStop(0.00,'rgba(62,44,24,0.34)');
+            gq.addColorStop(0.20,'rgba(62,44,24,0.10)');
+            gq.addColorStop(0.42,'rgba(255,238,202,0.10)');
+            gq.addColorStop(0.58,'rgba(255,238,202,0.10)');
+            gq.addColorStop(0.80,'rgba(62,44,24,0.10)');
+            gq.addColorStop(1.00,'rgba(62,44,24,0.34)');
+            g.fillStyle=gq;
+            g.fillRect(-half*2.6, off-bwE, half*5.2, L2+bwE*2.8);
             // Pflaster als zweite Lage darueber. Weil der Pfad darunter
             // deckend ist, darf diese Lage halbdurchsichtig sein - dann
             // schaut zwischen den Steinen noch Erde durch, wie bei einem
@@ -10579,6 +10630,17 @@ export class Renderer {
           const bwE2=flaechenErde? bw*2.2 : bw;
           const kD=this.roadKachel(tDirt,'dirt',zpx(bwE2));
           for(let yy=-bwE2*0.6; yy<L2+bwE2; yy+=bwE2) g.drawImage(kD, -bwE2/2, yy, bwE2, bwE2);
+          // gleiche Trittspur wie auf der Strasse, sonst bricht der Ton
+          // genau an der Tuerfahne
+          const gq2=g.createLinearGradient(-half*1.06,0,half*1.06,0);
+          gq2.addColorStop(0.00,'rgba(62,44,24,0.34)');
+          gq2.addColorStop(0.20,'rgba(62,44,24,0.10)');
+          gq2.addColorStop(0.42,'rgba(255,238,202,0.10)');
+          gq2.addColorStop(0.58,'rgba(255,238,202,0.10)');
+          gq2.addColorStop(0.80,'rgba(62,44,24,0.10)');
+          gq2.addColorStop(1.00,'rgba(62,44,24,0.34)');
+          g.fillStyle=gq2;
+          g.fillRect(-half*2.6, -bwE2*0.8, half*5.2, L2+bwE2*2.0);
           if(deck>0.01){
             g.globalAlpha=deck;
             const kP=this.roadKachel(tStr,'str',zpx(bw));
@@ -10678,13 +10740,144 @@ export class Renderer {
           g.drawImage(this.roadKachel(img,'k'+arr.length+kind+(img===tStr?'s':''),zpx(js)), -js/2, -js/2, js, js);
           g.restore();
         }
+        // ---- Zeichnung AUF der Fahrbahn (v286) ----
+        // Gemessen hatte die Fahrbahn eine Helligkeitsstreuung von 13,0,
+        // die Wiese unmittelbar daneben 28,0 - der Weg war weniger als
+        // halb so lebendig wie sein Umfeld und las sich deshalb als
+        // hingelegter Sandfleck. Die Erdkachel allein schafft das nicht:
+        // sie wird auf Bandbreite so stark verkleinert, dass ihre Steine
+        // zu Krisseln zerfallen.
+        // Also eine eigene Lage: Trittspuren in Wegrichtung und Steine im
+        // Weg, beides in WELTkoordinaten gehasht. Damit bleibt es beim
+        // Schwenken an seinem Platz und haengt nicht an der Kachel-
+        // aufloesung. Sie liegt INNERHALB des Band-Clips, laeuft also nie
+        // ueber die Kante hinaus.
+        // (1) KOERNUNG: eine einzige Fuellung mit der Sprenkelkachel ueber
+        // die ganze sichtbare Bandflaeche. Der Clip liegt an, sie kann also
+        // nicht ueber den Wegrand hinauslaufen. Das Muster haengt an der
+        // Weltmatrix und wandert beim Schwenken nicht mit.
+        {
+          const kornW=26;                        // Weltpixel je Kachel
+          const kk=cam.z>=0.5 ? this.wegKorn(kornW*cam.z*(this.dpr||1)) : null;
+          if(kk && kk.width){
+            try{
+              const pk=g.createPattern(kk,'repeat');
+              if(pk && pk.setTransform){
+                pk.setTransform(new DOMMatrix().scale(kornW/kk.width));
+                g.fillStyle=pk;
+                g.fillRect(wx0-60, wy0-60, (wx1-wx0)+120, (wy1-wy0)+120);
+              }
+            }catch(_){ /* ohne Musterversatz lieber gar nichts */ }
+          }
+        }
+        // (2) TRITTSPUREN und groessere Steine, in WELTkoordinaten gehasht
+        g.lineCap='round';
+        if(wegFein) for(const {pts} of wege){
+          for(let k=0;k<pts.length-1;k++){
+            const [ax,ay]=pts[k], [bx,by]=pts[k+1];
+            const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+            const ux=dx/L2, uy=dy/L2, nx=-uy, ny=ux;
+            // Trittspuren: kurze weiche Striche laengs, hell wie dunkel
+            for(let t=0; t<L2; t+=half*0.50){
+              const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+              const k9=Math.round(fx9*1.3)*397 + Math.round(fy9*1.3)*89;
+              if(hash01(k9)>0.70) continue;
+              const q9=(hash01(k9+1)-0.5)*1.7*half;
+              const ln=half*(0.34+hash01(k9+2)*0.72);
+              g.strokeStyle= hash01(k9+3)<0.62 ? 'rgba(84,60,34,0.26)'
+                                               : 'rgba(255,240,206,0.22)';
+              g.lineWidth=0.7+hash01(k9+4)*1.4;
+              // GEBOGEN und leicht schraeg. Gerade Striche gleicher Laenge
+              // lasen sich im Beleg lupe4 als Schraffur quer ueber den Weg -
+              // wie mit dem Lineal gezogen. Der Bauch (bg) und der schraege
+              // Auslauf (sg) nehmen ihnen das Technische.
+              const bg=(hash01(k9+5)-0.5)*half*0.42;
+              const sg=(hash01(k9+6)-0.5)*half*0.55;
+              const x0=fx9+nx*q9, y0=fy9+ny*q9;
+              g.beginPath();
+              g.moveTo(x0, y0);
+              g.quadraticCurveTo(x0+ux*ln*0.5+nx*bg, y0+uy*ln*0.5+ny*bg,
+                                 x0+ux*ln+nx*sg,     y0+uy*ln+ny*sg);
+              g.stroke();
+            }
+            // Steine im Weg: Fusslinie, Koerper, Lichtkante oben links
+            for(let t=0; t<L2; t+=half*0.75){
+              const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+              const k9=Math.round(fx9*1.1)*733 + Math.round(fy9*1.1)*29;
+              if(hash01(k9)>0.40) continue;
+              const q9=(hash01(k9+1)-0.5)*1.75*half;
+              const cx=fx9+nx*q9, cy=fy9+ny*q9;
+              const rx=0.8+hash01(k9+2)*1.35, ry=rx*(0.62+hash01(k9+3)*0.26);
+              g.fillStyle='rgba(70,54,32,0.26)';
+              g.beginPath(); g.ellipse(cx+rx*0.34,cy+ry*0.60,rx,ry,0,0,6.2832); g.fill();
+              const hl=0.78+hash01(k9+4)*0.34;
+              g.fillStyle='rgb('+Math.round(176*hl)+','+Math.round(160*hl)+','+Math.round(134*hl)+')';
+              g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,6.2832); g.fill();
+              g.fillStyle='rgba(255,248,228,0.34)';
+              g.beginPath(); g.ellipse(cx-rx*0.22,cy-ry*0.28,rx*0.50,ry*0.44,0,0,6.2832); g.fill();
+            }
+          }
+        }
         g.restore();
+        // ---- ausgetretene Flecken am Wegrand (v286) ----
+        // Der Uebergang zur Wiese hatte KEINE Zeichnung: eine gleichmaessige
+        // helle Lasur, und daneben lagen die Kiesel. Hier liegen jetzt
+        // Flecken der ERDKACHEL selbst am Bandrand - dieselbe Koernung wie
+        // die Fahrbahn, nur duenn und unregelmaessig aufgetragen. Damit
+        // franst der Weg mit seinem eigenen Material ins Gras aus, statt
+        // mit einem Farbwisch.
+        // Das Muster haengt an der WELTmatrix (die Zeichenmatrix ist die
+        // Kameramatrix), es wandert also beim Schwenken nicht mit.
+        const bwS=bw*1.5;
+        const kSaum=this.roadKachel(tDirt,'dirt',zpx(bwS));
+        let patErde=null;
+        if(kSaum && kSaum.width){
+          try{
+            patErde=g.createPattern(kSaum,'repeat');
+            if(patErde && patErde.setTransform)
+              patErde.setTransform(new DOMMatrix().scale(bwS/kSaum.width));
+            else patErde=null;   // ohne Musterversatz waere die Koernung riesig
+          }catch(_){ patErde=null; }
+        }
+        if(patErde && wegSaum){
+          g.save();
+          g.fillStyle=patErde;
+          for(const {pts} of wege){
+            for(let k=0;k<pts.length-1;k++){
+              const [ax,ay]=pts[k], [bx,by]=pts[k+1];
+              const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+              const nx=-dy/L2, ny=dx/L2;
+              for(let t=0; t<L2; t+=half*1.1){
+                const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+                const k9=Math.round(fx9*0.7)*617 + Math.round(fy9*0.7)*53;
+                if(hash01(k9)>0.55) continue;
+                const seite=hash01(k9+2)<0.5? -1 : 1;
+                const ab=half*(0.78+hash01(k9+4)*0.72);
+                const cx=fx9+nx*ab*seite, cy=fy9+ny*ab*seite;
+                const rr=half*(0.40+hash01(k9+6)*0.52);
+                g.globalAlpha=0.18+hash01(k9+8)*0.24;
+                g.beginPath();
+                g.ellipse(cx,cy,rr,rr*(0.60+hash01(k9+10)*0.28),
+                          hash01(k9+12)*3.1416,0,6.2832);
+                g.fill();
+              }
+            }
+          }
+          g.restore();
+        }
         // ---- Kiesel am Wegrand (Referenzbild) ----
         // Dort liegen entlang des Pfads kleine Steine im Gras - sie sind
         // es, die den Uebergang glaubhaft machen: der Weg endet nicht an
         // einer Linie, er verliert sich in Kies und Gras. AUSSERHALB des
         // Bandes gezeichnet, also nach dem Clip. Streuung wieder aus der
         // Weltposition, damit nichts beim Schwenken springt.
+        // v286: die Steine waren zu gross (bis 4,1 Weltpixel Halbmesser),
+        // zu zahlreich (58 Prozent der Stellen) und KALT grau
+        // (150/142/128) - im Telefonbild lagen graue Plastikscheiben neben
+        // dem Weg. Jetzt kleiner, seltener, warm getont und mit einer
+        // Lichtkante oben links plus dunkler Fusslinie unten rechts: erst
+        // die machen aus der Scheibe einen Stein. Lichtrichtung wie im
+        // Gelaende-Shader (C_KEYDIR steht oben links).
         for(const {pts} of wege){
           for(let k=0;k<pts.length-1;k++){
             const [ax,ay]=pts[k], [bx,by]=pts[k+1];
@@ -10693,16 +10886,61 @@ export class Renderer {
             for(let t=0; t<L2; t+=half*1.5){
               const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
               const k9=Math.round(fx9*0.5)*911 + Math.round(fy9*0.5)*37;
-              if(hash01(k9)>0.42) continue;               // nur vereinzelt
+              if(hash01(k9)>0.30) continue;               // nur vereinzelt
               const seite=hash01(k9+5)<0.5? -1 : 1;
-              const ab=half*(1.02+hash01(k9+9)*0.45);     // knapp neben dem Band
+              const ab=half*(0.92+hash01(k9+9)*0.52);     // knapp neben dem Band
               const cx=fx9+nx*ab*seite, cy=fy9+ny*ab*seite;
-              const rx=1.5+hash01(k9+13)*2.6, ry=rx*(0.62+hash01(k9+17)*0.22);
-              g.fillStyle='rgba(24,30,18,0.16)';
-              g.beginPath(); g.ellipse(cx+0.7,cy+1.1,rx,ry,0,0,6.2832); g.fill();
-              const hell=0.72+hash01(k9+23)*0.28;
-              g.fillStyle='rgb('+Math.round(150*hell)+','+Math.round(142*hell)+','+Math.round(128*hell)+')';
+              const rx=1.0+hash01(k9+13)*1.8, ry=rx*(0.66+hash01(k9+17)*0.20);
+              g.fillStyle='rgba(26,32,18,0.20)';
+              g.beginPath(); g.ellipse(cx+rx*0.30,cy+ry*0.58,rx*0.96,ry*0.80,0,0,6.2832); g.fill();
+              const hell=0.80+hash01(k9+23)*0.30;
+              g.fillStyle='rgb('+Math.round(158*hell)+','+Math.round(146*hell)+','+Math.round(124*hell)+')';
               g.beginPath(); g.ellipse(cx,cy,rx,ry,0,0,6.2832); g.fill();
+              g.fillStyle='rgba(255,246,224,0.32)';
+              g.beginPath(); g.ellipse(cx-rx*0.24,cy-ry*0.30,rx*0.50,ry*0.44,0,0,6.2832); g.fill();
+              g.fillStyle='rgba(58,50,36,0.18)';
+              g.beginPath(); g.ellipse(cx+rx*0.30,cy+ry*0.34,rx*0.40,ry*0.32,0,0,6.2832); g.fill();
+            }
+          }
+        }
+        // ---- Grasbueschel ueber die Wegkante (v286) ----
+        // Im Referenzbild waechst das Gras UEBER den Rand des Pfads - erst
+        // das nimmt der Kante das Ausgestanzte. Die Halme stehen auf der
+        // Grasseite und legen sich zum Weg hin; Zahl, Hoehe und Ton kommen
+        // aus der Weltposition, damit beim Schwenken nichts zappelt.
+        // Gleiche Bogenform wie die Wiesen-Bueschel (s. Wiesen-Deko).
+        if(wegFein) for(const {pts} of wege){
+          for(let k=0;k<pts.length-1;k++){
+            const [ax,ay]=pts[k], [bx,by]=pts[k+1];
+            const dx=bx-ax, dy=by-ay, L2=Math.hypot(dx,dy)||1;
+            const nx=-dy/L2, ny=dx/L2;
+            for(let t=0; t<L2; t+=half*1.3){
+              const f9=t/L2, fx9=ax+dx*f9, fy9=ay+dy*f9;
+              const k9=Math.round(fx9*0.55)*283 + Math.round(fy9*0.55)*71;
+              if(hash01(k9)>0.52) continue;
+              const seite=hash01(k9+1)<0.5? -1 : 1;
+              const ab=half*(0.86+hash01(k9+3)*0.34);
+              const cx=fx9+nx*ab*seite, cy=fy9+ny*ab*seite;
+              const nH=3+((hash01(k9+5)*2.4)|0);
+              // gedeckter Ton: mit dem satten Wiesengruen standen im
+              // ersten Wurf leuchtende Spinnen auf dem Weg (Beleg w_r1)
+              g.strokeStyle='rgba('+(48+(hash01(k9+7)*18|0))+','
+                                   +(92+(hash01(k9+9)*24|0))+',44,0.62)';
+              g.lineWidth=0.8+hash01(k9+11)*0.4;
+              // die Halme neigen sich zur Fahrbahn hin (also gegen die
+              // Seitenrichtung), das bindet Kante und Gras zusammen.
+              // Hoehe und Ausschlag halbiert: 3,2-6,6 Weltpixel hoch bei
+              // bis zu 8,8 Pixel Ausschlag waren bei Bandbreite 15,6 mehr
+              // Buschel als Weg.
+              for(let q=0;q<nH;q++){
+                const s9=(q-(nH-1)/2);
+                const hh9=1.9+hash01(k9+q*13+17)*2.0;
+                const nb9=s9*(0.5+hash01(k9+q*7+23)*0.4) - seite*0.5;
+                g.beginPath();
+                g.moveTo(cx+s9*1.1, cy);
+                g.quadraticCurveTo(cx+nb9*1.6, cy-hh9*0.66, cx+nb9*2.5, cy-hh9);
+                g.stroke();
+              }
             }
           }
         }
@@ -14037,6 +14275,59 @@ export class Renderer {
   // gezeichnet werden sie mit rund 40 – jedes Bild neu herunterzuskalieren
   // kostet auf dem Handy spuerbar Zeit. Die Groesse wird in Stufen von acht
   // Pixeln gerundet, damit beim Zoomen nicht dauernd neu gerechnet wird.
+  // Feine Erdkoernung fuer die Fahrbahn - ein nahtloses Kachelbild aus
+  // Sprenkeln und kleinen Steinen (v286).
+  // GRUND: die gelieferte Erdkachel mat_weg_alb ist 512 px gross und wird
+  // auf Bandbreite gezeichnet, also rund 61 Weltpixel. Ihre Zeichnung wird
+  // dabei 3,8-fach heruntergerechnet und zerfaellt zu einem gleichmaessigen
+  // Ton. Gemessen: Helligkeitsstreuung auf der Fahrbahn 7,8 gegen 28,0 auf
+  // der Wiese unmittelbar daneben - der Weg war weniger als ein Drittel so
+  // lebendig wie sein Umfeld und las sich als hingelegter Sandfleck.
+  // Diese Kachel wird KLEIN gezeichnet (rund 26 Weltpixel) und bleibt
+  // deshalb bis in den Nahzoom koernig. Sie ist durchsichtig und liegt
+  // UEBER der Erdkachel, nimmt ihr also nichts weg.
+  wegKorn(px){
+    const s=Math.max(24, Math.min(192, Math.round(px/8)*8));
+    if(!this._wk) this._wk=new Map();
+    let cv=this._wk.get(s);
+    if(cv) return cv;
+    cv=document.createElement('canvas'); cv.width=s; cv.height=s;
+    const t=cv.getContext('2d');
+    let n=1;
+    const rnd=()=>hash01(n++*2654435761 % 2147483647);
+    // Sprenkel: dicht gesaet, mal heller als die Erde, mal dunkler.
+    // Sie tragen die Koernung; ein Pixel Naht am Kachelrand faellt bei
+    // dieser Groesse nicht auf, deshalb ohne Umbruch gezeichnet.
+    const anz=Math.round(s*s/24);
+    for(let k=0;k<anz;k++){
+      const x=rnd()*s, y=rnd()*s, r=0.45+rnd()*1.5;
+      t.fillStyle= rnd()<0.42
+        ? 'rgba(255,240,206,'+(0.10+rnd()*0.16).toFixed(3)+')'
+        : 'rgba(74,54,32,'+(0.10+rnd()*0.20).toFixed(3)+')';
+      t.beginPath(); t.arc(x,y,r,0,6.2832); t.fill();
+    }
+    // Steinchen: gross genug, dass sie einzeln zu sehen sind - die muessen
+    // ueber den Rand umbrechen, sonst schneidet die Kachelfuge sie ab.
+    const stk=Math.max(3, Math.round(s*s/900));
+    for(let k=0;k<stk;k++){
+      const x=rnd()*s, y=rnd()*s;
+      const rx=s*(0.014+rnd()*0.020), ry=rx*(0.62+rnd()*0.26);
+      const hl=0.80+rnd()*0.30;
+      for(let ax=-1;ax<=1;ax++) for(let ay=-1;ay<=1;ay++){
+        const cx=x+ax*s, cy=y+ay*s;
+        if(cx<-rx*2||cx>s+rx*2||cy<-ry*2||cy>s+ry*2) continue;
+        t.fillStyle='rgba(70,54,32,0.24)';
+        t.beginPath(); t.ellipse(cx+rx*0.34,cy+ry*0.62,rx,ry,0,0,6.2832); t.fill();
+        t.fillStyle='rgb('+Math.round(176*hl)+','+Math.round(160*hl)+','+Math.round(134*hl)+')';
+        t.beginPath(); t.ellipse(cx,cy,rx,ry,0,0,6.2832); t.fill();
+        t.fillStyle='rgba(255,248,228,0.34)';
+        t.beginPath(); t.ellipse(cx-rx*0.24,cy-ry*0.28,rx*0.50,ry*0.44,0,0,6.2832); t.fill();
+      }
+    }
+    if(this._wk.size>8) this._wk.clear();
+    this._wk.set(s,cv);
+    return cv;
+  }
   roadKachel(img, key, px){
     if(!img) return null;
     const s=Math.max(8, Math.min(img.naturalWidth||256, Math.round(px/8)*8));
