@@ -254,6 +254,18 @@ void main(){
   float band = 0.14 + 0.26*rausch;
   vec4 w1 = max(vec4(0.0), q1 - (mx - band));
   vec4 w2 = max(vec4(0.0), q2 - (mx - band));
+  // WASSER NUR AUF WASSERHOEHE: alles Wasser der Karte liegt auf
+  // Meereshoehe (~-0,09 Einheiten, gemessen). Ohne Sperre schmiert die
+  // Gewichts-Interpolation das Tuerkis die Schluchtwaende hinauf
+  // (Nutzerfoto v273: Wandflaechen bis in 6 Einheiten Hoehe teils
+  // wassergefaerbt). Fragmente deutlich ueber dem Spiegel geben ihr
+  // Wassergewicht an die Massivgruppe ab - NICHT einfach streichen,
+  // sonst kann die Summe auf einer hohen Wand gegen null gehen (das
+  // Fragment kippte schwarz). Nebeneffekt: die Uferlinie der Bergseen
+  // folgt jetzt der HOEHE statt den Sechseckkanten.
+  float wGate = 1.0 - smoothstep(0.8, 2.2, vHgt);
+  w2.y += w2.x * (1.0 - wGate);
+  w2.x *= wGate;
   float sum = dot(w1, vec4(1.0)) + dot(w2, vec4(1.0));
   // Firndecke: weiche, leicht gestraffte und gefranste Rampe INNERHALB
   // der Gruppe - die Rolle der weichgezeichneten Firnmaske im 2D-Weg
@@ -515,6 +527,41 @@ void main(){
 // Shader, Attributaufbau und Renderer nicht auseinanderlaufen koennen.
 const KANAL = ['wiese','wueste','schnee','moor','wasser','fels','lava'];
 
+// ---- SOCKEL: Holzpodest unterm Kartenrand (Referenz-Diorama) ----
+// Das Referenzbild zeigt die Landschaft als Modell auf einer runden
+// Holzplatte. Uebersetzt auf die rechteckige Karte: ein Holzring um den
+// Kartenrand (Deckflaeche), an der Suedkante die sichtbare Seitenwand
+// des Podests, aussen herum ein weicher Schattenrock auf der warmen
+// "Tischplatte" (der Loeschfarbe). Gezeichnet VOR dem Gelaende - wo die
+// Randknoten angehoben sind, schaut das Podest darunter hervor, genau
+// wie beim Diorama. Tonwert je Ecke: positiv = Holz mal Ton (deckend),
+// negativ = Schatten mit Alpha -Ton.
+const VERT_S = `
+attribute vec3 aPos;        // x,y Weltpixel, z Tonwert
+uniform vec2  uCam;
+uniform float uZoom;
+uniform vec2  uView;
+varying float vTon;
+varying vec2  vP;
+void main(){
+  vec2 s = (aPos.xy - uCam) * uZoom + uView * 0.5;
+  gl_Position = vec4(s.x / uView.x * 2.0 - 1.0,
+                     1.0 - s.y / uView.y * 2.0, 0.0, 1.0);
+  vTon = aPos.z; vP = aPos.xy;
+}`;
+const FRAG_S = `
+precision mediump float;
+varying float vTon;
+varying vec2  vP;
+void main(){
+  // leise Holzmaserung, gleiche Sinus-Bauart wie das Fels-Korn
+  float maser = 0.95 + 0.05 * sin(vP.x*0.083 + 2.0*sin(vP.y*0.031))
+                     * sin(vP.y*0.071 - 1.5*sin(vP.x*0.027));
+  vec3 holz = vec3(0.63, 0.44, 0.29);
+  if(vTon > 0.0) gl_FragColor = vec4(holz * vTon * maser, 1.0);
+  else gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(-vTon, 0.0, 1.0));
+}`;
+
 export class TerrainGL {
   constructor(canvas){
     this.cv = canvas;
@@ -587,6 +634,23 @@ export class TerrainGL {
     this.uG = gl.getUniformLocation(p, 'uG[0]');
     this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
       't'+k.charAt(0).toUpperCase()+k.slice(1)));
+    // Sockel-Programm (Holzpodest) - scheitert es, faellt nur das Podest
+    // aus, das Gelaende zeichnet weiter
+    this.progS = null;
+    const vsS = mk(gl.VERTEX_SHADER, VERT_S), fsS = mk(gl.FRAGMENT_SHADER, FRAG_S);
+    if(vsS && fsS){
+      const pS = gl.createProgram();
+      gl.attachShader(pS, vsS); gl.attachShader(pS, fsS); gl.linkProgram(pS);
+      if(gl.getProgramParameter(pS, gl.LINK_STATUS)){
+        this.progS = pS;
+        this.aPosS  = gl.getAttribLocation(pS, 'aPos');
+        this.uCamS  = gl.getUniformLocation(pS, 'uCam');
+        this.uZoomS = gl.getUniformLocation(pS, 'uZoom');
+        this.uViewS = gl.getUniformLocation(pS, 'uView');
+      }
+    }
+    this.bufSockel = gl.createBuffer();
+    this.anzSockel = 0;
     this.bufGrid = gl.createBuffer();
     this.bufHgt  = gl.createBuffer();
     this.bufNrm  = gl.createBuffer();
@@ -708,6 +772,7 @@ export class TerrainGL {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
     this.hoehenNeu(map);
     this.farbenNeu(map, farbeVon);
+    this.sockelNeu(map);
     this.bereit = true;
   }
 
@@ -943,12 +1008,72 @@ export class TerrainGL {
     this.cv.style.height = vh+'px';
   }
 
+  // ---------- Sockel-Geometrie: Deckring, Suedwand, Schattenrock ----------
+  // Nur von den Kartenmassen abhaengig, Hoehen egal - einmal je Karte.
+  sockelNeu(map){
+    const gl = this.gl; if(!gl || !this.progS) return;
+    const ix0 = -26, ix1 = (map.w - 0.5) * TILE + 26;
+    const iy0 = -22, iy1 = (map.h - 1) * ROWH + 22;
+    const RB = 34;     // sichtbare Ringbreite
+    const IN = 64;     // verdeckter Einschub unter den Kartenrand
+    const TF = 42;     // Hoehe der Suedwand
+    const SR = 95;     // Breite des Schattenrocks
+    const A  = -0.30;  // Schatten-Deckkraft am Podestrand
+    const E  = -0.001; // Schatten aussen: praktisch durchsichtig (nicht 0,
+                       // sonst kippte die Ecke in den Holz-Zweig des Shaders)
+    const ox0 = ix0 - RB, ox1 = ix1 + RB, oy0 = iy0 - RB, oy1 = iy1 + RB;
+    const oyS = oy1 + TF;
+    const v = [];
+    // Viereck mit Tonwert je Ecke (TL, TR, BR, BL), zwei Dreiecke
+    const q = (x0,y0,x1,y1, tTL,tTR,tBR,tBL)=>{
+      v.push(x0,y0,tTL, x1,y0,tTR, x1,y1,tBR,
+             x0,y0,tTL, x1,y1,tBR, x0,y1,tBL);
+    };
+    // Deckflaeche: vier Baender, aussen voller Ton, innen leicht
+    // abgeschattet - die Lippe, auf der die Landschaft aufliegt. Die
+    // Baender reichen IN Weltpixel unter den Kartenrand: wo Randknoten
+    // angehoben sind, schaut dort das Holz hervor (Diorama-Kante).
+    q(ox0, oy0, ox1, iy0 + IN, 1.0, 1.0, 0.82, 0.82);   // Nord
+    q(ox0, iy1 - IN, ox1, oy1, 0.82, 0.82, 1.0, 1.0);   // Sued
+    q(ox0, oy0, ix0 + IN, oy1, 1.0, 0.82, 0.82, 1.0);   // West
+    q(ix1 - IN, oy0, ox1, oy1, 0.82, 1.0, 1.0, 0.82);   // Ost
+    // Suedwand des Podests - die einzige Seitenflaeche, die die
+    // Projektion zeigt (Waende in x projizieren zu Linien)
+    q(ox0, oy1, ox1, oyS, 0.60, 0.60, 0.44, 0.44);
+    // Schattenrock auf der Tischplatte, Ecken einzeln (bilinearer Auslauf)
+    q(ox0, oy0 - SR, ox1, oy0, E, E, A, A);             // Nord
+    q(ox0, oyS, ox1, oyS + SR, A, A, E, E);             // Sued
+    q(ox0 - SR, oy0, ox0, oyS, E, A, A, E);             // West
+    q(ox1, oy0, ox1 + SR, oyS, A, E, E, A);             // Ost
+    q(ox0 - SR, oy0 - SR, ox0, oy0, E, E, A, E);        // Ecke NW
+    q(ox1, oy0 - SR, ox1 + SR, oy0, E, E, E, A);        // Ecke NO
+    q(ox0 - SR, oyS, ox0, oyS + SR, E, A, E, E);        // Ecke SW
+    q(ox1, oyS, ox1 + SR, oyS + SR, A, E, E, E);        // Ecke SO
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.bufSockel);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
+    this.anzSockel = v.length / 3;
+  }
+
   zeichne(cam, himmel, zeit){
     const gl = this.gl;
     if(!gl || !this.prog || !this.bereit || this._verloren) return false;
     gl.viewport(0, 0, this.cv.width, this.cv.height);
     gl.clearColor(himmel[0], himmel[1], himmel[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
+    // Sockel zuerst - das Gelaende deckt ihn dort, wo es liegt
+    if(this.progS && this.anzSockel){
+      gl.useProgram(this.progS);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.bufSockel);
+      gl.enableVertexAttribArray(this.aPosS);
+      gl.vertexAttribPointer(this.aPosS, 3, gl.FLOAT, false, 0, 0);
+      gl.uniform2f(this.uCamS, cam.x, cam.y);
+      gl.uniform1f(this.uZoomS, cam.z);
+      gl.uniform2f(this.uViewS, this.vw, this.vh);
+      gl.drawArrays(gl.TRIANGLES, 0, this.anzSockel);
+      gl.disable(gl.BLEND);
+    }
     gl.useProgram(this.prog);
     const bind = (buf, loc, gr)=>{
       if(loc < 0) return;

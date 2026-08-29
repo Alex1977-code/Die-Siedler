@@ -1237,10 +1237,16 @@ export class Renderer {
       tg.fillStyle=lg;
       tg.fillRect(x0,y0,x1-x0,y1-y0);
     };
-    band(0,0,w,RB,          0,RB, 0,0);      // oben
-    band(0,h-RB,w,h,        0,h-RB, 0,h);    // unten
-    band(0,0,RB,h,          RB,0, 0,0);      // links
-    band(w-RB,0,w,h,        w-RB,0, w,0);    // rechts
+    // Im GPU-Weg ENTFAELLT der schwarze Auslauf: dort steht die Karte
+    // seit dem Sockel-Umbau als Diorama auf einem Holzpodest mit heller
+    // Tischplatte - der Rahmen wuerde das Podest schwaerzen. Der 2D-Weg
+    // behaelt ihn (dunkler Wasserhintergrund, Kante braucht den Verlauf).
+    if(!(this.glAn && this.glTerrain && this.glTerrain.verfuegbar())){
+      band(0,0,w,RB,          0,RB, 0,0);      // oben
+      band(0,h-RB,w,h,        0,h-RB, 0,h);    // unten
+      band(0,0,RB,h,          RB,0, 0,0);      // links
+      band(w-RB,0,w,h,        w-RB,0, w,0);    // rechts
+    }
     tg.fillStyle='#000';
     // Unerforschtes als unregelmäßige Schwaden: je Knoten mehrere versetzte,
     // verschieden große Kleckse -> die Grenze franst aus statt halbrund zu sein
@@ -9549,12 +9555,12 @@ export class Renderer {
     // Wasserhintergrund das Gelaende zu.
     const glAktiv = this.glAn && this.glTerrain && this.glTerrain.verfuegbar();
     if(glAktiv){
-      const wc=parseInt((cols[TER.WATER]||'#4a83a6').slice(1),16);
+      // Hintergrund seit dem Sockel-Umbau: warme "Tischplatte" wie im
+      // Referenz-Diorama statt dunklem Tiefwasser - die Karte steht als
+      // Modell auf einem Holzpodest, aussen herum liegt heller Grund.
       // Echtzeituhr wie die 2D-Wasserkulisse (this.time): Wasser lebt
       // auch in der Pause weiter
-      this.glTerrain.zeichne(cam,
-        [((wc>>16)&255)/255*0.9, ((wc>>8)&255)/255*0.9, (wc&255)/255*0.9],
-        this.time/1000);
+      this.glTerrain.zeichne(cam, [0.84, 0.79, 0.70], this.time/1000);
       g.clearRect(0,0,this.vw,this.vh);
     } else {
       // Hintergrund: Tiefwasser mit leichtem Verlauf
@@ -11152,7 +11158,11 @@ export class Renderer {
     // Kartenrand: außerhalb der Karte liegt kein Nichts, sondern ein
     // dunkler Saum, der weich zur Bildkante hin ausläuft. Vorher brach die
     // Karte hart ab und darunter stand schwarze Fläche.
-    {
+    // NUR im 2D-Weg: auf der GPU steht die Karte seit dem Sockel-Umbau
+    // als Diorama auf einem Holzpodest mit heller Tischplatte - der Saum
+    // deckte Podest und Platte fast schwarz zu (Beleg t43: Schleier
+    // blieb auch mit stillgelegtem Nebel, Pixelfarbe 8,12,18).
+    if(!glAktiv){
       const m2=this.game.map;
       const L=(0-cam.x)*cam.z+this.vw/2, R=(m2.w*TILE-cam.x)*cam.z+this.vw/2;
       const T=(0-cam.y)*cam.z+this.vh/2, B=(m2.h*ROWH-cam.y)*cam.z+this.vh/2;
