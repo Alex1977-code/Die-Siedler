@@ -255,7 +255,15 @@ void main(){
              * sin(vWorld.y*0.037 - 1.5*sin(vWorld.x*0.019))
              + 0.6 * sin(vWorld.x*0.089 - 1.7*sin(vWorld.y*0.047))
                    * sin(vWorld.y*0.079 + 1.3*sin(vWorld.x*0.053));
-  vec3 fels = steine(uFelsCol * (0.97 + 0.05*korn));
+  // RUHIGER FELS (Lieferung 9 + Stil-Analyse): die Kachel ist prozedural
+  // nahtlos und auf Mittel 0,5 normiert - sie traegt NUR eine leise
+  // Risszeichnung, mal 2 mal Themenfarbe ergibt den Ton. Fehlt die
+  // Kachel, liefert die 1x1-Grau-Ersatztextur exakt uFelsCol. Der
+  // Knet-Look entsteht im LICHT (3 Toon-Stufen, Senken-AO, matter
+  // Glanz), nicht im Material: das Voronoi-Blockwerk (v268) lag als
+  // Schlangenhaut ueber dem Berg (Nutzerfoto) und ist ausgebaut -
+  // steine() bleibt fuer spaetere Schuttzonen im Bestand.
+  vec3 fels = hol(tFels, uSk2.y) * 2.0 * uFelsCol * (0.97 + 0.05*korn);
   vec3 massiv = mix(fels, hol(tSchnee, uSk1.z), sMix);
   vec3 alb =
       hol(tWiese,  uSk1.x) * w1.x + hol(tWueste, uSk1.y) * w1.y
@@ -285,6 +293,14 @@ void main(){
     vec2 gradH = vec2((hE - hW) * uHfeld.z * 0.5,
                       (hS - hN) * uHfeld.z * 0.591);
     float steil = length(gradH);
+    // KNET-AO: konkave Senken abdunkeln (Laplace aus dem Hoehenfeld).
+    // Laut Stil-Analyse der Lieferung 9 der wichtigste Traeger des
+    // Knet-Eindrucks - Mulden, Stufenfuesse und Kerben liegen im weichen
+    // Eigenschatten. Nur auf dem Massiv.
+    float hZ = texture2D(tHgt, uvH).r;
+    float lap = (hE + hW + hS + hN) * 0.25 - hZ;
+    float ao = clamp(lap * uHfeld.z * 0.9, 0.0, 1.0);
+    alb *= 1.0 - 0.30 * ao * clamp(mas, 0.0, 1.0);
     // Schwelle auf ECHTE Terrassenabbrueche (3 Hoeheneinheiten je Knoten
     // ~ Steigung 1,5): mit 0,55 feuerte die Kante auch auf mittlere
     // Schneehaenge - das Massiv las sich zerkratzt (Beleg t35, erster Wurf)
@@ -392,16 +408,10 @@ void main(){
   // Felsobjekte darauf wie aufgeklebt wirkten (Nutzerfoto v266, "mehr
   // kontur ... felsobjekte gut integriert") - die feine Lage bringt das
   // Detailniveau des Bodens an das der Objekte heran.
-  // Seit dem Steinblockwerk (steine) traegt das MATERIAL die
-  // Kleinteiligkeit - der Zellkipp ist auf eine dezente grobe Lage
-  // zurueckgenommen, sonst doppeln sich die Facetten unruhig.
-  {
-    float m9 = clamp(mas, 0.0, 1.0);
-    vec2 z9 = floor(vGrid + 0.5);
-    float f1 = fract(sin(dot(z9, vec2(127.1, 311.7))) * 43758.5453);
-    float f2 = fract(f1 * 167.17);
-    n.xy += (vec2(f1, f2) - 0.5) * 0.18 * m9;
-  }
+  // Der Facetten-Zellkipp (v266-v268) ist RAUS: die Stil-Analyse zur
+  // Lieferung 9 ("der Chibi-Look vertraegt kein Terrain-Rauschen") und
+  // die Nutzerfotos zeigten, dass Zufallskippen die Flaechen nur unruhig
+  // macht. Kanten machen jetzt die Toon-Stufen, Waende und das Senken-AO.
   n = normalize(n);
   float lam = max(0.0, dot(n, uSun));
 
@@ -434,12 +444,19 @@ void main(){
   }
   lam *= schatten;
   float v = 0.36 + 0.98 * lam;
-  // Kantige Lichtstufen auf dem Massiv (5 Stufen, +0,1 zentriert die
-  // Stufe): zusammen mit dem Zellkipp oben entsteht das Facettenmosaik.
-  v = mix(v, floor(v*5.0)/5.0 + 0.1, clamp(mas, 0.0, 1.0));
+  // TOON-LICHT auf dem Massiv: 3 harte Stufen statt weichem Lambert
+  // (Stil-Analyse Lieferung 9) - die Stufengrenzen zeichnen die Form
+  // des Berges, +1/6 zentriert die Stufe.
+  v = mix(v, floor(v*3.0)/3.0 + 0.1667, clamp(mas, 0.0, 1.0));
   // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
   vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
   vec3 col = alb * v + amb * (1.0 - lam);
+
+  // Matter Plastilin-Glanz (Stil-Analyse Lieferung 9): ein breiter,
+  // schwacher Specular-Lobe - kein Glitzern, nur der leichte Knet-Schimmer
+  // auf sonnenzugewandten Woelbungen.
+  vec3 halb = normalize(uSun + vec3(0.0, 0.0, 1.0));
+  col += vec3(0.10, 0.10, 0.09) * pow(max(0.0, dot(n, halb)), 6.0) * lam;
 
   // ---- Goldene Stunde (vom 2D-Weg uebernommen) ----
   // Dort lagen zwei Vollbild-Auftraege AUF dem fertigen Bild: ein

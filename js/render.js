@@ -441,14 +441,14 @@ export class Renderer {
       // sprach ihn frei) - dieselbe Quader-Kachel, die schon Kritik R3 G3
       // war. felsMaterial nimmt die eingebackene Beleuchtung per Tief-/
       // Hochpass heraus, genau wie im 2D-Weg.
-      // FELS: seit dem Facetten-Umbau (Nutzerentscheid Variante B) traegt
-      // das Massiv KEINE Kachel mehr - die grosse Plattenkachel las sich
-      // auf den Hochflaechen als Pflasterplatz, nicht als Berg, und weder
-      // Spiegel-Grosskachel (v263, Symmetrieachsen) noch Koordinaten-Warp
-      // (v265) haben das geheilt. Der Shader bekommt nur noch die
-      // Felsfarbe des Themas; Zeichnung machen Facettenlicht, Waende und
-      // Hoehenstaffelung in terrain-gl.js. Die mat_fels-Kacheln bleiben
-      // im Bestand (Nahzoom-Ideen, Normal-Map-Quelle).
+      // FELS: neutrale, kontrastarme Risskachel (Lieferung 9, prozedural
+      // nahtlos, auf Mittel 128 normiert - tools/gen_terrain.py erzeugt
+      // sie nach). Der Shader rechnet hol(tFels)*2*uFelsCol: die Kachel
+      // traegt NUR die leise Zeichnung, die Farbe kommt je Thema aus
+      // felsFarbe. Fehlt die Kachel, liefert die 1x1-Grau-Ersatztextur
+      // exakt die Themenfarbe. Die grossen Plattenkacheln (mat_fels_*)
+      // bleiben im Bestand, liegen aber nicht mehr auf dem Massiv.
+      fels: wahl('mat_fels_ruhig_alb', null, 512),
       felsFarbe: (()=>{
         const fc=parseInt((cols[TER.MOUNT]||'#8a7f6a').slice(1),16);
         return [((fc>>16)&255)/255, ((fc>>8)&255)/255, (fc&255)/255];
