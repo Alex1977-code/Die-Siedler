@@ -392,15 +392,19 @@ export class Renderer {
     const hex2lin=(hx)=>{ const v=parseInt(hx.replace('#',''),16);
       return [Math.pow(((v>>16)&255)/255,2.2), Math.pow(((v>>8)&255)/255,2.2), Math.pow((v&255)/255,2.2)]; };
     const V5=this.theme==='gruen'||this.theme==='gebirge'||this.theme==='inseln'||this.theme==='sumpf';
+    // Palette seit v272 auf die Nutzer-Referenz (Diorama-Insel im
+    // Abendlicht) gestimmt: Wiese gelbgruener, Fels WARMGRAU statt
+    // violett (die warmen Kuppen kommen dann vom goldenen Key), Sand
+    // goldener, Wasser tuerkis->petrol statt tuerkis->stahlblau.
     const grund={
-      wiese:  hex2lin(V5? '#70C03A' : (cols[TER.GRASS] ||'#70C03A')),
-      wueste: hex2lin(V5? '#DEC692' : (cols[TER.DESERT]||'#DEC692')),
+      wiese:  hex2lin(V5? '#74A038' : (cols[TER.GRASS] ||'#74A038')),
+      wueste: hex2lin(V5? '#E0BE7C' : (cols[TER.DESERT]||'#E0BE7C')),
       schnee: hex2lin('#ECEEF4'),
       moor:   hex2lin(cols[TER.SWAMP]||'#5E6E2C'),
-      wasserFlach: hex2lin('#60C4CE'),
-      fels:   hex2lin(V5? '#928FA6' : (cols[TER.MOUNT] ||'#928FA6')),
+      wasserFlach: hex2lin('#5FC9C4'),
+      fels:   hex2lin(V5? '#8A8478' : (cols[TER.MOUNT] ||'#8A8478')),
       lava:   hex2lin(cols[TER.LAVA]||'#6B3A32'),
-      wasserTief:  hex2lin('#1A6C94'),
+      wasserTief:  hex2lin('#1B7690'),
     };
     const wahl=(neu9, alt9, skala, glasur, glasurAuf='alt')=>{
       const a=this.asset(neu9), b=this.asset(alt9);

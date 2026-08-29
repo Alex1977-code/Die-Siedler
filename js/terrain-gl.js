@@ -444,19 +444,25 @@ void main(){
   float hRel = vHgt / max(1.0, uHfeld.z);
   float hB = texture2D(tHgt, (vGrid + 0.5) / uHfeld.xy).g;
   float ao = clamp(1.0 - (hB - hRel) * 2.4, 0.55, 1.0);
-  // Hemisphaeren-Ambient: Himmel von oben, warmer Bodenreflex von unten
+  // Hemisphaeren-Ambient: Himmel von oben, warmer Bodenreflex von unten.
+  // LICHTSTIMMUNG seit v272: goldene Stunde nach der Nutzer-Referenz
+  // (Diorama-Insel im Abendlicht) - die Sonne deutlich warm, der Himmel
+  // nur noch mild blau, der Bodenreflex goldig. Die Variante-5-Spez
+  // stand auf neutralem Tageslicht; die Referenz sticht die Spez.
   float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
-  vec3 amb = mix(vec3(0.34, 0.30, 0.22), vec3(0.52, 0.66, 0.88), up) * 0.26;
-  vec3 direct = vec3(1.00, 0.94, 0.82) * key * 1.08
-              + vec3(0.46, 0.60, 0.92) * max(dot(n, C_FILLDIR), 0.0) * 0.30;
+  vec3 amb = mix(vec3(0.40, 0.33, 0.22), vec3(0.60, 0.64, 0.74), up) * 0.26;
+  vec3 direct = vec3(1.18, 0.98, 0.72) * key * 1.10
+              + vec3(0.50, 0.58, 0.78) * max(dot(n, C_FILLDIR), 0.0) * 0.26;
   vec3 col = alb * (direct * ao + amb * ao * ao);
   // Specular aus der Materialrauheit: matt auf Land, scharf nur auf Wasser
   float shin = 2.0 / max(0.02, rough * rough);
   float spec = pow(max(dot(n, normalize(C_KEYDIR + C_VDIR)), 0.0), shin) * (1.0 - rough) * 0.20;
-  col += vec3(1.00, 0.98, 0.94) * spec * key;
-  // Rim: hebt die Silhouette ab - sparsam, sonst wird das Bild milchig
+  col += vec3(1.00, 0.95, 0.85) * spec * key;
+  // Rim: hebt die Silhouette ab - sparsam, sonst wird das Bild milchig.
+  // Seit v272 GOLDEN statt blau: in der Referenz traegt die warme
+  // Sonnenkante die Felskuppen und Baumkronen.
   float rim = pow(1.0 - max(dot(n, C_VDIR), 0.0), 2.6) * max(dot(n, C_RIMDIR), 0.0);
-  col += vec3(0.85, 0.92, 1.00) * rim * 0.20;
+  col += vec3(1.00, 0.86, 0.60) * rim * 0.24;
 
   // ---- Belichtung, ACES, Gamma (Reihenfolge bindend, Spez Abschn. 6) ----
   col *= 0.92;
