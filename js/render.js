@@ -477,6 +477,9 @@ export class Renderer {
         return [((fc>>16)&255)/255, ((fc>>8)&255)/255, (fc&255)/255];
       })(),
       lava:   wahl('mat_lava_alb',   'ter_lava',  256),
+      // Plankenkachel fuer den Diorama-Sockelring (Lieferung V2);
+      // fehlt sie, malt der Sockel-Shader seine 1x1-Holzfarbe
+      sockel: wahl('mat_sockel_holz', null, 230),
       grundfarben: grund,
     };
     for(const k in b) if(!b[k]) delete b[k];

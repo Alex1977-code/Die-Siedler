@@ -546,28 +546,37 @@ const KANAL = ['wiese','wueste','schnee','moor','wasser','fels','lava'];
 // wie beim Diorama. Tonwert je Ecke: positiv = Holz mal Ton (deckend),
 // negativ = Schatten mit Alpha -Ton.
 const VERT_S = `
-attribute vec3 aPos;        // x,y Weltpixel, z Tonwert
+attribute vec4 aPos;        // x,y Weltpixel, z Tonwert, w Plankendrehung
 uniform vec2  uCam;
 uniform float uZoom;
 uniform vec2  uView;
 varying float vTon;
+varying float vDreh;
 varying vec2  vP;
 void main(){
   vec2 s = (aPos.xy - uCam) * uZoom + uView * 0.5;
   gl_Position = vec4(s.x / uView.x * 2.0 - 1.0,
                      1.0 - s.y / uView.y * 2.0, 0.0, 1.0);
-  vTon = aPos.z; vP = aPos.xy;
+  vTon = aPos.z; vDreh = aPos.w; vP = aPos.xy;
 }`;
 const FRAG_S = `
 precision mediump float;
 varying float vTon;
+varying float vDreh;
 varying vec2  vP;
+uniform sampler2D tHolz;    // Plankenkachel (Lieferung V2); Rueckfall ist
+                            // eine 1x1-Holzfarbe - dann traegt die
+                            // Sinus-Maserung allein
 void main(){
   // leise Holzmaserung, gleiche Sinus-Bauart wie das Fels-Korn
   float maser = 0.95 + 0.05 * sin(vP.x*0.083 + 2.0*sin(vP.y*0.031))
                      * sin(vP.y*0.071 - 1.5*sin(vP.x*0.027));
-  vec3 holz = vec3(0.63, 0.44, 0.29);
-  if(vTon > 0.0) gl_FragColor = vec4(holz * vTon * maser, 1.0);
+  if(vTon > 0.0){
+    // Planken laufen laengs des Bandes: Nord/Sued-Baender und Suedwand
+    // waagerecht (dreh 0), West/Ost-Baender gedreht (dreh 1)
+    vec2 uv = mix(vP, vP.yx, vDreh) / 230.0;
+    gl_FragColor = vec4(texture2D(tHolz, uv).rgb * vTon * maser, 1.0);
+  }
   else gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(-vTon, 0.0, 1.0));
 }`;
 
@@ -656,10 +665,17 @@ export class TerrainGL {
         this.uCamS  = gl.getUniformLocation(pS, 'uCam');
         this.uZoomS = gl.getUniformLocation(pS, 'uZoom');
         this.uViewS = gl.getUniformLocation(pS, 'uView');
+        this.uHolzS = gl.getUniformLocation(pS, 'tHolz');
       }
     }
     this.bufSockel = gl.createBuffer();
     this.anzSockel = 0;
+    // Rueckfalltextur des Sockels: 1x1 in Holzfarbe - bis (oder falls)
+    // die Plankenkachel mat_sockel_holz geladen ist
+    this.texSockel = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.texSockel);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA,
+                  gl.UNSIGNED_BYTE, new Uint8Array([161,112,74,255]));
     this.bufGrid = gl.createBuffer();
     this.bufHgt  = gl.createBuffer();
     this.bufNrm  = gl.createBuffer();
@@ -739,6 +755,26 @@ export class TerrainGL {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       if(e.skala) this.skala[ix] = e.skala;
     });
+    // Sockelholz: Plankenkachel des Podestrings (mat_sockel_holz);
+    // fehlt sie, bleibt die 1x1-Holzfarbe aus dem Programmaufbau
+    const so = this._bilder.sockel;
+    if(so && so.img && this.texSockel){
+      const im = so.img, w = im.naturalWidth||im.width, h = im.naturalHeight||im.height;
+      if(w && h){
+        gl.bindTexture(gl.TEXTURE_2D, this.texSockel);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+        if(p2(w) && p2(h)){
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        } else {
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        }
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      }
+    }
   }
 
   // ---------- Netz aufbauen ----------
@@ -1033,19 +1069,20 @@ export class TerrainGL {
     const ox0 = ix0 - RB, ox1 = ix1 + RB, oy0 = iy0 - RB, oy1 = iy1 + RB;
     const oyS = oy1 + TF;
     const v = [];
-    // Viereck mit Tonwert je Ecke (TL, TR, BR, BL), zwei Dreiecke
-    const q = (x0,y0,x1,y1, tTL,tTR,tBR,tBL)=>{
-      v.push(x0,y0,tTL, x1,y0,tTR, x1,y1,tBR,
-             x0,y0,tTL, x1,y1,tBR, x0,y1,tBL);
+    // Viereck mit Tonwert je Ecke (TL, TR, BR, BL) und Plankendrehung
+    // (0 = waagerecht, 1 = gedreht fuer West/Ost), zwei Dreiecke
+    const q = (x0,y0,x1,y1, tTL,tTR,tBR,tBL, dreh=0)=>{
+      v.push(x0,y0,tTL,dreh, x1,y0,tTR,dreh, x1,y1,tBR,dreh,
+             x0,y0,tTL,dreh, x1,y1,tBR,dreh, x0,y1,tBL,dreh);
     };
     // Deckflaeche: vier Baender, aussen voller Ton, innen leicht
     // abgeschattet - die Lippe, auf der die Landschaft aufliegt. Die
     // Baender reichen IN Weltpixel unter den Kartenrand: wo Randknoten
     // angehoben sind, schaut dort das Holz hervor (Diorama-Kante).
-    q(ox0, oy0, ox1, iy0 + IN, 1.0, 1.0, 0.82, 0.82);   // Nord
-    q(ox0, iy1 - IN, ox1, oy1, 0.82, 0.82, 1.0, 1.0);   // Sued
-    q(ox0, oy0, ix0 + IN, oy1, 1.0, 0.82, 0.82, 1.0);   // West
-    q(ix1 - IN, oy0, ox1, oy1, 0.82, 1.0, 1.0, 0.82);   // Ost
+    q(ox0, oy0, ox1, iy0 + IN, 1.0, 1.0, 0.82, 0.82);      // Nord
+    q(ox0, iy1 - IN, ox1, oy1, 0.82, 0.82, 1.0, 1.0);      // Sued
+    q(ox0, oy0, ix0 + IN, oy1, 1.0, 0.82, 0.82, 1.0, 1);   // West
+    q(ix1 - IN, oy0, ox1, oy1, 0.82, 1.0, 1.0, 0.82, 1);   // Ost
     // Suedwand des Podests - die einzige Seitenflaeche, die die
     // Projektion zeigt (Waende in x projizieren zu Linien)
     q(ox0, oy1, ox1, oyS, 0.60, 0.60, 0.44, 0.44);
@@ -1060,7 +1097,7 @@ export class TerrainGL {
     q(ox1, oyS, ox1 + SR, oyS + SR, A, E, E, E);        // Ecke SO
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufSockel);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
-    this.anzSockel = v.length / 3;
+    this.anzSockel = v.length / 4;
   }
 
   zeichne(cam, himmel, zeit){
@@ -1076,10 +1113,15 @@ export class TerrainGL {
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.bindBuffer(gl.ARRAY_BUFFER, this.bufSockel);
       gl.enableVertexAttribArray(this.aPosS);
-      gl.vertexAttribPointer(this.aPosS, 3, gl.FLOAT, false, 0, 0);
+      gl.vertexAttribPointer(this.aPosS, 4, gl.FLOAT, false, 0, 0);
       gl.uniform2f(this.uCamS, cam.x, cam.y);
       gl.uniform1f(this.uZoomS, cam.z);
       gl.uniform2f(this.uViewS, this.vw, this.vh);
+      // Einheit 0 gehoert waehrend dieses Zugs dem Holz - das Gelaende
+      // bindet seine Einheiten unten ohnehin jeden Frame neu
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.texSockel);
+      gl.uniform1i(this.uHolzS, 0);
       gl.drawArrays(gl.TRIANGLES, 0, this.anzSockel);
       gl.disable(gl.BLEND);
     }
