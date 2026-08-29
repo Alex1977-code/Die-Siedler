@@ -383,6 +383,25 @@ export class Renderer {
   glMaterialNeu(){
     if(!this.glTerrain || !this.game) return;
     const cols=TER_COL[this.theme]||TER_COL.gruen;
+    // GL-GRUNDFARBEN (Cartoon-Spezifikation Variante 5, Abschnitt 4/5):
+    // im Film-Look traegt die GRUNDFARBE die Flaeche, die Kachel liegt
+    // nur mit ~25 % Deckkraft darueber. Fuer das Gruenland gelten die
+    // Spez-Werte woertlich; die anderen Themen leiten ihre Toene aus der
+    // bestehenden TER_COL-Palette ab. NUR die GPU-Ebene - 2D-Weg und
+    // Minikarte behalten TER_COL.
+    const hex2lin=(hx)=>{ const v=parseInt(hx.replace('#',''),16);
+      return [Math.pow(((v>>16)&255)/255,2.2), Math.pow(((v>>8)&255)/255,2.2), Math.pow((v&255)/255,2.2)]; };
+    const V5=this.theme==='gruen'||this.theme==='gebirge'||this.theme==='inseln'||this.theme==='sumpf';
+    const grund={
+      wiese:  hex2lin(V5? '#70C03A' : (cols[TER.GRASS] ||'#70C03A')),
+      wueste: hex2lin(V5? '#DEC692' : (cols[TER.DESERT]||'#DEC692')),
+      schnee: hex2lin('#ECEEF4'),
+      moor:   hex2lin(cols[TER.SWAMP]||'#5E6E2C'),
+      wasserFlach: hex2lin('#60C4CE'),
+      fels:   hex2lin(V5? '#928FA6' : (cols[TER.MOUNT] ||'#928FA6')),
+      lava:   hex2lin(cols[TER.LAVA]||'#6B3A32'),
+      wasserTief:  hex2lin('#1A6C94'),
+    };
     const wahl=(neu9, alt9, skala, glasur, glasurAuf='alt')=>{
       const a=this.asset(neu9), b=this.asset(alt9);
       let im=(a&&a.naturalWidth)? a : (b&&b.naturalWidth)? b : null;
@@ -454,6 +473,7 @@ export class Renderer {
         return [((fc>>16)&255)/255, ((fc>>8)&255)/255, (fc&255)/255];
       })(),
       lava:   wahl('mat_lava_alb',   'ter_lava',  256),
+      grundfarben: grund,
     };
     for(const k in b) if(!b[k]) delete b[k];
     this.glTerrain.setzeMaterial(b);

@@ -111,6 +111,10 @@ uniform float uDebug;       // 0 normal, 1 Gewichte als Farben, 2 Licht als Grau
 uniform vec3 uFelsCol;      // Felsfarbe des Themas (fester Ton, NICHT das
                             // interpolierte vCol - das mischt am Massivrand
                             // Wiesengruen hinein)
+uniform vec3 uG[8];         // Grundfarben LINEAR (Cartoon-Spez Variante 5):
+                            // wiese,wueste,schnee,moor,wasserFlach,fels,
+                            // lava,wasserTief - die Kachel liegt nur noch
+                            // mit ~25 % Deckkraft darueber
 
 // Materialprobe mit KOORDINATEN-WARP gegen das Wiederholraster: traege
 // Ortswellen (571/698 px, bewusst inkommensurabel zur 430er-Felskachel)
@@ -124,7 +128,21 @@ vec3 hol(sampler2D t, float sk){
   vec2 w = vWorld + vec2(
     30.0*sin(vWorld.y*0.011 + 1.7*sin(vWorld.x*0.0043)),
     26.0*sin(vWorld.x*0.009 - 1.3*sin(vWorld.y*0.0047)));
-  return texture2D(t, w / sk).rgb;
+  return pow(texture2D(t, w / sk).rgb, vec3(2.2));   // sRGB -> linear
+}
+
+// Filmlicht-Richtungen (Cartoon-Spez Variante 5, vornormalisiert):
+// Key warm von oben links, Fill kuehl von rechts, Rim von hinten oben,
+// Blick leicht von vorn oben. Gleiche Achsen wie uSun (x rechts,
+// y nach unten im Bild, z aus dem Boden).
+const vec3 C_KEYDIR  = vec3(-0.459, -0.549, 0.699);
+const vec3 C_FILLDIR = vec3( 0.623,  0.382, 0.683);
+const vec3 C_RIMDIR  = vec3( 0.200,  0.750, 0.630);
+const vec3 C_VDIR    = vec3( 0.000, -0.349, 0.937);
+
+// ACES-Tonemapping (Spez Abschnitt 6)
+vec3 aces(vec3 x){
+  return clamp((x * (2.51*x + 0.03)) / (x * (2.43*x + 0.59) + 0.14), 0.0, 1.0);
 }
 
 // ---- Steinblockwerk: der Fels im Stil der gemalten Steinhaufen ----
@@ -170,27 +188,34 @@ vec3 steine(vec3 grund){
 // Texturabfragen mit wandernden Koordinaten und zwei Sinuszuege, deren
 // Produkt nur an den Spitzen ueber die Schwelle kommt - Funkeln statt
 // Streifen, deterministisch aus Ort und Zeit.
-vec3 wasser(){
+// ---- Wasser (Cartoon-Spez Variante 5, Abschnitt 5/7) ----
+// Tiefengradient flach->tief, Ripple aus der driftenden Kachel plus dem
+// traegen Funkel-Sinus (v263: unregelmaessig, halbes Tempo), Glitzern
+// als Schwellenwert, Schaum rechnerisch an der Uferlinie. Die aw-Rampe
+// der Materialgewichte ist weiter der Tiefen-Ersatz.
+vec3 wasser(float aw, float rausch){
   vec2 uv = vWorld / uSk2.x;
-  // Nutzerkritik (Handyfoto v262): "wellen im wasser zu schnell und
-  // regelmaessig". Zwei Aenderungen: das Tempo auf rund ein Drittel
-  // (Drift halbiert, Funkel-Uhren 1.9/1.3/1.1 -> 0.55/0.41/0.33), und
-  // gegen das Punktgitter laufen die Funkel-Sinusse auf VERBOGENEN
-  // Koordinaten (Ortswellen schieben x und y je +-26 px) mit
-  // inkommensurablen Frequenzen - die Spitzen des Produkts stehen dann
-  // nicht mehr in Reih und Glied.
   vec3 a = texture2D(tWasser, uv + vec2(uZeit*0.005, uZeit*0.003)).rgb;
   vec3 b = texture2D(tWasser, uv*1.7 + vec2(-uZeit*0.0035, uZeit*0.0055)).rgb;
-  vec3 w = mix(a, b, 0.40);
-  // Warp-Uhren bewusst traege (erster Wurf 0.21/0.17 liess das ganze
-  // Funkelfeld wandern und frass die Verlangsamung wieder auf - gemessen
-  // fiel die 0,6-s-Bilddifferenz nur von 1,26 auf 1,04)
+  float ripple = dot(mix(a, b, 0.40), vec3(0.3333));
   float wx = vWorld.x + 26.0*sin(vWorld.y*0.013 + uZeit*0.07);
   float wy = vWorld.y + 22.0*sin(vWorld.x*0.011 - uZeit*0.055);
-  float g1 = sin(wx*0.051 + uZeit*0.55) * sin(wy*0.0407 - uZeit*0.41);
-  float g2 = sin((wx*0.83 + wy)*0.0343 + uZeit*0.33);
-  float gl = max(0.0, g1*g2 - 0.62) * 1.1;
-  return w + vec3(gl);
+  ripple = clamp(ripple + 0.18*sin(wx*0.051 + uZeit*0.55)*sin(wy*0.0407 - uZeit*0.41), 0.0, 1.0);
+  // Beleg t37: die erste Fassung (Rampe 0,45-0,95, Schaum 0,8 voll weiss
+  // auf enger Schwelle) legte einen gleichmaessigen Leuchtsaum um jede
+  // Kueste - wie ein Kontur-Effekt. Das Referenzbild hat einen BREITEN,
+  // unregelmaessigen Flachwasserschelf mit fleckigen Schaumkronen: darum
+  // wird die Tiefenrampe mit dem Ortsrauschen verbogen (Schelfbreite
+  // schwankt mit 60-150 px Wellenlaenge) und der Schaum haengt an einer
+  // Fleckenmaske aus Ripple und Rausch statt am durchlaufenden Sinus.
+  float tiefe = smoothstep(0.30, 0.98, aw + (rausch - 0.5) * 0.35);
+  vec3 farbe = mix(uG[4], uG[7], tiefe);
+  farbe *= 1.0 + (ripple - 0.5) * 0.18;
+  farbe += vec3(1.0) * clamp((ripple - 0.74) * 3.0, 0.0, 1.0) * 0.55;
+  float saum = clamp(1.0 - abs(aw - 0.42 - 0.20*(rausch - 0.5)) * 4.5, 0.0, 1.0);
+  float fleck = smoothstep(0.50, 0.72, ripple * 0.7 + rausch * 0.45);
+  farbe += vec3(1.0) * saum * fleck * 0.5;
+  return farbe;
 }
 
 void main(){
@@ -263,14 +288,28 @@ void main(){
   // Glanz), nicht im Material: das Voronoi-Blockwerk (v268) lag als
   // Schlangenhaut ueber dem Berg (Nutzerfoto) und ist ausgebaut -
   // steine() bleibt fuer spaetere Schuttzonen im Bestand.
-  vec3 fels = hol(tFels, uSk2.y) * 2.0 * uFelsCol * (0.97 + 0.05*korn);
-  vec3 massiv = mix(fels, hol(tSchnee, uSk1.z), sMix);
+  // VARIANTE 5: die GRUNDFARBE traegt die Flaeche, die Kachel liegt nur
+  // mit 25 % Deckkraft darueber (Spez Abschnitt 6). Alles linear.
+  vec3 mWiese  = mix(uG[0], hol(tWiese,  uSk1.x), 0.25);
+  vec3 mWueste = mix(uG[1], hol(tWueste, uSk1.y), 0.25);
+  vec3 mSchnee = mix(uG[2], hol(tSchnee, uSk1.z), 0.25);
+  vec3 mMoor   = mix(uG[3], hol(tMoor,   uSk1.w), 0.25);
+  vec3 mLava   = mix(uG[6], hol(tLava,   uSk2.z), 0.25);
+  // Fels: die neutrale Risskachel (Mittel 0,5 sRGB = 0,218 linear) wirkt
+  // multiplikativ - Faktor 4,8 normiert ihr Mittel auf 1
+  // Kachelanteil 0,16 statt 0,25 (Beleg t34: auf dem hellen Winterfels
+  // trat das Zellnetz der Risskachel als Muster hervor - dieselbe Sorte
+  // Beanstandung wie die Schlangenhaut in v268; die Spez nennt fuer
+  // Texturen ohnehin nur 15-20 % Deckkraft)
+  vec3 fels = uG[5] * mix(vec3(1.0), hol(tFels, uSk2.y) * 4.8, 0.16) * (0.97 + 0.05*korn);
+  vec3 massiv = mix(fels, mSchnee, sMix);
   vec3 alb =
-      hol(tWiese,  uSk1.x) * w1.x + hol(tWueste, uSk1.y) * w1.y
-    + hol(tSchnee, uSk1.z) * w1.z + hol(tMoor,   uSk1.w) * w1.w
-    + wasser()               * w2.x + massiv       * w2.y
-    + hol(tLava,   uSk2.z) * w2.z;
+      mWiese * w1.x + mWueste * w1.y + mSchnee * w1.z + mMoor * w1.w
+    + wasser(aw, rausch) * w2.x + massiv * w2.y + mLava * w2.z;
   alb /= max(0.001, sum);
+  // Rauheit je Material (Spez-Tabelle), gleich gewichtet wie alb
+  float rough = (0.82*w1.x + 0.86*w1.y + 0.72*w1.z + 0.85*w1.w
+               + 0.14*w2.x + 0.66*w2.y + 0.70*w2.z) / max(0.001, sum);
 
   // ---- KLIPPENKANTE: Terrassenabbrueche als Bruchkante zeigen ----
   // Die Kartenerzeugung baut das Massiv aus Terrassen mit exakten
@@ -293,14 +332,6 @@ void main(){
     vec2 gradH = vec2((hE - hW) * uHfeld.z * 0.5,
                       (hS - hN) * uHfeld.z * 0.591);
     float steil = length(gradH);
-    // KNET-AO: konkave Senken abdunkeln (Laplace aus dem Hoehenfeld).
-    // Laut Stil-Analyse der Lieferung 9 der wichtigste Traeger des
-    // Knet-Eindrucks - Mulden, Stufenfuesse und Kerben liegen im weichen
-    // Eigenschatten. Nur auf dem Massiv.
-    float hZ = texture2D(tHgt, uvH).r;
-    float lap = (hE + hW + hS + hN) * 0.25 - hZ;
-    float ao = clamp(lap * uHfeld.z * 0.9, 0.0, 1.0);
-    alb *= 1.0 - 0.30 * ao * clamp(mas, 0.0, 1.0);
     // Schwelle auf ECHTE Terrassenabbrueche (3 Hoeheneinheiten je Knoten
     // ~ Steigung 1,5): mit 0,55 feuerte die Kante auch auf mittlere
     // Schneehaenge - das Massiv las sich zerkratzt (Beleg t35, erster Wurf)
@@ -330,13 +361,6 @@ void main(){
     }
   }
 
-  // ---- Hoehenstaffelung: der Berg wird nach oben hin heller ----
-  // Ohne Kachel braucht das Auge einen zweiten Hinweis auf "hinauf":
-  // der Fuss liegt gedeckt, Kamm und Gipfel hell - die klassische
-  // Bergstaffelung. Nur auf dem Massiv.
-  alb *= mix(1.0, 0.80 + 0.42*clamp(vHgt / max(1.0, uHfeld.z), 0.0, 1.0),
-             clamp(mas, 0.0, 1.0));
-
   // ---- Kueste: Flachwasser und Schaumsaum ----
   // Der Wasseranteil aw laeuft vom offenen Wasser (1) ueber die Ufer-
   // dreiecke stetig auf 0 - dieselbe Interpolation, die die Material-
@@ -357,16 +381,9 @@ void main(){
     // Winterkueste behaelt ihren Schnee.
     float strand = smoothstep(0.02, 0.16, aw) * (1.0 - smoothstep(0.28, 0.52, aw));
     strand *= clamp(landWeich / max(0.001, 1.0 - aw), 0.0, 1.0);
-    alb = mix(alb, hol(tWueste, uSk1.y), strand * 0.55);
-    float kante = smoothstep(0.10, 0.45, aw) * (1.0 - smoothstep(0.45, 0.85, aw));
-    alb = mix(alb, vec3(0.42, 0.61, 0.72), kante * 0.24);
-    float puls = 0.5 + 0.5*sin(uZeit*0.8 + (vWorld.x + vWorld.y)*0.011);
-    float d9 = (aw - 0.18 - 0.38*rausch - 0.04*puls) / (0.05 + 0.05*rausch);
-    float schaum = exp(-d9*d9);
-    // LAENGS der Kueste in Flecken aufloesen: geschlossene Girlanden lesen
-    // sich als Draht, echte Gischt kommt und geht
-    schaum *= 0.35 + 0.65*max(0.0, sin(vWorld.x*0.024 - vWorld.y*0.019 + uZeit*0.35));
-    alb = mix(alb, vec3(0.95, 0.97, 1.0), schaum * 0.30);
+    alb = mix(alb, mWueste, strand * 0.55);
+    // Flachwasser-Aufhellung und Schaum macht seit Variante 5 wasser()
+    // selbst (Tiefengradient + rechnerische Uferkante)
   }
 
   // ---- Themenfarbe daruebergelegt ----
@@ -384,36 +401,10 @@ void main(){
             * sin(vWorld.y*0.0079 - 1.3*sin(vWorld.x*0.0053));
   alb *= 1.0 + 0.05*ton;
 
-  // Nenner ist die Luminanz der PALETTENFARBE, nicht pauschal 0,5: das
-  // Mischziel bekommt so genau die Helligkeit der Kachel (echte color-
-  // Glasur). Mit /0.5 wurde die fast weisse Schnee-/Firnpalette um das
-  // 1,6-fache verstaerkt - die Firnflaeche sass VOR dem Licht schon bei
-  // 1,2 und klippte trotz Lichtschulter komplett aus (Beleg t34: 92 %
-  // der Flaeche >= 250, Kachelzeichnung unsichtbar).
-  float lum = dot(alb, vec3(0.299, 0.587, 0.114));
-  float lumP = dot(vCol, vec3(0.299, 0.587, 0.114));
-  alb = mix(alb, vCol * (lum / max(0.2, lumP)), uTint);
-
-  // ---- Licht ----
+  // ---- Filmlicht (Cartoon-Spez Variante 5, Abschnitt 3) ----
+  // Dreipunktlicht plus Hemisphaeren-Ambient, linear gerechnet. Ersetzt
+  // Lambert + Nord-Daempfung + Toon-Stufen + goldene Stunde + Schulter.
   vec3 n = normalize(vNrm);
-  // NORD-DAEMPFUNG wie im 2D-Pass (eckShade): nordgerichtete Haenge sind
-  // in dieser Projektion die bildschirmgestreckten Rueckseiten. Voll
-  // beleuchtet standen sie als grelle fahle Dreiecke ueber dem Massivrand.
-  if (n.y > 0.0) n.y *= 0.35;
-  // FACETTEN (Variante B): je Gitterzelle kippt die Normale um einen
-  // festen kleinen Zufallsbetrag - das Facettenmosaik des alten 2D-Wegs,
-  // nur aus der echten Normalen statt gemalter Bloecke. Nur auf dem
-  // Massiv; die Wiese bleibt weich. ZWEI Lagen (ganze + halbe Zelle):
-  // eine Lage allein liess die Flaechen so glatt, dass die kleinteiligen
-  // Felsobjekte darauf wie aufgeklebt wirkten (Nutzerfoto v266, "mehr
-  // kontur ... felsobjekte gut integriert") - die feine Lage bringt das
-  // Detailniveau des Bodens an das der Objekte heran.
-  // Der Facetten-Zellkipp (v266-v268) ist RAUS: die Stil-Analyse zur
-  // Lieferung 9 ("der Chibi-Look vertraegt kein Terrain-Rauschen") und
-  // die Nutzerfotos zeigten, dass Zufallskippen die Flaechen nur unruhig
-  // macht. Kanten machen jetzt die Toon-Stufen, Waende und das Senken-AO.
-  n = normalize(n);
-  float lam = max(0.0, dot(n, uSun));
 
   // ---- Schlagschatten: Marsch durchs Hoehenfeld zur Sonne ----
   // Die ganze Karte liegt als winzige Textur an (max 160x160). Der Strahl
@@ -442,56 +433,42 @@ void main(){
       schatten = min(schatten, 1.0 - clamp(ueber / 30.0, 0.0, 0.62));
     }
   }
-  lam *= schatten;
-  float v = 0.36 + 0.98 * lam;
-  // TOON-LICHT auf dem Massiv: 3 harte Stufen statt weichem Lambert
-  // (Stil-Analyse Lieferung 9) - die Stufengrenzen zeichnen die Form
-  // des Berges, +1/6 zentriert die Stufe.
-  v = mix(v, floor(v*3.0)/3.0 + 0.1667, clamp(mas, 0.0, 1.0));
-  // Ambient aus dem Himmel: Schatten kippen ins Kuehle statt ins Schwarze
-  vec3 amb = vec3(0.62, 0.68, 0.80) * 0.18;
-  vec3 col = alb * v + amb * (1.0 - lam);
+  // Key mit Subsurface-Anteil (weicher, warm auslaufender Terminator);
+  // der Schattenmarsch geht nur noch WEICH ein und steht standardmaessig
+  // aus (Spez: keine harten Schlagschatten)
+  float ndk = max(dot(n, C_KEYDIR), 0.0);
+  float sss = pow(clamp(dot(n, C_KEYDIR)*0.5 + 0.5, 0.0, 1.0), 2.2);
+  float key = (ndk*0.82 + sss*0.18) * (0.55 + 0.45*schatten);
+  // AO: Hoehe gegen weichgezeichnete Hoehe (G-Kanal von tHgt, CPU-seitig
+  // vorgerechnet) - Senken und Stufenfuesse liegen im weichen Eigenschatten
+  float hRel = vHgt / max(1.0, uHfeld.z);
+  float hB = texture2D(tHgt, (vGrid + 0.5) / uHfeld.xy).g;
+  float ao = clamp(1.0 - (hB - hRel) * 2.4, 0.55, 1.0);
+  // Hemisphaeren-Ambient: Himmel von oben, warmer Bodenreflex von unten
+  float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
+  vec3 amb = mix(vec3(0.34, 0.30, 0.22), vec3(0.52, 0.66, 0.88), up) * 0.26;
+  vec3 direct = vec3(1.00, 0.94, 0.82) * key * 1.08
+              + vec3(0.46, 0.60, 0.92) * max(dot(n, C_FILLDIR), 0.0) * 0.30;
+  vec3 col = alb * (direct * ao + amb * ao * ao);
+  // Specular aus der Materialrauheit: matt auf Land, scharf nur auf Wasser
+  float shin = 2.0 / max(0.02, rough * rough);
+  float spec = pow(max(dot(n, normalize(C_KEYDIR + C_VDIR)), 0.0), shin) * (1.0 - rough) * 0.20;
+  col += vec3(1.00, 0.98, 0.94) * spec * key;
+  // Rim: hebt die Silhouette ab - sparsam, sonst wird das Bild milchig
+  float rim = pow(1.0 - max(dot(n, C_VDIR), 0.0), 2.6) * max(dot(n, C_RIMDIR), 0.0);
+  col += vec3(0.85, 0.92, 1.00) * rim * 0.20;
 
-  // Matter Plastilin-Glanz (Stil-Analyse Lieferung 9): ein breiter,
-  // schwacher Specular-Lobe - kein Glitzern, nur der leichte Knet-Schimmer
-  // auf sonnenzugewandten Woelbungen.
-  vec3 halb = normalize(uSun + vec3(0.0, 0.0, 1.0));
-  col += vec3(0.10, 0.10, 0.09) * pow(max(0.0, dot(n, halb)), 6.0) * lam;
+  // ---- Belichtung, ACES, Gamma (Reihenfolge bindend, Spez Abschn. 6) ----
+  col *= 0.92;
+  col = aces(col);
+  col = pow(col, vec3(1.0 / 2.2));
 
-  // ---- Goldene Stunde (vom 2D-Weg uebernommen) ----
-  // Dort lagen zwei Vollbild-Auftraege AUF dem fertigen Bild: ein
-  // Diagonalverlauf warm (NW) nach kuehl (SO) und ein soft-light-Warmton.
-  // Mit der GL-Ebene kippen beide auf dem transparenten 2D-Canvas um
-  // (s. Kommentar in render.js) - hier stehen dieselben Rechnungen im
-  // Shader, mit denselben Farben und Deckungen.
-  vec2 uv = gl_FragCoord.xy / uPix;
-  float d = (uv.x + (1.0 - uv.y)) * 0.5;      // 0 oben links .. 1 unten rechts
-  float aW = mix(0.12, 0.02, clamp(d/0.55, 0.0, 1.0));
-  float aK = 0.10 * clamp((d-0.55)/0.45, 0.0, 1.0);
-  col = mix(col, vec3(1.0, 0.808, 0.549), aW);
-  col = mix(col, vec3(0.149, 0.204, 0.361), aK);
-  // soft-light mit fester Quelle (255,190,120), Deckung 0,16.
-  // W3C-Formel je Kanal; fuer s>0,5 mit der sqrt-Naeherung.
-  vec3 sl = vec3(sqrt(col.r),
-                 col.g + 0.49 * (sqrt(col.g) - col.g),
-                 col.b - 0.059 * col.b * (1.0 - col.b));
-  col = mix(col, sl, 0.16);
-
-  // ---- Weiche Lichtschulter statt hartem Klipp ----
-  // v laeuft bis 1,28; auf hellen Albedos (Schnee/Firn ~0,82) klippte das
-  // Produkt und die sonnige Firnflaeche stand als reinweisse Flaeche ohne
-  // jede Zeichnung da (Beleg t34: 98 % der Flaeche >= 250 - schon MIT der
-  // alten ter_snow-Kachel waren es 94 %, kein Lieferungsfehler). Unterhalb
-  // der Schulter s aendert sich nichts, darueber laeuft alles asymptotisch
-  // gegen 1 aus - die Albedo-Zeichnung ueberlebt komprimiert.
-  vec3 ue = max(col - vec3(0.86), vec3(0.0)) / 0.14;
-  col = min(col, vec3(0.86)) + 0.14 * (1.0 - exp(-ue));
   // Debug-Ansichten: 1 = Gewichte (Fels rot, Schnee/Firn blau, Wiese
   // gruen, Rest tuerkis), 2 = reines Licht. Nur von Messwerkzeugen gesetzt.
   if(uDebug > 0.5 && uDebug < 1.5){
     col = vec3(w2.y, q1.x, sAnteil) / max(0.001, max(w2.y, max(q1.x, sAnteil)));
   } else if(uDebug > 1.5){
-    col = vec3(v * 0.6);
+    col = vec3(key * 0.8);
   }
   gl_FragColor = vec4(col, 1.0);
 }`;
@@ -569,6 +546,7 @@ export class TerrainGL {
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
     this.uFelsCol = gl.getUniformLocation(p, 'uFelsCol');
+    this.uG = gl.getUniformLocation(p, 'uG[0]');
     this.uTex  = KANAL.map(k=>gl.getUniformLocation(p,
       't'+k.charAt(0).toUpperCase()+k.slice(1)));
     this.bufGrid = gl.createBuffer();
@@ -589,6 +567,10 @@ export class TerrainGL {
       return t;
     });
     this.skala = KANAL.map(()=>225);   // Vorgabe: 512-px-Kachel bei 0,44
+    // Variante 5 kennt keinen harten Schlagschatten - der Marsch bleibt
+    // als Werkzeug erhalten (ohneSchatten=false schaltet ihn zu) und
+    // geht dann nur WEICH in den Key ein
+    if(this.ohneSchatten === undefined) this.ohneSchatten = true;
     // Hoehenfeld-Textur fuer den Schattenmarsch (8 Bit reichen: Hoehen
     // 0..~12 auf 0..255 sind 0,05 Einheiten Aufloesung, der weiche
     // Schattenrand deckt das dreifache davon)
@@ -609,6 +591,14 @@ export class TerrainGL {
     // Felsfarbe des Themas (0..1) - traegt seit dem Facetten-Umbau den
     // Fels allein, die tFels-Kachel liegt nicht mehr auf dem Massiv
     if(bilder && bilder.felsFarbe) this._felsCol = bilder.felsFarbe;
+    // Grundfarben je Materialkanal (LINEAR, Cartoon-Spez Variante 5):
+    // Reihenfolge wiese,wueste,schnee,moor,wasserFlach,fels,lava,wasserTief
+    if(bilder && bilder.grundfarben){
+      const g = bilder.grundfarben;
+      this._grund = new Float32Array([].concat(
+        g.wiese, g.wueste, g.schnee, g.moor,
+        g.wasserFlach, g.fels, g.lava, g.wasserTief));
+    }
     this._bilderAnwenden();
   }
   _bilderAnwenden(){
@@ -715,6 +705,23 @@ export class TerrainGL {
         H[i] = s/c;
       }
     }
+    // Voll geglaettetes Feld fuer das AO der Variante 5 (hBlur - h):
+    // gleiche Runden, aber OHNE Kantenerhalt - an Stufenfuessen liegt
+    // hBlur ueber der echten Hoehe, dort dunkelt das AO ab
+    const HB = new Float32Array(H);
+    for(let r=0; r<3; r++){
+      const Q = new Float32Array(HB);
+      for(let y=0; y<h; y++) for(let x=0; x<w; x++){
+        const i = y*w + x;
+        let s = Q[i]*2, c = 2;
+        for(const q of [x>0? i-1:-1, x<w-1? i+1:-1, y>0? i-w:-1, y<h-1? i+w:-1]){
+          if(q<0) continue;
+          s += Q[q]; c++;
+        }
+        HB[i] = s/c;
+      }
+    }
+    this._hBlur = HB;
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){
       const i = y*w + x;
       hgt[i] = H[i];
@@ -775,7 +782,10 @@ export class TerrainGL {
       // die Stufen skalieren mit dem Zoom und sind messerscharf). RGBA
       // filtert jede Implementierung bilinear.
       const px = new Uint8Array(n*4);
-      for(let i=0; i<n; i++) px[i*4] = Math.max(0, Math.min(255, Math.round(H[i]/mx*255)));
+      for(let i=0; i<n; i++){
+        px[i*4]   = Math.max(0, Math.min(255, Math.round(H[i]/mx*255)));
+        px[i*4+1] = Math.max(0, Math.min(255, Math.round((this._hBlur? this._hBlur[i] : H[i])/mx*255)));
+      }
       gl.bindTexture(gl.TEXTURE_2D, this.texHgt);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA,
                     gl.UNSIGNED_BYTE, px);
@@ -928,6 +938,11 @@ export class TerrainGL {
     gl.uniform1f(this.uTint, 0.5);
     const fc = this._felsCol || [0.55, 0.52, 0.50];
     gl.uniform3f(this.uFelsCol, fc[0], fc[1], fc[2]);
+    // Grundfarben (linear); Rueckfall = neutrale Toene, damit vor dem
+    // ersten setzeMaterial nichts schwarz steht
+    gl.uniform3fv(this.uG, this._grund || new Float32Array([
+      0.16,0.52,0.04,  0.72,0.56,0.28,  0.83,0.85,0.90,  0.10,0.15,0.03,
+      0.11,0.55,0.60,  0.29,0.28,0.38,  0.13,0.04,0.03,  0.01,0.15,0.29]));
     gl.uniform2f(this.uPix, this.cv.width, this.cv.height);
     gl.uniform1f(this.uZeit, zeit || 0);
     gl.uniform1f(this.uSchattenAn, this.ohneSchatten? 0 : 1);
