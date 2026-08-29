@@ -350,14 +350,25 @@ void main(){
   // der Diagnoseansicht: Hoehe 9,5, Neigungsfenster offen, aber
   // Hoehenfenster 0,03). Jetzt Gras bis 42 % der Kartenhoehe, Fels ab
   // 72 % - der Koerper ist gruen, die Kuppe Fels, wie in der Referenz.
-  float gipfel = smoothstep(uHfeld.z*0.42, uHfeld.z*0.72, hbM + (rausch - 0.5) * 1.6);
+  // 42/72 % war immer noch zu tief: das SICHTBARE Massiv liegt gemessen
+  // bei 77 % der Kartenhoehe, also komplett in der Felszone. Im
+  // Referenzbild traegt der Huegel bis kurz unter den Gipfel Gras, Fels
+  // bricht nur in der Kuppe und an Steilstellen durch. Jetzt 60/90 %.
+  float gipfel = smoothstep(uHfeld.z*0.60, uHfeld.z*0.90, hbM + (rausch - 0.5) * 1.6);
   // NEIGUNGSFENSTER: mit HSCALE 40 (Kamera-Umbau) sind alle Haenge
   // steiler als vorher - 0,78..0,92 liess fast nichts mehr durch, das
   // Massiv blieb grau (Beleg t39 neu1). Jetzt greift Gras auch an
   // maessig geneigten Flanken; nur die echten Steilstellen bleiben Fels.
-  float sanft = smoothstep(0.42, 0.72, normalize(vNrm).z);
-  vec3 berggras = mix(mWiese, mWueste, 0.40);   // trockenes Berggras
-  fels = mix(fels, berggras, (1.0 - gipfel) * sanft * 0.9);
+  // Neigungsfenster weit oeffnen: in der Referenz waechst Gras auch auf
+  // deutlich geneigten Flanken - nur die echten Steilbrueche bleiben kahl.
+  float sanft = smoothstep(0.22, 0.52, normalize(vNrm).z);
+  // BERGGRAS: frueher 40 % Wueste beigemischt - das ergab ein trockenes
+  // Oliv, waehrend die Referenz auf dem Huegel DASSELBE frische Gruen
+  // zeigt wie in der Ebene. Nur ein Hauch Sand (12 %) fuer den
+  // Hoehenunterschied. Deckung voll (1,0 statt 0,9), sonst schimmert der
+  // Fels als grauer Schleier durch die Wiese.
+  vec3 berggras = mix(mWiese, mWueste, 0.12);
+  fels = mix(fels, berggras, (1.0 - gipfel) * sanft);
   vec3 massiv = mix(fels, mSchnee, sMix);
   vec3 alb =
       mWiese * w1.x + mWueste * w1.y + mSchnee * w1.z + mMoor * w1.w

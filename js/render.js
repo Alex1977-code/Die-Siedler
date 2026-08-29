@@ -402,7 +402,10 @@ export class Renderer {
       schnee: hex2lin('#ECEEF4'),
       moor:   hex2lin(cols[TER.SWAMP]||'#5E6E2C'),
       wasserFlach: hex2lin('#5FC9C4'),
-      fels:   hex2lin(V5? '#8A8478' : (cols[TER.MOUNT] ||'#8A8478')),
+      // Fels etwas dunkler (#8A8478 -> #7E7669): auf der hellen
+      // Bergwiese wirkte der alte Ton als blasser Schleier, gemessen
+      // Felsmittel 185 bei nur 26 Streuung. Dunkler traegt er Zeichnung.
+      fels:   hex2lin(V5? '#7E7669' : (cols[TER.MOUNT] ||'#7E7669')),
       lava:   hex2lin(cols[TER.LAVA]||'#6B3A32'),
       wasserTief:  hex2lin('#1B7690'),
     };
@@ -6434,7 +6437,11 @@ export class Renderer {
     // liegt das oberste Fuenftel oft noch mitten am Hang. Erst das oberste
     // Zwanzigstel ist wirklich Gipfel – sonst schwimmt eine weisse Amoebe
     // in der Bergflanke (Handybild v84).
-    const p={ winter:0.30, gebirge:0.88, vulkan:2, wueste:2 }[this.theme] ?? 0.945;
+    // Firn im Gebirge 0,88 -> 0,96: das oberste Achtel jedes Massivs war
+    // immer noch eine weisse Flaeche, und das Referenzbild kennt gar
+    // keinen Schnee - nur eine Felskuppe. Jetzt traegt das oberste
+    // Zwanzigstel eine Haube, der Rest ist Fels und Bergwiese.
+    const p={ winter:0.30, gebirge:0.96, vulkan:2, wueste:2 }[this.theme] ?? 0.945;
     if(p<1){
       const seen=new Uint8Array(n);
       for(let i=0;i<n;i++){

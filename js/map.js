@@ -518,7 +518,12 @@ export function genWorld(opts){
         // Referenz zeigt einen FELSGIPFEL, keine Schneehaube; Schnee bleibt
         // damit die Ausnahme auf den hoechsten Spitzen. Das Winterthema
         // behaelt seine Decke - dort IST Schnee das Thema.
-        const schneeAb = theme==='winter' ? 0.62 : 0.88;
+        // 0,88 -> 0,97: bei 0,88 lag Schnee als GELAENDEART (nicht nur als
+        // Firndecke des Zeichners) auf dem oberen Achtel jedes Massivs -
+        // das war der weisse Fleck, den auch die gedrosselte Firnlinie
+        // nicht wegbekam. Das Referenzbild kennt keinen Schnee; die
+        // Gipfelhaube bleibt als Andeutung des Alpenthemas.
+        const schneeAb = theme==='winter' ? 0.62 : 0.97;
         map.terr[i] = (sp>schneeAb && (theme==='winter'||theme==='gebirge')) ? TER.SNOW : TER.MOUNT;
       }
       else {
