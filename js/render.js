@@ -8033,8 +8033,26 @@ export class Renderer {
   // Vor dem ersten Bake der Umgebung 0 – dann steht dort ohnehin noch
   // kein gebackener Fels im Bild.
   liftAt(i){
+    // Die Anhebung stammt aus dem 2D-Weg: dort wird die Felsoberflaeche
+    // gemalt HOEHER als map.hgt, und Objekte darauf muessen mitwandern
+    // ("eine Strasse ueber den Fels lag sonst 38 px unter der gezeichneten
+    // Felsoberflaeche"). Die GPU-Ebene hebt NICHTS an - sie zeichnet den
+    // Boden an der Hoehe selbst. Dort ist dieselbe Verschiebung deshalb
+    // ein Fehler: sie hob Wege, Felsen und Fahnen ueber den Grund, und
+    // mit HSCALE 40 (Kamera-Umbau) um mehr als die Haelfte staerker als
+    // frueher. Nutzerbefund: "weg auf berg passt optisch nicht zur
+    // hoehenlage".
+    if(this.glAn && this.glTerrain && this.glTerrain.verfuegbar()) return 0;
     const v=this._liftC && this._liftC.get(i);
     return v? v.lift : 0;
+  }
+  // Anzeigehoehe eines Knotens: auf der GPU-Ebene die GEGLAETTETE Hoehe,
+  // an der der Boden wirklich gezeichnet wird; sonst die Kartenhoehe.
+  anzeigeH(i){
+    const gt=this.glAn && this.glTerrain && this.glTerrain.verfuegbar()
+           ? this.glTerrain : null;
+    const hd=gt && gt._hDisp;
+    return (hd && i>=0 && i<hd.length) ? hd[i] : this.game.map.hgt[i];
   }
   // Richtung des stärksten Gefälles
   gradOf(m,i){
@@ -10286,7 +10304,17 @@ export class Renderer {
     //      Die ausgefransten Kachelraender liegen ausserhalb und fallen weg.
     const tStr=this.asset('road_str');
     if(tStr){
-      const tDirt=this.asset('road_dirt')||tStr, tSlope=this.asset('road_slope')||tStr;
+      // ERDPFAD: bevorzugt die gelieferte Wegkachel (mat_weg_alb,
+      // ausgetretene Erde mit Kieseln - Diorama-Lieferung). Sie lag bisher
+      // ungenutzt im Bestand; der Weg war ein flaches braunes Band ohne
+      // Zeichnung. Fehlt sie, bleibt die alte road_dirt-Vorlage.
+      const tDirt=this.asset('mat_weg_alb')||this.asset('road_dirt')||tStr,
+            tSlope=this.asset('road_slope')||tStr;
+      // Die Wegkachel ist eine FLAECHENkachel (randlos), keine Vorlage mit
+      // eingebautem Band - sie darf deshalb groesser gezeichnet werden.
+      // Bei Bandbreite gezeichnet waere ihre Koernung so fein, dass sie
+      // wieder als glatte Flaeche liest.
+      const flaechenErde = !!this.asset('mat_weg_alb');
       // Zielgroesse auf dem Schirm – danach richtet sich der Kachel-Vorrat
       const zpx=(w2)=> w2*cam.z*(this.dpr||1);
       const BAND=TILE*0.30, half=BAND/2;
@@ -10480,8 +10508,9 @@ export class Renderer {
             // brandneuer Weg ohne einen einzigen Warengang bekam dadurch
             // mitten im Verlauf eine voll gepflasterte Platte mit
             // rasiermesserscharfer Kante, sobald er eine Gelaendestufe nahm.
-            const kBasis=this.roadKachel(tDirt,'dirt',zpx(bw));
-            for(let yy=off-bw; yy<L2+bw*1.6; yy+=bw) g.drawImage(kBasis, -bw/2, yy, bw, bw);
+            const bwE=flaechenErde? bw*2.2 : bw;
+            const kBasis=this.roadKachel(tDirt,'dirt',zpx(bwE));
+            for(let yy=off-bwE; yy<L2+bwE*1.6; yy+=bwE) g.drawImage(kBasis, -bwE/2, yy, bwE, bwE);
             // Pflaster als zweite Lage darueber. Weil der Pfad darunter
             // deckend ist, darf diese Lage halbdurchsichtig sein - dann
             // schaut zwischen den Steinen noch Erde durch, wie bei einem
@@ -10506,8 +10535,9 @@ export class Renderer {
           g.save();
           g.translate(st.a[0],st.a[1]);
           g.rotate(Math.atan2(dy,dx)-Math.PI/2);
-          const kD=this.roadKachel(tDirt,'dirt',zpx(bw));
-          for(let yy=-bw*0.6; yy<L2+bw; yy+=bw) g.drawImage(kD, -bw/2, yy, bw, bw);
+          const bwE2=flaechenErde? bw*2.2 : bw;
+          const kD=this.roadKachel(tDirt,'dirt',zpx(bwE2));
+          for(let yy=-bwE2*0.6; yy<L2+bwE2; yy+=bwE2) g.drawImage(kD, -bwE2/2, yy, bwE2, bwE2);
           if(deck>0.01){
             g.globalAlpha=deck;
             const kP=this.roadKachel(tStr,'str',zpx(bw));
@@ -11263,7 +11293,8 @@ export class Renderer {
     return r.path.map((n,ix)=>{
       if(ix===0 || ix===r.path.length-1) return this.doorVisualPos(n);
       const [x,y]=m.worldPos(n);
-      const yl=y-this.liftAt(n)*HSCALE;
+      // Auf die ANZEIGEHOEHE setzen (GPU zeichnet den Boden geglaettet)
+      const yl=y+(m.hgt[n]-this.anzeigeH(n))*HSCALE-this.liftAt(n)*HSCALE;
       if(m.flag[n]) return [x,yl];
       return [x+(hash01(n*3+1)-0.5)*6, yl+(hash01(n*5+2)-0.5)*5];
     });

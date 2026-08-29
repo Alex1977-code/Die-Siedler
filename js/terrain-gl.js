@@ -939,6 +939,13 @@ export class TerrainGL {
       }
     }
     this._hBlur = HB;
+    // ANZEIGEHOEHE nach aussen geben: der 2D-Weg verankert Wege, Felsen
+    // und Fahnen an map.hgt, die GPU-Ebene zeichnet den Boden aber an der
+    // GEGLAETTETEN Hoehe H. Ohne diesen Abgleich schwebt alles ein Stueck
+    // ueber oder unter dem Boden - bei einer langen Strasse quer zum Hang
+    // faellt das sofort auf (Nutzerbefund "weg auf berg passt optisch
+    // nicht zur hoehenlage").
+    this._hDisp = H;
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){
       const i = y*w + x;
       hgt[i] = H[i];
