@@ -1,9 +1,16 @@
 // Neuland – Weltkarte: Hex-Punktgitter mit Höhen, Terrain, Objekten und Rohstoffen.
 import { TER, OBJ, mulberry32, clamp, BAUM_REIF } from './core.js';
 
+// KAMERA (Referenz-Diorama): Der Blickwinkel steckt im Verhaeltnis
+// ROWH/TILE - es ist die Verkuerzung der Bodenebene. 44/52 = 0,85 hiess
+// Blick von rund 58 Grad, also fast senkrecht von oben; ein Berg konnte
+// so nicht aufragen, er blieb eine graue Flaeche (Nutzerfotos v272-v276).
+// Das Referenzbild schaut aus rund 38 Grad: Verkuerzung 0,62. Zugleich
+// muss die HOEHE staerker durchschlagen, sonst bleiben die Massive flach
+// (gemessen: Anstieg/Breite war 0,18 gegen 0,35 in der Referenz).
 export const TILE = 52;      // horizontaler Knotenabstand (Weltpixel)
-export const ROWH = 44;      // Zeilenhöhe
-export const HSCALE = 26;    // Höhen-Versatz in Pixel
+export const ROWH = 32;      // Zeilenhöhe (Verkuerzung der Bodenebene)
+export const HSCALE = 40;    // Höhen-Versatz in Pixel
 
 export class WorldMap {
   constructor(w, h){

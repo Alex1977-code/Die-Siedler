@@ -98,6 +98,13 @@ varying float vHgt;
 varying vec4 vW1;
 varying vec4 vW2;
 uniform vec3 uSun;          // Richtung zur Sonne (normiert)
+// TILE, ROWH, HSCALE fuer den Schattenmarsch. EIGENER Name: der
+// Vertex-Shader fuehrt uMass in hoher Genauigkeit (Weltpixel bis ~6600,
+// mediump waere dort auf einige Pixel genau), der Fragment-Shader
+// rechnet mediump - gleicher Name mit anderer Praezision laesst das
+// Programm nicht mehr linken ("Precisions of uniform 'uMass' differ").
+// Hier stehen nur die kleinen Massstabszahlen, mediump reicht.
+uniform vec3 uMassF;
 uniform sampler2D tHgt;     // Hoehenfeld der ganzen Karte (R, 0..uHMax)
 uniform vec3 uHfeld;        // Kartenbreite, -hoehe, uHMax
 uniform vec2 uPix;          // Puffergroesse in Geraetepixeln (goldene Stunde)
@@ -473,15 +480,19 @@ void main(){
   if(uSchattenAn > 0.5){
     // Sonnenrichtung in Weltpixeln je Schritt (zur Sonne: +LX/+LY im
     // Bildsinn heisst nach Nordwest = -x/-y in Weltkoordinaten)
-    vec2 dW = vec2(-0.75, -0.5) * 26.0;      // 26 px je Schritt
-    float dZ = 0.95 * 26.0;                  // Steigung des Strahls
-    float z0 = vHgt * 26.0;                  // HSCALE
-    vec2 gSchritt = vec2(dW.x / 52.0, dW.y / 44.0);  // TILE, ROWH
+    // Massstaebe aus uMass (TILE, ROWH, HSCALE) - NICHT fest verdrahtet:
+    // beim Kamera-Umbau (ROWH 44->32, HSCALE 26->40) waeren die alten
+    // Zahlen hier stehengeblieben und der Marsch haette in eine falsche
+    // Richtung gerechnet, sobald jemand den Schatten zuschaltet
+    vec2 dW = vec2(-0.75, -0.5) * uMassF.z;   // eine Hoeheneinheit je Schritt
+    float dZ = 0.95 * uMassF.z;               // Steigung des Strahls
+    float z0 = vHgt * uMassF.z;
+    vec2 gSchritt = vec2(dW.x / uMassF.x, dW.y / uMassF.y);
     for(int k = 1; k <= 16; k++){
       vec2 gp = vGrid + gSchritt * float(k);
       if(gp.x < 0.0 || gp.y < 0.0 || gp.x > uHfeld.x-1.0 || gp.y > uHfeld.y-1.0) break;
       float hb = texture2D(tHgt, (gp + 0.5) / uHfeld.xy).r * uHfeld.z;
-      float ueber = hb * 26.0 - (z0 + dZ * float(k));
+      float ueber = hb * uMassF.z - (z0 + dZ * float(k));
       // weicher Rand: knapp drueber daemmert, deutlich drueber deckt
       schatten = min(schatten, 1.0 - clamp(ueber / 30.0, 0.0, 0.62));
     }
@@ -638,6 +649,7 @@ export class TerrainGL {
     this.uZoom = gl.getUniformLocation(p, 'uZoom');
     this.uView = gl.getUniformLocation(p, 'uView');
     this.uMass = gl.getUniformLocation(p, 'uMass');
+    this.uMassF= gl.getUniformLocation(p, 'uMassF');
     this.uSun  = gl.getUniformLocation(p, 'uSun');
     this.uTint = gl.getUniformLocation(p, 'uTint');
     this.uPix  = gl.getUniformLocation(p, 'uPix');
@@ -1142,6 +1154,7 @@ export class TerrainGL {
     gl.uniform1f(this.uZoom, cam.z);
     gl.uniform2f(this.uView, this.vw, this.vh);
     gl.uniform3f(this.uMass, TILE, ROWH, HSCALE);
+    gl.uniform3f(this.uMassF, TILE, ROWH, HSCALE);
     const sl = Math.hypot(LX, LY, SUNZ);
     // Richtung ZUR Sonne. Im 2D-Pass steht die Rechnung als
     // dot(N,(−LX,−LY,SUNZ)) mit N=(−sx,−sy,1) da; ausmultipliziert ist das
