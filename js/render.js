@@ -6833,7 +6833,11 @@ export class Renderer {
   drawFelsFormation(g, m, i){
     const [px,py]=this.felsFormPos(i);
     const ox2=(hash01(i*13+3)-0.5)*14, oy2=(hash01(i*19+11)-0.5)*8;
-    const sc7=0.88+hash01(i*43+7)*0.24;
+    // GROESSE 0,88-1,12 -> 1,30-1,66: im Referenzbild tragen wenige GROSSE
+    // Bloecke die Kuppe. Zusammen mit der halbierten Setzdichte (map.js)
+    // bleibt die Felsmenge aehnlich, aber der einzelne Koerper wird
+    // markant statt kleinteilig.
+    const sc7=1.30+hash01(i*43+7)*0.36;
     const lz=this.felsLicht(i);
     const sp=hash01(i*53+11);
     const msn=this.massifSnow();
@@ -6910,7 +6914,10 @@ export class Renderer {
       // Koerper mit Schutt am Fuss statt als aufgeklebtes Bild.
       const nz9=this.felsGruppe(g,'natur', px+ox2, py+oy2+3, sc7,
                                 i*3+1, lz,
-                                2+((hash01(i*61+13)*2.6)|0), true, schnee9);
+                                // 2-4 Stuecke -> 1-2: ein grosser Block mit
+                                // hoechstens einem Begleiter liest als
+                                // Findling, nicht als Haufen (Referenz).
+                                1+((hash01(i*61+13)*1.9)|0), true, schnee9);
       if(nz9) return;
       // Rueckfall, falls kein Blatt geladen ist: erst das alte Einzelbild,
       // dann die prozeduralen Brocken.

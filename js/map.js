@@ -900,7 +900,11 @@ export function genWorld(opts){
     // Wand-Gipfel heraus; die Dichte steigt 0,17 -> 0,22, damit die
     // Gesamtzahl der Formationen etwa gleich bleibt (sie draengen sich
     // jetzt auf den Plateaus, wo Geroell auch liegen bliebe).
-    const dichte=0.22;
+    // DICHTE 0,22 -> 0,13 (Referenz-Diorama): dort sitzen auf der Kuppe
+    // WENIGE, dafuer grosse Bloecke - bei uns lag Streu. Zusammen mit der
+    // groesseren Zeichnung (render.js, sc7) ergibt das dieselbe Wirkung:
+    // markante Felskoerper statt Kies.
+    const dichte=0.13;
     for(let i=0;i<w*h;i++){
       if(!istBerg(i) || map.obj[i]) continue;
       if(map.pass && map.pass[i]) continue;
