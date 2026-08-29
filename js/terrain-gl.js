@@ -691,7 +691,30 @@ export class TerrainGL {
     const w = map.w, h = map.h, n = w*h;
     const hgt = new Float32Array(n);
     const nrm = new Float32Array(n*3);
-    const H = map.hgt;
+    // KANTENERHALTENDE HOEHENGLAETTUNG (Stil-Analyse Lieferung 9:
+    // "Heightmap kraeftig glaetten ... Steilwaende durch wenige harte
+    // Hoehenspruenge, nicht durch Detailrelief"). NUR die Darstellung:
+    // Spiellogik, Wege, Bauplaetze und der Planierer rechnen weiter mit
+    // map.hgt. Gauss-artige Runden ueber die 4er-Nachbarn, aber ein
+    // Nachbar, der mehr als SCHWELLE Hoeheneinheiten entfernt liegt,
+    // fliesst NICHT ein - die Terrassenspruenge (2..9 Einheiten) bleiben
+    // exakt stehen, nur das Kleinrelief auf den Flaechen laeuft zu
+    // weichen Woelbungen aus. Der Versatz gegen die 2D-Objektanker
+    // (liftAt) bleibt dadurch unter einer halben Hoeheneinheit.
+    const SCHWELLE = 1.6, RUNDEN = 3;
+    const H = new Float32Array(map.hgt);
+    for(let r=0; r<RUNDEN; r++){
+      const Q = new Float32Array(H);
+      for(let y=0; y<h; y++) for(let x=0; x<w; x++){
+        const i = y*w + x;
+        let s = Q[i]*2, c = 2;
+        for(const q of [x>0? i-1:-1, x<w-1? i+1:-1, y>0? i-w:-1, y<h-1? i+w:-1]){
+          if(q<0 || Math.abs(Q[q]-Q[i]) > SCHWELLE) continue;
+          s += Q[q]; c++;
+        }
+        H[i] = s/c;
+      }
+    }
     for(let y=0; y<h; y++) for(let x=0; x<w; x++){
       const i = y*w + x;
       hgt[i] = H[i];
