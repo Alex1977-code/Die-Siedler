@@ -347,6 +347,78 @@ Für neue Assets wortgleich verwenden, nur den ersten Satz austauschen:
 > PNG with transparent background, **no ground plate baked in, no round
 > wooden rim.**
 
+### Für Gebäude
+
+Die gerundeten Kanten lassen sich an fertigen Bildern nicht nachträglich
+herstellen — sie müssen in die Lieferung. Deshalb steht das hier als
+eigener Prompt, ausführlicher als bei den übrigen Assets. Erste Zeile
+austauschen, Rest wörtlich übernehmen.
+
+> **[GEBÄUDE, z. B. "a small medieval bakery with a stone oven"]**,
+> single building, stylized diorama render.
+>
+> **FORM — this is the point.** Everything is modelled as if sculpted from
+> clay and then subdivided: there is no razor-sharp arris anywhere on the
+> building. Every edge is chamfered or filleted, roughly 3–5 % of the
+> thickness of the part it belongs to. Roof planes are slightly convex,
+> never dead flat; the ridge is a soft round, not a crease; the eaves are
+> thick and rounded, never paper-thin. Roof shingles are rounded scales
+> with soft edges, not crisp rectangles. Stonework reads as rounded
+> boulders with soft recessed joints, not as crisp ashlar. Timber beams
+> have rounded arrises, slightly barrel-shaped faces and rounded ends.
+> Door and window reveals are rounded; prefer soft arches over sharp
+> lintels. No flat untextured colour areas — every surface carries a
+> gradient and ambient occlusion.
+>
+> **Palette.** Walls warm plaster and warm stone; wood #A9703F to #C8A05A.
+> Roofs are EITHER warm grey slate in the #9A9A96 family with warm beige
+> highlights, OR warm brown wood shingle, OR straw thatch. **Never
+> blue-grey slate, never a cool roof** — the palette contains no blue
+> except water.
+>
+> **Light.** One warm low sun from the upper left, 35° elevation, golden
+> hour. Very soft shadows, strong ambient occlusion in every recess, no
+> hard speculars, all materials matte.
+>
+> **Render settings.** ACES filmic tone mapping, exposure 1.05, sRGB
+> output. Directional light #FFE2B8 intensity 2.5 at 35° elevation from
+> the upper left, PCF soft shadows, 4096 shadow map, normal bias 0.02.
+> Hemisphere fill, sky #CFE2FF, ground #8A7A5C, intensity 0.6, plus a
+> neutral environment map at intensity 0.3. Standard PBR, roughness
+> 0.85–0.95, metalness 0, no clearcoat. Everything in sharp focus.
+>
+> **Camera.** The same three-quarter view for every building in the set:
+> looking down at about 35° above the horizon, rotated so the building's
+> front-left corner faces the viewer. Orthographic. Do not change the
+> angle between buildings — they stand next to each other in the game.
+>
+> **Output.** PNG, transparent background. The building only: **no ground
+> plate, no grass patch, no earth ring, no pond, no cast shadow, no
+> scenery, no base disc.** The game draws the ground, the trodden earth
+> around the building and the shadow itself. Crop tight to the visible
+> content; the bottom edge of the image is the ground line where the
+> building meets the terrain.
+
+Warum der letzte Absatz so ausführlich ist: die alte Trauerweide trug
+einen ganzen Teich mit Seerosen im Blatt und ließ sich deshalb nicht in
+die Wiese setzen. Ein Gebäude mit eingebackenem Bodenteller hat dasselbe
+Problem — der Teller läge über dem festgetretenen Saum, den das Spiel
+selbst malt.
+
+Warum der Absatz zur Dachfarbe so ausführlich ist: acht Gebäude der
+letzten Lieferung kamen mit blaugrauem Schiefer (Kapelle 27,6 % kalte
+Bildpunkte, s. Abschnitt 7.1). Die mussten im Spiel nachträglich
+umgefärbt werden.
+
+**Was gebraucht wird.** 43 Gebäude, je mit drei Baustufen
+(`bld_build_<typ>_1..3`), die Bergwerke zusätzlich in der erschöpften
+Fassung (`_leer`). Die Zielhöhe in Weltpixeln steht je Schlüssel in
+`assets/scales.json` (Wohnhaus 56, Bäckerei 78, Kapelle 100, Burg 188);
+das Seitenverhältnis ist frei, das Spiel skaliert über die Höhe. Die
+Bergwerke haben ein eigenes Format: 320×300, Bodenlinie y=288, Domachse
+bei 47,4 % der Breite — oder 320×320 quadratisch und zentriert für die
+Schachtmine.
+
 ### Für eine ganze Karte (Übersichts- oder Menübild)
 
 Hier gehört der Holzrand ausdrücklich dazu — er ist die Kartenform:
