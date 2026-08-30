@@ -10,16 +10,46 @@ Diorama-Insel im Abendlicht auf rundem Holzsockel.
 
 ---
 
-## 1. Formensprache
+## 1. Kartenform — Spielelement, nicht Deko
+
+Jede Karte ist eine **runde bzw. ovale Inselplatte** mit umlaufendem
+Holzrand aus einzelnen senkrechten Bohlen, fassartig gesetzt, warmes Braun
+mit sichtbarer Holzmaserung. Die Platte hat eine sichtbare Materialstärke.
+Die Insel steht frei auf einer neutralen, warmgrauen Fläche mit weichem
+Kontaktschatten. Kein Horizont, keine Skybox, keine Wolken. Das gilt für
+alle sieben Themen — gleiche Plattenform, nur der Inhalt wechselt.
+
+**Das ist kein Rahmen um das Bild, sondern die Form der Karte.** Drei
+Stellen im Code müssen dieselbe Ellipse kennen, sonst fällt es
+auseinander:
+
+| Ort | Was dort steht |
+|---|---|
+| `js/map.js`, `edge()` | Inselmaske: der Höhenabfall zum Rand läuft radial in normierten Gitterkoordinaten, nicht mehr im Rechteckrahmen. Außerhalb der Ellipse liegt kein Land. |
+| `js/terrain-gl.js`, Fragment-Shader | Plattenschnitt: `dot(pr,pr) > 1.0 → discard`, gerechnet in **Gitter**-, nicht Weltkoordinaten — sonst wanderte der Schnitt mit der Geländehöhe. |
+| `js/terrain-gl.js`, `sockelNeu()` | Zarge, Deckring und Kontaktschatten als Ellipsenringe. |
+| `js/render.js`, `aufPlatte()` | Wasserleben, Glanzlichter und Fische hören am Plattenrand auf. |
+
+Maße: Halbachsen `(w-1)/2·TILE` und `(h-1)/2·ROWH`, Mitte um eine
+Viertelkachel versetzt (der halbe Zeilenversatz ungerader Reihen).
+Materialstärke 110 Weltpixel, Holzlippe oben 22 Weltpixel **konstant** —
+nicht als Bruchteil der Halbachsen, sonst ist der Rand an den Flanken
+anderthalbmal so breit wie oben. 160 Dauben rundherum, jede aus zwei
+Vierecken, damit die Mitte hell und beide Kanten dunkel sind: eine lineare
+Rampe über ein einziges Viereck gibt eine Schräge, keine Wölbung.
+
+## 2. Formensprache
 
 Weiche, abgerundete Low-Poly-Silhouetten mit hochwertigem Shading.
 **Keine harten Kanten, keine flachen Farbflächen.**
 
 | Element | Regel |
 |---|---|
-| Felsen | glatte, gerundete Kieselformen in gestaffelten Größen; nie kantig, nie kristallin |
+| Felsen | glatte, gerundete Kieselformen in gestaffelten Größen, vom faustgroßen Stein bis zum Felsblock; nie kantig, nie kristallin |
+| Berge | gerundete, gestapelte Gesteinsformen mit hellen Beige-Spitzen |
 | Bäume | dicker Stamm, Laub aus mehreren überlappenden Kugeln, gelbgrün mit dunkelgrüner Schattierung und feiner Punkt-Struktur |
-| Gras | sattes Gelbgrün mit winzigen hellen Blüten-Sprenkeln |
+| Gras | sattes Gelbgrün mit winzigen hellen Blüten-Sprenkeln und feinem Rauschen |
+| Gebäude | dieselben gerundeten Kanten, dieselben matten Materialien, dieselbe Palette wie die Landschaft |
 | Gebäude | dieselbe Rundung: gebrochene Kanten, keine scharfen Ecken, Dachflächen leicht gewölbt |
 | Figuren | knetartige Rundung, keine harten Falten, Silhouette vor Detail |
 | Icons | dieselbe Beleuchtung wie im Spiel (Sonne oben links), kein Outline-Stil |
@@ -27,7 +57,7 @@ Weiche, abgerundete Low-Poly-Silhouetten mit hochwertigem Shading.
 Was das ausschließt: Facettenlook mit sichtbaren Dreieckskanten,
 Cel-Shading mit harten Tonwertstufen, Umrisslinien, flache Vektorflächen.
 
-## 2. Farbpalette
+## 3. Farbpalette
 
 Warm und leicht entsättigt.
 
@@ -36,13 +66,23 @@ Warm und leicht entsättigt.
 | Gras | `#8FBF3F` bis `#6E9B2E` |
 | Fels | `#9A9A96`, Spitzen ins warme Beige |
 | Sand | `#E4C98F` |
-| Wasser flach | `#3FC9D6` |
-| Wasser tief | `#1E6FA8` |
+| Holzrand | `#A9703F` |
 
-Wasser zeigt in der Flachwasserzone den Grund und trägt am Ufer eine
-weiße Schaumkante.
+## 4. Wasser
 
-## 3. Licht
+Tiefenabhängiger Farbverlauf: Türkis `#3FC9D6` im Flachwasser →
+Tiefblau `#1E6FA8`. Im Flachwasser ist der Sandgrund durchscheinend
+sichtbar, mit einzelnen Steinen darin. Weiße Schaumkante entlang der
+gesamten Uferlinie. Feine, ruhige Wellen über Normalmap, keine harte
+Sonnenspiegelung.
+
+**Am Plattenrand gilt das nicht.** Dort endet die Karte, dort ist kein
+Ufer. Die Materialgewichte laufen an der Feldgrenze aus; ohne Gegenmaßnahme
+liest der Shader das als Flachwasser und malt einen Schaumsaum rings um die
+Platte (Beleg `p_r2`). Der Randabfall `randAus` schaltet Schelf, Nasssaum
+und Schaumlinie in den letzten Prozent vor der Ellipse ab.
+
+## 5. Licht
 
 **EINE** warme, tiefstehende Sonne von links oben, Goldene-Stunde-Charakter.
 Sehr weiche Schatten. Kräftige Ambient Occlusion in allen Vertiefungen.
@@ -53,12 +93,12 @@ Rundum-Licht — die Form auf der Schattenseite trägt die Verdeckung (AO),
 nicht ein zweiter Scheinwerfer. Das ist der Unterschied zwischen
 „Diorama" und „Bühne".
 
-## 4. Hintergrund
+## 6. Hintergrund
 
 Neutraler warmgrauer Verlauf, leer. Keine Wolken, keine Skybox mit
 Landschaft.
 
-## 5. Render-Settings — der eigentliche Hebel
+## 7. Render-Settings — der eigentliche Hebel
 
 Diese Zahlen sind verbindlich. Sie stehen in three.js-Einheiten, weil die
 Sprite-Bäckerei damit rechnet.
@@ -76,11 +116,14 @@ Post         SSAO/GTAO mit kleinem Radius, spürbar stark
              Bloom schwach: Threshold hoch, Intensität ~0.15
              Vignette 0.2
              Warme Farbkorrektur: Schatten leicht ins Blaue, Lichter ins Warme
+             Tiefenschärfe: leichter Tilt-Shift, Fokus auf der Bildmitte,
+             Unschärfe nur zu den Bildrändern, Stärke einstellbar
+             (Startwert schwach)
 Kamera       bleibt wie bisher (Siedler-2-Projektion), nur Licht, Material
              und Post-Processing ändern sich
 ```
 
-### 5.1 Wo diese Zahlen im Projekt wirklich stehen
+### 7.1 Wo diese Zahlen im Projekt wirklich stehen
 
 Das Spiel benutzt three.js **nur zum Backen** der Sprites. Im Spiel selbst
 läuft ein eigener WebGL1-Shader für den Boden und eine 2D-Leinwand für
@@ -110,14 +153,14 @@ Lichtwechsel liest und nicht als Belichtungssprung.
 | Farbkorrektur | Split-Toning über die Luminanz nach ACES |
 
 **`js/render.js` — Bildschirmebene.**
-Vignette und Überstrahl. Beide müssen wissen, dass die 2D-Leinwand über
+Vignette, Überstrahl und Tilt-Shift. Beide müssen wissen, dass die 2D-Leinwand über
 dem GL-Boden **durchsichtig** ist: eine Vollbild-Mischung (`soft-light`,
 `lighten`) schreibt dort die Quellfarbe statt zu tönen. Deshalb sitzt die
 Farbkorrektur im Shader und nicht hier; die Vignette ist ein schlichter
 `source-over`-Verlauf, und der Überstrahl bekommt seine Deckkraft aus der
 Luminanz je Bildpunkt.
 
-### 5.2 Was bewusst nicht umgesetzt ist
+### 7.2 Was bewusst nicht umgesetzt ist
 
 **SSAO/GTAO als Post-Pass.** Der Boden hat eine echte, aus dem Höhenfeld
 gerechnete Verdeckung (`ao` im Shader) — die ist billiger und genauer als
@@ -143,14 +186,25 @@ GTAO und Tiefenunschärfe erst möglich machen.
 **Tiefenunschärfe.** Ausdrücklich ausgeschlossen — das Spiel muss über die
 ganze Karte lesbar bleiben.
 
-## 6. Einschränkungen aus dem Referenzbild
+## 8. Einschränkungen
 
-- Die **Tiefenunschärfe** im Bild ist Hero-Shot-Optik. Im Spiel bleibt
-  alles durchgehend scharf, sonst wird die Karte unlesbar.
-- Der **runde Holzrand** ist ein Präsentationsrahmen, kein Spielelement.
-  Nur für Menü-Hintergründe, Icons und Store-Screenshots.
+Zwei Punkte haben sich gegenüber der ersten Fassung dieses Guides
+**umgedreht**. Beides steht hier, damit niemand die alte Regel aus einem
+Kommentar wieder aufgreift:
 
-## 7. Themen
+- **Der Holzrand ist jetzt Spielelement**, nicht Präsentationsrahmen. Die
+  Karte selbst ist die Platte (Abschnitt 1). Vorher stand hier: „nur für
+  Menü-Hintergründe, Icons und Store-Screenshots".
+- **Tiefenunschärfe ist jetzt erwünscht**: leichter Tilt-Shift, Fokus in
+  der Bildmitte, Unschärfe nur zu den Rändern. Vorher stand hier: „im Spiel
+  bleibt alles durchgehend scharf". Die Stärke ist einstellbar
+  (`renderer.tiltStaerke`, Anteil der kürzeren Bildkante je Rand, 0 = aus)
+  und liegt in den Einstellungen als Schieberegler. Startwert 5 %.
+  Zum Vergleich: bis v247 stand hier 14 %, damit lagen im Hochformat oben
+  und unten je rund 135 px im Weichzeichner und die Massive am oberen
+  Bildrand verschwammen zu hellem Nebel. 5 % ist bewusst schwach.
+
+## 9. Themen
 
 Alle sieben Themen benutzen dieselbe Formensprache, dasselbe Licht und
 dieselben Render-Settings. Sie unterscheiden sich **nur** in der Palette:
@@ -165,10 +219,11 @@ dieselben Render-Settings. Sie unterscheiden sich **nur** in der Palette:
 | `sumpf` | Gras gedämpft `#7A9B46`, Wasser braungrün | mehr Bodennebel, gleiche Sonne |
 | `gebirge` | Fels führt, Gras nur in Mulden | Bergwiese am Fuß, Firn ab der Höhengrenze |
 
-Was in **keinem** Thema abweichen darf: Sonnenrichtung, Höhenwinkel,
-Tonemapping, Exposure, Materialrauheit, Vignette.
+Was in **keinem** Thema abweichen darf: Plattenform und Holzrand,
+Sonnenrichtung, Höhenwinkel, Tonemapping, Exposure, Materialrauheit,
+Vignette, Tilt-Shift.
 
-## 8. Bild-Prompt
+## 10. Bild-Prompt
 
 Für neue Assets wortgleich verwenden, nur den ersten Satz austauschen:
 
@@ -188,12 +243,28 @@ Für neue Assets wortgleich verwenden, nur den ersten Satz austauschen:
 > Post: GTAO with small radius, clearly visible; very weak bloom
 > (high threshold, intensity 0.15); slight vignette 0.2; warm grade with
 > shadows pushed slightly blue and highlights pushed warm.
+> Post also: slight tilt-shift depth of field, focus on the centre, blur
+> only towards the frame edges, subtle.
 > Isometric-style camera as in Settlers II, orthographic.
 > Palette: grass #8FBF3F to #6E9B2E, rock #9A9A96 with warm beige
-> highlights, sand #E4C98F, water turquoise #3FC9D6 to deep blue #1E6FA8
-> with visible bottom in the shallows and a white foam line at the shore.
-> PNG with transparent background, no ground plate baked in, no round
-> wooden rim.
+> highlights, sand #E4C98F, wooden rim #A9703F, water turquoise #3FC9D6 to
+> deep blue #1E6FA8 with the sandy bottom translucently visible in the
+> shallows including a few stones in it, and a white foam line along the
+> entire shoreline; fine calm waves via normal map, no hard sun specular.
+> PNG with transparent background, **no ground plate baked in, no round
+> wooden rim.**
+
+### Für eine ganze Karte (Übersichts- oder Menübild)
+
+Hier gehört der Holzrand ausdrücklich dazu — er ist die Kartenform:
+
+> **[LANDSCHAFT]** as a round/oval island plate, stylized diorama render,
+> surrounded by a rim of individual vertical wooden staves set like a
+> barrel, warm brown #A9703F with visible wood grain, the plate has visible
+> material thickness. The island stands free on a neutral warm-grey surface
+> with a soft contact shadow. No horizon, no skybox, no clouds.
+> Then everything from the asset prompt above: shapes, palette, light,
+> render settings, post.
 
 Der letzte Satz ist wichtig und wird gern übersehen: **kein eingebackener
 Bodenteller.** Der Sockel und der Bodenschatten kommen aus dem Spiel. Die

@@ -248,6 +248,21 @@ vec3 wasser(float aw, float rausch){
 }
 
 void main(){
+  // ---- PLATTENSCHNITT (v289) ----
+  // Die Karte ist eine ovale Inselplatte auf einem Holzsockel. Alles
+  // ausserhalb der Ellipse gehoert nicht mehr zur Karte und wird gar
+  // nicht erst gezeichnet. Gerechnet wird in GITTERkoordinaten, nicht in
+  // Weltkoordinaten: sonst wanderte der Schnitt mit der Hoehe, und ein
+  // Berg am Rand waere schief abgeschnitten. Dieselbe Formel steht in
+  // map.js (Inselmaske) und im Sockelbau.
+  // Geschnitten wird an der VOLLEN Ellipse. Der Deckring des Sockels
+  // liegt AUSSEN davor, nicht innen: nur so hat die Holzlippe ringsum
+  // dieselbe Breite. Ein Schnitt bei 0,97 haette sie in Bruchteilen der
+  // Halbachsen gemessen - an den Flanken 99 Weltpixel breit, oben und
+  // unten 61 (Beleg p_r1: der Rand sah an den Seiten doppelt so breit
+  // aus wie oben).
+  vec2 pr9 = vec2(vGrid.x/(uHfeld.x-1.0), vGrid.y/(uHfeld.y-1.0)) * 2.0 - 1.0;
+  if(dot(pr9, pr9) > 1.0) discard;
   // Ortsrauschen aus zwei Sinuszuegen (60-150 px Wellenlaenge). Vorgezogen:
   // es steuert jetzt KANTENPASS und Gischt gemeinsam - dieselbe Quelle,
   // damit Uferfransen und Schaumflecken zueinander passen.
@@ -474,7 +489,13 @@ void main(){
   // die 0,4-Linie laeuft ein schmaler, leise atmender Schaumsaum - die
   // Rolle von trans_sand/trans_foam im 2D-Weg, nur als Feld statt als
   // Stempelkette.
-  if(aw > 0.03 && aw < 0.97){
+  // Am PLATTENRAND keine Uferwirkung. Die Materialgewichte laufen an der
+  // Feldgrenze aus, dadurch sank aw dort unter 1 und der Shader malte
+  // seinen Flachwasserschelf samt Schaumlinie - im Beleg p_r2 lag ein
+  // heller Saum rings um die Platte, als haette das Meer dort ein Ufer.
+  // Es hat keins: dort ist die Platte zu Ende.
+  float randAus = 1.0 - smoothstep(0.90, 0.995, length(pr9));
+  if(aw > 0.03 && aw < 0.97 && randAus > 0.01){
     // Die Isolinie linear interpolierter Gewichte ist je Dreieck eine
     // GERADE - unverrauscht zeichnete der Saum das Dreiecksnetz als
     // Leuchtdraht nach (Beleg t31, Kuestenkontur aus geraden Segmenten).
@@ -485,18 +506,18 @@ void main(){
     // im 2D-Weg schon als v101-Kommentar am Sandpinsel; und die
     // Winterkueste behaelt ihren Schnee.
     float weich = clamp(landWeich / max(0.001, 1.0 - aw), 0.0, 1.0);
-    float strand = smoothstep(0.02, 0.16, aw) * (1.0 - smoothstep(0.28, 0.52, aw));
+    float strand = smoothstep(0.02, 0.16, aw) * (1.0 - smoothstep(0.28, 0.52, aw)) * randAus;
     strand *= weich;
     alb = mix(alb, mWueste, strand * 0.55);
     // NASSER SAND (Referenz-Diorama): direkt unter der Wasserlinie
     // dunkelt der Strand feucht ab ...
-    float nass = smoothstep(0.24, 0.42, aw) * (1.0 - smoothstep(0.46, 0.60, aw)) * weich;
+    float nass = smoothstep(0.24, 0.42, aw) * (1.0 - smoothstep(0.46, 0.60, aw)) * weich * randAus;
     alb *= 1.0 - 0.16 * nass;
     // ... und GENAU auf der Wasserlinie laeuft die duenne weisse
     // Schaumkante, leicht verrauscht; die fleckigen Schaumkronen im
     // Flachwasser macht wasser() weiter selbst. Beide nur an weichen
     // Ufern - ein Bergsee hat keinen Schaumstrand.
-    float linie = clamp(1.0 - abs(aw - 0.47 - 0.05*(rausch - 0.5)) * 11.0, 0.0, 1.0);
+    float linie = clamp(1.0 - abs(aw - 0.47 - 0.05*(rausch - 0.5)) * 11.0, 0.0, 1.0) * randAus;
     alb += vec3(1.0) * linie * weich * 0.30;
   }
 
@@ -701,8 +722,8 @@ void main(){
   float maser = 0.95 + 0.05 * sin(vP.x*0.083 + 2.0*sin(vP.y*0.031))
                      * sin(vP.y*0.071 - 1.5*sin(vP.x*0.027));
   if(vTon > 0.0){
-    // Planken laufen laengs des Bandes: Nord/Sued-Baender und Suedwand
-    // waagerecht (dreh 0), West/Ost-Baender gedreht (dreh 1)
+    // dreh 0 = Maserung waagerecht (Deckring), dreh 1 = senkrecht
+    // (Dauben der Zarge - die stehen hochkant, fassartig)
     vec2 uv = mix(vP, vP.yx, vDreh) / 230.0;
     gl_FragColor = vec4(texture2D(tHolz, uv).rgb * vTon * maser, 1.0);
   }
@@ -1223,48 +1244,107 @@ export class TerrainGL {
     this.cv.style.height = vh+'px';
   }
 
-  // ---------- Sockel-Geometrie: Deckring, Suedwand, Schattenrock ----------
-  // Nur von den Kartenmassen abhaengig, Hoehen egal - einmal je Karte.
+  // ---------- Sockel: ovale Platte mit fassartiger Daubenzarge ----------
+  // Das Referenzbild zeigt die Karte als ovale Platte mit einem
+  // umlaufenden Holzrand aus EINZELNEN senkrechten Bohlen, fassartig
+  // gesetzt, mit sichtbarer Materialstaerke und weichem Kontaktschatten
+  // auf einer neutralen Flaeche. Das ist seit v289 Spielelement, nicht
+  // Deko: der Gelaende-Shader schneidet die Karte an derselben Ellipse ab.
+  //
+  // Vorher stand hier ein RECHTECKIGER Holzring mit vier Baendern und
+  // einer Suedwand. Der passte zur alten Rechteckmaske der
+  // Kartenerzeugung; mit der ovalen Inselmaske (map.js) waere er
+  // sinnlos - er lag ueber offenem Wasser statt am Landrand.
+  //
+  // Aufbau von aussen nach innen:
+  //   1. Kontaktschatten auf der Tischplatte (Ellipsenring, weich aus)
+  //   2. Zarge: N Dauben, jede aus ZWEI Vierecken, damit die Mitte hell
+  //      und beide Kanten dunkel sind - eine lineare Rampe ueber ein
+  //      einziges Viereck kann das nicht, die gaebe eine Schraege statt
+  //      einer Woelbung. Der Ton kommt aus der Lage der Daube zur Sonne
+  //      (oben links), dazu ein Hauch Streuung je Daube.
+  //   3. Deckring: die schmale Holzlippe oben, die der Gelaendeschnitt
+  //      bei 0,97 freilaesst.
   sockelNeu(map){
     const gl = this.gl; if(!gl || !this.progS) return;
-    const ix0 = -26, ix1 = (map.w - 0.5) * TILE + 26;
-    const iy0 = -22, iy1 = (map.h - 1) * ROWH + 22;
-    const RB = 34;     // sichtbare Ringbreite
-    const IN = 64;     // verdeckter Einschub unter den Kartenrand
-    const TF = 42;     // Hoehe der Suedwand
-    const SR = 95;     // Breite des Schattenrocks
-    const A  = -0.30;  // Schatten-Deckkraft am Podestrand
-    const E  = -0.001; // Schatten aussen: praktisch durchsichtig (nicht 0,
-                       // sonst kippte die Ecke in den Holz-Zweig des Shaders)
-    const ox0 = ix0 - RB, ox1 = ix1 + RB, oy0 = iy0 - RB, oy1 = iy1 + RB;
-    const oyS = oy1 + TF;
+    // Ellipse in Weltkoordinaten - dieselbe wie die Inselmaske in map.js.
+    // worldPos: x = (X + (Y&1)*0.5)*TILE, y = Y*ROWH. Der halbe Versatz
+    // ungerader Zeilen verschiebt die Mitte um ein Viertel Kachel.
+    const cx = ((map.w - 1) * 0.5 + 0.25) * TILE;
+    const cy =  (map.h - 1) * 0.5 * ROWH;
+    const rx =  (map.w - 1) * 0.5 * TILE;
+    const ry =  (map.h - 1) * 0.5 * ROWH;
+    this._platte = [cx, cy, rx, ry];
+    const WSP  = 4;      // Wasserspiegel: hgt -0,10 mal HSCALE 40
+    const LIP  = 22;     // Breite der Holzlippe oben, KONSTANT in Weltpixeln
+    const DICK = 110;    // Materialstaerke der Platte
+    const N    = 160;    // Dauben rundherum (rund 106 Weltpixel je Daube)
+    const SR   = 150;    // Breite des Kontaktschattens
+    const A    = -0.34;  // Deckkraft am Plattenrand
+    const E    = -0.001; // aussen praktisch durchsichtig (nicht 0 - sonst
+                         // kippt die Ecke in den Holz-Zweig des Shaders)
     const v = [];
-    // Viereck mit Tonwert je Ecke (TL, TR, BR, BL) und Plankendrehung
-    // (0 = waagerecht, 1 = gedreht fuer West/Ost), zwei Dreiecke
-    const q = (x0,y0,x1,y1, tTL,tTR,tBR,tBL, dreh=0)=>{
-      v.push(x0,y0,tTL,dreh, x1,y0,tTR,dreh, x1,y1,tBR,dreh,
-             x0,y0,tTL,dreh, x1,y1,tBR,dreh, x0,y1,tBL,dreh);
+    const quad = (p0,p1,p2,p3, t0,t1,t2,t3, dreh)=>{
+      v.push(p0[0],p0[1],t0,dreh, p1[0],p1[1],t1,dreh, p2[0],p2[1],t2,dreh,
+             p0[0],p0[1],t0,dreh, p2[0],p2[1],t2,dreh, p3[0],p3[1],t3,dreh);
     };
-    // Deckflaeche: vier Baender, aussen voller Ton, innen leicht
-    // abgeschattet - die Lippe, auf der die Landschaft aufliegt. Die
-    // Baender reichen IN Weltpixel unter den Kartenrand: wo Randknoten
-    // angehoben sind, schaut dort das Holz hervor (Diorama-Kante).
-    q(ox0, oy0, ox1, iy0 + IN, 1.0, 1.0, 0.82, 0.82);      // Nord
-    q(ox0, iy1 - IN, ox1, oy1, 0.82, 0.82, 1.0, 1.0);      // Sued
-    q(ox0, oy0, ix0 + IN, oy1, 1.0, 0.82, 0.82, 1.0, 1);   // West
-    q(ix1 - IN, oy0, ox1, oy1, 0.82, 1.0, 1.0, 0.82, 1);   // Ost
-    // Suedwand des Podests - die einzige Seitenflaeche, die die
-    // Projektion zeigt (Waende in x projizieren zu Linien)
-    q(ox0, oy1, ox1, oyS, 0.60, 0.60, 0.44, 0.44);
-    // Schattenrock auf der Tischplatte, Ecken einzeln (bilinearer Auslauf)
-    q(ox0, oy0 - SR, ox1, oy0, E, E, A, A);             // Nord
-    q(ox0, oyS, ox1, oyS + SR, A, A, E, E);             // Sued
-    q(ox0 - SR, oy0, ox0, oyS, E, A, A, E);             // West
-    q(ox1, oy0, ox1 + SR, oyS, A, E, E, A);             // Ost
-    q(ox0 - SR, oy0 - SR, ox0, oy0, E, E, A, E);        // Ecke NW
-    q(ox1, oy0 - SR, ox1 + SR, oy0, E, E, E, A);        // Ecke NO
-    q(ox0 - SR, oyS, ox0, oyS + SR, E, A, E, E);        // Ecke SW
-    q(ox1, oyS, ox1 + SR, oyS + SR, A, E, E, E);        // Ecke SO
+    // Punkt auf der Ellipse, um d Weltpixel nach AUSSEN versetzt (entlang
+    // der echten Ellipsennormale, damit die Lippe ueberall gleich breit
+    // ist - radial versetzt waere sie an den Flanken breiter)
+    const nrm = (a)=>{
+      let nxv=Math.cos(a)/rx, nyv=Math.sin(a)/ry;
+      const l=Math.hypot(nxv,nyv)||1; return [nxv/l, nyv/l];
+    };
+    const pt = (a,d)=>{
+      const n=nrm(a);
+      return [cx + rx*Math.cos(a) + n[0]*d, cy + ry*Math.sin(a) + n[1]*d + WSP];
+    };
+    // Sonne oben links: Richtung zur Sonne in der Bildebene ist (-1,-1)
+    // Halbkugel-Licht statt reiner Richtung: rein gerichtet lag die
+    // VORDERE Zarge (Normale zeigt nach unten) auf null und wurde fast
+    // schwarz (Beleg p_r2). Eine Holzzarge im Gegenlicht bekommt Ambient
+    // und Bodenreflex - der dunkelste Wert liegt deshalb bei 0, der
+    // hellste bei 1, und die Tonwerte darunter setzen den Boden.
+    const lichtAn = (a)=>{ const n=nrm(a); return 0.5 + 0.5*((-n[0]-n[1])*0.7071); };
+    // 1. Kontaktschatten auf der Tischplatte - liegt unter allem, zuerst
+    for(let k=0;k<N;k++){
+      const a0=k/N*6.283185, a1=(k+1)/N*6.283185;
+      const i0=pt(a0,LIP), i1=pt(a1,LIP);
+      const o0=pt(a0,LIP+SR), o1=pt(a1,LIP+SR);
+      // der Schatten faellt bei tiefstehender Sonne nach rechts unten weg
+      const vz=[18, DICK*0.45 + 16];
+      quad([i0[0],i0[1]+DICK],[i1[0],i1[1]+DICK],
+           [o1[0]+vz[0],o1[1]+DICK+vz[1]],[o0[0]+vz[0],o0[1]+DICK+vz[1]], A,A,E,E, 0);
+    }
+    // 2. Zarge aus einzelnen Dauben. Jede aus ZWEI Vierecken, damit die
+    // Mitte hell und beide Kanten dunkel sind - ueber ein einziges
+    // Viereck gaebe die lineare Interpolation eine Schraege statt einer
+    // Woelbung, und die Zarge laese sich als gemaltes Band statt als
+    // gesetzte Bohlen (Beleg p_r1: flaches dunkles Band).
+    // Die Toene liegen hoch, weil die Kachel mit Mittel 132/80/45
+    // deutlich dunkler ist als der geforderte Randton #A9703F
+    // (169/112/63): 169/132 = 1,28 auf der Sonnenseite.
+    for(let k=0;k<N;k++){
+      const a0=k/N*6.283185, a1=(k+1)/N*6.283185, am=(a0+a1)*0.5;
+      const licht=lichtAn(am);
+      // Streuung je Daube, damit die Zarge nicht wie gedruckt aussieht
+      const streu=0.93 + (((Math.sin(k*12.9898)*43758.5453)%1)+1)%1 * 0.14;
+      const hell=(0.80 + 0.62*licht) * streu;
+      const fuge=hell*0.52;                    // dunkle Fuge zwischen zwei
+      const o0=pt(a0,LIP), om=pt(am,LIP), o1=pt(a1,LIP);
+      const u=(p)=>[p[0], p[1]+DICK];
+      // Unterkante dunkler: erst der Tonwertabfall nach unten laesst die
+      // Zarge als stehende Wand lesen statt als liegendes Band
+      quad(o0,om,u(om),u(o0), fuge,hell,hell*0.58,fuge*0.58, 1);
+      quad(om,o1,u(o1),u(om), hell,fuge,fuge*0.58,hell*0.58, 1);
+    }
+    // 3. Deckring: die Holzlippe zwischen Gelaendeschnitt und Aussenkante
+    for(let k=0;k<N;k++){
+      const a0=k/N*6.283185, a1=(k+1)/N*6.283185, am=(a0+a1)*0.5;
+      const hell=1.14 + 0.30*lichtAn(am);
+      const i0=pt(a0,0), i1=pt(a1,0), o0=pt(a0,LIP), o1=pt(a1,LIP);
+      quad(i0,i1,o1,o0, hell*0.88,hell*0.88,hell,hell, 0);
+    }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.bufSockel);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(v), gl.STATIC_DRAW);
     this.anzSockel = v.length / 4;

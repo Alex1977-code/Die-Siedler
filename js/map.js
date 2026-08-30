@@ -305,11 +305,20 @@ export function genWorld(opts){
     return clamp(sum*1.55, 0, 1);
   };
 
-  // Inselmaske: Rand fällt ab
+  // OVALE INSELPLATTE (v289). Der Rand fiel bisher in einem RECHTECK-
+  // rahmen ab (Minimum der Abstaende zu den vier Kanten) - die Landmasse
+  // lief also bis in die Ecken. Das Referenzbild zeigt die Karte als
+  // runde Platte auf einem Holzsockel; eine Landmasse in den Ecken passt
+  // da nicht hinein, und der Sockel kann keine Ellipse sein, wenn das
+  // Land rechteckig ist.
+  // Jetzt faellt der Rand RADIAL ab, in normierten Gitterkoordinaten -
+  // daraus wird in der Weltdarstellung genau die Ellipse mit den
+  // Halbachsen (w-1)/2*TILE und (h-1)/2*ROWH. Dieselbe Formel steht im
+  // Gelaende-Shader (Plattenschnitt) und im Sockelbau; wer sie hier
+  // aendert, muss beide mitziehen.
   const edge = (x,y)=>{
-    const dx=Math.min(x, w-1-x)/(w*0.5), dy=Math.min(y, h-1-y)/(h*0.5);
-    const d=Math.min(dx,dy);
-    return clamp(d*2.4, 0, 1);
+    const nx=(x/(w-1))*2-1, ny=(y/(h-1))*2-1;
+    return clamp((1-Math.hypot(nx,ny))*2.4, 0, 1);
   };
   const islandF = theme==='inseln' ? 1.6 : 1.0;
 

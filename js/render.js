@@ -1286,6 +1286,10 @@ export class Renderer {
       for(let x=0;x<m.w;x++){
         const i=m.idx(x,y);
         if(m.explored[i]) continue;
+        // ausserhalb der Inselplatte gibt es nichts zu verdecken - dort
+        // liegt die Tischplatte, kein unerforschtes Land (v289)
+        const px9=(x/(m.w-1))*2-1, py9=(y/(m.h-1))*2-1;
+        if(px9*px9+py9*py9 > 1.0) continue;
         const cx=(x+RF)*S+off+S*0.5, cy=(y+RF)*S+S*0.5;
         for(let k=0;k<3;k++){
           const hs=hash01(i*7+k*31);
@@ -1311,6 +1315,8 @@ export class Renderer {
     for(let y=0;y<m.h;y++) for(let x=0;x<m.w;x++){
       const i=m.idx(x,y);
       if(m.explored[i]) continue;
+      const px9=(x/(m.w-1))*2-1, py9=(y/(m.h-1))*2-1;
+      if(px9*px9+py9*py9 > 1.0) continue;            // nicht auf der Platte
       let edge=false;
       for(const n of m.nbs(i)) if(m.explored[n]){ edge=true; break; }
       if(!edge) continue;
@@ -1327,8 +1333,19 @@ export class Renderer {
   // und nicht allein in die Bedienoberflaeche - siehe den Befund in ui.js:
   // dort wurde er beim Start verschluckt, weil es den Renderer noch nicht
   // gab, und der Weichzeichner lief seither doch.
-  get tiltAus(){ return this._tiltAus!==false; }
+  // TIEFENUNSCHAERFE (v289). Der Stilguide verlangt jetzt ausdruecklich
+  // einen leichten Tilt-Shift mit dem Fokus in der Bildmitte - vorher war
+  // sie ausgeschlossen ("alles durchgehend scharf"). Sie ist deshalb
+  // eingeschaltet und ueber tiltStaerke einstellbar: Anteil der KUERZEREN
+  // Bildkante, den das unscharfe Band je Rand einnimmt. 0 = aus.
+  // Startwert bewusst schwach. Zum Vergleich: bis v247 stand hier 0,14 -
+  // damit lagen im Hochformat oben und unten je rund 135 px im
+  // Weichzeichner, und weil die Massive typisch am oberen Bildrand
+  // stehen, verschwammen genau sie zu hellem Nebel.
+  get tiltAus(){ return this._tiltAus===true; }
   set tiltAus(v){ this._tiltAus=!!v; }
+  get tiltStaerke(){ return this._tiltSt===undefined? 0.05 : this._tiltSt; }
+  set tiltStaerke(v){ this._tiltSt=Math.max(0, Math.min(0.20, +v||0)); }
   resize(w,h,dpr){
     this.cv.width=w*dpr; this.cv.height=h*dpr;
     this.dpr=dpr; this.vw=w; this.vh=h;
@@ -8407,6 +8424,16 @@ export class Renderer {
     this._uMask.set(key,out);
     return out;
   }
+  // Liegt dieser Knoten auf der Inselplatte? Dieselbe Ellipse wie die
+  // Inselmaske in map.js und der Plattenschnitt im Gelaende-Shader
+  // (0,97 - dort laesst der Schnitt die Holzlippe frei). Wasserleben,
+  // Glanzlichter und Fische duerfen nicht ueber den Plattenrand hinaus
+  // gemalt werden: dort ist keine Karte mehr, sondern die Tischplatte.
+  aufPlatte(i){
+    const m=this.game.map;
+    const nx=(m.X(i)/(m.w-1))*2-1, ny=(m.Y(i)/(m.h-1))*2-1;
+    return nx*nx+ny*ny <= 0.9409;
+  }
   // Welcher Baum steht hier? Landschaft, Nachbarschaft und Wachstumsstufe.
   // Liefert { key, art } - art ist die Tonlage der Krone (s. tintedTree).
   // Die Lieferung enthaelt naemlich nur ZWEI Laubbaeume und EINEN
@@ -9693,7 +9720,10 @@ export class Renderer {
       // Modell auf einem Holzpodest, aussen herum liegt heller Grund.
       // Echtzeituhr wie die 2D-Wasserkulisse (this.time): Wasser lebt
       // auch in der Pause weiter
-      this.glTerrain.zeichne(cam, [0.84, 0.79, 0.70], this.time/1000);
+      // Tischplatte: neutrales, warmes Grau (Stilguide). Vorher ein
+      // deutlich beiges 214/201/179 - die Referenz zeigt einen
+      // NEUTRALEN warmgrauen Grund, auf dem die Insel steht.
+      this.glTerrain.zeichne(cam, [0.847, 0.824, 0.788], this.time/1000);
       g.clearRect(0,0,this.vw,this.vh);
     } else {
       // Hintergrund: Tiefwasser mit leichtem Verlauf
@@ -9952,7 +9982,7 @@ export class Renderer {
     // Fischschwärme zeigen ergiebige Fanggründe an (Anzahl = Bestand)
     for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
       const i=m.idx(x,y);
-      if(m.terr[i]!==TER.WATER || !m.explored[i] || m.fish[i]<2) continue;
+      if(m.terr[i]!==TER.WATER || !m.explored[i] || m.fish[i]<2 || !this.aufPlatte(i)) continue;
       const [px,py]=m.worldPos(i);
       // nur in echtem Tiefwasser – sonst ragt der Schwarm über den Strand
       let deep=true;
@@ -10025,7 +10055,7 @@ export class Renderer {
       let any=false;
       for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
         const i=m.idx(x,y);
-        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        if(m.terr[i]!==TER.WATER || !m.explored[i] || !this.aufPlatte(i)) continue;
         const [px,py]=m.worldPos(i);
         g.moveTo(px+TILE*0.62, py);
         g.arc(px,py,TILE*0.62,0,7);
@@ -10099,7 +10129,7 @@ export class Renderer {
       const fimg=this.asset('fx_fish');
       if(fimg) for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
         const i=m.idx(x,y);
-        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        if(m.terr[i]!==TER.WATER || !m.explored[i] || !this.aufPlatte(i)) continue;
         if(hash01(i*7+29)<0.90) continue;                 // sehr sparsam
         let deep=true;
         for(const q of m.nbs(i)) if(m.terr[q]!==TER.WATER){ deep=false; break; }
@@ -10126,7 +10156,7 @@ export class Renderer {
       const fcv=this.waterStamps().foam;
       for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++){
         const i=m.idx(x,y);
-        if(m.terr[i]!==TER.WATER || !m.explored[i]) continue;
+        if(m.terr[i]!==TER.WATER || !m.explored[i] || !this.aufPlatte(i)) continue;
         let kE=0;
         for(const n of m.nbs(i)){
           if(m.terr[n]===TER.WATER) continue;
@@ -11522,7 +11552,7 @@ export class Renderer {
       // hellem Nebel (Belege t39 neu1-neu4: Fels unscharf, Baeume daneben
       // scharf). Das Referenzbild ist eine scharfe Diorama-Aufnahme mit
       // nur einem Hauch Unschaerfe an den aeussersten Raendern.
-      const dpr=this.dpr, band=Math.round(Math.min(this.vw,this.vh)*0.05*zf);
+      const dpr=this.dpr, band=Math.round(Math.min(this.vw,this.vh)*this.tiltStaerke*zf);
       const b2=Math.round(band*0.55);
       if(band>=6){
       const K=4;                                  // Verkleinerungsfaktor

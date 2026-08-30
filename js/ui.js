@@ -173,7 +173,8 @@ export class UI {
         <label class="opt">Lautstärke <input type="range" id="o-vol" min="0" max="100" step="5"></label>
         <label class="opt">Musik-Pegel <input type="range" id="o-vol-music" min="0" max="100" step="5"></label>
         <label class="opt">Effekt-Pegel <input type="range" id="o-vol-sfx" min="0" max="100" step="5"></label>
-        <label class="opt"><input type="checkbox" id="o-tilt"> Weichzeichner am Bildrand</label>
+        <label class="opt"><input type="checkbox" id="o-tilt"> Tiefenunschärfe am Bildrand</label>
+        <label class="opt">Stärke <input type="range" id="o-tiltst" min="0" max="15" step="1" style="vertical-align:middle"> <span id="o-tiltst-v"></span></label>
         <h3 class="opt-h">Meldungen</h3>
         <p class="note">Abgeschaltete Sparten werden nicht mehr eingeblendet. Im Meldungsbuch
         (🔔) stehen sie weiter – samt Sprung zum Ort.</p>
@@ -367,13 +368,34 @@ export class UI {
     // waagerechten Haarlinien im Bild (siehe render.js, Tilt-Shift).
     // Jetzt kennt der Renderer den Vorgabewert selbst, und hier wird nur
     // noch nachgezogen, wenn es ihn schon gibt.
-    const tiltAn=(this.opts.tilt===true);
+    // VORGABE AN (v289): der Stilguide verlangt einen leichten Tilt-Shift.
+    // Bis dahin war er ausdruecklich aus (der Nutzer hatte ihn zweimal als
+    // stoerend gemeldet) - deshalb hier ===true. Jetzt !==false, damit
+    // alte Spielstaende ohne den Eintrag ihn bekommen; wer ihn abgewaehlt
+    // hat, behaelt seine Wahl.
+    const tiltAn=(this.opts.tilt!==false);
     $('#o-tilt').checked=tiltAn;
     this.tiltAn=tiltAn;
     if(this.renderer) this.renderer.tiltAus=!tiltAn;
     $('#o-tilt').onchange=(e)=>{ this.opts.tilt=e.target.checked;
       if(this.renderer) this.renderer.tiltAus=!e.target.checked;
       SAVE.setOptions(this.opts); };
+    // Staerke als Prozent der kuerzeren Bildkante (0-15). Der Stilguide
+    // will sie einstellbar, damit sie am Geraet nachjustiert werden kann.
+    const tiltSt=(this.opts.tiltSt===undefined? 5 : this.opts.tiltSt|0);
+    const sl=$('#o-tiltst'), sv=$('#o-tiltst-v');
+    if(sl){
+      sl.value=tiltSt;
+      if(sv) sv.textContent=tiltSt+' %';
+      if(this.renderer) this.renderer.tiltStaerke=tiltSt/100;
+      sl.oninput=(e)=>{
+        const val=e.target.value|0;
+        this.opts.tiltSt=val;
+        if(sv) sv.textContent=val+' %';
+        if(this.renderer) this.renderer.tiltStaerke=val/100;
+        SAVE.setOptions(this.opts);
+      };
+    }
     // Schwierigkeitsgrad (gemerkt für Kampagne und freies Spiel)
     const diffInit=this.opts.diff||'normal';
     for(const id of ['#c-diff','#f-diff']){
