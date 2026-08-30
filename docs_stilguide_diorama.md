@@ -154,6 +154,28 @@ Lichtwechsel liest und nicht als Belichtungssprung.
 | Sandgrund im Flachwasser | `grundSteine()` plus das Sichtfenster in `wasser()` |
 | Blüten im Gras | `blueten()`, aufgetragen NACH der Materialmischung |
 | Beige Bergspitzen | `spitze` = Höhe × Aufwärtsneigung, auf `fels` gemischt |
+| Gebäude auf der Palette | `palBld()`, einmal je Bild, danach zwischengespeichert |
+
+**Gebäude.** Gemessen über alle 139 `bld_`-Bilder sind sie im Mittel warm
+(R−B +49) und mäßig gesättigt (0,465) — das passt zum Guide. Der Bruch
+sitzt in acht Gebäuden mit **blaugrauen Schieferdächern**: Kapelle 27,6 %
+kalte Bildpunkte, Hafen 23,4, Werkzeugschmiede 21,2, Sägewerk 19,1, Münze
+17,8, Brauerei 14,0, Bäckerei 11,6, Schmelze 9,4 — alle übrigen 0,0. In
+der Palette kommt kein Blau vor, außer im Wasser.
+
+`palBld()` dreht deshalb nur, was **kalt und entsättigt** ist (Schiefer,
+Stein). Gesättigtes Blau bleibt: Wasser unter dem Hafen, Glasfenster,
+Spielerwimpel. Ohne diese Klausel wurde die Hafenbucht mitgewärmt. Dazu
+die zwei Feinheiten des Guides — sehr satte Stellen leicht entsättigen,
+ein Hauch warmer Grundton — und die Luminanz bleibt stehen, damit die
+Gebäude nicht gegenüber dem Boden verrutschen; deren Abgleich macht
+`objDaempfung`.
+
+Gemessen an der Kapelle: 27,7 % kalte Bildpunkte → 0,3 %. Im Spiel ist
+der Unterschied dezent (die Häuser sind klein und die neue Belichtung
+dunkel); deutlich wird er bei den großen Schieferdächern im Nahzoom.
+Die gerundeten Kanten des Guides stecken in den gemalten Bildern und sind
+nachträglich nicht zu ändern — die gelten für die nächste Lieferung.
 
 **Drei Fallen, die beim Einbau dieser drei Punkte aufgefallen sind** — sie
 gelten für jede weitere Feinzeichnung im Shader:

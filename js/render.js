@@ -11403,7 +11403,10 @@ export class Renderer {
       g.lineWidth=2.6;
       const rr2= def.size==='L'?34 : def.size==='M'?28 : 22;
       g.beginPath(); g.ellipse(px,py+2,rr2,rr2*0.42,0,0,7); g.stroke();
-      const ov=this.asset('bld_'+ui.placeType);
+      // Die Bauvorschau zeigt dasselbe Bild wie das fertige Haus, also auch
+      // dieselbe Palette - sonst wechselt der Ton beim Setzen.
+      const ovRoh=this.asset('bld_'+ui.placeType);
+      const ov= ovRoh ? (this.palBld('bld_'+ui.placeType, ovRoh)||ovRoh) : null;
       g.globalAlpha=0.55;
       if(ov){
         const legacy= ui.placeType==='hq'?118 : def.size==='L'?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
@@ -12192,6 +12195,8 @@ export class Renderer {
       // hqBild() liefert eine einmalig getonte Fassung.
       if(b.type==='hq' && ov && ov.naturalWidth){ ov=this.hqBild()||ov; }
     }
+    // auf die Palette ziehen - einmal je Bild, danach aus dem Zwischenspeicher
+    if(ov && (ov.naturalWidth||ov.width)) ov = this.palBld(ovKey||typeKey, ov) || ov;
     if(ov){
       // Bergwerke (Stilguide 11.11): alle sieben Bilder liegen auf 320x300,
       // die Bodenlinie ist y=288 und die DOMACHSE bei 47,4 % der Breite.
@@ -12696,6 +12701,72 @@ export class Renderer {
   // die eingebackene helle Matte verschmilzt so mit der Wiese. Einmal
   // gebaut, danach aus dem Cache; naturalWidth/-Height werden nachgeruestet,
   // weil die Masslogik in drawBld sie vom Bild erwartet.
+  // ---------- Gebaeude auf die Palette ziehen (v292) ----------
+  // Stilguide: "Gebaeude bekommen dieselben gerundeten Kanten, matten
+  // Materialien und dieselbe Palette." Die gerundeten Kanten stecken in
+  // den gemalten Bildern und sind nicht nachtraeglich zu aendern - die
+  // PALETTE schon.
+  // GEMESSEN ueber alle 139 bld_-Bilder: im Mittel sind sie warm
+  // (R-B +49) und maessig gesaettigt (0,465) - das passt. Der Bruch sitzt
+  // in acht Gebaeuden mit BLAUGRAUEN Schieferdaechern: Kapelle 27,6 %
+  // kalte Bildpunkte, Hafen 23,4, Werkzeugschmiede 21,2, Saegewerk 19,1,
+  // Muenze 17,8, Brauerei 14,0, Baeckerei 11,6, Schmelze 9,4. Alle
+  // uebrigen 0,0. In der Palette des Guides kommt kein Blau vor - ausser
+  // im Wasser.
+  // Deshalb wird nur gedreht, was kalt UND entsaettigt ist (Schiefer,
+  // Stein). Gesaettigtes Blau bleibt: das ist Wasser unter dem Hafen,
+  // Glasfenster, Wimpel - und Wasser gehoert zur Palette. Ohne diese
+  // Klausel wurde die Hafenbucht mitgewaermt (Beleg bld_grade.png).
+  // Dazu die zwei Feinheiten des Guides: sehr satte Stellen leicht
+  // entsaettigen ("warm und leicht entsaettigt") und ein Hauch warmer
+  // Grundton der goldenen Stunde. Die Luminanz bleibt stehen, damit die
+  // Gebaeude nicht heller oder dunkler werden als der Boden - deren
+  // Abgleich macht objDaempfung.
+  palBld(key, img){
+    if(!img || this.palAus) return null;   // palAus: Schalter fuer A/B-Belege
+    const w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+    if(!w || !h) return null;
+    if(!this._palB) this._palB=new Map();
+    const ck=key+'@'+w+'x'+h;
+    if(this._palB.has(ck)) return this._palB.get(ck);
+    let cv=document.createElement('canvas');
+    cv.width=w; cv.height=h;
+    const t=cv.getContext('2d');
+    t.drawImage(img,0,0);
+    try{
+      const id=t.getImageData(0,0,w,h), d=id.data;
+      for(let p=0;p<d.length;p+=4){
+        if(d[p+3]<8) continue;
+        let r=d[p], g2=d[p+1], b=d[p+2];
+        const L=0.299*r+0.587*g2+0.114*b;
+        const mx0=Math.max(r,g2,b), mn0=Math.min(r,g2,b);
+        const s0=(mx0-mn0)/Math.max(1,mx0);
+        // kalt UND entsaettigt -> warmes Grau
+        const kalt=Math.max(0,Math.min(1,(b-Math.max(r,g2))/30))
+                 * (1-Math.min(1,Math.max(0,(s0-0.34)/0.16)));
+        r+=20*kalt; g2+=4*kalt; b-=26*kalt;
+        // sehr satte Stellen leicht entsaettigen
+        const mx=Math.max(r,g2,b), mn=Math.min(r,g2,b);
+        const s=(mx-mn)/Math.max(1,mx);
+        if(s>0.55){
+          const f=1-0.12*Math.min(1,(s-0.55)/0.35);
+          r=L+(r-L)*f; g2=L+(g2-L)*f; b=L+(b-L)*f;
+        }
+        // warmer Grundton, danach Luminanz zurueckholen
+        r*=1.03; b*=0.96;
+        const L2=0.299*r+0.587*g2+0.114*b;
+        if(L2>1){ const f=L/L2; r*=f; g2*=f; b*=f; }
+        d[p]  =r<0?0:r>255?255:r|0;
+        d[p+1]=g2<0?0:g2>255?255:g2|0;
+        d[p+2]=b<0?0:b>255?255:b|0;
+      }
+      t.putImageData(id,0,0);
+      cv.naturalWidth=w; cv.naturalHeight=h;
+    }catch(_){ cv=null; }      // getImageData gesperrt: dann eben ungetont
+    if(this._palB.size>80) this._palB.clear();
+    this._palB.set(ck,cv);
+    return cv;
+  }
   hqBild(){
     const img=this.asset('bld_hq');
     if(!img || !img.naturalWidth) return null;
