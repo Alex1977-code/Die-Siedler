@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Lieferung aus gebaeude/ freistellen und auf die Sprite-Leinwand setzen.
+"""Lieferung aus gebaeude/ freistellen und als Sprite ablegen.
 
-Hintergrund und Schlagschatten weg, dann jedes Bild GENAU so gross und an
-genau der Stelle ablegen, wo das bisherige Sprite sein Gebaeude hatte.
-Damit bleiben alle Sonderregeln im Zeichner gueltig, ohne Codeaenderung:
-Bergwerke werden ueber 320x320 erkannt, Ruinen und HQ ueber scales.json.
+Hintergrund und Schlagschatten weg, dann die Leinwand ENG um das Gebaeude
+legen. Der Zeichner zentriert die ganze Bilddatei auf den Knoten und setzt
+ihre Unterkante 10 px darunter (js/render.js: dx0 = x - ww/2,
+dy0 = y - hh + 10). Leere Pixel am Rand haengen das Haus also vom Knoten ab -
+in v293 fuellte die Burg nur 67 % der geerbten Leinwandbreite, der Weg endete
+80 px neben der Mauer. Die Hoehe bleibt auf dem alten Leinwandmass, damit
+Aufloesung und Dateigroesse gleich bleiben; scales.json misst weiterhin die
+Gebaeudehoehe.
+
+Ausnahme Bergwerke: Der Zeichner erkennt sie an der Bildgroesse 320x320
+(mineSchacht). Ihre Leinwand bleibt deshalb unveraendert, das Gebaeude wird
+nur auf die alte Bodenlinie gesetzt.
 
 Schattenerkennung: Der Schatten ist der Hintergrund mal einem Faktor - seine
 FARBIGKEIT bleibt also die des Hintergrunds, nur die Helligkeit faellt. Das
@@ -18,6 +26,7 @@ import numpy as np
 from PIL import Image
 
 QUELLE, ZIEL = 'gebäude', 'assets'
+MINEN = {'bld_coalmine','bld_goldmine','bld_granitemine','bld_ironmine'}
 CHROMA = 0.020      # Farbigkeitsabstand, ab dem ein Pixel zum Gebaeude zaehlt
 HELLER = 8          # Pixel heller als der Hintergrund sind nie Schatten
 BLEED  = 8          # so weit werden Gebaeudefarben nach aussen verschmiert
@@ -97,18 +106,29 @@ def main():
         if not os.path.exists(qp) or not os.path.exists(zp):
             fehlt.append((quelle, ziel)); continue
         neu = freistellen(qp)
-        nb = bbox(neu)
-        neu = neu.crop(nb)
+        neu = neu.crop(bbox(neu))
         alt = Image.open(zp).convert("RGBA")
         AW, AH = alt.size
-        ab = bbox(alt)
-        if ab is None: ab = (0,0,AW,AH)
-        zielh = ab[3]-ab[1]
-        s = min(zielh/neu.height, (AW*0.98)/neu.width)
-        neu = neu.resize((max(1,round(neu.width*s)), max(1,round(neu.height*s))), Image.LANCZOS)
-        lein = Image.new("RGBA", (AW, AH), (0,0,0,0))
-        cx = (ab[0]+ab[2])/2
-        lein.paste(neu, (int(round(cx-neu.width/2)), int(round(ab[3]-neu.height))), neu)
+        ab = bbox(alt) or (0, 0, AW, AH)
+        if ziel.replace('.png','') in MINEN:
+            # Bergwerke werden im Zeichner an der Bildgroesse 320x320 erkannt
+            # (js/render.js: mineSchacht). Leinwand also NICHT beschneiden,
+            # sondern das Gebaeude wie bisher auf die Bodenlinie setzen.
+            s = min((ab[3]-ab[1])/neu.height, (AW*0.98)/neu.width)
+            neu = neu.resize((max(1,round(neu.width*s)), max(1,round(neu.height*s))), Image.LANCZOS)
+            lein = Image.new("RGBA", (AW, AH), (0,0,0,0))
+            cx = (ab[0]+ab[2])/2
+            lein.paste(neu, (int(round(cx-neu.width/2)), int(round(ab[3]-neu.height))), neu)
+        else:
+            # Alle uebrigen: Leinwand ENG ums Gebaeude. Der Zeichner zentriert
+            # die ganze Datei auf den Knoten und setzt ihre Unterkante 10 px
+            # darunter - ein Rahmen aus leeren Pixeln haengt das Haus also vom
+            # Knoten ab. Genau das war der Fehler in v293: die Burg fuellte nur
+            # 67 % der geerbten Leinwandbreite, der Weg endete 80 px daneben.
+            # Hoehe auf das alte Leinwandmass, damit Aufloesung und Dateigroesse
+            # bleiben; scales.json misst weiterhin die Gebaeudehoehe.
+            s = AH/neu.height
+            lein = neu.resize((max(1,round(neu.width*s)), max(1,round(neu.height*s))), Image.LANCZOS)
         lein.save(zp)
         print("%-24s -> %-22s %dx%d  Inhalt %dx%d" % (quelle, ziel, AW, AH, neu.width, neu.height))
     if fehlt: print("FEHLT:", fehlt, file=sys.stderr)
