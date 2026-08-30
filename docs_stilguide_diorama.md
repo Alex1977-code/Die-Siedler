@@ -151,6 +151,28 @@ Lichtwechsel liest und nicht als Belichtungssprung.
 | roughness 0.85–0.95 | Materialtabelle `rough`, Wasser bleibt bei 0.14 |
 | AO spürbar stark | `clamp(1.0 - (hB-hRel)*3.6, 0.40, 1.0)` |
 | Farbkorrektur | Split-Toning über die Luminanz nach ACES |
+| Sandgrund im Flachwasser | `grundSteine()` plus das Sichtfenster in `wasser()` |
+| Blüten im Gras | `blueten()`, aufgetragen NACH der Materialmischung |
+| Beige Bergspitzen | `spitze` = Höhe × Aufwärtsneigung, auf `fels` gemischt |
+
+**Drei Fallen, die beim Einbau dieser drei Punkte aufgefallen sind** — sie
+gelten für jede weitere Feinzeichnung im Shader:
+
+1. **Nicht auf ein Material auftragen, sondern auf das Ergebnis.** Die
+   Blüten hingen zuerst an `mWiese`. Das steckt über `berggras` und die
+   Uferblenden aber auch in Flächen, die gar keine Wiese sind — es lag
+   weißes Konfetti auf Wasser und Sand. Jetzt werden sie nach der
+   Materialmischung mit dem Grasanteil gewichtet.
+2. **Warm plus kühl ergibt grau.** Der Sandgrund einfach in die
+   Wasserfarbe gemischt gab ein fahles Grau-Beige, das Türkis war weg —
+   dieselbe Falle wie beim Füll-Licht. Wasser schluckt Rot und lässt Grün
+   und Blau durch; der Grund wird deshalb *eingefärbt*, nicht
+   übergelegt.
+3. **Erst messen, ob es überhaupt gezeichnet wird.** Die Grundsteine waren
+   unsichtbar. Ein Rot-Test hat sie überführt: 281 rote Bildpunkte von
+   139500 — sie wurden gezeichnet, trafen den Schelf nur fast nie, weil
+   die Tiefenrampe den sichtbaren Bereich auf rund 20 Weltpixel presst.
+   Die Sicht hängt jetzt am Wasseranteil statt an der Tiefenrampe.
 
 **`js/render.js` — Bildschirmebene.**
 Vignette, Überstrahl und Tilt-Shift. Beide müssen wissen, dass die 2D-Leinwand über

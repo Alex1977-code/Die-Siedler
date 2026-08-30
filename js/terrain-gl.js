@@ -115,6 +115,13 @@ uniform vec4 uSk2;          //                          Wasser,Fels,Lava,(frei)
 uniform float uZeit;        // Sekunden, Echtzeit (Wasser lebt auch in Pause)
 uniform float uSchattenAn;  // Diagnoseschalter wie _ohneCast im 2D-Weg
 uniform float uDebug;       // 0 normal, 1 Gewichte als Farben, 2 Licht als Grau
+uniform float uZoomF;       // Kamerazoom. EIGENER Name, nicht uZoom: derselbe
+                            // Uniform-Name in VERT (highp) und FRAG (mediump)
+                            // laesst das Programm nicht linken ("Precisions of
+                            // uniform differ") - dieselbe Falle wie bei uMassF.
+                            // Gebraucht fuer die Feinzeichnung: Blueten,
+                            // Grundsteine und Bergspitzen sind bei weitem Zoom
+                            // kleiner als ein Bildpunkt und flimmern dann.
 uniform vec3 uFelsCol;      // Felsfarbe des Themas (fester Ton, NICHT das
                             // interpolierte vCol - das mischt am Massivrand
                             // Wiesengruen hinein)
@@ -211,6 +218,68 @@ vec3 steine(vec3 grund){
   return mix(c, grund * 0.45, fuge * 0.7);
 }
 
+// ---- Steine auf dem Sandgrund (Flachwasser) ----
+// steine() oben pflastert die ganze Flaeche - auf dem Meeresgrund liegen
+// aber EINZELNE Steine im Sand (Stilguide, Abschnitt Wasser). Dieselbe
+// Voronoi-Zerlegung, aber nur ein Teil der Zellen traegt einen Stein, und
+// der ist rund statt zellfuellend.
+vec3 grundSteine(vec3 sand, float sicht){
+  if(sicht < 0.02) return sand;
+  float SK = 34.0;                              // kleinere Zellen: im
+  vec2 u = vWorld / SK;                         // schmalen Schelf trafen
+  u += 0.30 * vec2(sin(u.y*1.6), sin(u.x*1.8)); // 46er Zellen zu selten
+  vec2 zi = floor(u), zf = u - zi;
+  vec3 c = sand;
+  for(int dy=-1; dy<=1; dy++)
+  for(int dx=-1; dx<=1; dx++){
+    vec2 nb = vec2(float(dx), float(dy));
+    vec2 h = sh2(zi + nb);
+    if(h.x < 0.62) continue;                    // gut ein Drittel der Zellen
+    vec2 p = nb + h - zf;
+    float r = 0.17 + h.y * 0.17;
+    float d = length(p);
+    float m = 1.0 - smoothstep(r*0.70, r, d);
+    if(m <= 0.001) continue;
+    // Woelbung wie bei den gemalten Steinen: Nordwestseite hell
+    vec2 nn = p / max(0.001, d);
+    float li = 0.5 + 0.5 * clamp((nn.x + nn.y) * 0.8, -1.0, 1.0);
+    vec3 st = vec3(0.26, 0.25, 0.23) * (0.68 + 0.66*li) * (0.86 + 0.34*h.y);
+    // weicher Fuss im Sand: ohne ihn liegen die Steine als flache
+    // Scheiben AUF dem Grund statt darin (Beleg d_ufer_r5)
+    float ms = 1.0 - smoothstep(r*0.92, r*1.45, d);
+    c = mix(c, sand * 0.70, ms * 0.50 * sicht);
+    c = mix(c, st, m * sicht);
+  }
+  return c;
+}
+
+// ---- Blueten im Gras ----
+// Stilguide: "sattes Gelbgruen mit winzigen hellen Blueten-Sprenkeln".
+// Ein Punkt je Rasterzelle, nur ein Fuenftel der Zellen traegt einen, die
+// Farbe wechselt zwischen cremeweiss und blassgelb. Bei weitem Zoom
+// ausgeblendet (unter einem Bildpunkt flimmert es sonst).
+// ERSTER WURF VERWORFEN (im Beleg t68 nachzusehen): Zellraster 17 px,
+// jede fuenfte Zelle, Punktradius bis 0,115 Zellen, Deckung 0,80 - und
+// aufgetragen auf mWiese. Das gab weisses Konfetti ueber die halbe Karte,
+// und zwar AUCH auf Wasser und Sand: mWiese steckt ueber die Bergwiese
+// (berggras) und die Uferblenden in Flaechen, die gar keine Wiese sind.
+// Jetzt: groebere Zellen, ein Achtel davon traegt eine Bluete, halber
+// Radius, halbe Deckung - und aufgetragen wird NACH der Materialmischung
+// auf den fertigen Farbwert, gewichtet mit dem Grasanteil.
+vec3 blueten(vec3 gras, float fein){
+  if(fein < 0.02) return gras;
+  float BK = 24.0;
+  vec2 u = vWorld / BK;
+  vec2 zi = floor(u), zf = u - zi;
+  vec2 h = sh2(zi);
+  if(h.x < 0.88) return gras;
+  vec2 p = zf - vec2(h.y, fract(h.x * 31.7));
+  float m = 1.0 - smoothstep(0.028, 0.058, length(p));
+  if(m <= 0.001) return gras;
+  vec3 bl = mix(vec3(1.00, 0.97, 0.86), vec3(0.98, 0.90, 0.55), fract(h.y*7.1));
+  return mix(gras, bl, m * 0.55 * fein);
+}
+
 // ---- Wasser: zwei driftende Lagen + leises Glitzern ----
 // Der 2D-Weg brauchte dafuer Muster-Transformationen je Frame, einen
 // 1/6-Offscreen und Stempel-Schleifen (waterStamps). Hier sind es zwei
@@ -239,6 +308,46 @@ vec3 wasser(float aw, float rausch){
   // Fleckenmaske aus Ripple und Rausch statt am durchlaufenden Sinus.
   float tiefe = smoothstep(0.30, 0.98, aw + (rausch - 0.5) * 0.35);
   vec3 farbe = mix(uG[4], uG[7], tiefe);
+  // SANDGRUND IM FLACHWASSER (Stilguide): "im Flachwasser ist der
+  // Sandgrund durchscheinend sichtbar, mit einzelnen Steinen darin".
+  // Der Grund liegt UNTER der Wasserfarbe und blendet mit der Tiefe aus -
+  // je tiefer, desto weniger kommt vom Boden zurueck. Er wird nicht
+  // ueberblendet, sondern durchscheinend gemischt (0,42), sonst
+  // verschwindet das Wasser und es liegt trockener Sand im Bild.
+  // Erster Wurf war zu schwach (Beleg d_ufer_r2: der Grund kaum zu ahnen,
+  // die Steine gar nicht). Zwei Gruende: das Tiefenfenster endete zu
+  // frueh, und der Grund kam hoechstens mit 42 Prozent durch - die Steine
+  // darin landeten damit bei rund 20 Prozent Deckung, unter dem
+  // Strandsaum, der oben drueber liegt. Fenster breiter, Grund kraeftiger.
+  // DREI ANLAEUFE, alle gemessen - hier steht warum es so aussieht:
+  // (1) Fenster ueber "tiefe", am groessten wo tiefe gegen null geht. Dort
+  //     ist aber kaum noch Wasser: der Wasseranteil w2.x gewichtet die
+  //     ganze Wasserfarbe samt Grund fast auf null (Beleg d_ufer_r2).
+  // (2) Fenster in die Mitte der Tiefenrampe geschoben (d_ufer_r3/r4):
+  //     der Grund kam durch, die STEINE aber nicht. Ein Rot-Test hat es
+  //     ueberfuehrt - 281 rote Bildpunkte von 139500, die Steine wurden
+  //     also gezeichnet, trafen den Schelf nur fast nie. Die Tiefenrampe
+  //     (smoothstep 0,30..0,98 auf aw) presst den sichtbaren Bereich auf
+  //     rund 20 Weltpixel Breite zusammen; bei 46er Steinzellen liegt dort
+  //     im Schnitt alle 120 Pixel einer.
+  // (3) Jetzt haengt die Sicht direkt am WASSERANTEIL statt an der
+  //     Tiefenrampe. Damit deckt sie den ganzen ufernahen Bereich
+  //     (aw 0,52 bis 0,88) statt einer Scheibe daraus, und der Schelf ist
+  //     so breit wie im Referenzbild.
+  float sicht = smoothstep(0.30, 0.52, aw) * (1.0 - smoothstep(0.88, 0.99, aw))
+              * clamp(uZoomF*2.6, 0.0, 1.0);
+  if(sicht > 0.01){
+    // DURCH WASSER GESEHEN, nicht darueber gelegt. Der Sand einfach in
+    // die Wasserfarbe zu mischen gab ein breites fahles Grau-Beige und
+    // das Tuerkis war weg (Belege d_ufer_r5/r6) - warmer Sand plus kuehles
+    // Tuerkis ergibt Grau, dieselbe Falle wie beim Fuell-Licht in v285.
+    // Wasser schluckt Rot und laesst Gruen und Blau durch; dazu ein
+    // Streuanteil in Wasserfarbe. Damit bleibt der Schelf tuerkisgruen und
+    // der Grund ist trotzdem zu sehen, genau wie im Referenzbild.
+    vec3 grund = grundSteine(uG[1] * 0.92, 1.0);
+    grund = grund * vec3(0.52, 0.92, 0.98) + uG[4] * 0.22;
+    farbe = mix(farbe, grund, sicht * 0.62);
+  }
   farbe *= 1.0 + (ripple - 0.5) * 0.18;
   farbe += vec3(1.0) * clamp((ripple - 0.74) * 3.0, 0.0, 1.0) * 0.55;
   float saum = clamp(1.0 - abs(aw - 0.42 - 0.20*(rausch - 0.5)) * 4.5, 0.0, 1.0);
@@ -353,6 +462,9 @@ void main(){
   // steine() bleibt fuer spaetere Schuttzonen im Bestand.
   // VARIANTE 5: die GRUNDFARBE traegt die Flaeche, die Kachel liegt nur
   // mit 25 % Deckkraft darueber (Spez Abschnitt 6). Alles linear.
+  // Feinzeichnungs-Faktor: unter Zoom 0,38 sind Blueten und Grundsteine
+  // kleiner als ein Bildpunkt und wuerden nur flimmern.
+  float fein9 = clamp((uZoomF - 0.22) * 6.0, 0.0, 1.0);
   vec3 mWiese  = mix(uG[0], hol(tWiese,  uSk1.x), 0.25);
   vec3 mWueste = mix(uG[1], hol(tWueste, uSk1.y), 0.25);
   vec3 mSchnee = mix(uG[2], hol(tSchnee, uSk1.z), 0.25);
@@ -395,6 +507,17 @@ void main(){
   // bei 77 % der Kartenhoehe, also komplett in der Felszone. Im
   // Referenzbild traegt der Huegel bis kurz unter den Gipfel Gras, Fels
   // bricht nur in der Kuppe und an Steilstellen durch. Jetzt 60/90 %.
+  // WARME BEIGE-SPITZEN (Stilguide: "Fels #9A9A96 mit warmen
+  // Beige-Spitzen"). Kriterium ist HOEHE mal Aufwaertsneigung: eine
+  // steile Wand bleibt grau, eine Kuppe wird hell und warm. Genau das
+  // macht die gestapelten Gesteinsformen im Referenzbild plastisch -
+  // ohne den Wechsel liest der Berg als eine graue Masse.
+  float spitze = smoothstep(uHfeld.z*0.52, uHfeld.z*0.88, hbM + (rausch - 0.5) * 1.2)
+               * smoothstep(0.26, 0.74, normalize(vNrm).z);
+  // Staerke am REFERENZBILD gemessen: dort liegt der Fels bei R-B 21,4.
+  // Der erste Wurf (1,30/1,19/1,00 mit 0,85) kam auf 28,7 - zu warm.
+  fels = mix(fels, fels * vec3(1.24, 1.16, 1.02) + vec3(0.035, 0.028, 0.016),
+             clamp(spitze, 0.0, 1.0) * 0.80);
   float gipfel = smoothstep(uHfeld.z*0.60, uHfeld.z*0.90, hbM + (rausch - 0.5) * 1.6);
   // NEIGUNGSFENSTER: mit HSCALE 40 (Kamera-Umbau) sind alle Haenge
   // steiler als vorher - 0,78..0,92 liess fast nichts mehr durch, das
@@ -423,6 +546,12 @@ void main(){
       mWiese * w1.x + mWueste * w1.y + mSchnee * w1.z + mMoor * w1.w
     + wasser(aw, rausch) * w2.x + massiv * w2.y + mLava * w2.z;
   alb /= max(0.001, sum);
+  // Blueten NUR auf Gras: der Wiesenanteil, dazu die Bergwiese auf dem
+  // Massiv (dort ist gras der Grasmix aus dem Bergwiesen-Block oben).
+  {
+    float blA = clamp(w1.x/max(0.001,sum) + (w2.y/max(0.001,sum))*gras, 0.0, 1.0);
+    alb = blueten(alb, fein9 * smoothstep(0.30, 0.75, blA));
+  }
   // Rauheit je Material (Spez-Tabelle), gleich gewichtet wie alb
   // Rauheit nach Stilguide: alle Landmaterialien 0,85-0,95, metalness 0,
   // keine Glanzeffekte ausser Wasser. Vorher lagen Schnee (0,72) und Fels
@@ -796,6 +925,7 @@ export class TerrainGL {
     this.uZeit = gl.getUniformLocation(p, 'uZeit');
     this.uSchattenAn = gl.getUniformLocation(p, 'uSchattenAn');
     this.uDebug = gl.getUniformLocation(p, 'uDebug');
+    this.uZoomF = gl.getUniformLocation(p, 'uZoomF');
     this.uTHgt = gl.getUniformLocation(p, 'tHgt');
     this.uSk1  = gl.getUniformLocation(p, 'uSk1');
     this.uSk2  = gl.getUniformLocation(p, 'uSk2');
@@ -1412,6 +1542,7 @@ export class TerrainGL {
     gl.uniform1f(this.uZeit, zeit || 0);
     gl.uniform1f(this.uSchattenAn, this.ohneSchatten? 0 : 1);
     gl.uniform1f(this.uDebug, this.debug || 0);
+    gl.uniform1f(this.uZoomF, cam.z);
     gl.uniform4f(this.uSk1, this.skala[0], this.skala[1], this.skala[2], this.skala[3]);
     gl.uniform4f(this.uSk2, this.skala[4], this.skala[5], this.skala[6], 225);
     for(let k=0; k<KANAL.length; k++){

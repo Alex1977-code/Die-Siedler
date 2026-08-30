@@ -419,10 +419,17 @@ export class Renderer {
       schnee: hex2lin('#ECEEF4'),
       moor:   hex2lin(cols[TER.SWAMP]||'#5E6E2C'),
       wasserFlach: hex2lin('#5FC9C4'),
-      // Fels etwas dunkler (#8A8478 -> #7E7669): auf der hellen
-      // Bergwiese wirkte der alte Ton als blasser Schleier, gemessen
-      // Felsmittel 185 bei nur 26 Streuung. Dunkler traegt er Zeichnung.
-      fels:   hex2lin(V5? '#7E7669' : (cols[TER.MOUNT] ||'#7E7669')),
+      // FELS #9A9A96 (Stilguide "Stylized Diorama Render"). Vorgeschichte,
+      // damit der Wert nicht wieder zurueckgedreht wird: er stand einmal
+      // auf #8A8478 und wurde auf #7E7669 gedunkelt, weil der Fels auf der
+      // hellen Bergwiese als blasser Schleier lag (gemessen Felsmittel 185
+      // bei nur 26 Streuung). Zwei Dinge haben sich seither geaendert -
+      // seit v280 traegt nur noch die obere Koerperhaelfte Fels (der
+      // graue Teppich am Fuss ist weg), und der Fels bekommt jetzt warme
+      // Beige-Spitzen auf Kuppen und Aufwaertsflaechen. Der Guide nennt
+      // ausdruecklich einen GRAUEN Grundton mit warmen Spitzen; auf einem
+      // braungrauen Grund wuerden die Spitzen matschig.
+      fels:   hex2lin(V5? '#9A9A96' : (cols[TER.MOUNT] ||'#9A9A96')),
       lava:   hex2lin(cols[TER.LAVA]||'#6B3A32'),
       wasserTief:  hex2lin('#1B7690'),
     };
