@@ -318,6 +318,10 @@ export class Renderer {
     // Zwischenpuffer des Gelaendes - der braeuchte kein Zurueckreden und
     // wuerde nebenbei GTAO und Tiefenunschaerfe ermoeglichen.
     this.bloomAus = true;
+    // Daempfung der Objektebene, passend zur Shader-Belichtung (s. draw()).
+    // 0 = aus. Wer LICHT_SKALA in terrain-gl.js aendert, muss diesen Wert
+    // mitziehen, sonst laufen Boden und Objekte auseinander.
+    this.objDaempfung = 0.20;
     this.chunks=new Map();
     this.chunkVer=new Map();
     this._signsSeen=new Set();
@@ -11658,6 +11662,26 @@ export class Renderer {
       if(R+F<this.vw) g.fillRect(R+F,0,this.vw-(R+F),this.vh);
       if(T-F>0) g.fillRect(0,0,this.vw,T-F);
       if(B+F<this.vh) g.fillRect(0,B+F,this.vw,this.vh-(B+F));
+    }
+    // ---- BELICHTUNG DER OBJEKTEBENE (v291) ----
+    // Der Boden liegt in GL und bekommt seine Belichtung im Shader
+    // (LICHT_SKALA). Baeume, Gebaeude, Figuren, Wege und Deko liegen als
+    // FERTIG BELEUCHTETE Bilder auf dieser 2D-Ebene und gehen da nicht
+    // durch. Wird nur der Boden abgedunkelt, springen sie heraus - das
+    // Bild faellt in zwei Helligkeiten auseinander.
+    // 'source-atop' trifft genau die Bildpunkte, an denen diese Ebene
+    // etwas gemalt hat: schwarz mit Deckkraft a heisst dort Multiplikation
+    // mit (1-a). Ein Vollbild-'multiply' waere falsch - auf dem
+    // DURCHSICHTIGEN Teil (ueberall dort, wo man das GL-Gelaende sieht)
+    // schreibt Canvas dann die Quellfarbe statt zu mischen.
+    // Der Faktor folgt der Shader-Belichtung: das besonnte Gras faellt von
+    // Ausgabe 169 auf 135, also mal 0,80.
+    if(this.objDaempfung > 0.001){
+      g.save();
+      g.globalCompositeOperation='source-atop';
+      g.fillStyle='rgba(0,0,0,'+this.objDaempfung.toFixed(3)+')';
+      g.fillRect(0,0,this.vw,this.vh);
+      g.restore();
     }
     // ---- UEBERSTRAHL / BLOOM (Stilguide: schwach, hoher Schwellwert,
     //      Intensitaet 0,15) ----

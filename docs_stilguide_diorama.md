@@ -182,7 +182,56 @@ Farbkorrektur im Shader und nicht hier; die Vignette ist ein schlichter
 `source-over`-Verlauf, und der Überstrahl bekommt seine Deckkraft aus der
 Luminanz je Bildpunkt.
 
-### 7.2 Was bewusst nicht umgesetzt ist
+### 7.2 Belichtung — am Referenzbild kalibriert
+
+Die Zahlen stammen aus einem Vergleich mit dem Referenzbild selbst
+(Skript `scratchpad/ton.py`, gleiche Klassifikation für beide Bilder,
+Werte am 90. Perzentil der besonnten Flächen):
+
+| | Referenz | vorher | nachher |
+|---|---|---|---|
+| Gras p50 | 58,0 | 140,9 | 104,6 |
+| Gras p90 | 95,1 | 169,3 | 140,2 |
+| Fels p90 | 154,1 | 192,6 | 161,6 |
+| Fels/Gras p90 | 1,62 | 1,14 | 1,15 |
+| Insel/Tischplatte | 0,41 | 0,78 | 0,62 |
+
+Zwei Dinge sind dabei herausgekommen, die beide gegen die naheliegende
+Vermutung sprechen:
+
+**Die Verdeckung war nicht das Problem.** Über das ganze Bild lag die
+Streuung der Grasflächen schon bei 25,3 gegen 26,7 in der Referenz. Ein
+zusätzlicher Fein-AO mit kleinem Radius (Krümmung über einen Texel,
+`aoFein`) brachte gemessen 5 Helligkeitspunkte. Er ist trotzdem drin — er
+kostet vier Texturabfragen und modelliert jede Mulde — aber er ist nicht
+der Hebel, für den ich ihn gehalten hatte.
+
+**Das Verhältnis Fels zu Gras lässt sich mit Licht nicht schließen.** Es
+steht bei uns auf 1,15, in der Referenz auf 1,62, und es hat sich durch
+keine Lichtänderung bewegt. Der Grund ist Geometrie, nicht Beleuchtung:
+im Referenzbild liegt das Gras auf einem Hügel, der sich von einer tief
+stehenden Sonne wegdreht, während die Felsen aufragen und das Licht voll
+bekommen. Unsere Siedler-Projektion schaut weitgehend von oben auf das
+Gelände — dort zeigt fast jede Grasfläche zur Sonne. Um die 1,62 über die
+Albedo zu erzwingen, müsste die Wiese auf etwa `#3E5A1A` — weit unter der
+im Guide festgelegten Spanne, und besonntes Gras wäre dann fast schwarz.
+Das wird deshalb ausdrücklich **nicht** gemacht.
+
+Was geholfen hat: die **Aufhellung** (Hemisphäre 0,60 → 0,38,
+Rundum-Licht 0,30 → 0,16, Gesamtskala hoch, damit die Lichter stehen
+bleiben) und danach die **Gesamtbelichtung** (`LICHT_SKALA` 0,460 →
+0,285, aus der ACES-Kurve zurückgerechnet statt geraten).
+
+**Zwei Regler, die zusammen bleiben müssen:** `LICHT_SKALA` in
+`terrain-gl.js` belichtet den Boden, `renderer.objDaempfung` die
+Objektebene. Bäume, Gebäude und Figuren sind fertig beleuchtete Bilder und
+gehen nicht durch den Shader; wird nur der Boden abgedunkelt, springen sie
+heraus und das Bild fällt in zwei Helligkeiten auseinander. Die Dämpfung
+läuft über `source-atop` (trifft genau die bemalten Bildpunkte) — ein
+Vollbild-`multiply` wäre falsch, das schreibt auf dem durchsichtigen Teil
+die Quellfarbe.
+
+### 7.3 Was bewusst nicht umgesetzt ist
 
 **SSAO/GTAO als Post-Pass.** Der Boden hat eine echte, aus dem Höhenfeld
 gerechnete Verdeckung (`ao` im Shader) — die ist billiger und genauer als

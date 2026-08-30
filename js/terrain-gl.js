@@ -172,9 +172,28 @@ const vec3  C_SONNE  = vec3(1.000, 0.886, 0.722);   // #FFE2B8
 const vec3  C_HIMMEL = vec3(0.812, 0.886, 1.000);   // #CFE2FF
 const vec3  C_GRUND  = vec3(0.541, 0.478, 0.361);   // #8A7A5C
 const float I_SONNE  = 2.50;
-const float I_HEMI   = 0.60;
-const float I_ENV    = 0.30;
-const float LICHT_SKALA = 0.402;
+// AUFHELLUNG GESENKT (v291, Belichtungsrunde). Gemessen gegen das
+// Referenzbild: unser Gras stand im Mittel auf Helligkeit 141, das der
+// Referenz auf 58. Der Grund ist nicht die Albedo (unsere Wiese #74A038
+// sitzt in der geforderten Spanne) und nicht die Verdeckung (die
+// Streuung liegt mit 25,3 schon fast auf dem Referenzwert 26,7) - es ist
+// die AUFHELLUNG. Bei ebenem, besonntem Boden trug sie 31 Prozent der
+// Gesamthelligkeit bei und im Schatten 100 Prozent; damit kann nichts
+// mehr richtig dunkel werden.
+// Hemisphaere 0,60 -> 0,38 und Rundum-Licht 0,30 -> 0,16, dafuer die
+// Gesamtskala hoch, damit die LICHTER stehenbleiben: nur der Schatten
+// faellt. Gerechnet fuer ebenen besonnten Boden (key 0,700, ao 1):
+// vorher 1,75*0,402 + 0,787*0,402 = 1,020; nachher 1,75*LS + 0,469*LS,
+// also LS = 1,020/2,219 = 0,460.
+const float I_HEMI   = 0.38;
+const float I_ENV    = 0.16;
+// GESAMTBELICHTUNG (v291). Gerechnet, nicht probiert: das besonnte Gras
+// stand bei Ausgabe 0,662 (ACES 0,403, linear 0,271); fuer Ausgabe 0,529
+// braucht es linear 0,168, also Faktor 0,619. 0,460 * 0,619 = 0,285.
+// Damit faellt das Verhaeltnis Insel zu Tischplatte von 0,78 auf 0,62
+// (Referenzbild 0,41) - die Insel steht dunkler auf dem hellen Grund,
+// wie im Zielbild, ohne dass das Spiel duester wird.
+const float LICHT_SKALA = 0.285;
 
 // ACES-Tonemapping (Spez Abschnitt 6)
 vec3 aces(vec3 x){
@@ -234,9 +253,12 @@ vec3 grundSteine(vec3 sand, float sicht){
   for(int dx=-1; dx<=1; dx++){
     vec2 nb = vec2(float(dx), float(dy));
     vec2 h = sh2(zi + nb);
-    if(h.x < 0.62) continue;                    // gut ein Drittel der Zellen
+    // Dichte von 38 auf 20 Prozent: mit 38 lag ein kleiner See VOLL
+    // gepflastert unter Steinen (Beleg d_wiese_b3) - ein Teich reicht
+    // nirgends bis ins tiefe Blau, also war dort alles "Schelf".
+    if(h.x < 0.80) continue;
     vec2 p = nb + h - zf;
-    float r = 0.17 + h.y * 0.17;
+    float r = 0.15 + h.y * 0.13;
     float d = length(p);
     float m = 1.0 - smoothstep(r*0.70, r, d);
     if(m <= 0.001) continue;
@@ -748,6 +770,28 @@ void main(){
   // Verdeckung die Form auf der Schattenseite - sie darf und muss
   // deshalb deutlicher sein.
   float ao = clamp(1.0 - (hB - hRel) * 3.6, 0.40, 1.0);
+  // ---- FEIN-AO, kleiner Radius (v291) ----
+  // Stilguide: "SSAO/GTAO mit kleinem Radius, spuerbar stark". Das ao
+  // oben rechnet gegen das WEICHGEZEICHNETE Hoehenfeld, also mit grossem
+  // Radius: es findet Senken und Stufenfuesse, laesst die offene Wiese
+  // aber voellig unangetastet. Gemessen lag die Helligkeitsstreuung
+  // unserer Wiese bei 9,4, im Referenzbild bei 26,5 - unsere Flaeche war
+  // flach, weil dort schlicht nichts verdeckt.
+  // Dieses hier misst die KRUEMMUNG ueber einen Texel: liegt der Ring der
+  // vier Nachbarn hoeher als die Mitte, ist die Stelle konkav und
+  // bekommt Verdeckung. Vier Abfragen, kein Bildschirmraum-Verfahren -
+  // und es greift auf jeder Mulde, nicht nur an grossen Formen.
+  {
+    vec2 tA = 1.0 / uHfeld.xy;
+    vec2 uvA = (vGrid + 0.5) * tA;
+    float hC = texture2D(tHgt, uvA).r;
+    float hRing = (texture2D(tHgt, uvA + vec2(tA.x, 0.0)).r
+                 + texture2D(tHgt, uvA - vec2(tA.x, 0.0)).r
+                 + texture2D(tHgt, uvA + vec2(0.0, tA.y)).r
+                 + texture2D(tHgt, uvA - vec2(0.0, tA.y)).r) * 0.25;
+    float aoFein = clamp(1.0 - max(0.0, hRing - hC) * uHfeld.z * 3.0, 0.45, 1.0);
+    ao *= aoFein;
+  }
   // Hemisphaere plus neutrales Rundum-Licht - das ist die GANZE
   // Aufhellung. Ein zweites gerichtetes Fuell-Licht gibt es nicht mehr
   // (s. Lichtaufbau oben).
@@ -765,7 +809,11 @@ void main(){
   float up = clamp(n.z*0.5 + 0.5, 0.0, 1.0);
   vec3 amb = (mix(C_GRUND, C_HIMMEL, up) * I_HEMI + vec3(I_ENV)) * LICHT_SKALA;
   vec3 direct = C_SONNE * I_SONNE * key * LICHT_SKALA;
-  vec3 col = alb * (direct * ao + amb * ao * ao);
+  // Verdeckung wirkt auf das Rundum-Licht VOLL und auf das Hauptlicht nur
+  // teilweise: eine Mulde bekommt weiter Sonne, aber kaum noch Himmel.
+  // Genau das ist der Unterschied zwischen "flach ausgeleuchtet" und dem
+  // plastischen Diorama der Referenz.
+  vec3 col = alb * (direct * (0.62 + 0.38 * ao) + amb * ao * ao);
   // Specular aus der Materialrauheit: matt auf Land, scharf nur auf Wasser
   float shin = 2.0 / max(0.02, rough * rough);
   float spec = pow(max(dot(n, normalize(C_KEYDIR + C_VDIR)), 0.0), shin) * (1.0 - rough) * 0.20;
