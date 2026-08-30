@@ -10,3 +10,4 @@ roadfloat.png
 # Arbeits-Screenshots des Spielekritiker-Agenten (Mehr-MB-Bilder, nur zur
 # Befundaufnahme - der Bericht selbst (kritik_bericht.md) wird versioniert)
 kritik_*.png
+tools/__pycache__/
