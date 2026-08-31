@@ -13206,11 +13206,30 @@ export class Renderer {
   }
   // wartende Waren als kleiner Stapel (Bild-Assets, sonst Kistchen)
   flagGoods(g, game, i, x, y){
+    // An der Fahne liegen ZWEI Sorten Ware: die auf dem Weg abgestellte
+    // (game.flagItems) und die frisch erzeugte im Ausgang des Hauses
+    // (b.out). Die zweite fehlte im Bild - Nutzerbefund: "wird gefaellt,
+    // Baum fehlt, aber nicht immer ein Baumstamm als Produkt".
+    // Nachgemessen ueber 12000 Takte mit einem Holzfaeller: 42 Faellungen,
+    // 42 Staemme, 42 Abgaben, 42 abgeholt, und auf der ganzen Karte
+    // verschwanden in derselben Zeit genau 42 Baeume. Es ging also KEIN
+    // Stamm verloren - er lag nur unsichtbar im Datensatz, bis ein Traeger
+    // kam. Genau deshalb sah man ihn "nicht immer": bei freiem Weg holt der
+    // Traeger sofort ab und die Ware ist nur auf seiner Schulter zu sehen,
+    // bei Rueckstau wartet sie im Ausgang und war gar nicht zu sehen.
+    const liste=[];
     const items=game.flagItems.get(i);
-    if(!items || !items.length) return;
-    for(let k=0;k<Math.min(items.length,8);k++){
+    if(items) for(const it of items) liste.push(it.good);
+    const bd=this._doorMap && this._doorMap.get(i);
+    if(bd && bd.state==='done' && (bd.out|0)>0 && game.prodGood){
+      const gut=game.prodGood(bd);
+      // '@donkey'/'@ship' sind keine Waren, sondern Anforderungen
+      if(gut && gut[0]!=='@') for(let k=0;k<(bd.out|0);k++) liste.push(gut);
+    }
+    if(!liste.length) return;
+    for(let k=0;k<Math.min(liste.length,8);k++){
       const bx=x-7+(k%4)*5.6, by=y+4.4+Math.floor(k/4)*5;
-      this.drawGood(g, items[k].good, bx, by, 7.4);
+      this.drawGood(g, liste[k], bx, by, 7.4);
     }
   }
   // ---------- Kampf- und Zerstörungseffekte (game.fx, rein kosmetisch) ----------
