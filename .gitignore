@@ -11,3 +11,24 @@ roadfloat.png
 # Befundaufnahme - der Bericht selbst (kritik_bericht.md) wird versioniert)
 kritik_*.png
 tools/__pycache__/
+
+# ROHLIEFERUNGEN. Der Nutzer laedt die neuen Grafiken auf den Zweig main
+# hoch - grosse, unbeschnittene Dateien mit Hintergrund und Schlagschatten,
+# zusammen 644 MB. Der Spielzweig bekommt daraus nur die freigestellten
+# Sprites in assets/ (tools/freistellen.py, Zuordnung in
+# tools/zuordnung.json). Die Rohdateien liegen bereits auf main und
+# gehoeren nicht ein zweites Mal in die Spielhistorie; sie tauchen hier nur
+# auf, weil beide Zweige denselben Arbeitsbaum teilen.
+/alt/
+/gebäude/
+/karten/
+/level/
+/ui/
+/verschiedenes/
+/App_Icon.png
+/bld_build_mines.png
+/anim-*.png
+/bau-*.png
+/baum-*.png
+/leer-*.png
+/neu-*.png
