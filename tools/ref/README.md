@@ -1,8 +1,31 @@
-# Referenzblatt fuer die Gebaeude-Lieferung
+# Referenzblaetter fuer die Massenprompts
 
-`stilblatt-kamera.png` zeigt acht vorhandene Gebaeude nebeneinander auf
-neutralem warmem Grau. Es dient als Referenzbild (`REF:`) fuer den
-Massenprompt in `docs_massenprompt_gebaeude.txt`.
+## Warum die Namen keinen Bindestrich haben
+
+Sie hiessen `stilblatt-kamera.png`, `stilblatt-baeume.png` und
+`stilblatt-gui.png`. Nutzerbefund nach zwei Lieferungen: "das war die
+letzten beiden male ohne bindestrich obwohl gefordert im prompt" - auf dem
+Weg vom Repo in den Bildgenerator verliert der Dateiname seinen
+Bindestrich, aus `stilblatt-kamera.png` wird `stilblattkamera.png`, und
+die `REF:`-Zeile zeigt danach ins Leere.
+
+Statt zu suchen, wo der Strich abhandenkommt, ist er weg: die Blaetter
+heissen jetzt genau so, wie sie drueben ankommen. Was keinen Bindestrich
+hat, kann keinen verlieren - und auf der Gegenseite muss nichts umbenannt
+werden, die heruntergeladenen Dateien passen sofort.
+
+`tools/listenpruefung.py` haelt das fest: sie meldet jede REF-Zeile mit
+Bindestrich, jede, die auf kein Blatt in diesem Ordner zeigt, und jedes
+Blatt, dessen Dateiname wieder einen bekaeme.
+
+## stilblattkamera.png
+
+`stilblattkamera.png` zeigt acht vorhandene Gebaeude nebeneinander auf
+neutralem warmem Grau. Es ist das Referenzbild (`REF:`) in
+`docs_massenprompt_baustufen.txt`, `docs_grafikliste.txt` und - fuer die
+vier Geologenschilder - in `docs_grafikliste_gui.txt`.
+`docs_massenprompt_gebaeude.txt` kommt ohne aus: das ist die Fassung fuer
+SDXL Base, und SDXL Base nimmt keine Referenzbilder.
 
 Warum ein Blatt mit mehreren Bauten und nicht ein einzelnes Gebaeude:
 Bei einer Referenz mit nur einem Haus uebernimmt das Modell dessen
@@ -24,14 +47,14 @@ auf der Kaltdrehung - das Blatt soll das ZIEL zeigen, nicht den
 Ist-Zustand, deshalb sind die blaugrauen Daecher hier staerker ins Warme
 gedreht als im Spiel.
 
-## stilblatt-baeume.png
+## stilblattbaeume.png
 
 Sechs Baeume aus der V2-Lieferung (Buche, Birke, Nadelbaum, Eiche, Fichte,
 Setzling) als Stilvorlage fuer die sechs noch alten Baumbilder. Gebaut nach
 demselben Verfahren wie das Gebaeudeblatt, aber ohne Warmdrehung - die
 Baeume sind bereits im Zielton.
 
-## stilblatt-gui.png
+## stilblattgui.png
 
 Zehn Werkstoffausschnitte aus den fertigen Sprites der Lieferung v302
 (Dachschindel, Rundholz, Balken, Eisen, Bruchstein, Holzschindel,
@@ -47,4 +70,4 @@ Ausschnittblatt schaerfer als ein ganzes Haus.
 
 Die vier Geologenschilder in derselben Liste stehen dagegen IN der Welt,
 auf zwei Pfosten im Gras. Sie laufen deshalb weiter ueber
-`stilblatt-kamera.png` und den 35-Grad-Satz.
+`stilblattkamera.png` und den 35-Grad-Satz.

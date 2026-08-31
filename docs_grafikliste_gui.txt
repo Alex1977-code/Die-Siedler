@@ -1,149 +1,149 @@
 NAME: gui-01-knopf-leer
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, the inner wood field left completely empty and unmarked. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-02-knopf-menu
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying three short horizontal iron bars of equal length stacked in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-03-knopf-pause
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying two upright iron bars side by side in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-04-knopf-play
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying one solid iron triangle pointing to the right in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-05-knopf-tempo
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying two iron chevrons pointing to the right, one close behind the other, in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-06-knopf-geologe
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying a short mason hammer crossed over a small pointed pick, both in dull iron with plain wooden handles. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-07-knopf-spaeher
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying a short brass spyglass lying diagonally across the wood field, its wider lens end to the upper right. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-08-knopf-weg
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying a small wooden signpost arm pointing to the right, a plain board with a pointed end on a stubby post. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-09-knopf-ok
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying one broad moss-green check mark, thick and slightly hand cut, in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-10-knopf-abbruch
 PROMPT: A round game button, a thick disc of warm ochre timber with the grain running across it, held in a plain dark iron ring with four small rivets at the quarters, carrying one thick dark red diagonal cross, two crossed strokes, in the middle of the wood field. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, square button, many buttons, toolbar
 ---
 NAME: gui-11-reiter-basis
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying a felling axe crossed with a mason pick, both in dull iron with plain wooden handles. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-12-reiter-nahrung
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying one upright ear of wheat with a few leaves, carved in pale warm relief. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-13-reiter-industrie
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying a squat iron anvil with a smith hammer resting across it. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-14-reiter-lager
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying a stout wooden crate with a small barrel standing beside it. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-15-reiter-militaer
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying two crossed iron swords with plain wrapped grips. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-16-reiter-schmuck
 PROMPT: A round category tab, a little smaller and flatter than a button, a disc of warm ochre timber in a plain dark iron ring, carrying one small five pointed star, carved in pale warm relief. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, large button, many icons, tab row
 ---
 NAME: gui-17-pergament
 PROMPT: A rectangular panel of aged parchment for a game menu, warm cream with a faint fibre grain, a little darker and slightly worn towards the edges, the corners softly rounded, the whole face left empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-18-holzblende
 PROMPT: A rectangular panel of warm ochre planking for a game menu bar, five broad boards laid side by side with visible grain and narrow dark seams between them, the whole face left empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-19-kartenring
 PROMPT: A round frame for a small game map, a broad ring of warm ochre timber banded with plain dark iron and four small rivets at the quarters, the centre completely open and empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-20-namensschild
 PROMPT: A small wooden name plate for a game label, one narrow horizontal board of warm ochre timber with a thin dark iron edging and a rivet at each end, the face left completely empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-21-meldeband
 PROMPT: A wide low message strip for a game, one long board of warm ochre timber with a thin dark iron edging and softly rounded ends, the face left completely empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-22-kampfrahmen
 PROMPT: A wide frame for a game battle readout, a board of warm ochre timber edged all round in plain dark iron, with two small crossed iron swords mounted at the top centre, the field inside left completely empty. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, text, letters, numbers, label, round button, coin, medallion, icon, ornament, filigree
 ---
 NAME: gui-23-status-schlaf
 PROMPT: A small square game status plaque, warm ochre boards side by side behind a thin dark iron edge, carrying three carved capital Z of rising size stepping up towards the upper right corner. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, round button, post, legs, stand, signpost
 ---
 NAME: gui-24-status-werkzeug
 PROMPT: A small square game status plaque, warm ochre boards side by side behind a thin dark iron edge, carrying a smith hammer crossed with a pair of iron tongs. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, round button, post, legs, stand, signpost, text, letters, numbers, label
 ---
 NAME: gui-25-status-warnung
 PROMPT: A small square game status plaque, warm ochre boards side by side behind a thin dark iron edge, carrying one thick dark red exclamation mark standing upright in the middle. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, round button, post, legs, stand, signpost, text, letters, numbers, label
 ---
 NAME: gui-26-status-material
 PROMPT: A small square game status plaque, warm ochre boards side by side behind a thin dark iron edge, carrying one open wooden crate tipped on its side, clearly empty inside. Match the reference image in material and colour: warm matte ochre timber, pale sandy stone and dull dark iron, everything lit softly and evenly. Draw the element flat and straight on, as a piece of game interface, with no perspective and no scene around it. One single element, shown as a clean cut-out on a plain neutral background with nothing drawn beneath it.
-REF: stilblatt-gui.png
+REF: stilblattgui.png
 NEGATIV: perspective, three quarter view, isometric, tilted, ground plate under the object, pedestal, terrain, grass, soil, scene, landscape, background, gloss, specular highlight, shiny varnish, lacquer, chrome, plastic, neon, glow, embossed plastic bevel, drop shadow on ground, watermark, people, screenshot, interface layout, several objects, blurry, low quality, round button, post, legs, stand, signpost, text, letters, numbers, label
 ---
 NAME: gui-27-schild-kohle
 PROMPT: A small wooden find sign standing on two short posts, a squat board of coarse ochre timber with a shallow ledge in front of it, a small heap of black coal lumps with a dull sheen piled on the ledge. Camera elevation 35 degrees above the horizon, clearly looking down onto the sign from above, the same viewpoint and framing as the buildings in the reference image. Match the reference in warm, matte, slightly desaturated colour, in chunky rounded shapes and in coarse, large-scale timber. One single sign, shown as a clean cut-out on a plain neutral background, exactly the way the buildings in the reference are shown, with nothing drawn beneath it.
-REF: stilblatt-kamera.png
+REF: stilblattkamera.png
 NEGATIV: front view, side view, eye level, low camera angle, ground plate, base, disc, platter, pedestal, diorama, miniature scene, village, second sign, building, house, fence, street, trees, gloss, harsh shadows, text, letters, watermark, people, blurry, low quality
 ---
 NAME: gui-28-schild-eisen
 PROMPT: A small wooden find sign standing on two short posts, a squat board of coarse ochre timber with a shallow ledge in front of it, a small heap of red brown iron ore lumps piled on the ledge. Camera elevation 35 degrees above the horizon, clearly looking down onto the sign from above, the same viewpoint and framing as the buildings in the reference image. Match the reference in warm, matte, slightly desaturated colour, in chunky rounded shapes and in coarse, large-scale timber. One single sign, shown as a clean cut-out on a plain neutral background, exactly the way the buildings in the reference are shown, with nothing drawn beneath it.
-REF: stilblatt-kamera.png
+REF: stilblattkamera.png
 NEGATIV: front view, side view, eye level, low camera angle, ground plate, base, disc, platter, pedestal, diorama, miniature scene, village, second sign, building, house, fence, street, trees, gloss, harsh shadows, text, letters, watermark, people, blurry, low quality
 ---
 NAME: gui-29-schild-gold
 PROMPT: A small wooden find sign standing on two short posts, a squat board of coarse ochre timber with a shallow ledge in front of it, a small heap of warm golden nuggets piled on the ledge. Camera elevation 35 degrees above the horizon, clearly looking down onto the sign from above, the same viewpoint and framing as the buildings in the reference image. Match the reference in warm, matte, slightly desaturated colour, in chunky rounded shapes and in coarse, large-scale timber. One single sign, shown as a clean cut-out on a plain neutral background, exactly the way the buildings in the reference are shown, with nothing drawn beneath it.
-REF: stilblatt-kamera.png
+REF: stilblattkamera.png
 NEGATIV: front view, side view, eye level, low camera angle, ground plate, base, disc, platter, pedestal, diorama, miniature scene, village, second sign, building, house, fence, street, trees, gloss, harsh shadows, text, letters, watermark, people, blurry, low quality
 ---
 NAME: gui-30-schild-granit
 PROMPT: A small wooden find sign standing on two short posts, a squat board of coarse ochre timber with a shallow ledge in front of it, a few pale grey cut stone blocks stacked on the ledge. Camera elevation 35 degrees above the horizon, clearly looking down onto the sign from above, the same viewpoint and framing as the buildings in the reference image. Match the reference in warm, matte, slightly desaturated colour, in chunky rounded shapes and in coarse, large-scale timber. One single sign, shown as a clean cut-out on a plain neutral background, exactly the way the buildings in the reference are shown, with nothing drawn beneath it.
-REF: stilblatt-kamera.png
+REF: stilblattkamera.png
 NEGATIV: front view, side view, eye level, low camera angle, ground plate, base, disc, platter, pedestal, diorama, miniature scene, village, second sign, building, house, fence, street, trees, gloss, harsh shadows, text, letters, watermark, people, blurry, low quality
