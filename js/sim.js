@@ -20,6 +20,10 @@ const CARRY_SPEED = 0.2;              // Knoten pro Tick
 // ein Haenger die Siedlung nicht fuer den Rest der Partie blockiert.
 const WEG_GEDULD = 1800;
 const WALK_SPEED = 0.12;
+// Halbmesser des Sperrkreises um Baum und Felsbrocken, in Weltpixeln.
+// TILE ist 52 breit, ROWH 32 hoch - 12 ist knapp ein Viertel Kachel und
+// damit etwa der gemalte Stammfuss, ohne Engstellen dichtzumachen.
+const SPERRKREIS = 12;
 
 let NEXT_ID = 1;
 
@@ -3268,11 +3272,40 @@ export class Game {
     this.units=this.units.filter(u=>!u.dead);
     if(this.t%10===0) for(const u of this.units) if(u.player===0){ const n=m.nearestNode(u.x,u.y); if(n>=0) this.exploreAround(n,3); }
   }
+  // Sperrkreis um Baum und Felsbrocken: HARTE Grenze, keine Lenkung.
+  // Nutzerbefund v300: "die Figuren laufen immer noch durch Objekte
+  // hindurch, speziell die Soldaten". Nachgemessen ueber 9000 Takte lagen
+  // 9,39 Prozent der Soldatenschritte in einem Baum, der nicht ihr Ziel
+  // war - gegen 4,52 Prozent bei Arbeitern und 0 Prozent bei Traegern.
+  //
+  // Die vorhandene Ausweichlenkung in moveToward reicht dafuer nicht: sie
+  // tastet EINEN Punkt 15 px voraus ab und schiebt nur seitlich an. Ein
+  // Soldat marschiert aber mit ATK_MARCH 1,25, also 6 px je Takt statt
+  // 4,8 - er springt ueber die Abtastung hinweg. Deshalb wird die Figur
+  // nach dem Schritt notfalls aus dem Kreis GESCHOBEN. Das eigene
+  // Arbeitsziel ist ausgenommen: der Holzfaeller muss an den Stamm, der
+  // Steinmetz an den Brocken.
+  freiHalten(u){
+    const m=this.map, R=SPERRKREIS;
+    const n=m.nearestNode(u.x, u.y);
+    if(n<0) return;
+    for(const q of [n, ...m.nbs(n)]){
+      if(q<0 || q===u.target) continue;
+      const o=m.obj[q]&127;
+      if(o!==OBJ.TREE && o!==OBJ.TREE2 && o!==OBJ.STONE) continue;
+      const [ox,oy]=m.worldPos(q);
+      let dx=u.x-ox, dy=u.y-oy;
+      let d=Math.hypot(dx,dy);
+      if(d>=R) continue;
+      if(d<0.001){ dx=1; dy=0; d=1; }      // exakt im Mittelpunkt: irgendwohin
+      u.x=ox+dx/d*R; u.y=oy+dy/d*R;
+    }
+  }
   moveToward(u, tx, ty, speed){
     const dx=tx-u.x, dy=ty-u.y;
     const d=Math.hypot(dx,dy);
     const sp=speed*40; // px pro Tick (0.12 -> ~0.9 Knoten/s)
-    if(d<=sp){ u.x=tx; u.y=ty; u._det=null; return true; }
+    if(d<=sp){ u.x=tx; u.y=ty; u._det=null; this.freiHalten(u); return true; }
     // Läuft gerade ein Umweg über das Knotennetz? Dann Wegpunkt für Wegpunkt
     // abarbeiten (die Knoten sind Land - kein weiteres Ausweichen nötig).
     if(u._det){
@@ -3282,6 +3315,7 @@ export class Game {
         const dxw=wx-u.x, dyw=wy-u.y, dw=Math.hypot(dxw,dyw);
         if(dw<=sp){ u.x=wx; u.y=wy; u._det.shift(); if(!u._det.length) u._det=null; }
         else { u.x+=dxw/dw*sp; u.y+=dyw/dw*sp; }
+        this.freiHalten(u);
         return false;
       }
     }
@@ -3387,6 +3421,7 @@ export class Game {
       if(!found) return false;                    // eingekeilt: diesen Tick warten
     }
     u.x+=nx*sp; u.y+=ny*sp;
+    this.freiHalten(u);   // harter Sperrkreis, siehe oben
     return false;
   }
   // Darf eine FREI laufende Figur diesen Knoten betreten? Drei Gründe

@@ -110,13 +110,18 @@ export const BLD = {
   hq:         { name:'Hauptquartier', cat:'lager', size:'L', cost:{}, mil:{cap:0,radius:11}, store:true, desc:'Zentrum deiner Siedlung. Lager und Rekrutierung.' },
   storehouse: { name:'Lagerhaus', cat:'lager', size:'M', cost:{board:4,stone:3}, store:true, desc:'Zusätzliches Lager für alle Waren.' },
   // time steuert das Tor zwischen zwei Gaengen (time*0.4 Takte Wartezeit in
-  // der Huette, js/sim.js). Auf 155 gesetzt, damit das Verhaeltnis dem
-  // Vorbild folgt: ZWEI Holzfaeller und EIN Foerster tragen genau EIN
-  // Saegewerk. Gemessen ueber je 24000 Takte lag der Aufbau 2+1 vorher bei
-  // einem Stamm alle 71 Takte, das Saegewerk verbraucht einen alle 90 - also
-  // 27 Prozent zu viel Holz. Der Zyklus je Holzfaeller muss dafuer von 142
-  // auf 180 Takte, das Tor also von 24 auf 62.
-  woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:155, desc:'Fällt Bäume und liefert Stämme.' },
+  // der Huette, js/sim.js). Ziel nach dem Vorbild: ZWEI Holzfaeller und EIN
+  // Foerster tragen EIN Saegewerk, das einen Stamm alle 90 Takte verbraucht.
+  //
+  // Der Wert wurde ZWEIMAL bestimmt. Zuerst auf 155, gemessen an 2+1 mit
+  // 77 Takten je Stamm - 1,17 Saegewerke. Dann kam der Sperrkreis um Baum
+  // und Fels (js/sim.js): die Figuren gehen seither UM die Baeume herum
+  // statt hindurch, und derselbe Aufbau fiel auf 96 Takte, also 0,94
+  // Saegewerke - zu wenig. Gegengemessen ueber 12000 Takte mit Sperrkreis:
+  //   time 155 -> 96 Takte/Stamm = 0,94 Saegewerke
+  //   time  90 -> 82 Takte/Stamm = 1,10 Saegewerke
+  // Deshalb 90: zwei Holzfaeller tragen ein Saegewerk mit kleiner Reserve.
+  woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:90, desc:'Fällt Bäume und liefert Stämme.' },
   // Förster: Radius wie der Holzfäller (sonst blieb der äußere Ring gerodeter
   // Fläche für immer kahl) und kürzerer Takt – zusammen mit den zwei
   // Setzlingen je Gang trägt EIN Förster so etwa anderthalb Holzfäller
