@@ -30,3 +30,21 @@ Sechs Baeume aus der V2-Lieferung (Buche, Birke, Nadelbaum, Eiche, Fichte,
 Setzling) als Stilvorlage fuer die sechs noch alten Baumbilder. Gebaut nach
 demselben Verfahren wie das Gebaeudeblatt, aber ohne Warmdrehung - die
 Baeume sind bereits im Zielton.
+
+## stilblatt-gui.png
+
+Zehn Werkstoffausschnitte aus den fertigen Sprites der Lieferung v302
+(Dachschindel, Rundholz, Balken, Eisen, Bruchstein, Holzschindel,
+Fachwerk, Grundmauer, Dunkelholz, Quaderstein) auf demselben neutralen
+Grau. Stilvorlage fuer `docs_grafikliste_gui.txt`.
+
+Warum KEINE Gebaeude auf diesem Blatt: Eine Schaltflaeche wird flach und
+frontal gezeichnet. Gaebe man das Kamerablatt als Vorlage, uebernaehme
+das Modell die 35-Grad-Aufsicht mit ins Bedienelement - genau der Fehler,
+den das Kamerablatt bei den Gebaeuden verhindern soll, nur andersherum.
+Gebraucht wird von der GUI nur Werkstoff und Farbe, und die zeigt ein
+Ausschnittblatt schaerfer als ein ganzes Haus.
+
+Die vier Geologenschilder in derselben Liste stehen dagegen IN der Welt,
+auf zwei Pfosten im Gras. Sie laufen deshalb weiter ueber
+`stilblatt-kamera.png` und den 35-Grad-Satz.
