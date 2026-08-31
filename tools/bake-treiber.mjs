@@ -66,8 +66,19 @@ console.log('Clips:', clips.map(c=>`${c.name}(${c.duration.toFixed(2)}s)`).join(
 
 // 1. Bildausschnitt VOR Mesh-Eingriffen festlegen (Massstab der alten Blätter)
 await page.evaluate((n)=>window.setFrame(n),walk.name);
-// 2. kaputte eingebaute Werkzeuge abtrennen und verwerfen
-if(P.entfernen && P.entfernen.length){
+// 2. eingebaute Werkzeuge: entweder UMHAENGEN oder abtrennen und verwerfen.
+// Umhaengen ist das bessere von beidem, wo es geht: das gemalte Werkzeug
+// des Modells ist feiner als jedes prozedurale Primitiv - es haengt nur am
+// falschen Knochen. Verworfen wird nur noch, was sich nicht retten laesst
+// (Angelzeug des Fischers: drei getrennte Teile quer ueber Hand-, Bein-
+// und Kopfknochen; Bogen des Jaegers; Waffen der Soldaten).
+if(P.umhaengen){
+  const u=P.umhaengen;
+  const r=await page.evaluate(([ids,b,o])=>window.umhaengen(ids,b,o),
+    [u.ids, u.bone||'R_Hand', {greifer:u.greifer||0, rot:u.rot||[0,0,0], scale:u.scale||1}]);
+  if(!String(r).startsWith('ok')) throw new Error('umhaengen '+r);
+  console.log('Mesh:', r);
+} else if(P.entfernen && P.entfernen.length){
   await page.evaluate((ids)=>window.splitIslands(ids),P.entfernen);
   await page.evaluate('window.toolDiscard()');
   console.log('Mesh:', P.entfernen.length, 'Inseln entfernt');

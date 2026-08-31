@@ -634,10 +634,14 @@ export const POSEN = {
   // geo: der Geh-Clip (1,88 s) enthaelt ZWEI Schrittzyklen (Fusshoehen-
   // Periodik: bestes P=0.5 bei Fehler 0.026, T15) - ohne Fenster zeigten
   // die 12 Spalten beide Zyklen, also nur 6 echte Phasen (hastig).
-  geo:        { atk: HACK,       werkzeug: IN_FAUST('pick',1.25),
-                koerper: DRAHTIG, walkFenster:[0,0.5] },
-  miner:      { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
-  quarry:     { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
+  // T21: die prozedurale Spitzhacke ist bei allen dreien RAUS. Jedes der
+  // drei Modelle traegt sein Werkzeug selbst und sauber in der Faust
+  // (Beleg ws_zoom.png, obere Reihe: Geologenhammer, Bergmannshacke,
+  // Steinmetzeisen) - die Zugabe lag als zweites Werkzeug darueber und
+  // stand beim Steinmetz sogar frei neben der Figur.
+  geo:        { atk: HACK,       koerper: DRAHTIG, walkFenster:[0,0.5] },
+  miner:      { atk: HACK },
+  quarry:     { atk: HACK },
   // Bauarbeiter: KEIN Zusatzwerkzeug und KEIN Bart mehr (T21).
   // Nutzerbefund "planierer bauarbeiter ... mit komischen bewegungen":
   // neben der Figur schwebte ein gebogener brauner Klotz in der Luft. Er
@@ -697,8 +701,24 @@ export const POSEN = {
   // um ~180 Grad anders als im Geh-Durchschwung - mit +90 zeigte das
   // Blatt nach hinten-oben ueber die Schulter (Vorschau T15), mit -90
   // nach vorn-unten in den Boden.
-  leveler:    { atk: SCHAUFELN,  werkzeug: IN_FAUST('shovel',1.4,[-90,0,0]),
-                entfernen:[372,238,406,448,231,99,111,464,465,94,105,390,310,1759,29,289,256,410,2,86,389,239,178,270,386,1711,138,309,400,363,375,557,621,72,411,443,398,408,474,23,224,261,419,342,325,355,444,762,39,169,68,208,104,120,121,110,198,125,287,299,332,356,379,361,403,404,385,402,450,451,579] },
+  // T21: die gemalte Schaufel wird UMGEHAENGT statt weggeworfen.
+  // Sie ist zu 100 % an R_ToeBase gewichtet und stand deshalb senkrecht
+  // neben dem rechten Fuss; bisher flog sie raus und ein prozeduraler
+  // Kasten trat an ihre Stelle. Das gemalte Blatt ist die bessere Grafik -
+  // es haengt nur am falschen Knochen. umhaengen() legt ihr oberes
+  // Stielende (greifer 1, laengste Achse ist y) auf die Bindeposition der
+  // rechten Faust und gewichtet sie allein dorthin. Drehung aus sechs
+  // abgetasteten Werten ueber vier Spalten (Beleg uh_leveler.png): bei
+  // -120/0/-25 zeigt der Stiel nach vorn-unten, am Kontakt steht das
+  // Blatt im Boden.
+  leveler:    { atk: SCHAUFELN,
+                umhaengen:{ ids:[372,238,406,448,231,99,111,464,465,94,105,390,310,1759,29,289,256,410,2,86,389,239,178,270,386,1711,138,309,400,363,375,557,621,72,411,443,398,408,474,23,224,261,419,342,325,355,444,762,39,169,68,208,104,120,121,110,198,125,287,299,332,356,379,361,403,404,385,402,450,451,579,2261,1819,1754,2316,2937,1760,1808,1820,2888,2941,2782,3119,1710,2117],
+                // die letzten vierzehn Splitter der Schaufel: ebenfalls
+                // R_ToeBase-dominant und ueber 0,12 vom Zeh entfernt.
+                // Sie standen frueher mit im Loeschsatz nicht drin und
+                // blieben als wandernder Fleck neben dem Fuss zurueck,
+                // sobald die Schaufel weg war.
+                bone:'R_Hand', greifer:1, rot:[-120,0,-25] } },
   // fisher: das Mesh enthaelt eine EIGENE Angel-Ausruestung, wie beim
   // Jaeger quer ueber Hand- UND Fussknochen verschmiert - sie zerriss in
   // jeder Pose zu Strichen neben Kopf, Ruecken und Beinen. Drei Teile

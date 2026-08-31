@@ -475,6 +475,74 @@ window.splitIslands=(toolIds)=>{
   return { toolTris:tool.length/3, bodyTris:body.length/3 };
 };
 // Werkzeug-Sichtbarkeit für die zwei Back-Durchgänge (prozedural UND Insel)
+// WERKZEUG UMHAENGEN statt wegwerfen.
+//
+// Die Tripo-Modelle bringen ihr Werkzeug im selben SkinnedMesh mit, oft an
+// den falschen Knochen gewichtet: die Schaufel des Planierers haengt zu
+// 100 % an R_ToeBase und steht deshalb senkrecht neben dem rechten Fuss
+// statt in der Faust. Bisher blieb nur, sie zu loeschen und durch einen
+// prozeduralen Kasten zu ersetzen - dabei ist die gemalte Schaufel die
+// bessere Grafik.
+//
+// umhaengen() macht aus ihr ein starres Kind der Faust:
+//   1. Werkzeug-Vertices aus den Inselnummern sammeln,
+//   2. laengste Achse der Bindepose bestimmen - das ist der Stiel,
+//   3. Griffende (greifer 0 = kleines Ende der Achse, 1 = grosses) auf die
+//      BINDEPOSITION des Zielknochens legen,
+//   4. optional um dieses Griffende drehen (Grad, XYZ), Normalen mit,
+//   5. Gewichte auf (Zielknochen, 1) setzen.
+// Danach folgt das Werkzeug der Faust wie ein angeschraubtes Teil - genau
+// das, was toolAttach mit seinen Primitiven tut, nur mit dem gemalten
+// Werkzeug des Modells.
+//
+// Die Bindeposition des Knochens steckt in skeleton.boneInverses: sie ist
+// die Inverse davon, angewandt auf den Ursprung.
+window.umhaengen=(toolIds, boneName, opt={})=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  const bi=sm.skeleton.bones.findIndex(b=>b.name===boneName);
+  if(bi<0) return 'KEIN KNOCHEN '+boneName;
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position,
+        nor=sm.geometry.attributes.normal,
+        si=sm.geometry.attributes.skinIndex, sw=sm.geometry.attributes.skinWeight;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const soll=new Set(toolIds.map(Number));
+  const vs=[];
+  for(let i=0;i<pos.count;i++) if(soll.has(find(i))) vs.push(i);
+  if(!vs.length) return 'KEINE VERTICES';
+  // 2. laengste Achse
+  const mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+  for(const i of vs) for(let d=0;d<3;d++){
+    const v=pos.getComponent(i,d); if(v<mn[d])mn[d]=v; if(v>mx[d])mx[d]=v; }
+  const sp=[mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]];
+  const ax=sp.indexOf(Math.max(...sp));
+  const mitte=[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2];
+  const griff=[...mitte]; griff[ax]= (opt.greifer===1? mx[ax] : mn[ax]);
+  // 3. Bindeposition des Zielknochens
+  const inv=sm.skeleton.boneInverses[bi].clone().invert();
+  const ziel=new THREE.Vector3().setFromMatrixPosition(inv);
+  // 4./6. drehen um den Griff, dann auf den Knochen schieben
+  const R=new THREE.Matrix4();
+  const r=opt.rot||[0,0,0];
+  R.makeRotationFromEuler(new THREE.Euler(r[0]*Math.PI/180, r[1]*Math.PI/180, r[2]*Math.PI/180,'XYZ'));
+  const sc=opt.scale||1;
+  const v=new THREE.Vector3(), n=new THREE.Vector3();
+  for(const i of vs){
+    v.set(pos.getX(i)-griff[0], pos.getY(i)-griff[1], pos.getZ(i)-griff[2]);
+    v.multiplyScalar(sc).applyMatrix4(R).add(ziel);
+    pos.setXYZ(i, v.x, v.y, v.z);
+    if(nor){ n.set(nor.getX(i),nor.getY(i),nor.getZ(i)).applyMatrix4(R).normalize();
+             nor.setXYZ(i,n.x,n.y,n.z); }
+    // 5. Gewichte: allein der Zielknochen
+    si.setXYZW(i, bi,0,0,0);
+    sw.setXYZW(i, 1,0,0,0);
+  }
+  pos.needsUpdate=true; if(nor) nor.needsUpdate=true;
+  si.needsUpdate=true; sw.needsUpdate=true;
+  return 'ok '+vs.length+' Vertices, Achse '+'xyz'[ax]+', Griff '+griff.map(x=>x.toFixed(3)).join(',');
+};
 window.toolVis=(on)=>{ toolGroups.forEach(g=>{ g.visible=on; }); if(toolMesh) toolMesh.visible=on; };
 // Abgetrenntes Insel-Werkzeug endgültig verwerfen (kaputte eingebaute
 // Werkzeuge: verzerrte Bindungen an Hand UND Fuß) – danach zählt nur noch
