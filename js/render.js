@@ -12638,6 +12638,7 @@ export class Renderer {
     if(b.paused) return 'sleep';
     if(b.worker && !b.worker.present && b.needTool) return 'tool';
     if(b.exhausted || b.depleted) return 'warn';
+    if(b.wartetHafen) return 'sleep';        // Werft ohne unverbundenes Hafenpaar
     if(b.satPause) return 'sleep';
     if(b.worker && b.worker.present && b.worker.state==='in'
        && b.worker.timer > (BLD[b.type].time||100)*3) return 'sleep';

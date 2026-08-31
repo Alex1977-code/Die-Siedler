@@ -175,6 +175,10 @@ export class UI {
         <label class="opt">Effekt-Pegel <input type="range" id="o-vol-sfx" min="0" max="100" step="5"></label>
         <label class="opt"><input type="checkbox" id="o-tilt"> Tiefenunschärfe am Bildrand</label>
         <label class="opt">Stärke <input type="range" id="o-tiltst" min="0" max="15" step="1" style="vertical-align:middle"> <span id="o-tiltst-v"></span></label>
+        <h3 class="opt-h">Tiefenschärfe</h3>
+        <p class="note">Der Hintergrund der Insel wird weich gezeichnet, wie bei einer Nahaufnahme
+        eines Modells. 0 % schaltet die Unschärfe ab.</p>
+        <label class="opt">Stärke <input type="range" id="o-dof" min="0" max="100" step="5" style="vertical-align:middle"> <span id="o-dof-v"></span></label>
         <h3 class="opt-h">Meldungen</h3>
         <p class="note">Abgeschaltete Sparten werden nicht mehr eingeblendet. Im Meldungsbuch
         (🔔) stehen sie weiter – samt Sprung zum Ort.</p>
@@ -237,6 +241,12 @@ export class UI {
         bestätige mit „Angriff!“.<br>
         Angreifbar sind nur <b>Militärgebäude und das Hauptquartier</b>. Fällt das feindliche
         Hauptquartier, ist der Gegner besiegt.</p>
+        <h3>Werft und Schiffe</h3>
+        <p>Ein Schiff ist keine Einheit, die du steuerst, sondern eine <b>Seestraße</b>. Die Werft
+        baut nur dann eines, wenn du <b>zwei Häfen</b> hast, die noch nicht per Seeweg verbunden
+        sind. Sie sucht dann selbst das nächstgelegene unverbundene Hafenpaar und legt die
+        Verbindung an; danach fährt ein Schiff darauf wie ein Träger auf einer Straße.
+        Ruht die Werft, zeigt sie das Schlafzeichen – dann fehlt der zweite Hafen.</p>
         <h3>Missionen</h3>
         <p>Die Kampagne erzählt in 10 Missionen die Geschichte von Königin Maras Volk – mit
         unterschiedlichen Landschaften und Zielen. Fortschritt wird automatisch gespeichert.</p>
@@ -395,6 +405,29 @@ export class UI {
         if(this.renderer) this.renderer.tiltStaerke=val/100;
         SAVE.setOptions(this.opts);
       };
+    }
+    // Tiefenunschaerfe: echter GL-Nachbearbeitungsschritt auf dem
+    // Zwischenpuffer des Gelaendes (js/terrain-gl.js). Der Stilguide
+    // verlangt sie ausdruecklich als EINSTELLBAREN Parameter.
+    {
+      const d0=(this.opts.dof==null? 55 : this.opts.dof|0);
+      const dl=$('#o-dof'), dv=$('#o-dof-v');
+      const setz=(v)=>{
+        const t=this.renderer && this.renderer.glTerrain;
+        if(t){ t.dof=v/100; t.postAus=(v===0 && t.bloom<=0); }
+      };
+      if(dl){
+        dl.value=d0;
+        if(dv) dv.textContent=d0+' %';
+        setz(d0);
+        dl.oninput=(e)=>{
+          const val=e.target.value|0;
+          this.opts.dof=val;
+          if(dv) dv.textContent=val+' %';
+          setz(val);
+          SAVE.setOptions(this.opts);
+        };
+      } else setz(d0);
     }
     // Schwierigkeitsgrad (gemerkt für Kampagne und freies Spiel)
     const diffInit=this.opts.diff||'normal';

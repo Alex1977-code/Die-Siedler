@@ -2780,7 +2780,22 @@ export class Game {
         // Sonderausstoß: Esel/Schiff nur produzieren, wenn gebraucht
         const special=def.prod.out==='@donkey'||def.prod.out==='@ship';
         if(def.prod.out==='@donkey' && !this.donkeyTargetRoad(b.player)) { b.prodT=0; continue; }
-        if(def.prod.out==='@ship' && !this.shipNeeded(b.player)) { b.prodT=0; continue; }
+        if(def.prod.out==='@ship' && !this.shipNeeded(b.player)) {
+          // Die Werft ruht, solange es kein unverbundenes Hafenpaar gibt.
+          // Das war im Spiel nirgends zu sehen: sie stand da wie ein
+          // kaputter Betrieb. Jetzt traegt sie das Schlafzeichen und meldet
+          // den Grund EINMAL je Gebaeude.
+          b.wartetHafen=true;
+          if(!b.hafenGemeldet && b.player===0){
+            b.hafenGemeldet=true;
+            const n=this.harborsOf(b.player).length;
+            this.msg(n<2 ? 'Werft: sie braucht einen ZWEITEN Hafen, dann baut sie ein Schiff.'
+                         : 'Werft: alle Häfen sind bereits per Seeweg verbunden - sie ruht.',
+                     'info', b.node, 0, 'wirtschaft');
+          }
+          b.prodT=0; continue;
+        }
+        b.wartetHafen=false;
         // Brunnen ohne Inputs
         let ok=true;
         for(const g in def.prod.inputs) if((b.stock[g]||0)<def.prod.inputs[g]) ok=false;

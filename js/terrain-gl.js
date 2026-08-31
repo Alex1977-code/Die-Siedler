@@ -907,6 +907,73 @@ void main(){
   else gl_FragColor = vec4(0.0, 0.0, 0.0, clamp(-vTon, 0.0, 1.0));
 }`;
 
+// ---------- Nachbearbeitung auf einem Zwischenpuffer ----------
+// Bisher gab es Bloom nur als 2D-Naeherung auf der Objektebene, und die war
+// standardmaessig AUS: das Zurueckziehen der Bildpunkte aus dem 2D-Canvas
+// schaltete dessen Beschleunigung ab (gemessen 23 ms mit gegen 138 ms ohne).
+// Hier bleibt alles auf der GPU. Das Gelaende geht in eine Textur, darauf
+// laufen Hell-Pass, zwei Unschaerfe-Durchgaenge und das Zusammensetzen.
+//
+// TIEFE ohne Tiefenpuffer: Die Kamera steht fest bei rund 35 Grad, die
+// Bodenebene ist auf 0,62 verkuerzt. Damit ist die Bildschirmhoehe ein
+// direktes Mass fuer die Entfernung - oben fern, unten nah. Die
+// Tiefenunschaerfe rechnet deshalb mit der y-Koordinate statt mit einem
+// Tiefenpuffer, den WebGL1 hier ohnehin nicht als Textur hergibt.
+const VERT_Q = `
+attribute vec2 aQ;
+varying vec2 vUV;
+void main(){ vUV = aQ*0.5+0.5; gl_Position = vec4(aQ,0.0,1.0); }`;
+
+const FRAG_HELL = `
+precision mediump float;
+varying vec2 vUV;
+uniform sampler2D tBild;
+uniform float uSchwelle;
+void main(){
+  vec3 c = texture2D(tBild, vUV).rgb;
+  float l = dot(c, vec3(0.2126,0.7152,0.0722));
+  float k = max(0.0, l - uSchwelle) / max(0.0001, 1.0 - uSchwelle);
+  gl_FragColor = vec4(c * k, 1.0);
+}`;
+
+const FRAG_BLUR = `
+precision mediump float;
+varying vec2 vUV;
+uniform sampler2D tBild;
+uniform vec2 uSchritt;
+void main(){
+  // neun Abgriffe mit Binomialgewichten - breit genug fuer einen weichen
+  // Schein, billig genug fuers Telefon
+  vec3 c = texture2D(tBild, vUV).rgb * 0.2270270270;
+  c += (texture2D(tBild, vUV + uSchritt*1.3846153846).rgb
+      + texture2D(tBild, vUV - uSchritt*1.3846153846).rgb) * 0.3162162162;
+  c += (texture2D(tBild, vUV + uSchritt*3.2307692308).rgb
+      + texture2D(tBild, vUV - uSchritt*3.2307692308).rgb) * 0.0702702703;
+  gl_FragColor = vec4(c, 1.0);
+}`;
+
+const FRAG_COMP = `
+precision mediump float;
+varying vec2 vUV;
+uniform sampler2D tBild;      // scharfes Gelaende
+uniform sampler2D tSchein;    // Hell-Pass, zweifach unscharf
+uniform float uBloom;         // Staerke des Scheins
+uniform float uDof;           // Staerke der Tiefenunschaerfe
+uniform float uFokus;         // Bildhoehe, die scharf bleibt (0 unten .. 1 oben)
+uniform float uBand;          // halbe Breite des scharfen Bandes
+void main(){
+  vec3 scharf = texture2D(tBild, vUV).rgb;
+  vec3 weich  = texture2D(tSchein, vUV).rgb;
+  // Tiefenunschaerfe: Abstand zum Fokusband, oben staerker als unten -
+  // der Vordergrund einer Diorama-Aufnahme bleibt lesbarer als der Hintergrund
+  float d = abs(vUV.y - uFokus);
+  float unsch = clamp((d - uBand) / max(0.0001, 1.0 - uBand), 0.0, 1.0);
+  unsch *= (vUV.y > uFokus) ? 1.0 : 0.55;
+  vec3 col = mix(scharf, weich, unsch * uDof);
+  col += weich * uBloom;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
 export class TerrainGL {
   constructor(canvas){
     this.cv = canvas;
@@ -933,6 +1000,14 @@ export class TerrainGL {
       this._verloren = false; this._baueProgramm();
       if(this._karte) this.setzeKarte(this._karte, this._thema);
     });
+    // Regler der Nachbearbeitung (Stilguide: Tiefenschaerfe einstellbar)
+    this.postAus = false;      // true = alte Direktzeichnung
+    this.bloom = 0.16;         // Staerke des Scheins
+    this.bloomSchwelle = 0.74; // ab welcher Helligkeit etwas leuchtet
+    this.blurWeite = 1.0;      // Streuung der Unschaerfe
+    this.dof = 0.55;           // Staerke der Tiefenunschaerfe
+    this.dofFokus = 0.62;      // scharfe Bildhoehe (0 unten .. 1 oben)
+    this.dofBand = 0.30;       // halbe Breite des scharfen Bandes
     this._baueProgramm();
   }
   verfuegbar(){ return !!this.gl && !!this.prog && !this._verloren; }
@@ -1420,6 +1495,131 @@ export class TerrainGL {
     this.cv.height = Math.round(vh*dpr);
     this.cv.style.width = vw+'px';
     this.cv.style.height = vh+'px';
+    this._postFrei();          // Zwischenpuffer haengen an der Bildgroesse
+  }
+
+
+  // ---------- Nachbearbeitung ----------
+  // Regler: bloom 0..1 (Schein), dof 0..1 (Tiefenunschaerfe), fokus 0..1
+  // (welche Bildhoehe scharf bleibt), band 0..1 (Breite des scharfen Bandes).
+  // postAus schaltet die ganze Kette ab und zeichnet wie frueher direkt.
+  _postBau(){
+    const gl=this.gl; if(!gl) return false;
+    const W=this.cv.width, H=this.cv.height;
+    if(!W || !H) return false;
+    if(this._postW===W && this._postH===H && this.fboSzene) return true;
+    this._postFrei();
+    const tex=(w,h)=>{
+      const t=gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D,t);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+      return t;
+    };
+    const fbo=(t)=>{
+      const f=gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+      const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+      return ok? f : null;
+    };
+    // Der Schein laeuft auf HALBER Kante, also einem Viertel der Flaeche.
+    // Unschaerfe ist ohnehin tiefpassig, das sieht man nicht - es spart aber
+    // drei Viertel der Abgriffe.
+    const hw=Math.max(1,W>>1), hh=Math.max(1,H>>1);
+    this.texSzene=tex(W,H); this.fboSzene=fbo(this.texSzene);
+    this.texA=tex(hw,hh);   this.fboA=fbo(this.texA);
+    this.texB=tex(hw,hh);   this.fboB=fbo(this.texB);
+    this._postW=W; this._postH=H; this._halbW=hw; this._halbH=hh;
+    if(!this.fboSzene || !this.fboA || !this.fboB){ this._postFrei(); return false; }
+    if(!this.bufQ){
+      this.bufQ=gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER,this.bufQ);
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 3,-1, -1,3]),gl.STATIC_DRAW);
+    }
+    if(!this.progHell){
+      const mk=(fs)=>{
+        const pr=this._linke(VERT_Q, fs); return pr;
+      };
+      this.progHell=mk(FRAG_HELL);
+      this.progBlur=mk(FRAG_BLUR);
+      this.progComp=mk(FRAG_COMP);
+      if(!this.progHell||!this.progBlur||!this.progComp){ this._postFrei(); return false; }
+    }
+    return true;
+  }
+  _postFrei(){
+    const gl=this.gl; if(!gl) return;
+    for(const n of ['fboSzene','fboA','fboB']) if(this[n]){ gl.deleteFramebuffer(this[n]); this[n]=null; }
+    for(const n of ['texSzene','texA','texB'])  if(this[n]){ gl.deleteTexture(this[n]); this[n]=null; }
+    this._postW=0; this._postH=0;
+  }
+  // kleiner Programmbauer fuer die Vollbild-Paesse
+  _linke(vs, fs){
+    const gl=this.gl;
+    const sh=(typ,src)=>{
+      const o=gl.createShader(typ); gl.shaderSource(o,src); gl.compileShader(o);
+      if(!gl.getShaderParameter(o,gl.COMPILE_STATUS)){
+        console.warn('Nachbearbeitung, Shader:', gl.getShaderInfoLog(o)); return null;
+      }
+      return o;
+    };
+    const v=sh(gl.VERTEX_SHADER,vs), f=sh(gl.FRAGMENT_SHADER,fs);
+    if(!v||!f) return null;
+    const pr=gl.createProgram();
+    gl.attachShader(pr,v); gl.attachShader(pr,f); gl.linkProgram(pr);
+    if(!gl.getProgramParameter(pr,gl.LINK_STATUS)){
+      console.warn('Nachbearbeitung, Link:', gl.getProgramInfoLog(pr)); return null;
+    }
+    return pr;
+  }
+  _quad(prog){
+    const gl=this.gl;
+    gl.useProgram(prog);
+    const l=gl.getAttribLocation(prog,'aQ');
+    gl.bindBuffer(gl.ARRAY_BUFFER,this.bufQ);
+    gl.enableVertexAttribArray(l);
+    gl.vertexAttribPointer(l,2,gl.FLOAT,false,0,0);
+    gl.drawArrays(gl.TRIANGLES,0,3);
+  }
+  _postLauf(){
+    const gl=this.gl;
+    const W=this.cv.width, H=this.cv.height, hw=this._halbW, hh=this._halbH;
+    // 1. Hell-Pass in halber Aufloesung
+    gl.bindFramebuffer(gl.FRAMEBUFFER,this.fboA);
+    gl.viewport(0,0,hw,hh);
+    gl.useProgram(this.progHell);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,this.texSzene);
+    gl.uniform1i(gl.getUniformLocation(this.progHell,'tBild'),0);
+    gl.uniform1f(gl.getUniformLocation(this.progHell,'uSchwelle'), this.bloomSchwelle);
+    this._quad(this.progHell);
+    // 2. Unschaerfe waagerecht, dann senkrecht
+    for(const [von,nach,dx,dy] of [[this.texA,this.fboB,1/hw,0],[this.texB,this.fboA,0,1/hh]]){
+      gl.bindFramebuffer(gl.FRAMEBUFFER,nach);
+      gl.viewport(0,0,hw,hh);
+      gl.useProgram(this.progBlur);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,von);
+      gl.uniform1i(gl.getUniformLocation(this.progBlur,'tBild'),0);
+      gl.uniform2f(gl.getUniformLocation(this.progBlur,'uSchritt'),dx*this.blurWeite,dy*this.blurWeite);
+      this._quad(this.progBlur);
+    }
+    // 3. Zusammensetzen aufs Bild
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    gl.viewport(0,0,W,H);
+    gl.useProgram(this.progComp);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,this.texSzene);
+    gl.uniform1i(gl.getUniformLocation(this.progComp,'tBild'),0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D,this.texA);
+    gl.uniform1i(gl.getUniformLocation(this.progComp,'tSchein'),1);
+    gl.uniform1f(gl.getUniformLocation(this.progComp,'uBloom'), this.bloom);
+    gl.uniform1f(gl.getUniformLocation(this.progComp,'uDof'),   this.dof);
+    gl.uniform1f(gl.getUniformLocation(this.progComp,'uFokus'), this.dofFokus);
+    gl.uniform1f(gl.getUniformLocation(this.progComp,'uBand'),  this.dofBand);
+    this._quad(this.progComp);
   }
 
   // ---------- Sockel: ovale Platte mit fassartiger Daubenzarge ----------
@@ -1531,6 +1731,11 @@ export class TerrainGL {
   zeichne(cam, himmel, zeit){
     const gl = this.gl;
     if(!gl || !this.prog || !this.bereit || this._verloren) return false;
+    // Zwischenpuffer aufspannen. Schlaegt das fehl (alte Geraete, kein
+    // vollstaendiges Framebuffer), wird wie frueher direkt gezeichnet -
+    // die Nachbearbeitung ist eine Zugabe, kein Muss.
+    const post = !this.postAus && this._postBau();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, post? this.fboSzene : null);
     gl.viewport(0, 0, this.cv.width, this.cv.height);
     gl.clearColor(himmel[0], himmel[1], himmel[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1605,6 +1810,7 @@ export class TerrainGL {
     gl.uniform3f(this.uHfeld, km? km.w : 1, km? km.h : 1, this._hMax || 1);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.bufIdx);
     gl.drawElements(gl.TRIANGLES, this.anzIdx, gl.UNSIGNED_SHORT, 0);
+    if(post) this._postLauf();
     return true;
   }
 }
