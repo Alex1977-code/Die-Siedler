@@ -11835,11 +11835,45 @@ export class Renderer {
       return [x+(hash01(n*3+1)-0.5)*6, yl+(hash01(n*5+2)-0.5)*5];
     });
   }
+  // NACH BOGENLAENGE, nicht nach Knotenindex (T21).
+  //
+  // Die Sim schiebt den Traeger seit T21 um einen festen BILDWEG je Takt
+  // ueber den Knotenpfad. Der gezeichnete Pfad ist aber ein anderer: seine
+  // beiden Enden liegen auf der TUERPOSITION statt auf dem Knoten, und die
+  // Zwischenpunkte sind um wenige Punkte gestreut (roadPts). Wer den Index
+  // stueckweise linear abbildet, uebertraegt diese Laengenunterschiede
+  // direkt aufs Tempo - gemessen blieb der Traeger dadurch zwischen 2,8 und
+  // 17,6 px je Takt, obwohl die Sim gleichmaessig lief.
+  //
+  // Darum: Anteil der zurueckgelegten Bogenlaenge auf dem KNOTENPFAD
+  // ausrechnen und denselben Anteil auf dem GEZEICHNETEN Pfad abtragen.
+  // Beide Pfade haben dieselben Stuecke, nur andere Laengen - das Tempo auf
+  // dem Bildschirm ist damit je Strasse konstant.
+  bogenlaengen(pts){
+    const c=[0];
+    for(let i=1;i<pts.length;i++)
+      c.push(c[i-1]+Math.hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1]));
+    return c;
+  }
   roadPos(r, pos){
     const pts=this.roadPts(r);
-    const i0=Math.max(0,Math.min(pts.length-1,Math.floor(pos))), f=pos-Math.floor(pos);
-    const a=pts[i0], b=pts[Math.min(i0+1,pts.length-1)];
-    return [a[0]+(b[0]-a[0])*f, a[1]+(b[1]-a[1])*f];
+    if(pts.length<2) return pts[0]||[0,0];
+    const m=this.game.map;
+    // Bogenlaenge auf dem Knotenpfad bis pos
+    const kn=r.path.map(n=>m.worldPos(n));
+    const ck=this.bogenlaengen(kn);
+    const gesamtK=ck[ck.length-1]||1;
+    const i0=Math.max(0,Math.min(kn.length-2,Math.floor(pos)));
+    const f0=Math.max(0,Math.min(1,pos-i0));
+    const sK=ck[i0]+(ck[i0+1]-ck[i0])*f0;
+    // denselben Anteil auf dem gezeichneten Pfad
+    const cd=this.bogenlaengen(pts);
+    const ziel=(sK/gesamtK)*cd[cd.length-1];
+    let j=0; while(j<cd.length-2 && cd[j+1]<ziel) j++;
+    const seg=cd[j+1]-cd[j];
+    const t=seg>1e-6 ? (ziel-cd[j])/seg : 0;
+    const a=pts[j], b=pts[j+1];
+    return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t];
   }
   drawObj(g, m, i, o){
     const [x,yRoh]=m.worldPos(i);

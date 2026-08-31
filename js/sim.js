@@ -13,7 +13,28 @@ const FLAG_CAP = 8;
 const TABU_DAUER = 3000;
 // Wie stark der Verkehrswert einer Strasse alle 300 Ticks abklingt.
 const VERKEHR_ZERFALL = 0.985;
-const CARRY_SPEED = 0.2;              // Knoten pro Tick
+// TRAEGERTEMPO IN BILDPUNKTEN JE TAKT, nicht in Knoten (T21).
+//
+// Nutzerbefund: "der traeger ist x-mal schneller". Gemessen
+// (tools/tempomessung.mjs, 12 000 Takte, sechs Strassen, fuenf Betriebe):
+// die Arbeiter laufen mit KONSTANT 4,80 px je Takt - vom zehnten bis zum
+// neunundneunzigsten Hundertstel derselbe Wert. Der Traeger schwankte
+// zwischen 2,46 und 12,32 px je Takt, also um den Faktor fuenf gegen sich
+// selbst und bis 2,6-fach gegen einen Arbeiter.
+//
+// Ursache: c.pos ist ein KNOTENINDEX auf der Strasse, und 0,2 Index je
+// Takt heisst fuenf Takte je Strassenstueck - egal, ob das Stueck 12 oder
+// 62 Bildpunkte lang ist. Auf langen Stuecken raste der Traeger, auf
+// kurzen kroch er.
+//
+// Jetzt wird der Index aus einem festen BILDWEG gerechnet. Der Wert ist
+// nicht gegriffen: 7,2 px je Takt ist genau der bisherige Mittelwert
+// (0,2 mal die mittlere Stuecklaenge von 36 px). Die Laufzeit einer
+// Strasse bleibt damit im Mittel dieselbe wie bisher - sie wird nur
+// gleichmaessig. Gegen einen Arbeiter sind es saubere 1,5-fach: auf der
+// Strasse geht es schneller voran als querfeldein, und das sieht man auch.
+const CARRY_PX = 7.2;                 // Bildpunkte pro Takt
+const CARRY_SPEED = 0.2;              // ALT: Knoten pro Tick (nur noch fuer Altstaende)
 // Wie lange darf eine Figur an EINEM Weg haengen, bevor sie aufgibt und
 // das Beste aus ihrer Lage macht? 1800 Takte sind drei Spielminuten -
 // lang genug, dass kein normaler Weg daran scheitert, kurz genug, dass
@@ -2546,13 +2567,20 @@ export class Game {
         // leichte Heimkehr zur Mitte
         if(c.state==='idle'){
           const mid=lastIx/2;
-          if(Math.abs(c.pos-mid)>0.05) c.pos += Math.sign(mid-c.pos)*CARRY_SPEED*0.4;
+          if(Math.abs(c.pos-mid)>0.05){
+            const ri=Math.sign(mid-c.pos);
+            c.pos += ri*this.strassenSchritt(r, c.pos, ri, CARRY_PX*0.4);
+          }
         }
       }
-      // Esel beschleunigen die Straße, Schiffe sind gemächlicher
-      const spd=CARRY_SPEED*(r.hasDonkey?1.5:1)*(r.isSea?0.85:1);
+      // Esel beschleunigen die Straße, Schiffe sind gemächlicher.
+      // spdPx ist ein BILDWEG; in Indexschritte umgerechnet wird erst auf
+      // dem Stueck, auf dem der Traeger gerade steht (strassenSchritt).
+      const spdPx=CARRY_PX*(r.hasDonkey?1.5:1)*(r.isSea?0.85:1);
       if(c.state==='toPick'){
-        c.pos += Math.sign(c.targetIx-c.pos)*spd;
+        const ri=Math.sign(c.targetIx-c.pos);
+        const spd=this.strassenSchritt(r, c.pos, ri, spdPx);
+        c.pos += ri*spd;
         if(Math.abs(c.pos-c.targetIx)<spd){ c.pos=c.targetIx; c.state='pickup'; }
       }
       if(c.state==='pickup'){
@@ -2567,7 +2595,9 @@ export class Game {
         r.traffic=(r.traffic||0)+1;      // Verkehr zählen (Eselzucht-Ziel)
       }
       if(c.state==='carry'){
-        c.pos += Math.sign(c.targetIx-c.pos)*spd;
+        const ri=Math.sign(c.targetIx-c.pos);
+        const spd=this.strassenSchritt(r, c.pos, ri, spdPx);
+        c.pos += ri*spd;
         if(Math.abs(c.pos-c.targetIx)<spd){
           c.pos=c.targetIx;
           const f=r.path[c.targetIx];
@@ -3300,6 +3330,37 @@ export class Game {
       if(d<0.001){ dx=1; dy=0; d=1; }      // exakt im Mittelpunkt: irgendwohin
       u.x=ox+dx/d*R; u.y=oy+dy/d*R;
     }
+  }
+  // Wie viele Index-Einheiten auf DIESER Strasse entsprechen einem Bildweg
+  // von spdPx Punkten? Die Strassenstuecke sind unterschiedlich lang (12
+  // bis 62 px gemessen), ein fester Indexschritt ergibt also ein
+  // ungleiches Tempo. Gerechnet wird auf dem Stueck, auf dem der Traeger
+  // gerade steht.
+  // Sie rechnet den Bildweg STUECK FUER STUECK ab: laeuft der Takt ueber
+  // eine Stueckgrenze, wird der Rest auf dem naechsten Stueck mit dessen
+  // eigener Laenge weitergerechnet. Ohne diese Teilung blieben zehn
+  // Prozent der Takte daneben (gemessen: p99 11,8 statt 7,2 - genau die
+  // Takte, die eine Grenze kreuzen).
+  strassenSchritt(r, pos, dir, spdPx){
+    const m=this.map, n=r.path.length;
+    if(n<2 || spdPx<=0) return 0;
+    const laenge=(i)=>{
+      const [ax,ay]=m.worldPos(r.path[i]), [bx,by]=m.worldPos(r.path[i+1]);
+      const l=Math.hypot(bx-ax, by-ay);
+      return l>0.5? l : 52;
+    };
+    let p=pos, rest=spdPx, schutz=0;
+    while(rest>1e-6 && schutz++<64){
+      let i0=Math.floor(dir>=0? p : p-1e-9);
+      if(i0<0){ p=0; break; }
+      if(i0>n-2){ if(dir>=0){ p=n-1; break; } i0=n-2; }
+      const l=laenge(i0);
+      // bis zum Ende des laufenden Stuecks in Bildpunkten
+      const bisKante = dir>=0 ? (i0+1-p)*l : (p-i0)*l;
+      if(rest < bisKante || bisKante<=1e-9){ p += dir*rest/l; rest=0; }
+      else { p = dir>=0 ? i0+1 : i0; rest -= bisKante; }
+    }
+    return Math.abs(p-pos);
   }
   moveToward(u, tx, ty, speed){
     const dx=tx-u.x, dy=ty-u.y;

@@ -72,13 +72,26 @@ await page.evaluate((n)=>window.setFrame(n),walk.name);
 // falschen Knochen. Verworfen wird nur noch, was sich nicht retten laesst
 // (Angelzeug des Fischers: drei getrennte Teile quer ueber Hand-, Bein-
 // und Kopfknochen; Bogen des Jaegers; Waffen der Soldaten).
-if(P.umhaengen){
-  const u=P.umhaengen;
+async function werkzeugSetzen(set){
+  const u=P.umhaengen; if(!u) return;
+  // je Satz ein eigener Haltewinkel: im Gehen wird geschultert, beim
+  // Arbeiten zum Boden gedreht. umhaengen() rechnet jedes Mal von der
+  // gemerkten Ausgangslage los.
+  const rot=(u.rotSet && u.rotSet[set]) || u.rot || [0,0,0];
   const r=await page.evaluate(([ids,b,o])=>window.umhaengen(ids,b,o),
-    [u.ids, u.bone||'R_Hand', {greifer:u.greifer||0, rot:u.rot||[0,0,0], scale:u.scale||1}]);
+    [u.ids, u.bone||'R_Hand', {greifer:u.greifer||0, rot, scale:u.scale||1}]);
   if(!String(r).startsWith('ok')) throw new Error('umhaengen '+r);
-  console.log('Mesh:', r);
-} else if(P.entfernen && P.entfernen.length){
+}
+// Erst UMHAENGEN, dann entfernen - in dieser Reihenfolge. umhaengen()
+// arbeitet ueber die Insel-Zusammenhaenge des unveraenderten Netzes;
+// splitIslands schneidet Dreiecke heraus und verschiebt damit die
+// Inselnummern. Beides zusammen ist erlaubt: das Werkzeug wandert in die
+// Faust, Streuteile daneben fliegen raus.
+if(P.umhaengen){
+  await werkzeugSetzen('atk');
+  console.log('Mesh: Werkzeug umgehaengt,', P.umhaengen.ids.length, 'Inseln');
+}
+if(P.entfernen && P.entfernen.length){
   await page.evaluate((ids)=>window.splitIslands(ids),P.entfernen);
   await page.evaluate('window.toolDiscard()');
   console.log('Mesh:', P.entfernen.length, 'Inseln entfernt');
@@ -182,6 +195,7 @@ async function versatz(plan, yaw, nurMittel=false){
 }
 
 async function backeBlatt(set){
+  await werkzeugSetzen(set);
   const plan=spaltenPlan(set);
   const n=plan.length;
   await ruesten(set);

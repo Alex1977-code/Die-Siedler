@@ -711,14 +711,31 @@ export const POSEN = {
   // abgetasteten Werten ueber vier Spalten (Beleg uh_leveler.png): bei
   // -120/0/-25 zeigt der Stiel nach vorn-unten, am Kontakt steht das
   // Blatt im Boden.
+  // T21: die gemalte Schaufel wird UMGEHAENGT statt weggeworfen. Sie ist
+  // zu 100 % an R_ToeBase gewichtet und stand deshalb senkrecht neben
+  // dem rechten Fuss; bisher flog sie raus und ein prozeduraler Kasten
+  // trat an ihre Stelle. Das gemalte Blatt ist die bessere Grafik - es
+  // haengt nur am falschen Knochen. umhaengen() legt ihr oberes
+  // Stielende (greifer 1, laengste Achse ist y) auf die Bindeposition
+  // der rechten Faust und gewichtet sie allein dorthin.
+  //
+  // ZWEI HALTUNGEN, nicht eine. Mit dem Grabwinkel in allen Blaettern
+  // trug er die Schaufel im GEHEN waagerecht vor dem Bauch wie ein
+  // Gewehr (Nutzerbefund "was macht der planierer fuer bewegungen",
+  // Beleg lev_walk.png). Je zwoelf Winkel ueber vier Gehspalten
+  // abgetastet (tragen.png, tragen2.png): 180/0/0 legt den Stiel
+  // diagonal ueber die Brust, das Blatt an die Schulter - kompakte
+  // Silhouette, nichts steht seitlich ab. Beim Graben bleibt -120/0/-25.
+  //
+  // Die vierzehn Splitter, die ich zuerst mit umgehaengt hatte, sind
+  // NICHT Teil der Schaufel: isoliert sind sie ein eigener kleiner
+  // Klotz (Beleg s14.png), der am Werkzeug haengend neben dem Kopf
+  // schwebte. Sie fliegen raus.
   leveler:    { atk: SCHAUFELN,
-                umhaengen:{ ids:[372,238,406,448,231,99,111,464,465,94,105,390,310,1759,29,289,256,410,2,86,389,239,178,270,386,1711,138,309,400,363,375,557,621,72,411,443,398,408,474,23,224,261,419,342,325,355,444,762,39,169,68,208,104,120,121,110,198,125,287,299,332,356,379,361,403,404,385,402,450,451,579,2261,1819,1754,2316,2937,1760,1808,1820,2888,2941,2782,3119,1710,2117],
-                // die letzten vierzehn Splitter der Schaufel: ebenfalls
-                // R_ToeBase-dominant und ueber 0,12 vom Zeh entfernt.
-                // Sie standen frueher mit im Loeschsatz nicht drin und
-                // blieben als wandernder Fleck neben dem Fuss zurueck,
-                // sobald die Schaufel weg war.
-                bone:'R_Hand', greifer:1, rot:[-120,0,-25] } },
+                umhaengen:{ ids:[372,238,406,448,231,99,111,464,465,94,105,390,310,1759,29,289,256,410,2,86,389,239,178,270,386,1711,138,309,400,363,375,557,621,72,411,443,398,408,474,23,224,261,419,342,325,355,444,762,39,169,68,208,104,120,121,110,198,125,287,299,332,356,379,361,403,404,385,402,450,451,579],
+                            bone:'R_Hand', greifer:1, rot:[-120,0,-25],
+                            rotSet:{ walk:[180,0,0], idle:[180,0,0], trag:[180,0,0], flee:[180,0,0] } },
+                entfernen:[2261,1819,1754,2316,2937,1760,1808,1820,2888,2941,2782,3119,1710,2117] },
   // fisher: das Mesh enthaelt eine EIGENE Angel-Ausruestung, wie beim
   // Jaeger quer ueber Hand- UND Fussknochen verschmiert - sie zerriss in
   // jeder Pose zu Strichen neben Kopf, Ruecken und Beinen. Drei Teile

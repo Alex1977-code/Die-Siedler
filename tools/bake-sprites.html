@@ -509,9 +509,29 @@ window.umhaengen=(toolIds, boneName, opt={})=>{
   const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
   for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
   const soll=new Set(toolIds.map(Number));
-  const vs=[];
-  for(let i=0;i<pos.count;i++) if(soll.has(find(i))) vs.push(i);
+  let vs=[];
+  if(sm.userData.__wzVs) vs=sm.userData.__wzVs;      // Liste vom ersten Mal
+  else {
+    for(let i=0;i<pos.count;i++) if(soll.has(find(i))) vs.push(i);
+    sm.userData.__wzVs=vs;
+  }
   if(!vs.length) return 'KEINE VERTICES';
+  // WIEDERHOLBAR MACHEN. Der Aufruf verschiebt Vertices; ein zweiter Aufruf
+  // mit einem anderen Winkel wuerde sonst auf dem Ergebnis des ersten
+  // aufsetzen. Gebraucht wird das, weil das Werkzeug je Blattsatz anders
+  // gehalten wird: im Gehen geschultert, beim Graben zum Boden. Also die
+  // Ausgangslage einmal merken und jedes Mal von dort losrechnen.
+  if(!sm.userData.__wzOrig){
+    const o=new Map();
+    for(const i of vs) o.set(i, [pos.getX(i),pos.getY(i),pos.getZ(i),
+                                 nor?nor.getX(i):0, nor?nor.getY(i):0, nor?nor.getZ(i):0]);
+    sm.userData.__wzOrig=o;
+  } else {
+    for(const [i,o] of sm.userData.__wzOrig){
+      pos.setXYZ(i,o[0],o[1],o[2]);
+      if(nor) nor.setXYZ(i,o[3],o[4],o[5]);
+    }
+  }
   // 2. laengste Achse
   const mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
   for(const i of vs) for(let d=0;d<3;d++){
