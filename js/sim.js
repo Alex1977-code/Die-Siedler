@@ -2380,11 +2380,36 @@ export class Game {
       else rq.b.incoming[good]=(rq.b.incoming[good]||0)+1;
       budgets[rq.b.player]--;
     }
-    // Überschuss der Produzenten ins Lager schicken (gedrosselt: erst ab 2 wartenden Waren,
-    // und nur wenn die eigene Fahne nicht schon halb voll ist -> Straßen bleiben frei für Wichtiges)
+    // Überschuss der Produzenten ins Lager schicken. Gedrosselt bleibt es
+    // ueber die eigene Fahne (eigeneAnFahne>=4 weiter unten) - NICHT mehr
+    // ueber eine Mindestmenge im Ausgang.
+    //
+    // Die Bedingung hiess bis T21 "erst ab ZWEI wartenden Waren". Das hat
+    // dafuer gesorgt, dass der Ausgang NIE leerlaeuft: er pendelte zwischen
+    // 1 und 2, ein Stueck lag also dauerhaft darin. Seit v296 zeichnet
+    // flagGoods() den Ausgang an der Tuerfahne mit - und damit wurde aus
+    // einem unsichtbaren Puffer ein sichtbarer Fehler. Nutzerbefund:
+    // "fischer fischt fisch legt an fahne aber erster fisch bleibt liegen
+    // und wird nicht transportiert".
+    //
+    // Gemessen (tools/ausgangswartezeit.mjs, 20 000 Takte, feste Siedlung):
+    // der Ausgang stand beim Fischer 95,8 % der Zeit ueber null, beim
+    // Holzfaeller 99,4 %, beim Jaeger 90,1 % - es lag praktisch immer eine
+    // Ware sichtbar da, die nicht abging. Mit der Drossel ab EINS sind es
+    // 2,6 % und 0,4 %; die Ware liegt im Mittel noch 10, hoechstens 20
+    // Takte, und der Durchsatz stieg leicht (53 statt 52 Fisch, 9 statt 8
+    // Staemme).
+    //
+    // Der Preis wurde gegengeprueft (tools/fahnenlast.mjs, KI-Partie ueber
+    // 40 000 Takte): mehr Ware unterwegs, ja - aber die KI baute MEHR (50
+    // statt 45 Haeuser) und hatte MEHR eingelagert (535 statt 504). Ein
+    // Stau, der die Wirtschaft bremst, ist das also nicht. Die Zahlen einer
+    // KI-Partie schwanken allerdings stark (eine dritte Variante brachte 62
+    // Haeuser), sie taugen nur als Groessenordnung - der Beleg fuer den
+    // Durchsatz kommt aus der festen Siedlung.
     for(const b of this.buildings.values()){
       if(budgets[b.player]<=0) continue;
-      if(b.state!=='done' || (b.out|0)<2 || b.inv) continue;
+      if(b.state!=='done' || (b.out|0)<1 || b.inv) continue;
       // nur die EIGENE Ladung zaehlt (v196) - fremder Durchgangsverkehr auf
       // der Tuerfahne hat einem Saegewerk gemessen 0,45 statt 6,6 Bretter
       // je Spielminute eingebracht, weil dieser Riegel dauerhaft zu war

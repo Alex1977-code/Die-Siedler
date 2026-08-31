@@ -18,6 +18,7 @@
 // Bauarbeiter-Hammer (agentS).
 import { chromium } from 'playwright';
 import fs from 'fs';
+import { spawnSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { POSEN, atkPose, keyPose, FLUCHT } from './posen.js';
@@ -222,7 +223,17 @@ async function backeBlatt(set){
   });
   const ziel=path.join(ASSETS,`unit_${modell}_${set}.png`);
   fs.writeFileSync(ziel, Buffer.from(url.split(',')[1],'base64'));
-  console.log('gebacken', ziel);
+  // Frisch gebackene Blaetter kommen aus dem 3D-Bild und sind dunkler und
+  // kaelter als die uebrige Welt (gemessen: Helligkeit 75 gegen 84 der
+  // Gebaeude). tools/figurenpalette.py zieht sie auf die Weltpalette und
+  // setzt einen Vermerk ins PNG, damit ein zweiter Lauf nichts doppelt.
+  // Das gehoert HIER hin und nicht in den Zeichner: zur Laufzeit kostete
+  // es je Blatt eine Leinwand von 1,24 MB.
+  try{
+    const r9=spawnSync('python3',[path.join(HIER,'figurenpalette.py'), ziel],{encoding:'utf8'});
+    if(r9.status!==0) console.log('PALETTE FEHLGESCHLAGEN', (r9.stderr||'').slice(0,200));
+    else console.log('gebacken', ziel, '-', (r9.stdout||'').trim());
+  }catch(e){ console.log('PALETTE FEHLGESCHLAGEN', e.message); }
 }
 
 async function backeVorschau(){

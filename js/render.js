@@ -13847,6 +13847,11 @@ export class Renderer {
       else k=0;                                 // ruhig stehen
     }
     const sw=img.naturalWidth/n, sh=img.naturalHeight/5;
+    // Die Weltpalette steckt seit T21 IM Blatt (tools/figurenpalette.py,
+    // vom Backtreiber nach jedem Blatt aufgerufen) - zur Laufzeit ist
+    // nichts mehr zu tun. Als Zeichnerschritt haette sie je Blatt eine
+    // Leinwand gekostet: 704x440 sind 1,24 MB, und in einer gewachsenen
+    // Siedlung sind 40 bis 50 Blaetter gleichzeitig im Bild.
     return {img, sx:k*sw, sy:row*sh, sw, sh, flip, set};
   }
   // Esel: kleines Packtier (Bild-Asset unit_donkey oder prozedural)
