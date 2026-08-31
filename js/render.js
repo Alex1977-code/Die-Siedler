@@ -216,8 +216,11 @@ const BLD_FX = {
   woodcutter: [ {k:'chips', a:[0.100,0.860], s:1, col:'rgba(214,178,116,$A)'} ],
   // Förster: frisches Grün wirbelt bei den Setzlingstöpfen
   forester:   [ {k:'leaves', a:[0.500,0.850], s:1} ],
-  // Sägewerk: Sägemehl sprüht am Sägeblatt – KEIN Rauch (dort brennt nichts)
-  sawmill:    [ {k:'sawdust', a:[0.460,0.680], s:1} ],
+  // Sägewerk: Sägemehl sprüht am Sägeblatt – KEIN Rauch (dort brennt nichts).
+  // Neu vermessen fuer die Lieferung v302: das Blatt sitzt jetzt bei
+  // 43,5 / 71,7 %, seine Unterkante - der Schnittpunkt, an dem der Stamm
+  // anliegt - bei rund 41 / 79 %.
+  sawmill:    [ {k:'sawdust', a:[0.410,0.790], s:1} ],
   // Steinmetz: Steinstaub und Splitter am Werkblock unterm Vordach
   quarry:     [ {k:'stonedust', a:[0.480,0.650], s:1} ],
   // Fischerhütte: nur stille Wasserringe unter dem Steg (kein Rauch am Wasser)
@@ -245,7 +248,11 @@ const BLD_FX = {
                 {k:'steam', a:[0.42,0.57], s:1},
                 {k:'glow',  a:[0.171,0.582], s:0.6} ],
   // Bergwerke: Staub am Stollenmund + Abraum-Krümel in der Farbe des Erzes
-  coalmine:   [ {k:'minedust', a:[0.550,0.750], s:1, col:'rgba(70,66,62,$A)'} ],
+  // Kohlebergwerk neu vermessen (v302): der Foerderkuebel haengt am
+  // Haspelbock links, die Schachtmuendung liegt darunter bei 30 / 84 %.
+  // Der alte Anker (55/75) zeigte auf dem neuen Bild auf die Dachkante
+  // des Schuppens - der Staub stieg aus dem Dach.
+  coalmine:   [ {k:'minedust', a:[0.300,0.840], s:1, col:'rgba(70,66,62,$A)'} ],
   ironmine:   [ {k:'minedust', a:[0.47,0.50], s:1, col:'rgba(142,96,70,$A)'} ],
   goldmine:   [ {k:'minedust', a:[0.50,0.50], s:1, col:'rgba(168,138,74,$A)'} ],
   granitemine:[ {k:'minedust', a:[0.52,0.62], s:1, col:'rgba(160,154,144,$A)'} ],
@@ -8487,19 +8494,35 @@ export class Renderer {
       winter: ['tree_winter','tree_spruce','tree_dead'],
       wueste: ['tree_palm','tree_dead','tree_stump'],
       vulkan: ['tree_dead','tree_conifer','tree_stump'],
-      sumpf:  ['tree_leaf','tree_birch','tree_dead','tree_beech'],
+      // Moor bekommt den HERBSTBAUM dazu (v302). Er lag seit der
+      // Lieferung im Paket, stand aber in keiner Landschaft - eine
+      // orange Krone passt weder in die Sommerwiese noch auf Schnee
+      // oder Sand. Ins Moor passt sie: dessen Boden ist ockerbraun,
+      // und tintedTree laesst die Krone in Ruhe (der Tonwertschieber
+      // haelt jedes Pixel mit r > g+28 fuer Stamm - orange faellt
+      // darunter, wird also nicht gruen gezogen).
+      sumpf:  ['tree_leaf','tree_birch','tree_dead','tree_beech','tree_autumn'],
       gebirge:['tree_spruce','tree_birch'],
     };
     const list=(SETS[th]||SETS.gruen).filter(k=>this.asset(k));
     if(!list.length) return {key: this.asset('tree_leaf')?'tree_leaf':'tree_conifer', art};
     const key=list[Math.floor(hsh*list.length)%list.length];
-    // Am Wasser die tiefste Tonlage - dort, wo frueher die Weide stand,
-    // steht jetzt ein dunkler, kuehler Laubbaum. Nadelbaeume bleiben bei
-    // ihrer eigenen Streuung, sie sind ohnehin dunkel.
-    if(nearWater && th!=='winter' && m.terr[i]===TER.GRASS
+    // AM UFER: TRAUERWEIDE, sofern eine da ist.
+    // Sie flog in v287 raus, weil sie der letzte Baum im alten Zeichenstil
+    // war - Linienzeichnung mit dunklen Konturen und einem EINGEBACKENEN
+    // Biotop (Teich mit Seerosen) unter der Krone. Der Grund ist mit der
+    // Lieferung v302 weg: die neue tree_willow ist gemalt wie die uebrigen
+    // Diorama-Baeume, freigestellt, ohne Beiwerk unter der Krone. Nur zu
+    // 40 % (frueher 55) - bei 55 stand sie am Ufer oefter als alles andere.
+    // Ohne Weidenblatt bleibt es beim Rueckfall von v287: derselbe
+    // Laubbaum in seiner tiefsten Tonlage (Spielart 2, s. tintedTree),
+    // dunkler und kuehler, wie es am Ufer steht.
+    const uferGruen = nearWater && th!=='winter' && m.terr[i]===TER.GRASS
        && key!=='tree_spruce' && key!=='tree_conifer'
-       && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT))
-      return {key, art:2};
+       && !m.nbs(i).some(n=>m.terr[n]===TER.SNOW||m.terr[n]===TER.DESERT);
+    if(uferGruen && this.asset('tree_willow') && hsh<0.40)
+      return {key:'tree_willow', art:0};
+    if(uferGruen) return {key, art:2};
     return {key, art};
   }
   // Baumbilder einmalig an die Wiesenpalette anpassen + zum Boden hin abdunkeln
@@ -12465,20 +12488,21 @@ export class Renderer {
     // noetig - das Rad ist eine rotationssymmetrische Scheibe, also wird
     // sein Kreis EINMAL aus dem Gebaeudebild ausgeschnitten (gecacht) und
     // im Betrieb gedreht darueber gezeichnet. Mitte und Radius sind im
-    // Sprite vermessen (153x150, Radmitte 60,5/109, Radius 17,5 px);
-    // aendert sich das Bild, muessen die drei Anteile neu gemessen werden.
+    // Sprite vermessen; aendert sich das Bild, muessen die drei Anteile
+    // neu gemessen werden.
     if(b.type==='sawmill' && b.state==='done'){
       const mimg=this.asset('bld_sawmill');
-      // GRÖSSENRIEGEL: die drei Anteile unten sind im Sprite 153x150
-      // vermessen. Die Lieferung v295 brachte ein anderes Saegewerk (155x150,
-      // Blatt halb hinter einem Pfosten) - der Kreis schnitt dort ein Stueck
+      // GRÖSSENRIEGEL: die drei Anteile unten sind im Sprite 166x150
+      // vermessen (Lieferung v302, Blatt frei sichtbar vor dem Schuppen:
+      // Radmitte 72/107,5 - der Nabenpunkt liegt genau dort -, Radius 17 px
+      // bis in die Zahnspitzen). Die Lieferung v295 hatte ein Saegewerk mit
+      // halb verdecktem Blatt (155x150); dort schnitt der Kreis ein Stueck
       // Schuppen aus und drehte es mit (Nutzerbefund: "im Saegewerk eierte
-      // ein Rad"). Ohne passendes Blatt steht das gemalte Rad lieber still,
-      // wie die Haspel der Stollenmine. Kommt ein Sprite mit frei sichtbarer
-      // Kreissaege, hier neu vermessen und das Mass eintragen.
-      const passt = mimg && mimg.naturalWidth===153 && mimg.naturalHeight===150;
+      // ein Rad"). Passt das Bildmass nicht, steht das gemalte Rad lieber
+      // still, wie die Haspel der Stollenmine.
+      const passt = mimg && mimg.naturalWidth===166 && mimg.naturalHeight===150;
       if(passt){
-        const SAEGE_CX=60.5/153, SAEGE_CY=109/150, SAEGE_R=17.5/153;
+        const SAEGE_CX=72/166, SAEGE_CY=107.5/150, SAEGE_R=17/166;
         if(!this._saegeCv){
           const sw=mimg.naturalWidth, r=SAEGE_R*sw;
           const cv=document.createElement('canvas');
@@ -12501,51 +12525,52 @@ export class Renderer {
       }
     }
     // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms.
-    // GRÖSSENRIEGEL wie beim Saegewerk: die Nabe unten ist im Turmbild
-    // 220x465 vermessen. Die Lieferung v295 brachte eine Muehle 315x465,
-    // die ihre Fluegel SELBST GEMALT mitbringt - das Kreuz lag dadurch
-    // doppelt und versetzt ueber dem Turm. Die gemalten Fluegel stehen
-    // jetzt still. Fuer die Drehung braucht es ein Turmbild OHNE Fluegel
-    // plus obj_millsails; beides steht auf der Grafikliste.
+    // GRÖSSENRIEGEL wie beim Saegewerk. Die Lieferung v295 brachte eine
+    // Muehle 315x465, die ihre Fluegel SELBST GEMALT mitbrachte - das Kreuz
+    // lag dadurch doppelt und versetzt ueber dem Turm. Seit v302 liegt der
+    // bestellte Turm OHNE Fluegel vor (273x465, glatter Kegel mit
+    // Metallkranz an der Spitze) plus obj_millsails als frontales Kreuz.
+    // Der Turm hat KEINEN gemalten Achszapfen, die Nabe ist deshalb gesetzt
+    // statt abgelesen: 47,6 % der Breite (Turmachse) und 14,6 % der Hoehe -
+    // knapp unter dem Metallkranz, auf der Vorderflaeche des Kegels. Vier
+    // Stellungen wurden verglichen (0,100 / 0,146 / 0,180 der Hoehe bei
+    // Spannweiten 0,60 / 0,72 / 0,80); bei 0,146 und 0,72 stehen die
+    // Fluegelspitzen frei neben dem Dach, ohne den Turmschaft zu schneiden.
     if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')
-       && this.asset('bld_mill') && this.asset('bld_mill').naturalWidth===220){
+       && this.asset('bld_mill') && this.asset('bld_mill').naturalWidth===273
+       && this.asset('bld_mill').naturalHeight===465){
       const sails=this.asset('obj_millsails');
       const mimg=this.asset('bld_mill');
       const hh=this.scaleOf('bld_mill',92);
-      const ww=hh*(mimg? mimg.naturalWidth/mimg.naturalHeight : 0.5);
-      // Nabe an der Kappe, knapp unter der Dachspitze, leicht nach vorn.
-      // Vorher saß sie auf dem linken Dachrand und die Spannweite war fast
-      // so groß wie der ganze Turm – die Flügel lagen wie ein Aufkleber quer
-      // über dem Dach.
-      // Achszapfen der neuen Muehle (im Turmbild vermessen: der graue
-      // Zapfen links am Kegeldach)
-      const hubX=x-ww/2+ww*0.30, hubY=y-hh+10+hh*0.205;
-      const span=hh*0.62;                    // Flügelspannweite
+      const ww=hh*(mimg.naturalWidth/mimg.naturalHeight);
+      const hubX=x-ww/2+ww*0.476, hubY=y-hh+10+hh*0.146;
+      const span=hh*0.72;                    // Flügelspannweite
       const ang= working? this.time/650 : (b.id%6.28);
-      // Das Fluegelbild ist jetzt exakt rotationssymmetrisch und FRONTAL
-      // (orthografisch, Nabe in der Bildmitte). Die frueher eingebackene
-      // Schraegsicht (oberer Fluegel kuerzer als der untere) drehte sich
-      // beim Rotieren mit - der kurze Fluegel wanderte im Kreis und das Rad
-      // "eierte". Die Schraegsicht kommt darum komplett zur Laufzeit:
-      // erst die FESTE Kippmatrix (bleibt in Bildschirmrichtung stehen),
-      // DANN die Rotation - so bleibt die Radebene stabil und das Rad
-      // laeuft rund, leicht gekippt wie ein echtes Muehlrad von schraeg vorn.
-      // Kippmatrix = reine Stauchung auf 0.86 laengs der Achsrichtung des
-      // Zapfens am Kegeldach (zeigt auf dem Turmbild nach links und ca. 10
-      // Grad nach unten): M = I - 0.14*u*uT mit u=(cos-10, sin-10).
+      // Das Fluegelbild ist exakt rotationssymmetrisch und FRONTAL
+      // (orthografisch, Nabe in der Bildmitte). Eine eingebackene
+      // Schraegsicht (oberer Fluegel kuerzer als der untere) wuerde sich
+      // beim Rotieren mitdrehen - der kurze Fluegel wanderte im Kreis und
+      // das Rad "eierte". Die Schraegsicht kommt darum zur Laufzeit: erst
+      // die FESTE Kippmatrix (bleibt in Bildschirmrichtung stehen), DANN
+      // die Rotation - so bleibt die Radebene stabil und das Rad laeuft
+      // rund. Die Achse zeigt bei diesem Turm auf den Betrachter und leicht
+      // nach unten, die Radebene kippt also oben nach hinten weg: reine
+      // Stauchung der HOEHE auf 0,92. (Der alte Wert stauchte die Breite -
+      // er gehoerte zum Zapfen der v295-Muehle, der nach links zeigte.)
+      const KIPP=0.92;
       g.save();
       g.translate(hubX,hubY);
-      // weicher Schatten aufs Dach, damit die Flügel aufliegen statt zu
-      // schweben. Der Versatz passiert VOR der Kippung, also in fester
-      // Bildschirmrichtung - sonst kreist der Schatten mit dem Rad.
-      g.save();
-      g.globalAlpha=0.22;
-      g.translate(span*0.045, span*0.05);
-      g.transform(0.8642, 0.0239, 0.0239, 0.9958, 0, 0);
-      g.rotate(ang);
-      g.drawImage(sails, -span/2, -span/2, span, span);
-      g.restore();
-      g.transform(0.8642, 0.0239, 0.0239, 0.9958, 0, 0);
+      // KEIN Schlagschatten unter dem Kreuz. Zweimal versucht, beide Male
+      // verworfen: das Blatt bei 22 % durchsichtig darunterzulegen ergab
+      // kein Schatten, sondern ein zweites, HELLES Kreuz - die Fluegel sind
+      // bespannt und hell. Und als schwarze Silhouette (sailShadow) lag der
+      // Schatten zwar dunkel, aber eben ueberall dort, wo das Kreuz liegt:
+      // die Fluegelspitzen ragen weit ueber das Dach hinaus, der versetzte
+      // Abklatsch landete also auf der WIESE und stand dort als zweites,
+      // dunkles Kreuz in der Luft (im Bild anim_muehle_0 oben links
+      // nachgesehen). Ein Schatten braeuchte einen Beschnitt auf die
+      // Dachflaeche - das ist mehr Aufwand, als er einbringt.
+      g.transform(1, 0, 0, KIPP, 0, 0);
       g.rotate(ang);
       g.drawImage(sails, -span/2, -span/2, span, span);
       g.restore();

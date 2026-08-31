@@ -26,7 +26,17 @@ import numpy as np
 from PIL import Image
 
 QUELLE, ZIEL = 'gebäude', 'assets'
-MINEN = {'bld_coalmine','bld_goldmine','bld_granitemine','bld_ironmine'}
+# Bilder, deren LEINWAND das Spiel auswertet und die deshalb nicht
+# beschnitten werden duerfen:
+#   Bergwerke und ihre Baustufen erkennt der Zeichner an 320x320
+#     (js/render.js: mineSchacht) - auch die Baustufen, denn waehrend des
+#     Baus ist bld_build_mine_<stufe> das gezeichnete Bild.
+#   obj_millsails ist ein DREHENDES Blatt: es wird um seine Bildmitte
+#     gedreht, muss also quadratisch und mittig bleiben.
+MINEN = {'bld_coalmine','bld_goldmine','bld_granitemine','bld_ironmine',
+         'bld_coalmine_leer','bld_goldmine_leer','bld_granitemine_leer','bld_ironmine_leer',
+         'bld_build_mine_1','bld_build_mine_2','bld_build_mine_3'}
+MITTIG = {'obj_millsails'}
 CHROMA = 0.020      # Farbigkeitsabstand, ab dem ein Pixel zum Gebaeude zaehlt
 HELLER = 8          # Pixel heller als der Hintergrund sind nie Schatten
 BLEED  = 8          # so weit werden Gebaeudefarben nach aussen verschmiert
@@ -102,7 +112,12 @@ def main():
     zuo = json.load(open('tools/zuordnung.json', encoding='utf-8'))
     fehlt = []
     for quelle, ziel in sorted(zuo.items()):
-        qp, zp = os.path.join(QUELLE, quelle), os.path.join(ZIEL, ziel)
+        # Die Lieferungen liegen mal in gebaeude/, mal im Wurzelverzeichnis.
+        # Der Dateiname allein sagt das nicht: 'anim-01-sawmill.png' hat
+        # keinen Schraegstrich und lag trotzdem in der Wurzel. Also gilt,
+        # wo die Datei WIRKLICH liegt - Wurzel zuerst, dann gebaeude/.
+        qp = quelle if os.path.exists(quelle) else os.path.join(QUELLE, quelle)
+        zp = os.path.join(ZIEL, ziel)
         if not os.path.exists(qp) or not os.path.exists(zp):
             fehlt.append((quelle, ziel)); continue
         neu = freistellen(qp)
@@ -110,7 +125,16 @@ def main():
         alt = Image.open(zp).convert("RGBA")
         AW, AH = alt.size
         ab = bbox(alt) or (0, 0, AW, AH)
-        if ziel.replace('.png','') in MINEN:
+        if ziel.replace('.png','') in MITTIG:
+            # Drehendes Blatt: quadratische Leinwand, Inhalt exakt zentriert.
+            # Ein aus der Mitte sitzendes Fluegelkreuz wuerde beim Drehen
+            # eiern - genau der Fehler, der v298 zum Stillstand gefuehrt hat.
+            k = max(neu.width, neu.height)
+            lein = Image.new("RGBA", (k, k), (0,0,0,0))
+            lein.paste(neu, ((k-neu.width)//2, (k-neu.height)//2), neu)
+            if k != AW:
+                lein = lein.resize((AW, AW), Image.LANCZOS)
+        elif ziel.replace('.png','') in MINEN:
             # Bergwerke werden im Zeichner an der Bildgroesse 320x320 erkannt
             # (js/render.js: mineSchacht). Leinwand also NICHT beschneiden,
             # sondern das Gebaeude wie bisher auf die Bodenlinie setzen.
