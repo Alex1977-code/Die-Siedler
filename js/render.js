@@ -204,6 +204,14 @@ function rr(g,x,y,w,h,r){
 // col bei smoke: 'grau' | 'weiss' | 'dunkel'; bei chips/dust ein rgba-Muster
 // mit $A als Alpha-Platzhalter.
 const BLD_FX = {
+  // ANKER IN BILD-BRUCHTEILEN - sie gelten je Sprite. Nach der
+  // Bildlieferung v295 zeigten sie ins Leere (Nutzerbefund: "beim
+  // Holzfaeller dreht sich etwas das nicht passt"). Rauch und Glut sind
+  // deshalb neu bestimmt: die Glut misst tools/fx-anker.py aus dem Bild
+  // (heisse Pixel, oberes Fuenftel ausgenommen, weil dort bei mehreren
+  // Bauten der Schornsteinkopf glimmt), die Schornsteinkoepfe sind am
+  // Raster abgelesen - die Automatik nahm bei fuenf von neun Bauten die
+  // Spitze des Dachfirsts, die am Giebel ebenfalls schmal ist.
   // Holzfäller: Späne am Hackklotz mit der Axt (links vor der Hütte)
   woodcutter: [ {k:'chips', a:[0.16,0.72], s:1, col:'rgba(214,178,116,$A)'} ],
   // Förster: frisches Grün wirbelt bei den Setzlingstöpfen
@@ -215,27 +223,27 @@ const BLD_FX = {
   // Fischerhütte: nur stille Wasserringe unter dem Steg (kein Rauch am Wasser)
   fisher:     [ {k:'ripple', a:[0.48,0.86], s:1, on:'always'} ],
   // Jäger: dünner Rauch vom Räucherfeuer – der Schlot mit gemaltem Rauchfähnchen
-  hunter:     [ {k:'smoke', a:[0.26,0.20], s:0.5, col:'grau', on:'staffed'} ],
+  hunter:     [ {k:'smoke', a:[0.190,0.020], s:0.5, col:'grau', on:'staffed'} ],
   // Brunnen: nur dezente Tropfen vom Eimer in den Schacht
   well:       [ {k:'drips', a:[0.42,0.46], s:1} ],
   // Bauernhof: dünner Herdrauch aus dem Schornstein links auf dem Strohdach
-  farm:       [ {k:'smoke', a:[0.29,0.05], s:0.55, col:'grau'} ],
+  farm:       [ {k:'smoke', a:[0.160,0.140], s:0.55, col:'grau'} ],
   // Mühle: sie MAHLT – kein Rauch, nur feiner Mehlstaub bei den Säcken am Fuß
   mill:       [ {k:'flour', a:[0.76,0.86], s:1} ],
   // Bäckerei: kräftiger heller Ofenrauch aus dem großen Steinschornstein,
   // dazu Hitzeflimmer-Dampf am Kuppelofen-Abzug und Glut im Ofenmaul
-  bakery:     [ {k:'smoke', a:[0.575,0.035], s:1, col:'weiss'},
+  bakery:     [ {k:'smoke', a:[0.230,0.050], s:1, col:'weiss'},
                 {k:'steam', a:[0.665,0.43], s:0.6},
-                {k:'glow',  a:[0.60,0.63], s:0.8} ],
+                {k:'glow',  a:[0.130,0.600], s:0.8} ],
   // Schweinezucht: aufgewirbelter Staub im Matschauslauf
   pigfarm:    [ {k:'dustpuff', a:[0.52,0.66], s:1, col:'rgba(150,122,86,$A)'} ],
   // Schlachterei: dünner Rauch aus dem Räucherschornstein rechts
-  butcher:    [ {k:'smoke', a:[0.695,0.03], s:0.55, col:'grau'} ],
+  butcher:    [ {k:'smoke', a:[0.200,0.100], s:0.55, col:'grau'} ],
   // Brauerei: Dampf vom kupfernen Braukessel im Torbogen, dünner Schlotrauch,
   // warmer Feuerschein unterm Kessel
-  brewery:    [ {k:'smoke', a:[0.365,0.035], s:0.6, col:'grau'},
+  brewery:    [ {k:'smoke', a:[0.090,0.240], s:0.6, col:'grau'},
                 {k:'steam', a:[0.42,0.57], s:1},
-                {k:'glow',  a:[0.44,0.66], s:0.6} ],
+                {k:'glow',  a:[0.171,0.582], s:0.6} ],
   // Bergwerke: Staub am Stollenmund + Abraum-Krümel in der Farbe des Erzes
   coalmine:   [ {k:'minedust', a:[0.50,0.56], s:1, col:'rgba(70,66,62,$A)'} ],
   ironmine:   [ {k:'minedust', a:[0.47,0.50], s:1, col:'rgba(142,96,70,$A)'} ],
@@ -243,19 +251,19 @@ const BLD_FX = {
   granitemine:[ {k:'minedust', a:[0.52,0.62], s:1, col:'rgba(160,154,144,$A)'} ],
   // Eisenhütte: dunkler Qualm aus dem hohen Schmelzschornstein, Glut + Funken
   // am Ofenmaul unten
-  smelter:    [ {k:'smoke', a:[0.42,0.02], s:1.25, col:'dunkel'},
-                {k:'glow',  a:[0.34,0.77], s:1.3},
-                {k:'sparks',a:[0.34,0.74], s:1} ],
+  smelter:    [ {k:'smoke', a:[0.720,0.050], s:1.25, col:'dunkel'},
+                {k:'glow',  a:[0.419,0.776], s:1.3},
+                {k:'sparks',a:[0.419,0.776], s:1} ],
   // Münzprägerei: feiner Schlotrauch, goldenes Funkeln an der Werkstatttür
-  mint:       [ {k:'smoke', a:[0.655,0.03], s:0.5, col:'grau'},
+  mint:       [ {k:'smoke', a:[0.300,0.090], s:0.5, col:'grau'},
                 {k:'glint', a:[0.24,0.62], s:1} ],
   // Waffenschmiede: Esse zieht durch den glühenden Kamin ab – Funken stieben
   // aus der Kaminöffnung, drinnen warmer Schein
-  armory:     [ {k:'smoke', a:[0.465,0.04], s:0.8, col:'dunkel'},
-                {k:'sparks',a:[0.465,0.05], s:1},
-                {k:'glow',  a:[0.48,0.62], s:0.7} ],
+  armory:     [ {k:'smoke', a:[0.720,0.050], s:0.8, col:'dunkel'},
+                {k:'sparks',a:[0.383,0.681], s:1},
+                {k:'glow',  a:[0.383,0.681], s:0.7} ],
   // Werkzeugschmiede: Rauch aus dem glühenden Kamin, Glut + Funken an der Esse
-  toolsmith:  [ {k:'smoke', a:[0.405,0.03], s:0.7, col:'grau'},
+  toolsmith:  [ {k:'smoke', a:[0.220,0.100], s:0.7, col:'grau'},
                 {k:'glow',  a:[0.41,0.66], s:0.9},
                 {k:'sparks',a:[0.41,0.64], s:0.8} ],
   // Eselzucht: Heustaub am Futterhaufen im Auslauf
@@ -12461,7 +12469,15 @@ export class Renderer {
     // aendert sich das Bild, muessen die drei Anteile neu gemessen werden.
     if(b.type==='sawmill' && b.state==='done'){
       const mimg=this.asset('bld_sawmill');
-      if(mimg && mimg.naturalWidth){
+      // GRÖSSENRIEGEL: die drei Anteile unten sind im Sprite 153x150
+      // vermessen. Die Lieferung v295 brachte ein anderes Saegewerk (155x150,
+      // Blatt halb hinter einem Pfosten) - der Kreis schnitt dort ein Stueck
+      // Schuppen aus und drehte es mit (Nutzerbefund: "im Saegewerk eierte
+      // ein Rad"). Ohne passendes Blatt steht das gemalte Rad lieber still,
+      // wie die Haspel der Stollenmine. Kommt ein Sprite mit frei sichtbarer
+      // Kreissaege, hier neu vermessen und das Mass eintragen.
+      const passt = mimg && mimg.naturalWidth===153 && mimg.naturalHeight===150;
+      if(passt){
         const SAEGE_CX=60.5/153, SAEGE_CY=109/150, SAEGE_R=17.5/153;
         if(!this._saegeCv){
           const sw=mimg.naturalWidth, r=SAEGE_R*sw;
@@ -12484,8 +12500,15 @@ export class Renderer {
         g.restore();
       }
     }
-    // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms
-    if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')){
+    // Windmühle: rotierendes Flügelkreuz-Bild an der Nabe des Turms.
+    // GRÖSSENRIEGEL wie beim Saegewerk: die Nabe unten ist im Turmbild
+    // 220x465 vermessen. Die Lieferung v295 brachte eine Muehle 315x465,
+    // die ihre Fluegel SELBST GEMALT mitbringt - das Kreuz lag dadurch
+    // doppelt und versetzt ueber dem Turm. Die gemalten Fluegel stehen
+    // jetzt still. Fuer die Drehung braucht es ein Turmbild OHNE Fluegel
+    // plus obj_millsails; beides steht auf der Grafikliste.
+    if(b.type==='mill' && b.state==='done' && this.asset('obj_millsails')
+       && this.asset('bld_mill') && this.asset('bld_mill').naturalWidth===220){
       const sails=this.asset('obj_millsails');
       const mimg=this.asset('bld_mill');
       const hh=this.scaleOf('bld_mill',92);
