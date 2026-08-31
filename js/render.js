@@ -10223,13 +10223,19 @@ export class Renderer {
        || (this._liftC && this._liftC.size!==this._bordLiftN)){
       this.computeBorders(); this.lastTerritoryVer=game.territoryVer;
     }
-    // dezente Linie als Orientierung ...
-    for(const e of this.borderEdges){
-      if(e.x2<wx0||e.x1>wx1||e.y2<wy0-60||e.y1>wy1+60) continue;
-      g.strokeStyle=PLAYER_COLORS[e.pl]+'55'; g.lineWidth=1.6;
-      g.beginPath(); g.moveTo(e.x1,e.y1); g.lineTo(e.x2,e.y2); g.stroke();
-    }
-    // ... und Grenzpfosten mit Wimpel in Spielerfarbe als eigentliche Markierung
+    // Die "dezente Linie als Orientierung" ist ERSATZLOS entfallen.
+    // Nutzerbefund mit rot markierten Stellen: neben jedem Pfosten lag ein
+    // loser grauer Strich schraeg im Gras, alle parallel - wie hingeworfene
+    // Stoecke. Es waren die Grenzkanten: je Kante EINE Mittelsenkrechte
+    // fester Laenge. Nachgemessen an 138 Kanten (276 Endpunkte): kein
+    // einziger Endpunkt lag naeher als 2 Einheiten an einem anderen, der
+    // Median-Abstand betrug 10,1 Einheiten. Vier andere Laengen wurden
+    // gegengemessen (L/2, L/sqrt3, L*0,577, L*0,75) - alle machten die
+    // Luecke groesser (Median 18,6 bis 21,2). Auf dem gestauchten
+    // Dreiecksgitter reihen sich Mittelsenkrechten nicht aneinander; das
+    // ist keine Frage der Laenge, sondern der Konstruktion. Die Linie
+    // konnte also nie eine Linie werden. Die Pfosten markieren die Grenze.
+    // Grenzpfosten mit Wimpel in Spielerfarbe als eigentliche Markierung
     if(this.borderPosts) for(const p of this.borderPosts){
       if(p.x<wx0-20||p.x>wx1+20||p.y<wy0-40||p.y>wy1+40) continue;
       this.drawBorderPost(g, p);
@@ -14306,7 +14312,7 @@ export class Renderer {
         // Fahnen (drawFlag) und Erzschilder (drawSign) rechnen genauso.
         const lfm=(this.liftAt(i)+this.liftAt(n))*0.5*HSCALE;
         const myL=my-lfm;
-        this.borderEdges.push({pl:o, x1:mx-px*12, y1:myL-py*12, x2:mx+px*12, y2:myL+py*12});
+        // borderEdges wird nicht mehr gefuellt - siehe Begruendung am Zeichenpass.
         // Grenzpfosten: ausgedünnt auf ein grobes Raster, damit sie als Reihe
         // von Wegmarken lesbar bleiben statt als Zaun. Im Wasser (und in
         // Lava) steht kein Pfahl – vorher marschierte die Reihe mitten
