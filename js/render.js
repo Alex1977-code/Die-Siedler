@@ -213,30 +213,30 @@ const BLD_FX = {
   // Raster abgelesen - die Automatik nahm bei fuenf von neun Bauten die
   // Spitze des Dachfirsts, die am Giebel ebenfalls schmal ist.
   // Holzfäller: Späne am Hackklotz mit der Axt (links vor der Hütte)
-  woodcutter: [ {k:'chips', a:[0.16,0.72], s:1, col:'rgba(214,178,116,$A)'} ],
+  woodcutter: [ {k:'chips', a:[0.100,0.860], s:1, col:'rgba(214,178,116,$A)'} ],
   // Förster: frisches Grün wirbelt bei den Setzlingstöpfen
-  forester:   [ {k:'leaves', a:[0.68,0.72], s:1} ],
+  forester:   [ {k:'leaves', a:[0.500,0.850], s:1} ],
   // Sägewerk: Sägemehl sprüht am Sägeblatt – KEIN Rauch (dort brennt nichts)
-  sawmill:    [ {k:'sawdust', a:[0.40,0.66], s:1} ],
+  sawmill:    [ {k:'sawdust', a:[0.460,0.680], s:1} ],
   // Steinmetz: Steinstaub und Splitter am Werkblock unterm Vordach
-  quarry:     [ {k:'stonedust', a:[0.42,0.58], s:1} ],
+  quarry:     [ {k:'stonedust', a:[0.480,0.650], s:1} ],
   // Fischerhütte: nur stille Wasserringe unter dem Steg (kein Rauch am Wasser)
-  fisher:     [ {k:'ripple', a:[0.48,0.86], s:1, on:'always'} ],
+  fisher:     [ {k:'ripple', a:[0.500,0.920], s:1, on:'always'} ],
   // Jäger: dünner Rauch vom Räucherfeuer – der Schlot mit gemaltem Rauchfähnchen
   hunter:     [ {k:'smoke', a:[0.190,0.020], s:0.5, col:'grau', on:'staffed'} ],
   // Brunnen: nur dezente Tropfen vom Eimer in den Schacht
-  well:       [ {k:'drips', a:[0.42,0.46], s:1} ],
+  well:       [ {k:'drips', a:[0.500,0.550], s:1} ],
   // Bauernhof: dünner Herdrauch aus dem Schornstein links auf dem Strohdach
   farm:       [ {k:'smoke', a:[0.160,0.140], s:0.55, col:'grau'} ],
   // Mühle: sie MAHLT – kein Rauch, nur feiner Mehlstaub bei den Säcken am Fuß
-  mill:       [ {k:'flour', a:[0.76,0.86], s:1} ],
+  mill:       [ {k:'flour', a:[0.400,0.920], s:1} ],
   // Bäckerei: kräftiger heller Ofenrauch aus dem großen Steinschornstein,
   // dazu Hitzeflimmer-Dampf am Kuppelofen-Abzug und Glut im Ofenmaul
   bakery:     [ {k:'smoke', a:[0.230,0.050], s:1, col:'weiss'},
                 {k:'steam', a:[0.665,0.43], s:0.6},
                 {k:'glow',  a:[0.130,0.600], s:0.8} ],
   // Schweinezucht: aufgewirbelter Staub im Matschauslauf
-  pigfarm:    [ {k:'dustpuff', a:[0.52,0.66], s:1, col:'rgba(150,122,86,$A)'} ],
+  pigfarm:    [ {k:'dustpuff', a:[0.350,0.780], s:1, col:'rgba(150,122,86,$A)'} ],
   // Schlachterei: dünner Rauch aus dem Räucherschornstein rechts
   butcher:    [ {k:'smoke', a:[0.200,0.100], s:0.55, col:'grau'} ],
   // Brauerei: Dampf vom kupfernen Braukessel im Torbogen, dünner Schlotrauch,
@@ -245,7 +245,7 @@ const BLD_FX = {
                 {k:'steam', a:[0.42,0.57], s:1},
                 {k:'glow',  a:[0.171,0.582], s:0.6} ],
   // Bergwerke: Staub am Stollenmund + Abraum-Krümel in der Farbe des Erzes
-  coalmine:   [ {k:'minedust', a:[0.50,0.56], s:1, col:'rgba(70,66,62,$A)'} ],
+  coalmine:   [ {k:'minedust', a:[0.550,0.750], s:1, col:'rgba(70,66,62,$A)'} ],
   ironmine:   [ {k:'minedust', a:[0.47,0.50], s:1, col:'rgba(142,96,70,$A)'} ],
   goldmine:   [ {k:'minedust', a:[0.50,0.50], s:1, col:'rgba(168,138,74,$A)'} ],
   granitemine:[ {k:'minedust', a:[0.52,0.62], s:1, col:'rgba(160,154,144,$A)'} ],
@@ -256,7 +256,7 @@ const BLD_FX = {
                 {k:'sparks',a:[0.419,0.776], s:1} ],
   // Münzprägerei: feiner Schlotrauch, goldenes Funkeln an der Werkstatttür
   mint:       [ {k:'smoke', a:[0.300,0.090], s:0.5, col:'grau'},
-                {k:'glint', a:[0.24,0.62], s:1} ],
+                {k:'glint', a:[0.350,0.600], s:1} ],
   // Waffenschmiede: Esse zieht durch den glühenden Kamin ab – Funken stieben
   // aus der Kaminöffnung, drinnen warmer Schein
   armory:     [ {k:'smoke', a:[0.720,0.050], s:0.8, col:'dunkel'},
@@ -267,15 +267,15 @@ const BLD_FX = {
                 {k:'glow',  a:[0.41,0.66], s:0.9},
                 {k:'sparks',a:[0.41,0.64], s:0.8} ],
   // Eselzucht: Heustaub am Futterhaufen im Auslauf
-  donkeyfarm: [ {k:'chips', a:[0.66,0.64], s:1, col:'rgba(226,196,110,$A)'} ],
+  donkeyfarm: [ {k:'chips', a:[0.700,0.800], s:1, col:'rgba(226,196,110,$A)'} ],
   // Werft: Holzspäne am Schiffsrumpf in der offenen Halle
-  shipyard:   [ {k:'sawdust', a:[0.45,0.55], s:0.8} ],
+  shipyard:   [ {k:'sawdust', a:[0.500,0.720], s:0.8} ],
   // Hafen: Wasserringe zwischen den Stegpfählen
-  harbor:     [ {k:'ripple', a:[0.55,0.82], s:1.2, on:'always'} ],
+  harbor:     [ {k:'ripple', a:[0.200,0.880], s:1.2, on:'always'} ],
   // Kapelle: ruhiger goldener Schein um die Glocke im Turm
-  chapel:     [ {k:'bell', a:[0.30,0.30], s:1, on:'always'} ],
+  chapel:     [ {k:'bell', a:[0.220,0.100], s:1, on:'always'} ],
   // Marktstand: bunte Wimpel flattern an der Markise
-  market:     [ {k:'pennants', a:[0.42,0.33], s:1, on:'always'} ],
+  market:     [ {k:'pennants', a:[0.550,0.300], s:1, on:'always'} ],
 };
 
 // ---------- Kleintier-Deko: Schmetterlinge und Vögel ----------
@@ -12872,8 +12872,13 @@ export class Renderer {
         const a=(hash01(id*7+k)-0.5)*2.2;
         g.fillStyle=col.replace('$A',(0.85*(1-ph)).toFixed(3));
         g.save();
-        g.translate(px+Math.cos(a)*spread*ph, py-Math.sin(Math.PI*ph)*9*sc+ph*4*sc);
-        g.rotate(a*3+ph*6);
+        // Nutzerbefund v298: "beim Holzfaeller dreht sich ein nicht
+        // passendes Rad". Es waren diese vier Rechtecke: sie taumelten mit
+        // a*3+ph*6 - also mehreren vollen Umdrehungen - eng um den Anker
+        // und lasen sich aus der Entfernung als kleines Rad. Jetzt fliegen
+        // sie weiter weg und kippen dabei nur leicht.
+        g.translate(px+Math.cos(a)*spread*ph, py-Math.sin(Math.PI*ph)*11*sc+ph*5*sc);
+        g.rotate(a+ph*1.8);
         g.fillRect(-cw/2,-ch/2,cw,ch);
         g.restore();
       }
@@ -12969,7 +12974,7 @@ export class Renderer {
           break;
         case 'chips':
           // wirbelnde Splitter/Halme in Materialfarbe
-          chips(ax, ay, e.col, 4, 12*S);
+          chips(ax, ay, e.col, 4, 21*S);
           break;
         case 'sawdust': {
           // Sägemehl: gemalte Staubwolke + wirbelnde Späne am Sägeblatt

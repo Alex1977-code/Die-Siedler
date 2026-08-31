@@ -109,7 +109,14 @@ export const FOODS = ['fish','bread','meat'];
 export const BLD = {
   hq:         { name:'Hauptquartier', cat:'lager', size:'L', cost:{}, mil:{cap:0,radius:11}, store:true, desc:'Zentrum deiner Siedlung. Lager und Rekrutierung.' },
   storehouse: { name:'Lagerhaus', cat:'lager', size:'M', cost:{board:4,stone:3}, store:true, desc:'Zusätzliches Lager für alle Waren.' },
-  woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:60, desc:'Fällt Bäume und liefert Stämme.' },
+  // time steuert das Tor zwischen zwei Gaengen (time*0.4 Takte Wartezeit in
+  // der Huette, js/sim.js). Auf 155 gesetzt, damit das Verhaeltnis dem
+  // Vorbild folgt: ZWEI Holzfaeller und EIN Foerster tragen genau EIN
+  // Saegewerk. Gemessen ueber je 24000 Takte lag der Aufbau 2+1 vorher bei
+  // einem Stamm alle 71 Takte, das Saegewerk verbraucht einen alle 90 - also
+  // 27 Prozent zu viel Holz. Der Zyklus je Holzfaeller muss dafuer von 142
+  // auf 180 Takte, das Tor also von 24 auf 62.
+  woodcutter: { name:'Holzfäller', cat:'basis', size:'S', cost:{board:2}, gather:'tree', out:'trunk', range:8, time:155, desc:'Fällt Bäume und liefert Stämme.' },
   // Förster: Radius wie der Holzfäller (sonst blieb der äußere Ring gerodeter
   // Fläche für immer kahl) und kürzerer Takt – zusammen mit den zwei
   // Setzlingen je Gang trägt EIN Förster so etwa anderthalb Holzfäller
