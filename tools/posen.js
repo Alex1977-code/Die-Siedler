@@ -160,12 +160,17 @@ const HAMMERN = [
           L_Upperarm:[14,0,6],   L_Forearm:[-18,0,0],
           Spine01:[-18,0,0], Spine02:[-7,0,0], Head:[11,0,0],
           R_Thigh:[-4,0,0], R_Calf:[6,0,0], L_Thigh:[-3,0,0], L_Calf:[5,0,0] }],
-  [5,   { R_Upperarm:[52,0,-7],  R_Forearm:[-34,0,0],
+  // RUECKWEG GESTRAFFT (T21), gleicher Befund wie bei der Axt: die
+  // Spalten 5 bis 7 standen alle vorgebeugt mit dem Werkzeug unten.
+  [4.6, { R_Upperarm:[52,0,-7],  R_Forearm:[-34,0,0],
           L_Upperarm:[14,0,6],   L_Forearm:[-18,0,0],
           Spine01:[-18,0,0], Spine02:[-6,0,0], Head:[10,0,0] }],
-  [6.5, { R_Upperarm:[46,0,-6],  R_Forearm:[-48,0,0], R_Hand:[-14,0,0],
+  [6,   { R_Upperarm:[70,0,-8],  R_Forearm:[-52,0,0], R_Hand:[-20,0,0],
+          L_Upperarm:[15,0,6],   L_Forearm:[-20,0,0],
+          Spine01:[-4,0,0], Head:[4,0,0] }],
+  [7,   { R_Upperarm:[46,0,-6],  R_Forearm:[-52,0,0], R_Hand:[-10,0,0],
           L_Upperarm:[14,0,6],   L_Forearm:[-20,0,0],
-          Spine01:[-10,0,0], Head:[5,0,0] }],
+          Spine01:[-8,0,0], Head:[4,0,0] }],
 ];
 // AXT: ECHTER beidhaendiger Diagonalhieb (Holzfaeller). Die erste Fassung
 // (v233) las sich als "Decke ausschuetteln" (Spielerkritik): am Kontakt
@@ -203,13 +208,24 @@ const HACKEN_AXT = [
           L_Upperarm:[60,0,-12], L_Forearm:[-14,0,0],
           Spine01:[-32,-10,0], Spine02:[-12,-4,0], Head:[16,4,0],
           R_Thigh:[-8,0,0], R_Calf:[10,0,0], L_Thigh:[-7,0,0], L_Calf:[9,0,0] }],
-  [5,   { R_Upperarm:[68,0,0],   R_Forearm:[-12,0,0],                // sitzt im Holz
+  // RUECKWEG GESTRAFFT (T21). Vorher lagen die Schluessel bei 5 und 6.5:
+  // die Spalten 5, 6 und 7 zeigten damit alle dieselbe vorgebeugte
+  // Haltung mit der Axt am Boden - drei von acht Bildern standen still,
+  // und der Hieb las sich als einmaliges Bruecken statt als Takt
+  // (Nutzerbefund "komische bewegungen", Beleg pb_woodcutter.png).
+  // Jetzt sitzt die Axt nur noch eine halbe Spalte im Holz, danach richtet
+  // sich die Figur sichtbar auf und die Axt loest sich schon in Spalte 6.
+  [4.6, { R_Upperarm:[68,0,0],   R_Forearm:[-12,0,0],                // sitzt im Holz
           L_Upperarm:[60,0,-12], L_Forearm:[-16,0,0],
           Spine01:[-30,-8,0], Spine02:[-11,-3,0], Head:[15,3,0],
           R_Thigh:[-7,0,0], R_Calf:[9,0,0], L_Thigh:[-6,0,0], L_Calf:[8,0,0] }],
-  [6.5, { R_Upperarm:[54,0,-6],  R_Forearm:[-32,0,0],                // loesen
-          L_Upperarm:[46,0,-10], L_Forearm:[-42,0,0],
-          Spine01:[-14,2,0], Head:[8,0,0] }],
+  [6,   { R_Upperarm:[78,0,-4],  R_Forearm:[-40,0,0],                // Axt loest sich
+          L_Upperarm:[70,0,-16], L_Forearm:[-46,0,0],
+          Spine01:[-12,4,0], Spine02:[-4,2,0], Head:[7,-1,0],
+          R_Thigh:[-2,0,0], R_Calf:[3,0,0] }],
+  [7,   { R_Upperarm:[56,0,-6],  R_Forearm:[-44,0,0],                // wieder bereit
+          L_Upperarm:[48,0,-10], L_Forearm:[-52,0,0],
+          Spine01:[-8,6,0], Head:[5,-2,0] }],
 ];
 // SENSE: ruhiger Maehschwung - der Rumpf dreht von rechts nach links,
 // die Arme bleiben lang (Bauer). Kontakt = Mitte des Schwungs.
@@ -256,26 +272,46 @@ const ANGELN = [
 // Linke Hand ADDUZIERT (Z-) an den Schaft - Z+ spreizte sie weg vom
 // Werkzeug (gleiche Messung wie beim Holzfaeller, T15).
 const SCHAUFELN = [
-  [0,   { R_Upperarm:[36,0,-6],  R_Forearm:[-30,0,0],
-          L_Upperarm:[30,0,-12], L_Forearm:[-40,0,0],
-          Spine01:[-10,0,0], Head:[5,0,0] }],
-  [1.5, { R_Upperarm:[62,0,-8],  R_Forearm:[-50,0,0],
-          L_Upperarm:[42,0,-16], L_Forearm:[-52,0,0],
-          Spine01:[0,0,0], Head:[6,0,0] }],
-  [3,   { R_Upperarm:[46,0,-6],  R_Forearm:[-18,0,0],
-          L_Upperarm:[34,0,-14], L_Forearm:[-30,0,0],
-          Spine01:[-24,0,0], Spine02:[-8,0,0], Head:[12,0,0],
+  // AUSSCHLAG VERGROESSERT (T21). Nutzerbefund "planierer ... mit
+  // komischen bewegungen": im Blatt schwang die Schaufel ueber acht
+  // Spalten um vielleicht zwanzig Grad, die Figur stand dabei fast still -
+  // sie sah aus, als lehne sie auf einem Spazierstock, nicht als grabe
+  // sie (Beleg prevr_leveler.png). Gemessen an der Vorschau war der
+  // Rumpf der Engpass: er ging nur von 0 auf -34 und wieder zurueck.
+  // Jetzt vier klar getrennte Abschnitte statt eines Wiegens:
+  //   0     Schaufel angesetzt, Rumpf aufrecht
+  //   1.5   AUSHOLEN - Rumpf streckt sich, die Schaufel hebt an
+  //   4     STICH (Kontakt) - voller Beugung, Knie federn, Blatt im Boden
+  //   5.2   HEBELN - Rumpf richtet sich mit der Last auf
+  //   6.4   AUSWERFEN - Rumpf dreht seitlich weg, Arme folgen
+  // Beide Haende bleiben am Schaft: der linke Oberarm laeuft mit dem
+  // rechten mit (Differenz konstant ~8 Grad), sonst haengt er unbeteiligt
+  // an der Huefte - derselbe Fehler, den die Axt in v233 hatte.
+  [0,   { R_Upperarm:[34,0,-6],  R_Forearm:[-28,0,0],
+          L_Upperarm:[28,0,-14], L_Forearm:[-38,0,0],
+          Spine01:[-12,0,0], Head:[6,0,0] }],
+  [1.5, { R_Upperarm:[76,0,-10], R_Forearm:[-58,0,0],
+          L_Upperarm:[66,0,-20], L_Forearm:[-64,0,0],
+          Spine01:[10,0,0], Spine02:[4,0,0], Head:[2,0,0],
+          R_Thigh:[3,0,0], L_Thigh:[3,0,0] }],
+  [2.6, { R_Upperarm:[58,0,-8],  R_Forearm:[-30,0,0],
+          L_Upperarm:[50,0,-18], L_Forearm:[-40,0,0],
+          Spine01:[-22,0,0], Spine02:[-9,0,0], Head:[12,0,0],
           R_Thigh:[-6,0,0], R_Calf:[8,0,0], L_Thigh:[-5,0,0], L_Calf:[7,0,0] }],
-  [4,   { R_Upperarm:[40,0,-6],  R_Forearm:[-10,0,0],                // KONTAKT (Stich)
-          L_Upperarm:[32,0,-14], L_Forearm:[-24,0,0],
-          Spine01:[-34,0,0], Spine02:[-12,0,0], Head:[16,0,0],
-          R_Thigh:[-8,0,0], R_Calf:[11,0,0], L_Thigh:[-7,0,0], L_Calf:[10,0,0] }],
-  [5.5, { R_Upperarm:[58,0,-8],  R_Forearm:[-44,0,0],
-          L_Upperarm:[48,0,-18], L_Forearm:[-56,0,0],
-          Spine01:[-8,-14,0], Spine02:[-2,-5,0], Head:[8,5,0] }],
-  [7,   { R_Upperarm:[40,0,-7],  R_Forearm:[-34,0,0],
-          L_Upperarm:[33,0,-12], L_Forearm:[-42,0,0],
-          Spine01:[-10,-4,0], Head:[6,1,0] }],
+  [4,   { R_Upperarm:[38,0,-6],  R_Forearm:[-8,0,0],                 // KONTAKT (Stich)
+          L_Upperarm:[30,0,-14], L_Forearm:[-18,0,0],
+          Spine01:[-46,0,0], Spine02:[-18,0,0], Head:[22,0,0],
+          R_Thigh:[-13,0,0], R_Calf:[17,0,0], L_Thigh:[-11,0,0], L_Calf:[15,0,0] }],
+  [5.2, { R_Upperarm:[64,0,-8],  R_Forearm:[-36,0,0],                // hebeln
+          L_Upperarm:[56,0,-18], L_Forearm:[-46,0,0],
+          Spine01:[-14,-8,0], Spine02:[-5,-3,0], Head:[9,3,0],
+          R_Thigh:[-4,0,0], R_Calf:[6,0,0] }],
+  [6.4, { R_Upperarm:[70,0,-12], R_Forearm:[-52,0,0],                // auswerfen
+          L_Upperarm:[62,0,-24], L_Forearm:[-60,0,0],
+          Spine01:[-6,-30,0], Spine02:[-2,-11,0], Head:[5,11,0] }],
+  [7,   { R_Upperarm:[46,0,-8],  R_Forearm:[-38,0,0],
+          L_Upperarm:[38,0,-16], L_Forearm:[-48,0,0],
+          Spine01:[-11,-12,0], Head:[6,4,0] }],
 ];
 // ---------- Soldaten (T14/T16) --------------------------------------------
 // Die Tripo-Angriffs-Clips der Soldaten (1.29 s) ZERFETZEN Helmbusch und
@@ -602,9 +638,20 @@ export const POSEN = {
                 koerper: DRAHTIG, walkFenster:[0,0.5] },
   miner:      { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
   quarry:     { atk: HACK,       werkzeug: IN_FAUST('pick',1.25) },
-  // T18: Kraftpaket mit buschigem Asterix-Schnurrbart
-  builder:    { atk: HAMMERN,    koerper: KRAFT,
-                werkzeug: MIT(IN_FAUST('hammer',1.7), [BART(2.6,[0,-0.14,-0.36])]) },
+  // Bauarbeiter: KEIN Zusatzwerkzeug und KEIN Bart mehr (T21).
+  // Nutzerbefund "planierer bauarbeiter ... mit komischen bewegungen":
+  // neben der Figur schwebte ein gebogener brauner Klotz in der Luft. Er
+  // war weder Werkzeug noch Mesh-Rest, sondern der BART - der Anker
+  // [0,-0.14,-0.36] schob ihn 36 cm vor den Kopfknochen, im Seitenbild
+  // stand er frei neben dem Gesicht (Beleg builder_zoom.png). Der
+  // Standardanker -0.23 half nicht (Abtastung bart_vergleich.png: sechs
+  // Werte in vier Richtungen - naeher am Kopf verschwindet er darin,
+  // weiter weg schwebt er). Dasselbe Ergebnis wie beim Holzfaeller in
+  // T18, also dieselbe Folge: Bart raus.
+  // Und das Modell bringt seine Spitzhacke SAUBER GESKINNT in der Faust
+  // mit (Beleg wz_builder_vgl.png, Spalte "voll"); der prozedurale Hammer
+  // lag als ZWEITES Werkzeug darueber. Das Mesh-Werkzeug bleibt.
+  builder:    { atk: HAMMERN,    koerper: KRAFT },
   // Axt eine Stufe groesser (1.35 -> 1.5): auf Spielzoom war der Hieb sonst
   // kaum als Axtschlag lesbar (Spielerkritik "Decke ausschuetteln").
   // Ruck beim Laufen (T15, Spielerkritik): zwei 2-Dreieck-Inseln der
@@ -619,12 +666,26 @@ export const POSEN = {
   // neigt sich im Gehen so stark, dass jeder Bart-Anker entweder im
   // Kopf verschwindet oder als Klecks vor dem Gesicht schwebt
   // (bart-woodcutter*.png) - Identitaet kommt aus Axt+Statur+Tunika.
+  // T21: die prozedurale Axt ist RAUS. Das Modell traegt seine eigene Axt
+  // sauber in der Faust; die zweite, groessere lag quer darueber und
+  // erschien im Blatt als flaches Brett vor der Brust (Beleg
+  // prev-woodcutter-atk.png, Spalte 1). Mit dem Mesh-Werkzeug allein
+  // liest sich der Hieb sofort: die Axt steigt in Spalte 1-3 und sitzt in
+  // Spalte 4 im Holz (Beleg pb_woodcutter.png).
+  // 'entfernen' bleibt: das sind die zwei 2-Dreieck-Inseln am statischen
+  // neutral_bone, die im Gehen als Faden hinterherhaengen - nicht die Axt.
   woodcutter: { atk: HACKEN_AXT, koerper: HOLZFAELLER,
-                werkzeug: MIT(IN_FAUST('axe',1.5), []),
                 entfernen:[2992,3092], zentrierKnochen:'Hip',
                 walkFenster:[0,0.5] },
-  // Sense: Blatt zum BODEN gedreht (die Faust-Grundlage hielte es nach oben)
-  farm:       { atk: MAEHEN,     werkzeug: IN_FAUST('scythe',1.15,[-70,0,0]) },
+  // Sense: Blatt zum BODEN. Der Bauer ist der einzige der gemeldeten
+  // Berufe OHNE eigenes Mesh-Werkzeug (Probe pb_farm.png: leere Haende) -
+  // die prozedurale Sense muss also sitzen. -70 stellte sie fast
+  // senkrecht: sie stak wie ein Spazierstock im Boden, und die
+  // Maehdrehung des Rumpfes lief ins Leere. Sechs Winkel abgetastet, je
+  // vier Spalten (Beleg ww_farm.png): bei -110/0/-30 liegt das Blatt flach
+  // am Boden, der Stiel laeuft schraeg nach vorn-unten, und die
+  // Rumpfdrehung traegt das Blatt sichtbar durch den Halm.
+  farm:       { atk: MAEHEN,     werkzeug: IN_FAUST('scythe',1.15,[-110,0,-30]) },
   // leveler: im GLB steht eine ZWEITE Schaufel senkrecht neben der Figur -
   // 71 Inseln (511 Verts), alle AUSSCHLIESSLICH an R_ToeBase geskinnt
   // (islands()-Scan T15): sie folgt dem rechten Fuss statt der Hand und
@@ -671,7 +732,14 @@ export const POSEN = {
              werkzeug:{
                walk:{ kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[140,0,0], scale:1.25 },
                idle:{ kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[125,0,0], scale:1.25 },
-               atk: { kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[90,0,0],  scale:1.25 },
+               // atk NEU (T21): 90 legte die Rute DURCH den Koerper - sie
+               // lief von unten links diagonal hinter dem Rumpf hindurch und
+               // beruehrte keine Hand (Beleg prev-fisher-atk.png). Der Wert
+               // stammte aus der Geh-Messung, wo die Faust anders steht.
+               // Sechs Winkel abgetastet (ww_fisher.png): -20 haelt die Rute
+               // waagerecht nach vorn aus der Faust, die Spitze frei ueber
+               // dem Wasser, ohne Rumpf- oder Kapuzenschnitt.
+               atk: { kind:'rod', bone:'R_Hand', pos:[0,0.02,0], rot:[-20,0,0], scale:1.25 },
              },
              entfernen:[1978,3663,4085,3826,2943,2739,4166,2946,3498,3840,120,4127,3704,3805,3827,4100,4053,4169,4624,4614,4766,3405,3643,3817,3732,3818,3825,3801,3917,4130,4060,4196,4325,4416,1335,3819,3891,4434,4577,4414,4578,4625,4719,1830,1519,4083,4165,3260,3568,4139,3496,3560,3726,3660,3727,3832,3796,3778,3908,3894,3939,3941,3896,4152,4019,4067,4059,4072,4087,4093,4133,4172,4134,4161,4158,4199,4171,4217,4501,4327,4415,4472,4579,4503,4505,4527,4649,4605,4720,4615,4616,4683,1449,4102,4185,3376,3500,3645,3719,3612,3738,3838,3812,3887,3888,3936,3897,3895,3892,3931,3861,3862,3934,3890,3964,3893,3928,3981,3940,3943,3933,3935,3946,4005,4145,4020,3989,3990,4075,4151,4144,4028,4094,4178,4150,4435,4245,4163,4160,4247,4220,4232,4233,4235,4288,4440,4442,4328,4378,4363,4366,4525,4417,4502,4528,4537,4475,4546,4477,4478,4479,4617,4663,4664,4679,4513,4545,4691,4548,4589,4694,4596,4653,4600,4558,4654,4658,4604,4594,4595,4657,4660,4665,4723,4724,4633,4635,4684,4662,4682,4701,4738,7164,7123,4637,7159,4737,6843,6749,6765,6746,6768,6552,6854,5186,6444,6913,3723,3970,6503,2482,2484,4730,6980,1116,4347,6381,6859,6963,4303,7175,6943,6322,6747,3906,2887,6750,6869,6931,6898,6936,6892,6995,5105,2485,3693,3767,3953,3700,1014,4061,4230,4227,5492,6576,7106,7084,107,1018,109,5069,1918,2487,1916,2489,3701,4305,4251,4275,4301,4639,6171,6173,7162,7177,7115,3460,4206,4404,4298,4308,4361,4467,6985,7094,2880,4314,4292,4354,4575,6966,7112,4190,4223,4290,4456,4372,4572,4447,7051,7064,4032,4261,4271,4340,4457,4454,4496,4498,4573,4397,4398,4445,7010,7119,7110,7093,7113,162,7073,7108,6748,7041,7092,6896,531,1705,732,5070,6808,6810,6965,6921,6981,5695,5106,6784,6785,6835,6935,7002,7042,6938,6982,6971,6941,6961,6970,6987,7013,6984,7067,6989,7007,7097,7021,7098,7191,7202,7189,7212,6903,4359,4565,6901,1982,1834,1334] },
   // Soldaten (T16): sword/spear tragen jetzt PROZEDURALE Faust-Waffen -

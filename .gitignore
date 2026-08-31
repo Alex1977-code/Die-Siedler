@@ -32,3 +32,9 @@ tools/__pycache__/
 /baum-*.png
 /leer-*.png
 /neu-*.png
+
+# Die Roh-Figurenmodelle liegen wie die Grafiken auf main (glb/, 19 MB) und
+# werden fuer einen Backlauf hierher geholt (tools/models/). Der Backtreiber
+# schreibt seine Filmstreifen als prev-*.png ins Wurzelverzeichnis.
+/glb/
+/prev-*.png

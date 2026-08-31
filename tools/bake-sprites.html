@@ -398,6 +398,39 @@ window.islands=()=>{
       min:s.min.map(v=>+v.toFixed(3)), max:s.max.map(v=>+v.toFixed(3)), bones:top };
   }).sort((a,b)=>b.verts-a.verts);
 };
+// WO liegt eine Insel, wenn die Figur POSIERT ist? Die eingebauten
+// Werkzeuge der Tripo-Modelle sind ueber viele kleine Inseln verstreut
+// (Bauarbeiter: 1029 Inseln, groesste 60 Vertices) - sie einzeln
+// anzusehen fuehrt zu nichts. Sie fallen aber raeumlich auf: ein
+// Werkzeug, das neben der Figur in der Luft haengt, hat einen
+// Schwerpunkt AUSSERHALB des Koerpers. getVertexPosition (three r170)
+// liefert den geskinnten Ort, also den mit allen Knochen verrechneten -
+// genau den, den man im Bild sieht.
+window.inselOrte=()=>{
+  const sm=mainSkin(); if(!sm) return [];
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  sm.updateMatrixWorld(true);
+  const v=new THREE.Vector3(), agg=new Map();
+  for(let i=0;i<pos.count;i++){
+    sm.getVertexPosition(i, v);
+    v.applyMatrix4(sm.matrixWorld);
+    const r=find(i);
+    let a=agg.get(r);
+    if(!a){ a={id:r,n:0,sx:0,sy:0,sz:0,minx:1e9,maxx:-1e9,miny:1e9,maxy:-1e9,minz:1e9,maxz:-1e9}; agg.set(r,a); }
+    a.n++; a.sx+=v.x; a.sy+=v.y; a.sz+=v.z;
+    if(v.x<a.minx)a.minx=v.x; if(v.x>a.maxx)a.maxx=v.x;
+    if(v.y<a.miny)a.miny=v.y; if(v.y>a.maxy)a.maxy=v.y;
+    if(v.z<a.minz)a.minz=v.z; if(v.z>a.maxz)a.maxz=v.z;
+  }
+  return [...agg.values()].map(a=>({ id:a.id, verts:a.n,
+    c:[+(a.sx/a.n).toFixed(4), +(a.sy/a.n).toFixed(4), +(a.sz/a.n).toFixed(4)],
+    min:[+a.minx.toFixed(4),+a.miny.toFixed(4),+a.minz.toFixed(4)],
+    max:[+a.maxx.toFixed(4),+a.maxy.toFixed(4),+a.maxz.toFixed(4)] }));
+};
 // Nur bestimmte Inseln zeigen (Diagnose: welche Insel ist das Werkzeug?)
 let fullIndex=null;
 window.isolate=(ids)=>{
