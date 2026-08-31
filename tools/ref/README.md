@@ -23,3 +23,10 @@ Rechnung wie `palBld()` in `js/render.js`, aber mit Faktor 2,6 statt 1,0
 auf der Kaltdrehung - das Blatt soll das ZIEL zeigen, nicht den
 Ist-Zustand, deshalb sind die blaugrauen Daecher hier staerker ins Warme
 gedreht als im Spiel.
+
+## stilblatt-baeume.png
+
+Sechs Baeume aus der V2-Lieferung (Buche, Birke, Nadelbaum, Eiche, Fichte,
+Setzling) als Stilvorlage fuer die sechs noch alten Baumbilder. Gebaut nach
+demselben Verfahren wie das Gebaeudeblatt, aber ohne Warmdrehung - die
+Baeume sind bereits im Zielton.
