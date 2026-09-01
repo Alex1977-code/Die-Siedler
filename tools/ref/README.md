@@ -71,3 +71,26 @@ Ausschnittblatt schaerfer als ein ganzes Haus.
 Die vier Geologenschilder in derselben Liste stehen dagegen IN der Welt,
 auf zwei Pfosten im Gras. Sie laufen deshalb weiter ueber
 `stilblattkamera.png` und den 35-Grad-Satz.
+
+## stilblattfiguren.png
+
+Sechs Figuren aus `assets/` (Holzfaeller, Bauer, Foerster, Baecker,
+Zimmermann, Spaeher) als Stilvorlage fuer die Figurenbloecke in
+`docs_grafikliste_offen.txt`. Gebaut von `tools/stilblattfiguren.py` nach
+demselben Verfahren wie das Baumblatt: frontale Zeile des idle-Blattes,
+freigestellt, auf gemeinsame Hoehe, dasselbe neutrale Grau. Ohne
+Farbdrehung - die Figurenblaetter laufen seit v308 durch
+`tools/figurenpalette.py` und zeigen den Zielton bereits.
+
+Warum sechs verschieden gekleidete: dasselbe Argument wie beim
+Gebaeudeblatt. Sechs gleich gekleidete Siedler lesen sich als Vorlage zum
+Abmalen, sechs verschiedene als Konvention - Kittel, Schuerze, Hose,
+Stiefel, Hut in klar getrennten Farben.
+
+Warum Schmied, Geologe und Traeger NICHT drauf sind: der Kontaktabzug
+aller 35 Figuren zeigt genau diese drei als die misslungenen. Der Schmied
+ist ein grauschwarzer Fleck ohne lesbare Silhouette, der Geologe
+malvenfarben, der Traeger traegt gar keine Kleidung - eine einfarbig
+terrakottafarbene Gestalt mit einem schwarzen Riss vom Bauch bis ins
+Bein. Sie sind der Grund fuer das Blatt und duerfen nicht seine Vorlage
+sein.

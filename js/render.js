@@ -12732,6 +12732,17 @@ export class Renderer {
     // (hoch) liefern; entschieden wird am Seitenverhaeltnis. Solange
     // fx_mine_haspel fehlt, passiert hier nichts - die gemalte Haspel im
     // Minenbild bleibt dann einfach stehen.
+    // ACHTUNG, geprueft und bewusst NICHT eingebaut: in verschiedenes/ liegt
+    // ein Rohblatt fx_mine_haspel.png mit vier Stellungen. Es zeigt aber eine
+    // LIEGENDE Seiltrommel mit Handkurbel (Seitenansicht, rund 2,9:1), und
+    // keines der vier Minenbilder hat so etwas: Kohle- und Goldmine tragen ein
+    // stehendes SPEICHENRAD im Foerdergeruest, die Eisenmine nur einen
+    // beschlagenen Querbalken, die Granitmine ein leeres Geruest. Das Blatt
+    // ueber das Speichenrad zu legen ergaebe einen sichtbaren Formbruch,
+    // deshalb bleibt es liegen. Gebraucht wird stattdessen ein Blatt mit vier
+    // Drehstellungen DES SPEICHENRADS, freigestellt, Nabe in der Zellmitte.
+    // (Die vierte Zelle des Rohblatts ist zusaetzlich waagerecht gespiegelt -
+    // Wickel rechts statt links, Kurbel am falschen Ende.)
     if(BLD[b.type] && BLD[b.type].size==='MINE' && b.state==='done'){
       const hsp=this.asset('fx_mine_haspel');
       // dasselbe Bild wie im Zeichenpass waehlen (erschoepft = _leer)
