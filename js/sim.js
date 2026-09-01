@@ -45,6 +45,11 @@ const WALK_SPEED = 0.12;
 // TILE ist 52 breit, ROWH 32 hoch - 12 ist knapp ein Viertel Kachel und
 // damit etwa der gemalte Stammfuss, ohne Engstellen dichtzumachen.
 const SPERRKREIS = 12;
+// Kleiner Kreis fuer den duennen Fahnenmast. Sieben Bildpunkte: der Mast
+// steht auf flagVisualPos, die Figur ist rund 20 px breit - bei sieben
+// geht sie sichtbar DANEBEN vorbei, ohne dass sie an Weggabelungen und
+// Tueren staendig verschoben wird.
+const FAHNENKREIS = 7;
 
 let NEXT_ID = 1;
 
@@ -3341,13 +3346,71 @@ export class Game {
   // Arbeitsziel ist ausgenommen: der Holzfaeller muss an den Stamm, der
   // Steinmetz an den Brocken.
   freiHalten(u){
-    const m=this.map, R=SPERRKREIS;
+    const m=this.map;
     const n=m.nearestNode(u.x, u.y);
     if(n<0) return;
     for(const q of [n, ...m.nbs(n)]){
       if(q<0 || q===u.target) continue;
       const o=m.obj[q]&127;
-      if(o!==OBJ.TREE && o!==OBJ.TREE2 && o!==OBJ.STONE) continue;
+      // Baum, Jungbaum und Stein sind breit - um sie herum gilt der volle
+      // Sperrkreis. Die FAHNE ist ein duenner Mast; um sie herum reicht
+      // ein kleinerer Kreis, und er muss klein sein: Fahnen stehen auf den
+      // Wegen und an den Tueren, ein Kreis von Baumgroesse wuerde die
+      // Figuren dort staendig zur Seite schieben.
+      //
+      // Nutzerbefund: "die figuren laufen immernoch durch die fahnen
+      // hindurch". Gemessen (tools/fahnendurchlauf.mjs, 12 000 Takte):
+      // die Arbeiter standen in 1,42 % ihrer Schritte naeher als sieben
+      // Bildpunkte am Mast, der geringste Abstand war NULL - sie liefen
+      // also mitten hindurch. Die Strassentraeger nicht: waehrend der
+      // Fahrt kamen sie nie naeher als 7,62 px, ihre Route laeuft ohnehin
+      // von Fahne zu Fahne. Sie brauchen den Kreis nicht und bekommen ihn
+      // auch nicht - sie werden gar nicht ueber moveToward bewegt.
+      let R=0;
+      if(o===OBJ.TREE || o===OBJ.TREE2 || o===OBJ.STONE) R=SPERRKREIS;
+      else if(m.flag[q]) R=FAHNENKREIS;
+      if(!R) continue;
+      // TUERFAHNEN sind ausgenommen, alle, nicht nur die eigene.
+      // Drei Gruende, der letzte ist der zwingende:
+      //   - dort geht der Arbeiter ins Haus hinein und wieder heraus,
+      //   - der Boden davor ist ohnehin vom Hausbild verdeckt,
+      //   - und der Mast steht NICHT auf dem Knoten: flagVisualPos zieht
+      //     ihn zum Eingang, bei der Burg um bis zu 4,4 Bildpunkte
+      //     (gemessen ueber 14 Fahnen: Median 0, p90 3,47, groesster
+      //     Wert 4,38). Ein Kreis um den KNOTEN kann den Mast dort also
+      //     gar nicht freihalten - die letzten Verstoesse der Messung
+      //     waren genau das: Arbeiter sauber auf sieben Punkte vom Knoten
+      //     geschoben und trotzdem 2,2 Punkte neben dem Burgmast.
+      // Freistehende Wegfahnen stehen dagegen exakt auf ihrem Knoten, und
+      // um die geht es beim Nutzerbefund.
+      if(R===FAHNENKREIS){
+        // WER ZU DIESER FAHNE UNTERWEGS IST, MUSS SIE ERREICHEN.
+        // flagWaypoints() legt die Route ueber die Knoten der Strassen -
+        // und deren Endknoten SIND die Fahnen. Ein Kreis um sie herum
+        // sperrt damit genau den Punkt, den die Figur ansteuert: sie
+        // laeuft 4,8 Punkte je Takt darauf zu, kommt auf 2,2 heran, wird
+        // auf 7 zurueckgeschoben, und das ewig. Gemessen hat das die
+        // halbe Siedlung stillgelegt - Bauarbeiter und Planierer standen
+        // nach 685 Takten bei Wegpunkt 1 von 12, exakt 7,00 von der
+        // Fahne, und zwei Baustellen kamen nie ueber Fortschritt 0
+        // (tools/... festsitzer-Probe; der Durchsatz fiel von 27 Staemmen
+        // auf 0). Der laufende Wegpunkt ist deshalb ausgenommen; sobald
+        // die Figur ihn abgehakt hat, schiebt der Kreis sie wieder
+        // beiseite und sie geht sichtbar NEBEN dem Mast weiter.
+        if(u.wp && (u.wpi||0)<u.wp.length){
+          const w=u.wp[u.wpi||0];
+          const [qx,qy]=m.worldPos(q);
+          if(w && Math.abs(w[0]-qx)<1.5 && Math.abs(w[1]-qy)<1.5) continue;
+        }
+        let tuer=false;
+        for(const nb of m.nbs(q)){
+          const bi=m.bld[nb];
+          if(bi<0) continue;
+          const b2=this.buildings.get(bi);
+          if(b2 && b2.door===q){ tuer=true; break; }
+        }
+        if(tuer) continue;
+      }
       const [ox,oy]=m.worldPos(q);
       let dx=u.x-ox, dy=u.y-oy;
       let d=Math.hypot(dx,dy);
