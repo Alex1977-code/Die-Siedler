@@ -8609,6 +8609,35 @@ export class Renderer {
   }
   // demselben Anker gezeichnet - die generischen Braende schwebten deshalb
   // rund ein Fuenftel ihrer Hoehe ueber dem Boden.
+  // Waagerechte Mitte des sichtbaren Inhalts als Anteil der Bildbreite
+  // (0 = mittig, negativ = links). Gemessen wie luftUnten auf einer 64 px
+  // hohen Verkleinerung und gemerkt.
+  //
+  // Gebraucht fuer die BAUKETTE: die Leinwand wird auf den Knoten
+  // zentriert (dx0 = x - ww/2). Sitzt der Inhalt seitlich in ihr, springt
+  // das Haus beim Stufenwechsel zur Seite - gemessen bis 11,3 Weltpixel
+  // bei der Werkzeugschmiede, 9,7 bei der Muenzpraegerei, 9,1 bei der
+  // Baracke (tools/bauketten.mjs). Die Baustufe wird deshalb so
+  // verschoben, dass ihre Inhaltsmitte auf der des FERTIGEN Hauses liegt.
+  mitteAnteil(key){
+    if(!this._mittC) this._mittC=new Map();
+    if(this._mittC.has(key)) return this._mittC.get(key);
+    const im=this.asset(key);
+    if(!im || !im.naturalWidth){ this._mittC.set(key,0); return 0; }
+    const H=64, W=Math.max(1, Math.round(H*im.naturalWidth/im.naturalHeight));
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const g=cv.getContext('2d');
+    g.drawImage(im,0,0,W,H);
+    let x0=W, x1=-1;
+    try{
+      const d=g.getImageData(0,0,W,H).data;
+      for(let x=0;x<W;x++) for(let y=0;y<H;y++)
+        if(d[(y*W+x)*4+3]>40){ if(x<x0)x0=x; if(x>x1)x1=x; break; }
+    }catch(e){ x0=0; x1=W-1; }
+    const v=x1<0? 0 : ((x0+x1+1)/2 - W/2)/W;
+    this._mittC.set(key,v);
+    return v;
+  }
   luftUnten(key){
     if(!this._luftC) this._luftC=new Map();
     if(this._luftC.has(key)) return this._luftC.get(key);
@@ -12240,7 +12269,7 @@ export class Renderer {
       if(zu && b.player===0) this.statusSchild(g, x, y-34, zu, b.id);
       return;
     }
-    let ov, ovKey=typeKey;
+    let ov, ovKey=typeKey, generisch=false, stufe=0;
     if(b.state==='build'){
       // Baustelle zeigt bewusst NUR das eckige Holzgerüst (Phase 1/2),
       // nie das fast fertige Haus – das erscheint erst beim Umschalten auf 'done'
@@ -12254,8 +12283,9 @@ export class Renderer {
                   || !!this.asset(`bld_build_${b.type}_3`));
       const f2=b.progress/total;
       const ph= drei ? (f2<0.4?1: f2<0.75?2:3) : (f2<0.55?1:2);
+      stufe=ph;
       ovKey=`bld_build_${b.type}_${ph}`;
-      if(!this.asset(ovKey)) ovKey=`bld_build_${sizeKey}_${ph}`;
+      if(!this.asset(ovKey)){ ovKey=`bld_build_${sizeKey}_${ph}`; generisch=true; }
       ov=this.asset(ovKey) || this.asset(typeKey+'_build') || this.asset('bld_baustelle');
       if(!this.asset(ovKey)) ovKey=null;
     } else {
@@ -12308,9 +12338,63 @@ export class Renderer {
         const legacy= b.type==='hq'?118 : big?96 : def.size==='M'?80 : def.size==='MINE'?58 : 64;
         hh=this.scaleOf(ovKey||typeKey, legacy);
         ww=hh*(ov.naturalWidth/ov.naturalHeight);
+        // GENERISCHE BAUSTUFEN AUF DEN GRUNDRISS DES HAUSES ZIEHEN.
+        //
+        // Elf Bauten haben kein eigenes Baustufenblatt und nehmen das der
+        // Groessenklasse (s/m/l). Dasselbe Blatt dient damit Haeusern sehr
+        // verschiedener Groesse - und scales.json kennt nur EINEN Wert je
+        // BLATT, nicht je Haus. Gemessen (tools/bauketten.mjs, Hoehe und
+        // Breite des gezeichneten Hauses in Weltpixeln):
+        //
+        //   Holzfaeller   Rohbau 59 -> 66, fertig 46  (Breite 78 -> 67 -> 46)
+        //   Foerster      59 -> 66, fertig 51
+        //   Marktstand    59 -> 66, fertig 50         (Breite 78 -> 67 -> 40)
+        //   Wohnhaus      59 -> 66, fertig 56
+        //   Lagerhaus     82 -> 83, fertig 82         (Breite 99 -> 95 -> 77)
+        //   Hauptquartier 83 -> 92, fertig 188
+        //
+        // Der Rohbau des Holzfaellers war also 42 % hoeher und 70 % breiter
+        // als das Haus, das daraus wird - beim Fertigwerden schrumpfte es
+        // sichtbar; beim Hauptquartier war es umgekehrt, aus einem halb so
+        // hohen Geruest wurde eine Burg.
+        //
+        // Jetzt richtet sich die generische Stufe nach dem GRUNDRISS des
+        // fertigen Hauses: ihre Breite ist ein fester Anteil der fertigen
+        // Breite (Stufe 1 etwas schmaler als der Grundriss, Stufe 2 genau
+        // darauf), die Hoehe folgt dem Seitenverhaeltnis des Blattes. Damit
+        // steht der Rohbau auf demselben Fleck wie spaeter das Haus, und
+        // die Kette waechst. Blaetter, die ein Haus SELBST mitbringt,
+        // bleiben unberuehrt - sie sind von Hand auf ihr Haus abgestimmt.
+        if(generisch && b.state==='build'){
+          const fimg=this.asset(typeKey);
+          if(fimg && fimg.naturalWidth){
+            const fh=this.scaleOf(typeKey, legacy);
+            const fw=fh*(fimg.naturalWidth/fimg.naturalHeight);
+            const anteil=[0,0.90,1.0,1.0][stufe]||1.0;
+            ww=fw*anteil;
+            hh=ww/(ov.naturalWidth/ov.naturalHeight);
+          }
+        }
         dx0=x-ww/2;
+        // LAGE: die Baustufe auf die Inhaltsmitte des fertigen Hauses
+        // schieben. Ohne das springt das Haus beim Stufenwechsel seitlich
+        // (gemessen bis 11,3 px, s. mitteAnteil).
+        if(b.state==='build' && ovKey){
+          const fimg2=this.asset(typeKey);
+          if(fimg2 && fimg2.naturalWidth){
+            const fh2=this.scaleOf(typeKey, legacy);
+            const fw2=fh2*(fimg2.naturalWidth/fimg2.naturalHeight);
+            dx0 += this.mitteAnteil(typeKey)*fw2 - this.mitteAnteil(ovKey)*ww;
+          }
+        }
         dy0=y-hh+(def.size==='MINE'?8:10);
       }
+      // Was WIRKLICH gezeichnet wurde, je Gebaeude mitschreiben. Die
+      // Baukettenpruefung (tools/bauketten.mjs) rechnete die Maszstaebe
+      // vorher nach - eine Pruefung, die die Regel des Geprueften
+      // nachbaut, prueft nichts. Eine Map mit drei Zahlen je Haus kostet
+      // nichts und macht die Kette messbar.
+      (this._bauMasse || (this._bauMasse=new Map())).set(b.id, [ww, hh, ovKey||typeKey, dx0, x]);
       // Die tatsächlichen Bildmaße an die Simulation melden: sie sperrt damit
       // Straßen, die sonst unter dem Haus hindurchliefen. Nur der Zeichner
       // kennt die Maßstäbe aus scales.json.
