@@ -71,6 +71,10 @@ const FM_MOSS   = 7.4;   // Moos           70 px -> 27,7 Weltpixel
 const MINE_F = 0.265;
 const MINE_BODEN = 288;      // Bodenlinie in Bildzeilen (von 300)
 const MINE_DOM = 0.474;      // Domachse als Anteil der Bildbreite
+// Foerderrad der Mine (obj_minewheel): Mitte x / Mitte y / Radius, jeweils
+// als Anteil des 320er Minenbildes. Nur die Bilder mit GEMALTEM Speichenrad
+// stehen hier - Eisen- und Granitmine haben keines (s. bldEffect).
+const MINE_RAD = { coalmine:[0.370,0.530,0.112], goldmine:[0.360,0.440,0.098] };
 // Wegfahne und Burgfahne (obj_flag / obj_flag_gross, je 352x384).
 // Beide teilen sich Leinwand und Anker; dass die Burgfahne größer wirkt,
 // steckt schon im Bild – sie füllt die Leinwand höher aus.
@@ -5916,8 +5920,13 @@ export class Renderer {
         // Der Blumen-Dreierstreifen ist in drei Einzelbuescheln zerlegt - je
         // Knoten eines davon, sonst stand dieselbe Dreierreihe auf jeder Wiese.
         if(dk==='deco_flowers'){
-          const v=(hash01(i*5+2)*3)|0;
-          if(v>0 && this.asset('deco_flowers'+(v+1))) dk='deco_flowers'+(v+1);
+          // v314: aus drei Buescheln sind fuenf geworden (deco_flowers4/5
+          // aus der Offen-Lieferung). Die Zahl kommt aus dem Bestand, nicht
+          // aus einer festen 3 - fehlt eine Datei, faellt sie einfach weg.
+          let nv=1;
+          while(nv<8 && this.asset('deco_flowers'+(nv+1))) nv++;
+          const v=(hash01(i*5+2)*nv)|0;
+          if(v>0) dk='deco_flowers'+(v+1);
         }
         const dimg=this.asset(dk);
         if(dimg){
@@ -9596,6 +9605,22 @@ export class Renderer {
       }
     });
   }
+  // Ein Deko-Bild auf die Wiese setzen - Groesse aus scales.json, leicht
+  // gestreut aus dem Knotenhash, mit demselben weichen Bodenschatten wie
+  // die uebrige Wiesendeko. Ohne den Schatten klebt das Bild auf dem Gras,
+  // statt darin zu stehen.
+  dekoBild(g, key, x, y, i, fb){
+    const im=this.asset(key);
+    if(!im || !im.naturalWidth) return;
+    const dh=this.scaleOf(key,fb)*(0.78+hash01(i*111+5)*0.44);
+    const dw=dh*(im.naturalWidth/im.naturalHeight);
+    const sh=g.createRadialGradient(x+1.2,y+1.8,0.4, x+1.2,y+1.8, dw*0.55);
+    sh.addColorStop(0,'rgba(28,44,20,0.30)');
+    sh.addColorStop(1,'rgba(28,44,20,0)');
+    g.fillStyle=sh;
+    g.beginPath(); g.ellipse(x+1.2,y+1.8, dw*0.55, dw*0.21, 0,0,7); g.fill();
+    g.drawImage(im, x-dw/2, y-dh+2, dw, dh);
+  }
   // kleine Wiesen-Deko: Blümchen, Grasbüschel, Kiesel (rein dekorativ)
   drawDoodad(g, m, i){
     const t=m.terr[i];
@@ -9638,6 +9663,12 @@ export class Renderer {
     const win9=this.theme==='winter';
     if(h<0.105){ /* frei - hier uebernimmt die Deko-Grafik */ }
     else if(h<0.14 && win9){ /* kein Beerenstrauch im Winter */ }
+    else if(h<0.14 && this.asset('deco_gras1')){
+      // Blattbusch aus der Offen-Lieferung. Er ersetzt die drei
+      // uebereinandergelegten Kreise darunter, die auf der Wiese als
+      // Farbklecks lasen. Die Kreise bleiben als Rueckfall stehen.
+      this.dekoBild(g, 'deco_gras1', x+ox, y+oy, i, 15);
+    }
     else if(h<0.14){ // Beerenstrauch
       g.fillStyle='#3f7d3a';
       g.beginPath(); g.arc(x+ox,y+oy-2.5,4,0,7); g.arc(x+ox+3.4,y+oy-1.5,3,0,7); g.arc(x+ox-3.4,y+oy-1.5,3,0,7); g.fill();
@@ -9645,6 +9676,13 @@ export class Renderer {
       g.beginPath(); g.arc(x+ox-1,y+oy-3.6,2.6,0,7); g.fill();
       g.fillStyle='#d0453a';
       g.beginPath(); g.arc(x+ox-2,y+oy-2,0.9,0,7); g.arc(x+ox+1.6,y+oy-3.2,0.9,0,7); g.arc(x+ox+3,y+oy-0.8,0.9,0,7); g.fill();
+    } else if(h<0.2 && this.asset('deco_gras2')){
+      // Gemaltes Bueschel (Offen-Lieferung). Bis dahin standen hier drei
+      // bis fuenf gezeichnete Halmboegen - auf jedem Bild der Sichtprobe
+      // als duenne dunkelgruene V-Striche zu erkennen, gezeichnete
+      // Geometrie neben gemalten Baeumen. Zwei Sorten im Wechsel.
+      const gk=(hash01(i*107+3)<0.5 || !this.asset('deco_gras3'))? 'deco_gras2':'deco_gras3';
+      this.dekoBild(g, gk, x+ox, y+oy, i, 13);
     } else if(h<0.2){ // Grasbüschel
       // ebenfalls entstempelt (v244): Halmzahl, Hoehe, Neigung und Gruenton
       // kommen aus dem Knoten-Hash - drei identische Halme in identischer
@@ -12723,52 +12761,36 @@ export class Renderer {
       g.beginPath(); g.arc(0,0,1.3,0,7); g.fill();
       g.restore();
     }
-    // Haspelrad der SCHACHTMINE: dreht sich, solange gefoerdert wird.
-    // Dasselbe Prinzip wie das Fluegelkreuz der Muehle, nur als Blatt mit
-    // vier Drehstellungen statt als gedrehtes Bild - eine Haspel ist keine
-    // rotationssymmetrische Scheibe, ihre Kurbel muss von Stellung zu
-    // Stellung wandern.
-    // Das Blatt darf 4 Zellen NEBENEINANDER (breit) oder UNTEREINANDER
-    // (hoch) liefern; entschieden wird am Seitenverhaeltnis. Solange
-    // fx_mine_haspel fehlt, passiert hier nichts - die gemalte Haspel im
-    // Minenbild bleibt dann einfach stehen.
-    // ACHTUNG, geprueft und bewusst NICHT eingebaut: in verschiedenes/ liegt
-    // ein Rohblatt fx_mine_haspel.png mit vier Stellungen. Es zeigt aber eine
-    // LIEGENDE Seiltrommel mit Handkurbel (Seitenansicht, rund 2,9:1), und
-    // keines der vier Minenbilder hat so etwas: Kohle- und Goldmine tragen ein
-    // stehendes SPEICHENRAD im Foerdergeruest, die Eisenmine nur einen
-    // beschlagenen Querbalken, die Granitmine ein leeres Geruest. Das Blatt
-    // ueber das Speichenrad zu legen ergaebe einen sichtbaren Formbruch,
-    // deshalb bleibt es liegen. Gebraucht wird stattdessen ein Blatt mit vier
-    // Drehstellungen DES SPEICHENRADS, freigestellt, Nabe in der Zellmitte.
-    // (Die vierte Zelle des Rohblatts ist zusaetzlich waagerecht gespiegelt -
-    // Wickel rechts statt links, Kurbel am falschen Ende.)
-    if(BLD[b.type] && BLD[b.type].size==='MINE' && b.state==='done'){
-      const hsp=this.asset('fx_mine_haspel');
-      // dasselbe Bild wie im Zeichenpass waehlen (erschoepft = _leer)
+    // FOERDERRAD der Mine: dreht sich, solange gefoerdert wird.
+    // Dasselbe Verfahren wie das Fluegelkreuz der Muehle - EIN frontales
+    // Bild, um seine Nabe gedreht. Das frueher hier vorgesehene Blatt mit
+    // vier gemalten Drehstellungen ist entfallen: ein Speichenrad IST
+    // rotationssymmetrisch, Zwischenstellungen braucht es nicht. (Das
+    // Rohblatt fx_mine_haspel.png in verschiedenes/ zeigte ohnehin etwas
+    // anderes - eine liegende Seiltrommel mit Handkurbel, die zu keinem
+    // der vier Foerdergerueste passt.)
+    // NUR Kohle- und Goldmine: allein ihre Bilder haben an dieser Stelle
+    // ein gemaltes Speichenrad, das der Dreher deckt. Die Eisenmine traegt
+    // dort einen beschlagenen Querbalken, die Granitmine ein leeres
+    // Geruest - ein Rad waere da ein erfundenes Bauteil.
+    // Anker und Radius als Anteil des 320er Minenbildes, am Raster
+    // abgelesen (minen_raster.png).
+    if(b.state==='done' && MINE_RAD[b.type]){
+      const rad=this.asset('obj_minewheel');
       let mk='bld_'+b.type;
       if(b.exhausted && this.asset(mk+'_leer')) mk=mk+'_leer';
       const mi=this.asset(mk);
-      // nur bei der Schachtmine (quadratisches Bild): die alte Stollenmine
-      // hat gar keine Haspel im Bild, dort saesse das Rad in der Luft
-      if(hsp && hsp.naturalWidth && mi && mi.naturalWidth===mi.naturalHeight){
-        const NZ=4;
-        const quer=hsp.naturalWidth>=hsp.naturalHeight;
-        const cw= quer? hsp.naturalWidth/NZ : hsp.naturalWidth;
-        const ch= quer? hsp.naturalHeight  : hsp.naturalHeight/NZ;
-        // Phase: im Betrieb umlaufend, sonst eine feste Stellung je Mine,
-        // damit nicht alle stillstehenden Haspeln gleich aussehen
-        const ph= working? ((this.time/210)|0)%NZ : (b.id%NZ);
-        const sx0= quer? ph*cw : 0;
-        const sy0= quer? 0 : ph*ch;
-        // Anker: Schachtmitte, auf Hoehe des Haspelbocks. Das Minenbild ist
-        // zentriert verankert (MINE_F, Bodenlinie 300 von 320), die Haspel
-        // sitzt darin ueber dem Loch.
-        const mh=320*MINE_F, mw=320*MINE_F;
-        const hh=mh*0.30, ww=hh*(cw/ch);
-        g.drawImage(hsp, sx0, sy0, cw, ch,
-                    x-ww/2, y+4-300*MINE_F+mh*0.30-hh/2, ww, hh);
-        void mw;
+      if(rad && rad.naturalWidth && mi && mi.naturalWidth===mi.naturalHeight){
+        const [ax,ay,ar]=MINE_RAD[b.type];
+        const mh=320*MINE_F;
+        const cx=x-mh/2+mh*ax, cy=y+4-300*MINE_F+mh*ay, R=mh*ar;
+        // steht die Mine still, bleibt das Rad stehen - aber je Mine in
+        // einer anderen Stellung, sonst sehen alle gleich aus
+        const ang= working? this.time/520 : (b.id%6.28);
+        g.save();
+        g.translate(cx,cy); g.rotate(ang);
+        g.drawImage(rad, -R, -R, R*2, R*2);
+        g.restore();
       }
     }
     // Arbeits-Effekte (Rauch, Funken, Staub …) – je Gebäude passend verankert

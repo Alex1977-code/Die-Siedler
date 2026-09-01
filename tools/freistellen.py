@@ -38,6 +38,15 @@ MINEN = {'bld_coalmine','bld_goldmine','bld_granitemine','bld_ironmine',
          'bld_build_mine_1','bld_build_mine_2','bld_build_mine_3'}
 MITTIG = {'obj_millsails'}
 CHROMA = 0.020      # Farbigkeitsabstand, ab dem ein Pixel zum Gebaeude zaehlt
+# Einzelne Bilder brauchen einen engeren Wert. Der Grenzstein ist der
+# Grenzfall, fuer den der Kommentar oben schon warnt: heller Kalkstein auf
+# hellgrauem Grund. Mit 0,020 zaehlte seine SONNENSEITE als Hintergrund, und
+# weil sie oben an den echten Hintergrund stoesst, frass die Flutfuellung
+# sich hinein - der fertige Pfosten war mottenzerfressen (Deckung 69,3 %).
+# Fuenf Werte abgetastet: 0,020 -> 69,3 %, 0,012 -> 80,5 %, 0,008 -> 73,1 %,
+# 0,005 -> 61,4 %, 0,003 -> 26,0 % (ab da bleibt der Schlagschatten stehen
+# und die Leinwand waechst auf volle 1024). 0,012 ist das Maximum.
+CHROMA_JE = {'obj_borderpost': 0.012}
 HELLER = 8          # Pixel heller als der Hintergrund sind nie Schatten
 BLEED  = 8          # so weit werden Gebaeudefarben nach aussen verschmiert
 
@@ -108,10 +117,20 @@ def bbox(im):
     if not len(ys): return None
     return xs.min(), ys.min(), xs.max()+1, ys.max()+1
 
-def main():
+def main(nur=None):
+    # NUR-LISTE, und zwar aus Schaden gelernt: ein Lauf ohne Argumente
+    # schneidet ALLE 33 Zuordnungen neu - auch die, die seit v310 durch
+    # tools/loecherfrei.py (eingeschlossene Flaechen) und seit v311 durch
+    # tools/randbluten.py (schwarzer Saum) gegangen sind. Beide Schritte
+    # kommen NACH dem Freistellen; ein Neuschnitt macht sie rueckgaengig.
+    # Gemessen beim Einbau der Offen-Lieferung: 21 Blaetter hatten ihre
+    # eingeschlossenen Flaechen wieder, 28 990 Pixel. Deshalb nimmt das
+    # Werkzeug jetzt Zielnamen entgegen und ruehrt nur die an.
+    #     python3 tools/freistellen.py obj_borderpost bld_build_watchtower_1
     zuo = json.load(open('tools/zuordnung.json', encoding='utf-8'))
     fehlt = []
     for quelle, ziel in sorted(zuo.items()):
+        if nur and ziel.replace('.png','') not in nur: continue
         # Die Lieferungen liegen mal in gebaeude/, mal im Wurzelverzeichnis.
         # Der Dateiname allein sagt das nicht: 'anim-01-sawmill.png' hat
         # keinen Schraegstrich und lag trotzdem in der Wurzel. Also gilt,
@@ -120,7 +139,10 @@ def main():
         zp = os.path.join(ZIEL, ziel)
         if not os.path.exists(qp) or not os.path.exists(zp):
             fehlt.append((quelle, ziel)); continue
+        global CHROMA
+        merk, CHROMA = CHROMA, CHROMA_JE.get(ziel.replace('.png',''), CHROMA)
         neu = freistellen(qp)
+        CHROMA = merk
         neu = neu.crop(bbox(neu))
         alt = Image.open(zp).convert("RGBA")
         AW, AH = alt.size
@@ -158,4 +180,8 @@ def main():
     if fehlt: print("FEHLT:", fehlt, file=sys.stderr)
 
 if __name__ == '__main__':
-    main()
+    wahl = {x.replace('.png','') for x in sys.argv[1:] if not x.startswith('--')}
+    if not wahl and '--alle' not in sys.argv:
+        print('Zielnamen angeben (oder --alle, aber siehe Kommentar in main).',
+              file=sys.stderr); sys.exit(2)
+    main(wahl or None)

@@ -58,10 +58,15 @@ def behandle(pfad, nur_pruefen=False):
     Image.fromarray(a.astype(np.uint8), 'RGBA').save(pfad, 'PNG', pnginfo=info)
     return '%d Pixel entfernt' % weg, weg
 
-def main(nur_pruefen):
+def main(nur_pruefen, dateien=None):
+    # Ohne Argumente: alle Gebaeudebilder (so kam das Werkzeug in v310 zur
+    # Welt). Mit Argumenten: genau diese Dateien - die Offen-Lieferung
+    # bringt Objekte und Deko mit denselben Oeffnungen mit (das Speichenrad
+    # der Mine ist der Extremfall: acht eingeschlossene Zwickel, ohne die
+    # es als volle Scheibe ueber dem Foerdergeruest saesse).
     gesamt = 0
     zeilen = []
-    for p in sorted(glob.glob('assets/bld_*.png')):
+    for p in (dateien or sorted(glob.glob('assets/bld_*.png'))):
         txt, n = behandle(p, nur_pruefen)
         gesamt += n
         if n: zeilen.append((n, os.path.basename(p), txt))
@@ -72,4 +77,5 @@ def main(nur_pruefen):
           % (len(zeilen), gesamt, 'wuerden fallen' if nur_pruefen else 'entfernt'))
 
 if __name__ == '__main__':
-    main('--pruefen' in sys.argv)
+    args = [x for x in sys.argv[1:] if not x.startswith('--')]
+    main('--pruefen' in sys.argv, args or None)

@@ -199,9 +199,9 @@
 "bld_build_guardhouse_1": 83.5,
 "bld_build_guardhouse_2": 95,
 "bld_build_guardhouse_3": 96.1,
-"bld_build_watchtower_1": 107.2,
-"bld_build_watchtower_2": 123.1,
-"bld_build_watchtower_3": 130.1,
+"bld_build_watchtower_1": 72.6,
+"bld_build_watchtower_2": 105.6,
+"bld_build_watchtower_3": 121.4,
 "bld_build_fortress_1": 135.6,
 "bld_build_fortress_2": 166.3,
 "bld_build_fortress_3": 152.4,
@@ -228,5 +228,11 @@
 "fx_burn_watchtower_1": 157,
 "fx_burn_fortress_1": 223,
 "fx_burn_catapult_1": 131,
-"fx_burn_smelter_1": 131
+"fx_burn_smelter_1": 131,
+  "deco_gras1": 15,
+  "deco_gras2": 13,
+  "deco_gras3": 13,
+  "deco_flowers4": 22,
+  "deco_flowers5": 22,
+  "obj_minewheel": 24
 }
