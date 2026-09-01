@@ -89,8 +89,17 @@ Stiefel, Hut in klar getrennten Farben.
 
 Warum Schmied, Geologe und Traeger NICHT drauf sind: der Kontaktabzug
 aller 35 Figuren zeigt genau diese drei als die misslungenen. Der Schmied
-ist ein grauschwarzer Fleck ohne lesbare Silhouette, der Geologe
-malvenfarben, der Traeger traegt gar keine Kleidung - eine einfarbig
+war ein grauschwarzer Fleck ohne lesbare Silhouette, der Geologe
+malvenfarben, der Traeger trug gar keine Kleidung - eine einfarbig
 terrakottafarbene Gestalt mit einem schwarzen Riss vom Bauch bis ins
-Bein. Sie sind der Grund fuer das Blatt und duerfen nicht seine Vorlage
+Bein. Sie waren der Grund fuer das Blatt und durften nicht seine Vorlage
 sein.
+
+NACHTRAG v313: die drei sind repariert, ohne neue Grafik - die Ursache
+lag nicht am Modell, sondern an drei Rezepten in `tools/tunika.mjs`, die
+eine Kennfarbe ueber die ganze Figur legten. Sie sind raus, die Blaetter
+neu gebacken, die Modelltexturen ueber `tools/modelltextur.py`
+aufgehellt. Ihre Bloecke sind aus `docs_grafikliste_offen.txt` gestrichen;
+das Blatt bleibt als Vorlage fuer die naechste Figurenbestellung liegen.
+`tools/listenpruefung.py` meldet es bis dahin als "von keiner Liste
+genannt" - das ist der Hinweis, nicht der Fehler.
