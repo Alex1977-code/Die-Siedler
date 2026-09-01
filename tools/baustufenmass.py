@@ -111,5 +111,32 @@ def main():
         f = 239.0 / (y1 - y0)
         print('  %-22s %s' % ('bld_ironmine', schrumpfen(p, f, im.height - 20, im.width / 2)))
 
+    print('ERSCHOEPFTE BERGWERKE (auf den arbeitenden Zwilling ziehen)')
+    # Wenn ein Vorkommen versiegt, tauscht der Zeichner bld_<typ> gegen
+    # bld_<typ>_leer. Gemessen waren die erschoepften Bilder aber durchweg
+    # groesser als die arbeitenden - 260 bis 263 Zeilen Inhalt gegen 238 bis
+    # 239 - und sassen ein bis zwei Zeilen hoeher. Das Bergwerk WUCHS also
+    # beim Versiegen und rutschte dabei nach oben.
+    #
+    # Jeder Erschoepfte wird deshalb auf das Mass SEINES Zwillings gezogen:
+    # gleiche Inhaltshoehe, gleiche Bodenlinie, gleiche Mittelachse. Nicht
+    # auf einen gemeinsamen Mittelwert - Gold und Granit stehen im Bild
+    # etwas rechts der Mitte, und das soll erhalten bleiben.
+    for typ in ['coalmine', 'ironmine', 'goldmine', 'granitemine']:
+        pa, pl = 'assets/bld_%s.png' % typ, 'assets/bld_%s_leer.png' % typ
+        if not (os.path.exists(pa) and os.path.exists(pl)): continue
+        im = Image.open(pl)
+        if schon(im):
+            print('  %-22s schon behandelt' % ('bld_%s_leer' % typ)); continue
+        aa = np.asarray(Image.open(pa).convert('RGBA'))
+        ax0, ay0, ax1, ay1 = rahmen(aa)
+        ziel_h = ay1 - ay0                      # Inhaltshoehe des arbeitenden
+        boden = ay1                             # dessen Bodenzeile
+        achse = (ax0 + ax1) / 2.0               # dessen Mittelachse
+        al = np.asarray(im.convert('RGBA'))
+        lx0, ly0, lx1, ly1 = rahmen(al)
+        f = ziel_h / float(ly1 - ly0)
+        print('  %-22s %s' % ('bld_%s_leer' % typ, schrumpfen(pl, f, boden, achse)))
+
 if __name__ == '__main__':
     main()
