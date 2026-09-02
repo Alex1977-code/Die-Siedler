@@ -432,13 +432,17 @@ export const Sound = {
       // Pad, Bass und Melodie tragen weiter - das Wiedereinsetzen macht den
       // Unterschied hoerbar, ohne Pause bleibt auch die schoenste Figur
       // Tapete.
-      // LAENGE NACHGEZOGEN (Nutzerbefund: "die pause ist zu lang"). Zuerst
-      // schwiegen ZWEI ganze Takte - bei 84 BPM sind das 5,7 Sekunden ohne
-      // Schlagwerk, das ist kein Atemholen mehr, das ist ein Aussetzer.
-      // Jetzt ist es der letzte Takt des Durchlaufs, und auch der nicht
-      // ganz: die ersten zehn Sechzehntel (1,8 s), danach fuehrt ein Wirbel
-      // zurueck und der naechste Durchlauf setzt voll ein.
-      const pause=(loop%4===3) && bar===7 && st<10;
+      // LAENGE IN ZWEI SCHRITTEN NACHGEZOGEN. Zuerst schwiegen ZWEI ganze
+      // Takte - bei 84 BPM 5,71 Sekunden, das ist kein Atemholen mehr,
+      // sondern ein Aussetzer ("die pause ist zu lang"). Dann zehn
+      // Sechzehntel (1,79 s) mit Wirbel zurueck. Jetzt auf Ansage EIN
+      // GANZER TAKT: der achte Takt des Durchlaufs bleibt vollstaendig
+      // ohne Schlagwerk, 2,86 Sekunden.
+      // Der Wirbel ist damit weg. Er lag in denselben Sechzehnteln, die
+      // jetzt still sind, und ein Wirbel IN der Pause waere keine Pause.
+      // Zurueck fuehrt der Durchlauf selbst: der naechste Takt ist Takt 1
+      // der Schleife, dort setzt alles auf der Eins wieder ein.
+      const pause=(loop%4===3) && bar===7;
       // steht am Ende dieses Durchlaufs ein Wechsel an?
       const wechselNah = bar===7 && (loop+1)>=this._nextSwitch;
       const ch=CH[bar];
@@ -489,10 +493,7 @@ export const Sound = {
       if(!pause && st===8) this._mNoise(t,0.12,0.045,1100,2800);
       if(!pause && st%HAT[fig]===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
       if(!pause && SHK[fig].includes(st)) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
-      // Wirbel zurueck aus der Atempause: sechs Sechzehntel, die lauter
-      // werden - die Pause bekommt dadurch ein Ende statt eines Abbruchs
-      if((loop%4===3) && bar===7 && st>=10)
-        this._mNoise(t,0.05,0.016+(st-10)*0.005,2400,6000);
+
       // Arpeggio: festes Muster, sanfte Anschläge
       if(st%ARPD[fig]===0 && Math.random()<0.9){
         const f=ch.arp[ARP[(s>>1)%ARP.length]%ch.arp.length]*2;
