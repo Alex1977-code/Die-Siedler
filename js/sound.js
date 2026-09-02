@@ -438,11 +438,13 @@ export const Sound = {
       // Sechzehntel (1,79 s) mit Wirbel zurueck. Jetzt auf Ansage EIN
       // GANZER TAKT: der achte Takt des Durchlaufs bleibt vollstaendig
       // ohne Schlagwerk, 2,86 Sekunden.
-      // Der Wirbel ist damit weg. Er lag in denselben Sechzehnteln, die
-      // jetzt still sind, und ein Wirbel IN der Pause waere keine Pause.
-      // Zurueck fuehrt der Durchlauf selbst: der naechste Takt ist Takt 1
-      // der Schleife, dort setzt alles auf der Eins wieder ein.
-      const pause=(loop%4===3) && bar===7;
+      // AUFTAKT (letzter Stand): das Wiedereinsetzen auf der blanken Eins
+      // kam zu unvermittelt. Die letzten ZWEI Sechzehntel des Pausentakts
+      // tragen deshalb zwei leiser-lauter werdende Schlaege, die auf die
+      // Eins des naechsten Durchlaufs zeigen. Still bleiben damit 14
+      // Sechzehntel, 2,50 s statt 2,86 - ein Auftakt gehoert zur Pause
+      // dazu, er beendet sie nicht vorzeitig.
+      const pause=(loop%4===3) && bar===7 && st<14;
       // steht am Ende dieses Durchlaufs ein Wechsel an?
       const wechselNah = bar===7 && (loop+1)>=this._nextSwitch;
       const ch=CH[bar];
@@ -493,6 +495,9 @@ export const Sound = {
       if(!pause && st===8) this._mNoise(t,0.12,0.045,1100,2800);
       if(!pause && st%HAT[fig]===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
       if(!pause && SHK[fig].includes(st)) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
+      // Auftakt zurueck aus der Atempause: zwei Schlaege, der zweite lauter
+      if((loop%4===3) && bar===7 && st>=14)
+        this._mNoise(t,0.055,0.018+(st-14)*0.010,2400,6000);
 
       // Arpeggio: festes Muster, sanfte Anschläge
       if(st%ARPD[fig]===0 && Math.random()<0.9){
