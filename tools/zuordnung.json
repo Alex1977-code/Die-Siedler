@@ -1,7 +1,6 @@
 {
   "anim-01-sawmill.png": "bld_sawmill.png",
   "anim-02-mill-turm.png": "bld_mill.png",
-  "anim-03-millsails.png": "obj_millsails.png",
   "baum-01-autumn.png": "tree_autumn.png",
   "baum-02-dead.png": "tree_dead.png",
   "baum-03-palm.png": "tree_palm.png",
@@ -30,5 +29,9 @@
   "offen-06-grenzstein.png": "obj_borderpost.png",
   "offen-09-bau-wachturm-1.png": "bld_build_watchtower_1.png",
   "offen-10-bau-wachturm-2.png": "bld_build_watchtower_2.png",
-  "offen-11-bau-wachturm-3.png": "bld_build_watchtower_3.png"
+  "offen-11-bau-wachturm-3.png": "bld_build_watchtower_3.png",
+  "nach-01-bau-wachhaus-1.png": "bld_build_guardhouse_1.png",
+  "nach-02-bau-wachhaus-2.png": "bld_build_guardhouse_2.png",
+  "nach-03-bau-katapult-3.png": "bld_build_catapult_3.png",
+  "nach-04-muehlenfluegel.png": "obj_millsails.png"
 }
