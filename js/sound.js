@@ -173,6 +173,33 @@ export const Sound = {
         setTimeout(()=>this.noise(0.35,0.16,1500,4400),650); break;
       case 'win':    [523,659,784,1047].forEach((f,i)=> setTimeout(()=>this.osc('triangle',f,0.4,0.3),i*160)); break;
       case 'lose':   [392,330,262,196].forEach((f,i)=> setTimeout(()=>this.osc('sawtooth',f,0.45,0.22),i*200)); break;
+      case 'mill':   // Mahlstein: tiefes, rauhes Rollen mit Steinreiben
+        // Zwei Laeufersteine mahlen aufeinander. Das ist kein Schlag,
+        // sondern ein DAUERTON: breites Rauschen weit unten (70-320 Hz)
+        // fuer die Masse, ein duenneres Band darueber (400-1100) als
+        // Stein-auf-Stein-Reiben, und ein leicht steigender Grundton als
+        // Achse, die sich unter Last dreht.
+        this.noise(0.45,0.30,70,320);
+        this.noise(0.35,0.12,400,1100);
+        this.osc('triangle',62,0.40,0.10,8);
+        break;
+      case 'oven':   // Backofen: Zug im Feuerraum, dann der Schieber auf Stein
+        // Erst die Luft, die durch die heisse Kammer zieht (breites Band
+        // in der Mitte), dann der stumpfe Anschlag des hoelzernen Schiebers
+        // auf dem Ofenstein - tief, kurz, ohne Nachklang.
+        this.noise(0.30,0.22,200,900);
+        this.osc('sine',180,0.12,0.14,-60);
+        setTimeout(()=>this.noise(0.22,0.14,120,500),260);
+        break;
+      case 'brew':   // Sudkessel: koechelndes Blubbern
+        // Eine Blase ist ein kurzer Ton, dessen Tonhoehe beim Aufsteigen
+        // STEIGT - deshalb drei knappe Sinus mit positivem Slide, versetzt
+        // und verschieden hoch, ueber einem leisen Siedebett.
+        this.noise(0.40,0.10,300,900);
+        this.osc('sine',220,0.06,0.10,260);
+        setTimeout(()=>this.osc('sine',180,0.07,0.09,300),150);
+        setTimeout(()=>this.osc('sine',260,0.05,0.08,220),330);
+        break;
       case 'march':  // Marschtrommel ziehender Truppen: dumpfer Doppelschlag
         this.osc('sine',130,0.16,0.3,-80);
         this.noise(0.06,0.22,80,240);

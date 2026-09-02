@@ -639,6 +639,7 @@ export class UI {
     // seit jeher in sound.js und wurden von keiner Stelle gerufen.
     const PROD_SFX={
       sawmill:'saw', mint:'coin', market:'market', pigfarm:'oink', well:'splash',
+      mill:'mill', bakery:'oven', brewery:'brew',
       toolsmith:'hammer', armory:'hammer', smelter:'hammer',
       quarry:'pick', coalmine:'pick', ironmine:'pick', goldmine:'pick', granitemine:'pick',
     };
