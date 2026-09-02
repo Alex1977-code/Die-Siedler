@@ -1307,35 +1307,57 @@ export class Renderer {
       band(0,0,RB,h,          RB,0, 0,0);      // links
       band(w-RB,0,w,h,        w-RB,0, w,0);    // rechts
     }
-    tg.fillStyle='#000';
     // Unerforschtes als unregelmäßige Schwaden: je Knoten mehrere versetzte,
     // verschieden große Kleckse -> die Grenze franst aus statt halbrund zu sein
-    tg.beginPath();
-    for(let y=0;y<m.h;y++){
-      const off=(y&1)*S*0.5;
-      for(let x=0;x<m.w;x++){
-        const i=m.idx(x,y);
-        if(m.explored[i]) continue;
-        // ausserhalb der Inselplatte gibt es nichts zu verdecken - dort
-        // liegt die Tischplatte, kein unerforschtes Land (v289)
-        const px9=(x/(m.w-1))*2-1, py9=(y/(m.h-1))*2-1;
-        if(px9*px9+py9*py9 > 1.0) continue;
-        const cx=(x+RF)*S+off+S*0.5, cy=(y+RF)*S+S*0.5;
-        for(let k=0;k<3;k++){
-          const hs=hash01(i*7+k*31);
-          const rx=cx+(hash01(i*13+k)-0.5)*S*1.5;
-          const ry=cy+(hash01(i*19+k)-0.5)*S*1.5;
-          const rr=S*(0.55+hs*0.7);
-          tg.moveTo(rx+rr,ry);
-          tg.arc(rx,ry,rr,0,7);
+    const kleckse=(ctx, wollen)=>{
+      ctx.fillStyle='#000';
+      ctx.beginPath();
+      for(let y=0;y<m.h;y++){
+        const off=(y&1)*S*0.5;
+        for(let x=0;x<m.w;x++){
+          const i=m.idx(x,y);
+          if(!!m.explored[i] !== wollen) continue;
+          // ausserhalb der Inselplatte gibt es nichts zu verdecken - dort
+          // liegt die Tischplatte, kein unerforschtes Land (v289)
+          const px9=(x/(m.w-1))*2-1, py9=(y/(m.h-1))*2-1;
+          if(px9*px9+py9*py9 > 1.0) continue;
+          const cx=(x+RF)*S+off+S*0.5, cy=(y+RF)*S+S*0.5;
+          for(let k=0;k<3;k++){
+            const hs=hash01(i*7+k*31);
+            const rx=cx+(hash01(i*13+k)-0.5)*S*1.5;
+            const ry=cy+(hash01(i*19+k)-0.5)*S*1.5;
+            const rr=S*(0.55+hs*0.7);
+            ctx.moveTo(rx+rr,ry);
+            ctx.arc(rx,ry,rr,0,7);
+          }
         }
       }
+      ctx.fill();
+    };
+    kleckse(tg, false);                      // die unerforschten Knoten
+    // AUSSTANZER (Nutzerbefund: "der nebel verdeckt zuviel"). Der schwarze
+    // Kern wird mit Radius 11 weichgezeichnet, und ein Weichzeichner streut
+    // nach BEIDEN Seiten: die Haelfte davon faellt auf Land, das der Spieler
+    // laengst aufgedeckt hat. Gemessen ueber alle erforschten Knoten einer
+    // Partie: 32 % lagen unter Nebel, 11 % davon voellig schwarz - jeder
+    // neunte aufgedeckte Knoten war wieder zugedeckt.
+    // Die Schichten werden deshalb mit der Gegenmaske ausgestanzt: dieselben
+    // Kleckse ueber den ERFORSCHTEN Knoten, kurz weichgezeichnet. Auf
+    // erforschtem Land steht der Ausstanzer auf 1 und raeumt den Nebel weg,
+    // an der Grenze laufen beide Rampen ineinander (der Saum bleibt weich),
+    // im Unerforschten ist er 0 und der Nebel bleibt voll stehen.
+    const stanz=document.createElement('canvas'); stanz.width=w; stanz.height=h;
+    {
+      const roh=document.createElement('canvas'); roh.width=w; roh.height=h;
+      kleckse(roh.getContext('2d'), true);   // die erforschten Knoten
+      this.blurInto(stanz.getContext('2d'), roh, 5);
     }
-    tg.fill();
     const mk=(blur,tint)=>{
       const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
       const g2=cv.getContext('2d');
       this.blurInto(g2, tmp, blur);
+      g2.globalCompositeOperation='destination-out';
+      g2.drawImage(stanz,0,0);
       g2.globalCompositeOperation='source-in';
       g2.fillStyle=tint; g2.fillRect(0,0,w,h);
       return cv;
