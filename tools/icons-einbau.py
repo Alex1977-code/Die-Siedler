@@ -41,18 +41,20 @@ NAMEN = {
  'ic-16-angriff':'angriff',     'ic-17-warnung':'warnung',     'ic-18-erfuellt':'erfuellt',
  'ic-19-tipp':'tipp',           'ic-20-waren':'waren',         'ic-21-schliessen':'schliessen',
  'ic-22-gebaeude':'gebaeude',
- # Zweite Runde. NICHT dabei: ic2-02-pausieren und ic2-03-weiter.
- # "Weiter" kam als klumpiges Dreieck mit beigen Ecken zurueck, das in
- # keine Richtung zeigt - unbrauchbar. Und wenn eines der beiden fehlt,
- # bleiben BEIDE draussen: der Knopf schaltet zwischen ihnen um, ein
+ # Zweite Runde. ic2-03-weiter kam als klumpiges Dreieck mit beigen
+ # Ecken zurueck, das in keine Richtung zeigt - zurueckgewiesen und mit
+ # ic2-14 nachbestellt (Form beim Namen genannt, linke Kante senkrecht,
+ # rechtes Ende EIN Punkt). Das Pausenzeichen war von Anfang an sauber,
+ # musste aber warten: der Knopf schaltet zwischen beiden um, ein
  # gemaltes Pausenzeichen neben einem Emoji-Dreieck faellt bei jedem
- # Druck auf.
+ # Druck auf. Jetzt kommen sie zusammen.
  'ic2-01-strasse':'strasse',     'ic2-04-essen':'essen',
  'ic2-05-besatzung':'besatzung', 'ic2-06-sieg':'sieg',
  'ic2-07-niederlage':'niederlage','ic2-08-unterwegs':'unterwegs',
  'ic2-09-offen':'offen',         'ic2-10-klein':'klein',
  'ic2-11-mittel':'mittel',       'ic2-12-gross':'gross',
  'ic2-13-gebirge':'gebirge',
+ 'ic2-02-pausieren':'pausieren', 'ic2-14-weiter':'weiter',
 }
 
 def frei(pfad):

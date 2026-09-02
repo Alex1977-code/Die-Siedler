@@ -657,6 +657,8 @@ input[type=checkbox], input[type=radio], input[type=range]{ accent-color:#c9a05a
 .ic-mittel{ background-image:url('assets/ui_ic_mittel.png'); }
 .ic-gross{ background-image:url('assets/ui_ic_gross.png'); }
 .ic-gebirge{ background-image:url('assets/ui_ic_gebirge.png'); }
+.ic-pausieren{ background-image:url('assets/ui_ic_pausieren.png'); }
+.ic-weiter{ background-image:url('assets/ui_ic_weiter.png'); }
 
 .panel{
   max-width:520px; margin:14px auto; min-height:0;

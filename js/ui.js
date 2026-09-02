@@ -1305,7 +1305,7 @@ export class UI {
       ${body_extra}
       <div class="sh-acts">
         ${this.actBtn('bd-road','<span class="uic ic-strasse"></span>','Straße')}
-        ${works? this.actBtn('bd-pause', b.paused?'▶️':'⏸️', b.paused?'Weiter':'Pausieren', b.paused):''}
+        ${works? this.actBtn('bd-pause', b.paused?'<span class="uic ic-weiter"></span>':'<span class="uic ic-pausieren"></span>', b.paused?'Weiter':'Pausieren', b.paused):''}
         ${canFeed? this.actBtn('bd-food','<span class="uic ic-essen"></span>','Essen', b.foodPrio):''}
         ${b.type!=='hq'? this.actBtn('bd-del','<span class="uic ic-abreissen"></span>','Abreißen', false, true):''}
       </div>`);
