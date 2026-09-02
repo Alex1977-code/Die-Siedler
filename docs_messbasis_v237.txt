@@ -1,0 +1,133 @@
+MESSBASIS v237 - 12er-Beleglauf (kette-militaer, 60 min, ohne Materialhilfe).
+Nach der Gebirgsrunde v237 verschob die map.js-Aenderung den rng-Strom:
+gleiche Saat ergibt seither eine ANDERE (weiter deterministische) Karte.
+Aeltere Messwerte sind daher nicht mehr vergleichbar - DIESE Datei ist die
+Basislinie fuer alle kuenftigen 12er-Vergleiche. Auffaellig: Saat 7 endet
+als ehrliche Kriegsniederlage des Messlings (Soldaten 0, alles verbrannt),
+Saaten 99/64 sind auf den neuen Karten die Erz-armen (Geologie, kein Stau).
+
+
+Saat 42 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 4 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 3 Eisen 3 Huette 2 Waffen 3 Werkzeug 1 | fertig gesamt 51
+  erzeugt: Kohle 360 Erz 264 Eisen 203 | Getreide 0 Wasser 295 Bier 54 Brot 205 | WAFFEN 77
+  erstes Eisen 12:53  erstes Bier 5:47  erste Waffe 13:25  erster Rekrut 0:02
+  Rekruten 46  Soldaten 34  Siedler 159
+  Waffenschmiede wartete: ohne Eisen 76% ohne Kohle 10% ohne beides 6% versorgt 8%
+  Eisenhuette ohne Nachschub: Erz fehlt 52% Kohle fehlt 26% beides 22%
+  Brauerei ohne Nachschub: Getreide fehlt 56% Wasser fehlt 36% beides 8%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/0/6/10  10: 0/17/10/14  15: 3/20/10/14  20: 7/20/10/14  25: 13/20/12/14  30: 21/28/16/20  35: 30/28/22/26  40: 37/34/27/30  45: 48/44/31/35  50: 57/44/37/35  55: 69/54/40/35  60: 77/54/46/34
+
+Saat 7 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 0 Muehle 0 Baecker 0 Brunnen 0 Brauerei 0 | Kohle 0 Eisen 0 Huette 0 Waffen 0 Werkzeug 0 | fertig gesamt 0
+  erzeugt: Kohle 162 Erz 128 Eisen 70 | Getreide 0 Wasser 208 Bier 30 Brot 97 | WAFFEN 23
+  erstes Eisen 15:02  erstes Bier 4:18  erste Waffe 16:28  erster Rekrut 0:02
+  Rekruten 18  Soldaten 0  Siedler 0
+  Waffenschmiede wartete: ohne Eisen 75% ohne Kohle 3% ohne beides 18% versorgt 4%
+  Eisenhuette ohne Nachschub: Erz fehlt 53% Kohle fehlt 18% beides 29%
+  Brauerei ohne Nachschub: Getreide fehlt 79% Wasser fehlt 7% beides 14%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/4/6/10  10: 0/18/9/13  15: 0/24/9/13  20: 2/24/10/14  25: 2/24/10/10  30: 9/24/12/10  35: 13/24/16/9  40: 14/24/17/7  45: 22/30/18/5  50: 23/30/18/0  55: 23/30/18/0  60: 23/30/18/0
+
+Saat 99 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 2 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 3 Eisen 0 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 44
+  erzeugt: Kohle 119 Erz 0 Eisen 0 | Getreide 0 Wasser 107 Bier 21 Brot 50 | WAFFEN 0
+  erstes Eisen -  erstes Bier 8:26  erste Waffe -  erster Rekrut 0:02
+  Rekruten 9  Soldaten 13  Siedler 123
+  Waffenschmiede wartete: ohne Eisen 98% ohne Kohle 0% ohne beides 2% versorgt 0%
+  Eisenhuette ohne Nachschub: Erz fehlt 99% Kohle fehlt 0% beides 1%
+  Brauerei ohne Nachschub: Getreide fehlt 69% Wasser fehlt 2% beides 29%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/0/6/10  10: 0/6/6/10  15: 0/17/9/13  20: 0/21/9/13  25: 0/21/9/13  30: 0/21/9/13  35: 0/21/9/13  40: 0/21/9/13  45: 0/21/9/13  50: 0/21/9/13  55: 0/21/9/13  60: 0/21/9/13
+
+Saat 11 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 8 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 4 Eisen 3 Huette 2 Waffen 3 Werkzeug 1 | fertig gesamt 69
+  erzeugt: Kohle 245 Erz 173 Eisen 78 | Getreide 0 Wasser 226 Bier 30 Brot 157 | WAFFEN 20
+  erstes Eisen 6:24  erstes Bier 4:00  erste Waffe 7:12  erster Rekrut 0:02
+  Rekruten 22  Soldaten 25  Siedler 173
+  Waffenschmiede wartete: ohne Eisen 87% ohne Kohle 1% ohne beides 10% versorgt 2%
+  Eisenhuette ohne Nachschub: Erz fehlt 68% Kohle fehlt 11% beides 21%
+  Brauerei ohne Nachschub: Getreide fehlt 95% Wasser fehlt 1% beides 4%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/4/9/13  10: 3/26/11/15  15: 4/26/12/16  20: 10/26/14/18  25: 11/26/17/21  30: 12/26/17/21  35: 13/26/17/21  40: 13/26/17/21  45: 14/26/18/22  50: 15/26/19/23  55: 18/30/21/24  60: 20/30/22/25
+
+Saat 2024 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 8 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 3 Eisen 3 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 64
+  erzeugt: Kohle 563 Erz 372 Eisen 303 | Getreide 0 Wasser 455 Bier 80 Brot 340 | WAFFEN 186
+  erstes Eisen 7:58  erstes Bier 4:24  erste Waffe 15:24  erster Rekrut 0:02
+  Rekruten 69  Soldaten 61  Siedler 233
+  Waffenschmiede wartete: ohne Eisen 38% ohne Kohle 14% ohne beides 22% versorgt 27%
+  Eisenhuette ohne Nachschub: Erz fehlt 39% Kohle fehlt 49% beides 12%
+  Brauerei ohne Nachschub: Getreide fehlt 54% Wasser fehlt 18% beides 28%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/4/6/10  10: 0/23/9/13  15: 0/23/9/13  20: 18/23/14/17  25: 44/27/17/19  30: 73/27/18/20  35: 93/37/27/22  40: 117/44/36/29  45: 131/63/50/40  50: 155/72/60/52  55: 172/76/66/58  60: 186/80/69/61
+
+Saat 777 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 8 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 1 Eisen 3 Huette 2 Waffen 3 Werkzeug 1 | fertig gesamt 72
+  erzeugt: Kohle 386 Erz 265 Eisen 179 | Getreide 0 Wasser 253 Bier 68 Brot 143 | WAFFEN 83
+  erstes Eisen 9:22  erstes Bier 4:40  erste Waffe 15:05  erster Rekrut 0:02
+  Rekruten 59  Soldaten 52  Siedler 240
+  Waffenschmiede wartete: ohne Eisen 65% ohne Kohle 15% ohne beides 11% versorgt 9%
+  Eisenhuette ohne Nachschub: Erz fehlt 36% Kohle fehlt 39% beides 25%
+  Brauerei ohne Nachschub: Getreide fehlt 70% Wasser fehlt 16% beides 14%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/1/6/9  10: 0/12/10/14  15: 0/20/10/14  20: 14/27/16/20  25: 20/31/22/26  30: 29/38/27/30  35: 37/38/27/31  40: 50/38/29/33  45: 63/49/35/37  50: 74/49/40/41  55: 79/58/47/48  60: 83/68/59/52
+
+Saat 3 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 4 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 4 Eisen 1 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 54
+  erzeugt: Kohle 273 Erz 122 Eisen 78 | Getreide 0 Wasser 156 Bier 52 Brot 60 | WAFFEN 41
+  erstes Eisen 17:43  erstes Bier 4:20  erste Waffe 24:00  erster Rekrut 0:02
+  Rekruten 40  Soldaten 44  Siedler 188
+  Waffenschmiede wartete: ohne Eisen 85% ohne Kohle 5% ohne beides 4% versorgt 6%
+  Eisenhuette ohne Nachschub: Erz fehlt 85% Kohle fehlt 8% beides 7%
+  Brauerei ohne Nachschub: Getreide fehlt 45% Wasser fehlt 26% beides 29%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/3/6/10  10: 0/19/9/13  15: 0/28/9/13  20: 0/28/9/13  25: 2/28/9/13  30: 17/28/11/15  35: 38/32/26/30  40: 38/45/34/35  45: 38/45/37/41  50: 41/52/39/43  55: 41/52/40/44  60: 41/52/40/44
+
+Saat 23 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 5 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 0 Eisen 2 Huette 2 Waffen 3 Werkzeug 1 | fertig gesamt 54
+  erzeugt: Kohle 259 Erz 180 Eisen 106 | Getreide 0 Wasser 219 Bier 38 Brot 143 | WAFFEN 30
+  erstes Eisen 16:37  erstes Bier 4:00  erste Waffe 17:51  erster Rekrut 0:02
+  Rekruten 25  Soldaten 29  Siedler 180
+  Waffenschmiede wartete: ohne Eisen 90% ohne Kohle 0% ohne beides 7% versorgt 3%
+  Eisenhuette ohne Nachschub: Erz fehlt 26% Kohle fehlt 59% beides 15%
+  Brauerei ohne Nachschub: Getreide fehlt 85% Wasser fehlt 7% beides 9%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/4/8/9  10: 0/27/10/14  15: 0/30/10/14  20: 4/30/11/14  25: 5/30/12/16  30: 7/30/13/17  35: 10/30/14/18  40: 12/30/17/21  45: 14/30/18/22  50: 14/30/18/22  55: 18/30/18/22  60: 30/38/25/29
+
+Saat 58 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 8 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 2 Eisen 1 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 49
+  erzeugt: Kohle 135 Erz 104 Eisen 65 | Getreide 0 Wasser 132 Bier 27 Brot 65 | WAFFEN 14
+  erstes Eisen 35:10  erstes Bier 5:05  erste Waffe 37:22  erster Rekrut 0:02
+  Rekruten 17  Soldaten 21  Siedler 145
+  Waffenschmiede wartete: ohne Eisen 86% ohne Kohle 4% ohne beides 7% versorgt 3%
+  Eisenhuette ohne Nachschub: Erz fehlt 67% Kohle fehlt 24% beides 9%
+  Brauerei ohne Nachschub: Getreide fehlt 9% Wasser fehlt 35% beides 55%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/0/6/10  10: 0/17/10/14  15: 0/26/10/14  20: 0/27/10/14  25: 0/27/10/14  30: 0/27/10/14  35: 0/27/10/14  40: 2/27/10/14  45: 5/27/11/15  50: 9/27/14/17  55: 11/27/15/19  60: 14/27/17/21
+
+Saat 64 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 2 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 1 Eisen 1 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 42
+  erzeugt: Kohle 66 Erz 0 Eisen 0 | Getreide 0 Wasser 139 Bier 28 Brot 68 | WAFFEN 0
+  erstes Eisen -  erstes Bier 4:45  erste Waffe -  erster Rekrut 0:02
+  Rekruten 10  Soldaten 14  Siedler 104
+  Waffenschmiede wartete: ohne Eisen 96% ohne Kohle 0% ohne beides 4% versorgt 0%
+  Eisenhuette ohne Nachschub: Erz fehlt 96% Kohle fehlt 0% beides 4%
+  Brauerei ohne Nachschub: Getreide fehlt 93% Wasser fehlt 1% beides 6%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/2/7/11  10: 0/15/10/14  15: 0/28/10/14  20: 0/28/10/14  25: 0/28/10/14  30: 0/28/10/14  35: 0/28/10/14  40: 0/28/10/14  45: 0/28/10/14  50: 0/28/10/14  55: 0/28/10/14  60: 0/28/10/14
+
+Saat 80 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 8 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 4 Eisen 3 Huette 2 Waffen 3 Werkzeug 1 | fertig gesamt 66
+  erzeugt: Kohle 317 Erz 214 Eisen 108 | Getreide 0 Wasser 212 Bier 46 Brot 129 | WAFFEN 37
+  erstes Eisen 17:27  erstes Bier 4:26  erste Waffe 19:32  erster Rekrut 0:02
+  Rekruten 35  Soldaten 24  Siedler 189
+  Waffenschmiede wartete: ohne Eisen 82% ohne Kohle 8% ohne beides 5% versorgt 5%
+  Eisenhuette ohne Nachschub: Erz fehlt 87% Kohle fehlt 11% beides 3%
+  Brauerei ohne Nachschub: Getreide fehlt 75% Wasser fehlt 4% beides 21%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/2/6/10  10: 0/21/10/14  15: 0/21/10/14  20: 1/21/10/14  25: 10/21/13/16  30: 15/27/15/19  35: 26/27/17/17  40: 31/38/30/22  45: 31/40/30/26  50: 32/40/30/26  55: 37/46/35/27  60: 37/46/35/24
+
+Saat 97 - 60 Spielminuten, OHNE Materialhilfe
+  Bauten: Hof 5 Muehle 2 Baecker 2 Brunnen 2 Brauerei 2 | Kohle 3 Eisen 3 Huette 2 Waffen 2 Werkzeug 1 | fertig gesamt 66
+  erzeugt: Kohle 382 Erz 217 Eisen 94 | Getreide 0 Wasser 184 Bier 56 Brot 87 | WAFFEN 60
+  erstes Eisen 10:56  erstes Bier 6:11  erste Waffe 14:29  erster Rekrut 0:02
+  Rekruten 52  Soldaten 49  Siedler 230
+  Waffenschmiede wartete: ohne Eisen 79% ohne Kohle 1% ohne beides 10% versorgt 9%
+  Eisenhuette ohne Nachschub: Erz fehlt 61% Kohle fehlt 16% beides 23%
+  Brauerei ohne Nachschub: Getreide fehlt 85% Wasser fehlt 3% beides 12%
+  Verlauf (Minute: Waffen/Bier/Rekruten/Soldaten): 5: 0/0/6/10  10: 0/10/6/10  15: 2/25/9/13  20: 5/25/9/13  25: 19/25/17/18  30: 31/35/31/30  35: 41/45/36/35  40: 53/47/37/34  45: 59/51/51/45  50: 60/56/52/48  55: 60/56/52/49  60: 60/56/52/49
+
+=== 12 Saaten, je 60 Spielminuten, ohne Materialhilfe ===
+Summen: Kohle 3267 Erz 2039 Eisen 1284 Bier 530 Waffen 571 Rekruten 402
+Schnitt je Partie: Waffen 47.6 Bier 44.2 Rekruten 33.5 Soldaten 30.5 Siedler 164
+Saaten mit eigenem Eisen: 10/12  mit eigener Waffe: 10/12  mit Bier: 12/12

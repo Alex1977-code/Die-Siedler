@@ -1,0 +1,137 @@
+diff --git a/lib/screens/generator_screen.dart b/lib/screens/generator_screen.dart
+index c82c644..0d423af 100644
+--- a/lib/screens/generator_screen.dart
++++ b/lib/screens/generator_screen.dart
+@@ -1,4 +1,5 @@
+ import 'dart:async';
++import 'dart:convert';
+ 
+ import 'package:desktop_drop/desktop_drop.dart';
+ import 'package:flutter/material.dart';
+@@ -73,6 +74,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
+   String? _usageInfo;
+   bool _generating = false;
+   bool _dragOverReferences = false;
++  bool _dragOverBatch = false;
+   String? _error;
+   PromptRelay? _relay;
+ 
+@@ -224,6 +226,73 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
+     }
+   }
+ 
++  /// Nimmt fallengelassene Text- und Markdown-Dateien in den Massenprompt.
++  ///
++  /// Der Weg vorher war: Datei oeffnen, alles markieren, kopieren, hier
++  /// einfuegen. Bei 43 Bloecken ueber 48 KB ist das fehleranfaellig - genau
++  /// dort gehen die Trennzeilen "---" verloren.
++  ///
++  /// Ist das Feld leer, wird der Inhalt gesetzt; steht schon etwas drin,
++  /// wird ANGEHAENGT statt ersetzt. Getipptes geht damit nie verloren, und
++  /// mehrere Listen lassen sich nacheinander hineinziehen. Zwischen zwei
++  /// Dateien kommt eine Trennzeile, aber nur wenn nicht ohnehin schon eine
++  /// dasteht - sonst entstuende ein leerer Block.
++  Future<void> _dropBatchText(List<XFile> files) async {
++    const erlaubt = ['.txt', '.md', '.markdown', '.text', '.prompt'];
++    final stuecke = <String>[];
++    var uebersprungen = 0;
++    for (final file in files) {
++      final name = file.name.toLowerCase();
++      if (!erlaubt.any(name.endsWith)) {
++        uebersprungen++;
++        continue;
++      }
++      final bytes = await file.readAsBytes();
++      // allowMalformed: eine Datei in Latin-1 soll nicht die ganze
++      // Uebernahme sprengen - dann stehen eben einzelne Zeichen falsch.
++      var text = utf8.decode(bytes, allowMalformed: true);
++      if (text.startsWith('\uFEFF')) text = text.substring(1); // BOM
++      text = text.replaceAll('\r\n', '\n').trim();
++      if (text.isNotEmpty) stuecke.add(text);
++    }
++    if (!mounted) return;
++    if (stuecke.isEmpty) {
++      setState(() => _dragOverBatch = false);
++      _showSnack(uebersprungen > 0
++          ? '$uebersprungen Datei(en) uebersprungen - hierher passen nur '
++              'Text- und Markdown-Dateien (.txt, .md).'
++          : 'Die Datei war leer.');
++      return;
++    }
++    final vorher = _batchCtrl.text.trimRight();
++    final neu = stuecke.join('\n---\n');
++    final String zusammen;
++    if (vorher.isEmpty) {
++      zusammen = neu;
++    } else if (vorher.endsWith('---')) {
++      zusammen = '$vorher\n$neu';
++    } else {
++      zusammen = '$vorher\n---\n$neu';
++    }
++    setState(() {
++      _dragOverBatch = false;
++      _batchCtrl.text = zusammen;
++      _batchCtrl.selection =
++          TextSelection.collapsed(offset: _batchCtrl.text.length);
++    });
++    // Nur ZEILEN, die genau aus drei Bindestrichen bestehen, trennen
++    // Bloecke. Ein '---' mitten in einer Beschreibung zaehlt nicht mit.
++    final bloecke = zusammen
++            .split('\n')
++            .where((z) => z.trim() == '---')
++            .length +
++        1;
++    _showSnack(vorher.isEmpty
++        ? '${stuecke.length} Datei(en) uebernommen, $bloecke Block/Bloecke.'
++        : '${stuecke.length} Datei(en) angehaengt, jetzt $bloecke Block/Bloecke.'
++            '${uebersprungen > 0 ? ' $uebersprungen uebersprungen.' : ''}');
++  }
++
+   Future<void> _pickReferences() async {
+     try {
+       final files = await _picker.pickMultiImage();
+@@ -1023,7 +1092,24 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
+   Widget _buildBatchCard(SettingsService settings) {
+     final theme = Theme.of(context);
+     final plan = _batchPlan;
+-    return Card(
++    // Textdateien lassen sich direkt hierher ziehen. Gleiches Muster wie
++    // bei den Referenzbildern: waehrend des Ziehens bekommt die Karte einen
++    // farbigen Rahmen, damit sichtbar ist, wo losgelassen werden darf.
++    return DropTarget(
++      enable: !_generating &&
++          widget.isActive &&
++          (ModalRoute.of(context)?.isCurrent ?? true),
++      onDragEntered: (_) => setState(() => _dragOverBatch = true),
++      onDragExited: (_) => setState(() => _dragOverBatch = false),
++      onDragDone: (detail) => _dropBatchText(detail.files),
++      child: Card(
++      shape: _dragOverBatch
++          ? RoundedRectangleBorder(
++              borderRadius: BorderRadius.circular(12),
++              side: BorderSide(
++                  color: Theme.of(context).colorScheme.primary, width: 2),
++            )
++          : null,
+       child: Padding(
+         padding: const EdgeInsets.all(16),
+         child: Column(
+@@ -1045,7 +1131,9 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
+               'Block beginnt mit „NAME:" und „PROMPT:", getrennt durch '
+               'eine Zeile aus drei Bindestrichen. Die Bilder entstehen '
+               'nacheinander und liegen anschließend unter ihrem Namen '
+-              'in der Galerie.',
++              'in der Galerie. Du kannst eine Text- oder Markdown-Datei '
++              '(.txt, .md) auch einfach hierher ziehen – steht schon etwas '
++              'im Feld, wird sie angehängt.',
+               style: theme.textTheme.bodySmall,
+             ),
+             const SizedBox(height: 10),
+@@ -1132,6 +1220,7 @@ class _GeneratorScreenState extends State<GeneratorScreen> {
+           ],
+         ),
+       ),
++      ),
+     );
+   }
+ 

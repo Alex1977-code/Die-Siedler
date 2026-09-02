@@ -1,0 +1,808 @@
+/* Neuland – mobile-first UI */
+*{ box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+html,body{ height:100%; overflow:hidden; }
+body{
+  font-family:'Segoe UI', system-ui, sans-serif;
+  background:#16202e; color:#e8e4d8;
+  user-select:none; -webkit-user-select:none;
+  touch-action:none;
+}
+#app{ position:fixed; inset:0; }
+.screen{ position:absolute; inset:0; overflow-y:auto; touch-action:pan-y; }
+.hidden{ display:none !important; }
+
+/* ---------- Titel & Menüs ---------- */
+#scr-title{
+  background:
+    radial-gradient(ellipse at 50% 8%, rgba(242,217,140,0.16) 0%, transparent 55%),
+    radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
+    #16202e;
+  display:flex;
+}
+/* Die Kulisse ist das SPIEL SELBST: eine im Renderer gewachsene Siedlung
+   (assets/ui_titel.jpg, Saat 42 nach 12 Spielminuten - Burg, Muehle,
+   Felder, See). Ein langsamer Ken-Burns-Schwenk macht sie lebendig,
+   die Vignette (::after) haelt die Raender dunkel, damit Tafel und
+   Schrift ruhig davor stehen. */
+#scr-title{ overflow:hidden; }
+#scr-title::before{
+  content:''; position:absolute; inset:-5%; pointer-events:none; z-index:0;
+  /* 60%/45%: im schmalen Hochformat schneidet cover sonst genau die
+     Burg aus dem sichtbaren Streifen */
+  background:url('assets/ui_titel.jpg') 60% 45%/cover no-repeat;
+  opacity:0.58; filter:saturate(0.94);
+  animation:kulisse-schwenk 52s ease-in-out infinite alternate;
+}
+#scr-title::after{
+  content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+  background:radial-gradient(ellipse at 50% 42%, transparent 30%, rgba(10,16,26,0.82) 100%);
+}
+@keyframes kulisse-schwenk{
+  from{ transform:scale(1.05) translate(-1.4%,-1%); }
+  to  { transform:scale(1.14) translate(1.4%,1.2%); }
+}
+/* Ein Traeger wandert mit seiner Last ueber den Tafelfuss - dasselbe
+   Blatt wie im Spiel (12 Spalten x 88 px, Zeile 0 = Seitenansicht,
+   die Figuren blicken nativ nach links, also laeuft er von rechts). */
+.titel-traeger{
+  position:absolute; left:0; bottom:calc(2px + env(safe-area-inset-bottom));
+  width:88px; height:88px; z-index:1; pointer-events:none;
+  background:url('assets/unit_carrier_trag.png') 0 0 no-repeat;
+  animation: traeger-schritt 0.85s steps(12) infinite,
+             traeger-wandern 34s linear infinite;
+}
+@keyframes traeger-schritt{ from{ background-position-x:0 } to{ background-position-x:-1056px } }
+@keyframes traeger-wandern{ from{ transform:translateX(100vw) } to{ transform:translateX(-96px) } }
+/* Laufende Fassung (vom Serviceworker gemeldet), dezent in der Ecke */
+#build-tag{
+  position:absolute; right:10px; bottom:calc(6px + env(safe-area-inset-bottom));
+  z-index:2; font-size:11px; letter-spacing:0.06em; color:rgba(232,228,216,0.5);
+}
+@media (prefers-reduced-motion: reduce){
+  #scr-title::before, .titel-traeger{ animation:none; }
+  .titel-traeger{ display:none; }
+}
+.title-wrap{
+  /* margin:auto statt align-items:center am Elternelement: ist die Tafel
+     höher als der Bildschirm (Handy quer, 900×500), schnitt die Flex-
+     Zentrierung den Titel oben unerreichbar ab (Kritikbericht F7). Mit
+     auto-Rändern bleibt sie mittig, wenn Platz ist, und beginnt sonst
+     scrollbar am oberen Rand. */
+  margin:auto;
+  text-align:center; padding:26px 22px 24px; max-width:420px; width:100%;
+  position:relative; z-index:2; border-radius:20px;
+  background:
+    linear-gradient(rgba(22,32,46,0.72),rgba(16,24,36,0.84)),
+    url('assets/ui_wood.png') center/260px;
+  border:2px solid #6b5333;
+  box-shadow:0 18px 48px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.3);
+}
+.title-wrap::before{
+  content:''; position:absolute; inset:8px; border-radius:14px; pointer-events:none;
+  border:1px dashed rgba(201,160,90,0.26);
+}
+h1{
+  font-family:Georgia,'Times New Roman',serif;
+  font-size:clamp(46px,12vw,74px); letter-spacing:0.14em;
+  color:#f2d98c; text-shadow:0 3px 0 #7a5b35, 0 8px 24px rgba(0,0,0,0.6);
+  margin-bottom:4px;
+}
+h1::after{
+  content:'⚜'; display:block; font-size:20px; letter-spacing:0;
+  color:#e3c78a; text-shadow:0 1px 3px rgba(0,0,0,0.6); margin:6px auto 0;
+  width:54px; height:54px; line-height:54px;
+  background:url('assets/ui_ring.png') center/contain no-repeat;
+}
+.subtitle{ opacity:0.85; margin-bottom:28px; letter-spacing:0.06em; }
+.credits{ margin-top:26px; font-size:12px; opacity:0.55; }
+/* Handy quer (geringe Höhe): Tafel kompakter, damit Titel UND Knöpfe ohne
+   Anschnitt aufs Bild passen (F7) */
+@media (max-height:560px){
+  .title-wrap{ margin:8px auto; padding:14px 18px 14px; }
+  h1{ font-size:clamp(30px,9.5vh,52px); }
+  h1::after{ width:36px; height:36px; line-height:36px; font-size:14px; margin-top:2px; }
+  .subtitle{ margin-bottom:12px; }
+  .menu{ gap:7px; }
+  .mbtn{ padding:9px 16px; font-size:15.5px; }
+  .credits{ margin-top:12px; }
+}
+.menu{ display:flex; flex-direction:column; gap:10px; }
+.mbtn{
+  font-size:17px; padding:13px 18px; border-radius:16px; border:1px solid #3d2f1e;
+  background:linear-gradient(rgba(52,68,92,0.62),rgba(36,50,70,0.72)), url('assets/ui_wood.png') center/220px;
+  color:#f4ecda; cursor:pointer; text-shadow:0 1px 2px rgba(0,0,0,0.55);
+  transition:transform 0.06s; box-shadow:0 3px 10px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+.mbtn:active{ transform:scale(0.97); }
+.mbtn.primary{ background:linear-gradient(rgba(66,120,68,0.6),rgba(47,88,52,0.72)), url('assets/ui_wood.png') center/220px; border-color:#4a5c34; }
+.mbtn.back{ background:linear-gradient(rgba(64,64,72,0.66),rgba(47,47,56,0.78)), url('assets/ui_wood.png') center/220px; border-color:#4a4438; }
+.panel{
+  max-width:520px; margin:0 auto; padding:22px 18px calc(30px + env(safe-area-inset-bottom));
+  display:flex; flex-direction:column; gap:12px; min-height:100%;
+}
+.panel h2{
+  font-family:Georgia,'Times New Roman',serif;
+  color:#f2d98c; margin-bottom:6px; letter-spacing:0.03em;
+  border-bottom:1px solid rgba(201,160,90,0.35); padding-bottom:6px;
+}
+.panel h3{ color:#f2d98c; margin-top:8px; font-size:15px; }
+.panel p{ line-height:1.45; font-size:14.5px; }
+.note{ opacity:0.8; font-size:13.5px; line-height:1.4; }
+.warn{ color:#ffb44a; font-size:13.5px; }
+.tips{ font-style:italic; opacity:0.75; font-size:13px; }
+.row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+.form{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.form label{ display:flex; flex-direction:column; gap:5px; font-size:13px; opacity:0.9; }
+.form select,.form input{
+  padding:10px; border-radius:9px; border:1px solid #4a5a70; background:#1d2a3a; color:#e8e4d8; font-size:15px;
+}
+.opt{ display:flex; gap:10px; align-items:center; font-size:16px; padding:8px 0; }
+.opt input{ width:22px; height:22px; }
+/* Lautstärkeregler (KD2): Schieber füllen die Zeile statt auf Checkbox-Maß zu schrumpfen */
+.opt input[type=range]{ width:auto; flex:1; min-width:120px; }
+
+.mission-list,.slot-list{ display:flex; flex-direction:column; gap:8px; }
+.mission,.slot{
+  display:flex; gap:12px; align-items:center; text-align:left;
+  padding:12px; border-radius:12px; border:1px solid #4a5a70;
+  background:#22334a; color:#e8e4d8; font-size:15px; cursor:pointer;
+}
+.mission.locked,.slot.locked{ opacity:0.45; }
+.mission small,.slot small{ opacity:0.7; }
+.mnum{
+  background:#f2d98c; color:#4a3a18; font-weight:bold; border-radius:50%;
+  width:34px; height:34px; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.story{ justify-content:center; }
+#story-text{ white-space:pre-line; }
+
+/* ---------- Spiel-HUD ---------- */
+#scr-game{ overflow:hidden; }
+/* Zwei Leinwaende uebereinander: #cvgl traegt das Gelaende von der GPU,
+   #cv alles andere (Figuren, Gebaeude, Nebel, Auswahl). Gleiche Groesse,
+   gleiche Lage; die Kamera fuehren beide aus derselben Quelle. */
+#cvgl{ position:absolute; inset:0; z-index:0; pointer-events:none; }
+#cv{ position:absolute; inset:0; z-index:1; touch-action:none; }
+/* Titelbanner: blaues Wimpelband mit Goldkante, mittig über dem HUD */
+/* Titelbanner über die gesamte Breite, unten mit Wimpelzacken */
+#title-banner{
+  position:absolute; top:0; left:0; right:0; z-index:5; pointer-events:none;
+  padding:calc(2px + env(safe-area-inset-top)) 0 4px;
+  text-align:center;
+  background:linear-gradient(#3f6fb4,#27497e 62%,#1b3358);
+  border-bottom:2px solid #c9a05a;
+  box-shadow:0 3px 12px rgba(0,0,0,0.5), inset 0 -1px 0 rgba(255,255,255,0.14);
+}
+#title-banner span{
+  font-family:Georgia,'Times New Roman',serif;
+  font-size:16px; letter-spacing:0.26em; font-weight:700;
+  color:#f2d98c; text-shadow:0 1px 2px rgba(0,0,0,0.8);
+  display:block;
+}
+/* Warenzeile: Leiste plus Geschwindigkeit rechts */
+#goods-row{
+  position:absolute; top:calc(72px + env(safe-area-inset-top)); left:8px; right:8px;
+  display:flex; gap:8px; align-items:center; z-index:4;
+}
+#hud-top{
+  position:absolute; top:0; left:0; right:0;
+  padding:calc(28px + env(safe-area-inset-top)) 8px 6px;
+  display:flex; gap:8px; align-items:center;
+  background:linear-gradient(rgba(10,14,22,0.85), rgba(10,14,22,0));
+  pointer-events:none;
+}
+#hud-top>*{ pointer-events:auto; }
+.hbtn{
+  min-width:44px; height:44px; border-radius:14px; border:1px solid #3d2f1e;
+  background:linear-gradient(rgba(40,52,70,0.35),rgba(28,38,54,0.45)), url('assets/ui_wood.png') center/130px;
+  color:#f4ecda; font-size:18px; cursor:pointer; text-shadow:0 1px 3px rgba(0,0,0,0.7);
+  box-shadow:0 2px 8px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12);
+}
+#g-pause{
+  background:url('assets/ui_btn_pause.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:transparent; font-size:0;
+}
+#g-pause.paused{ background:url('assets/ui_btn_play.png') center/cover no-repeat, rgba(28,38,54,0.4); }
+#g-menu{
+  background:url('assets/ui_btn_menu.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:transparent; font-size:0;
+}
+/* Der Tempoknopf war der einzige der Daumenzone ohne gemaltes Blatt: er
+   zeigte den Text "1x" auf der Holzkachel, waehrend Menue und Pause runde
+   Scheiben tragen. assets/ui_btn_speed.png lag seit der GUI-Lieferung
+   ungenutzt daneben - kein fehlendes Bild, ein nicht angeschlossenes.
+   Die Scheibe zeigt einen Doppelpfeil und keine Zahl, der Faktor kommt
+   deshalb als kleines Abzeichen an den Rand (dasselbe Muster wie die
+   Meldungszahl am Glockenknopf). Bei Tempo 1 steht dort nichts:
+   Normaltempo braucht keine Marke. */
+#g-speed{
+  background:url('assets/ui_btn_speed.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:transparent; font-size:0; position:relative;
+}
+#g-speed .sp-badge{
+  position:absolute; bottom:-3px; right:-3px; min-width:19px; height:17px;
+  padding:0 3px; border-radius:9px; background:#3d2f1e; color:#f4ecda;
+  border:1px solid rgba(201,160,90,0.55);
+  font-size:10.5px; line-height:16px; text-align:center; font-style:normal;
+  font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.5);
+}
+/* H1: Daumenzone unten links. Menue, Pause und Geschwindigkeit sind die
+   einzigen Knoepfe, die im Spiel dauernd gebraucht werden - sie gehoeren
+   dorthin, wo der Daumen ohne Umgreifen hinkommt. Die Minikarte sitzt
+   spiegelbildlich unten rechts; zwischen beiden bleibt auf dem schmalsten
+   Geraet (360 px) noch Platz. */
+#hud-thumb{
+  position:absolute; left:8px; bottom:calc(8px + env(safe-area-inset-bottom));
+  display:flex; gap:8px; align-items:flex-end; z-index:4;
+}
+#hud-thumb .hbtn{ width:48px; min-width:48px; height:48px; border-radius:15px; }
+#hud-thumb #g-speed{ font-size:15px; }
+/* obere Leiste: Siedler nach Beruf/Waffengattung */
+/* Die Warenleiste war das einzige Bedienfeld ohne Holz: eine flache
+   blaugraue Flaeche mit Goldrand, waehrend Knoepfe, Tafeln und Panels
+   alle ui_wood tragen. Dasselbe Rezept wie .panel - dunkler Verlauf UEBER
+   der Maserung, damit die helle Schrift stehen bleibt. */
+#res-bar{
+  flex:1; display:flex; gap:9px; overflow-x:auto; padding:4px 8px;
+  background:linear-gradient(rgba(20,30,44,0.74), rgba(14,22,34,0.84)),
+             url('assets/ui_wood.png') center/220px;
+  border-radius:12px; font-size:14.5px;
+  white-space:nowrap; scrollbar-width:none;
+  border:1px solid rgba(201,160,90,0.3);
+}
+#res-bar span{ display:inline-flex; gap:2px; align-items:center; }
+#res-bar::-webkit-scrollbar{ display:none; }
+.res-ic{ width:16px; height:16px; object-fit:contain; }
+.unit-ic{ width:20px; height:20px; }
+#res-bar{ cursor:pointer; }
+.res-more{ opacity:0.85; font-size:12.5px; padding-left:2px; }
+.stock-grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(74px,1fr)); gap:6px;
+  max-height:46vh; overflow-y:auto;
+}
+.stock-it{
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  padding:6px 3px; border-radius:9px; border:1px solid #4a5a70; background:#26364b;
+  /* Ohne eigene Farbe erbt der <button> das Schwarz des Browsers - auf
+     #26364b ergab das einen Kontrast von 1,7:1 (noetig sind 4,5:1). */
+  color:#e8e4d8;
+}
+/* Waren mit Bestand 0 werden NICHT ausgegraut: sie lassen sich genauso
+   anheften, und ein leeres Lager ist gerade der Grund hinzuschauen. Nur
+   die Null selbst steht gedaempft da. */
+.stock-it.zero b{ color:#8fa2bb; }
+.stock-it{ cursor:pointer; }
+.stock-it.pinned{ border-color:#f2d98c; box-shadow:0 0 0 1px #f2d98c inset; }
+.res-sep{ width:1px; height:18px; background:rgba(201,160,90,0.45); margin:0 2px; }
+.stock-it b{ font-size:14px; color:#f2d98c; }
+.stock-it small{ font-size:11.5px; opacity:0.9; text-align:center; line-height:1.15; }
+.stock-ic{ width:26px; height:26px; object-fit:contain; }
+/* untere Leiste über die volle Breite: die angehefteten Waren */
+#unit-bar{
+  flex:1; min-width:0;
+  display:flex; gap:6px; align-items:center; justify-content:flex-start;
+  padding:3px 7px; border-radius:11px; font-size:13px; white-space:nowrap;
+  background:linear-gradient(rgba(20,30,44,0.74), rgba(14,22,34,0.84)),
+             url('assets/ui_wood.png') center/220px;
+  border:1px solid rgba(201,160,90,0.28);
+  overflow-x:auto; scrollbar-width:none; cursor:pointer;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);
+}
+#goods-row #g-speed{ flex:0 0 auto; min-width:44px; height:44px; font-size:14px; border-radius:11px; }
+#unit-bar .res-ic{ width:15px; height:15px; }
+#unit-bar::-webkit-scrollbar{ display:none; }
+#unit-bar span{ display:inline-flex; gap:2px; align-items:center; }
+/* Eine Null sah aus wie jeder andere Bestand - dass gerade keine Baustelle
+   mehr fertig wird, war der Leiste nicht anzusehen. */
+#unit-bar span.leer{ color:#e08a5f; font-weight:700; }
+/* Passen nicht alle angehefteten Waren in die Leiste, wurde die letzte vorher
+   hart abgeschnitten (F11). Das Paket-Zeichen klebt jetzt am rechten Rand und
+   blendet den Anschnitt weich aus: "hier gibt es mehr, wischen/antippen". */
+#unit-bar .res-more{
+  position:sticky; right:-7px; margin-left:auto; flex:0 0 auto;
+  padding:2px 3px 2px 16px;
+  background:linear-gradient(to right, rgba(20,30,44,0), rgba(20,30,44,0.96) 45%);
+}
+/* Das Paket-Zeichen liegt fest am rechten Rand. Ohne diesen Nachlauf klebte
+   es ueber der letzten sichtbaren Zahl - aus "10" wurde "1". Jetzt laesst
+   sich der letzte Eintrag darunter hervorscrollen. */
+#unit-bar{ padding-right:34px; scroll-padding-right:34px; }
+#unit-bar:empty{ display:none; }
+#objectives{
+  position:absolute; top:calc(110px + env(safe-area-inset-top)); left:8px;
+  background:url('assets/ui_parchment.png') center/cover, #d9c49a;
+  color:#3a2c16; border:1px solid #8a6f4a; border-radius:10px;
+  padding:10px 14px; font-size:13.5px; line-height:1.55; max-width:75vw; z-index:5;
+  box-shadow:0 3px 10px rgba(0,0,0,0.35);
+}
+/* KD4: dauerhafter Ziel-Chip - kompakte Pergament-Pille, tippen öffnet das Tableau */
+#obj-chip{
+  position:absolute; top:calc(110px + env(safe-area-inset-top)); left:8px;
+  background:url('assets/ui_parchment.png') center/cover, #d9c49a;
+  color:#3a2c16; border:1px solid #8a6f4a; border-radius:999px;
+  padding:5px 12px; font-size:12.5px; line-height:1.3; max-width:66vw; z-index:4;
+  box-shadow:0 2px 6px rgba(0,0,0,0.3);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer;
+}
+/* Meldungen: kleine Pergamentnotiz statt grauer Systemblase */
+#msg-toast{
+  position:absolute; top:calc(112px + env(safe-area-inset-top)); left:50%; transform:translateX(-50%);
+  /* gemalte Holztafel: Rahmen aus den Bildraendern, Mitte streckt sich */
+  border:22px solid transparent;
+  border-image:url('assets/ui_toast.png') 90 fill / 22px stretch;
+  color:#3d2b14; border-radius:0;
+  padding:0 6px; font-size:14px; z-index:6; max-width:88vw; text-align:center;
+  display:flex; gap:8px; align-items:center; cursor:pointer;
+  font-family:Georgia,'Times New Roman',serif; letter-spacing:0.01em;
+  filter:drop-shadow(0 5px 10px rgba(0,0,0,0.4));
+  animation:toastin 0.22s ease-out;
+}
+@keyframes toastin{
+  from{ opacity:0; transform:translateX(-50%) translateY(-7px) scale(0.97); }
+  to  { opacity:1; transform:translateX(-50%) translateY(0) scale(1); }
+}
+/* Kampfmeldung: Pergament mit Schwerterzeichen, antippen springt zum Kampf */
+#msg-toast.war{
+  background:url('assets/ui_parchment.png') center/cover, #d9c49a;
+  color:#4a2318; border:2px solid #a8503a; font-weight:600;
+  box-shadow:0 4px 16px rgba(120,20,10,0.45);
+  animation:warpulse 1.1s ease-in-out infinite;
+}
+#msg-toast.war.framed{
+  background:url('assets/ui_warframe.png') center/100% 100% no-repeat;
+  border:none; box-shadow:none; padding:16px 30px;
+}
+#msg-toast.war.framed .toast-ic{ display:none; }
+#msg-toast.war .toast-ic{ font-size:19px; }
+#msg-toast.war .toast-go{
+  background:#a8503a; color:#ffeede; border-radius:12px;
+  padding:3px 9px; font-size:12.5px; white-space:nowrap;
+}
+@keyframes warpulse{
+  0%,100%{ box-shadow:0 4px 16px rgba(120,20,10,0.4); }
+  50%{ box-shadow:0 4px 22px rgba(200,60,30,0.75); }
+}
+#minimap-wrap{
+  position:absolute; right:8px; bottom:calc(8px + env(safe-area-inset-bottom));
+  padding:9px; opacity:0.97; z-index:4;
+}
+#minimap{
+  /* H4: etwas groesser als vorher (130 -> 150). Die Karte fuellt den Kreis
+     seit dem Umbau nur noch zu 71 % der Kantenlaenge, weil sie vollstaendig
+     hineinpasst; die groessere Scheibe faengt das wieder auf. */
+  display:block; width:150px; height:150px; border-radius:50%;
+  box-shadow:0 4px 14px rgba(0,0,0,0.45);
+  background:#1a2634;
+}
+#mapring{
+  position:absolute; inset:0; width:100%; height:100%;
+  pointer-events:none; filter:drop-shadow(0 3px 6px rgba(0,0,0,0.35));
+}
+
+#story-img{ width:100%; max-height:340px; object-fit:cover; border-radius:12px;
+  margin:4px 0 10px; border:1px solid rgba(201,160,90,0.45);
+  box-shadow:0 4px 14px rgba(0,0,0,0.35); }
+
+/* Bottom-Sheet */
+#sheet{
+  position:absolute; left:0; right:0; bottom:0;
+  background:
+    linear-gradient(rgba(26,37,52,0.95),rgba(19,28,40,0.97)),
+    url('assets/ui_wood.png') center/280px;
+  border-top:2px solid rgba(201,160,90,0.42);
+  border-radius:24px 24px 0 0; padding:12px 14px calc(14px + env(safe-area-inset-bottom));
+  max-height:52vh; overflow-y:auto; z-index:8; touch-action:pan-y;
+  box-shadow:0 -8px 30px rgba(0,0,0,0.4);
+}
+.sh-head{ display:flex; align-items:center; gap:10px; margin-bottom:9px; }
+.sh-head .hbtn{ margin-left:auto; }
+.sh-title{ display:flex; flex-direction:column; line-height:1.15; min-width:0; }
+.sh-title small{ font-size:11.5px; opacity:0.62; letter-spacing:0.02em; }
+.sh-ic{
+  width:44px; height:44px; object-fit:contain; object-position:bottom;
+  flex-shrink:0; filter:drop-shadow(0 2px 3px rgba(0,0,0,0.45));
+}
+/* Aktionsleiste im Gebäude-Sheet: gleich große Holzkacheln statt Textknöpfe */
+/* einzeilige Straßenbau-Leiste – verdeckt kaum Karte */
+.roadbar{ display:flex; align-items:center; gap:9px; }
+.roadbar b{ font-size:19px; }
+.roadbar span{ flex:1; font-size:13px; opacity:0.85; }
+.roadbar .mbtn{ padding:9px 14px; font-size:14.5px; }
+.roadbar .hbtn{ min-width:38px; height:38px; font-size:15px; }
+/* Produktwahl in den Schmieden */
+.pickrow{ display:flex; gap:6px; overflow-x:auto; padding:8px 0 2px; scrollbar-width:none; }
+.pickrow::-webkit-scrollbar{ display:none; }
+.pick{
+  flex:0 0 auto; width:54px; display:flex; flex-direction:column; align-items:center; gap:2px;
+  padding:5px 2px; border-radius:10px; border:1px solid #4a5a70; background:#26364b;
+  color:#e8e4d8; cursor:pointer;
+}
+.pick img{ width:24px; height:24px; object-fit:contain; }
+.pick small{ font-size:9px; line-height:1.1; text-align:center; opacity:0.8; }
+.pick.on{ border-color:#f2d98c; background:linear-gradient(#4a6b3e,#33512c); }
+.sh-acts{
+  display:grid; grid-auto-flow:column; grid-auto-columns:1fr; gap:8px; margin-top:11px;
+}
+.abtn{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+  padding:9px 4px 8px; border-radius:14px; cursor:pointer;
+  border:1px solid #4a3a24;
+  background:linear-gradient(rgba(52,68,92,0.5),rgba(34,46,66,0.66)), url('assets/ui_wood.png') center/150px;
+  color:#f0e7d4; text-shadow:0 1px 2px rgba(0,0,0,0.6);
+  box-shadow:0 3px 9px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition:transform 0.06s;
+}
+.abtn i{ font-style:normal; font-size:19px; line-height:1; }
+.abtn span{ font-size:11px; opacity:0.9; letter-spacing:0.01em; }
+.abtn:active{ transform:scale(0.95); }
+.abtn.on{
+  border-color:#8a7a3a;
+  background:linear-gradient(rgba(96,132,72,0.62),rgba(58,88,46,0.75)), url('assets/ui_wood.png') center/150px;
+  box-shadow:0 0 0 1px rgba(242,217,140,0.55) inset, 0 3px 9px rgba(0,0,0,0.3);
+}
+.abtn.danger{
+  border-color:#6b3a2a;
+  background:linear-gradient(rgba(120,58,44,0.5),rgba(80,36,28,0.7)), url('assets/ui_wood.png') center/150px;
+}
+.road-help{
+  display:flex; flex-direction:column; gap:4px; margin-bottom:10px;
+  padding:9px 12px; border-radius:10px; font-size:13px; line-height:1.35;
+  background:url('assets/ui_parchment.png') center/cover, #d9c49a;
+  color:#3a2c16; border:1px solid #8a6f4a;
+}
+.sh-head b{
+  flex:1; font-size:16.5px; color:#f2d98c;
+  font-family:Georgia,'Times New Roman',serif; letter-spacing:0.02em;
+}
+.tabs{ display:flex; gap:6px; overflow-x:auto; margin-bottom:8px; padding-bottom:2px; }
+.tab{
+  padding:6px 12px 6px 8px; border-radius:16px; border:1px solid #4a5a70; white-space:nowrap;
+  background:#22334a; color:#cfd6df; font-size:13.5px;
+  display:inline-flex; align-items:center; gap:6px;
+}
+.tab.on{ background:#f2d98c; color:#4a3a18; border-color:#f2d98c; font-weight:600; }
+.tabicon{ width:22px; height:22px; object-fit:contain;
+  filter:drop-shadow(0 1px 2px rgba(0,0,0,0.45)); }
+.tab.on .tabicon{ filter:drop-shadow(0 1px 2px rgba(0,0,0,0.3)) brightness(1.08); }
+.bgrid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(172px,1fr)); gap:8px; }
+.bitem{
+  display:flex; flex-direction:row; gap:9px; align-items:center; text-align:left;
+  padding:8px 10px; border-radius:10px; border:1px solid #4a5a70;
+  background:#26364b; color:#e8e4d8; font-size:14px; cursor:pointer;
+  overflow:hidden;
+}
+.bthumb{ width:46px; height:46px; object-fit:contain; flex-shrink:0;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4)); }
+.binfo{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+.binfo b{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; white-space:normal; line-height:1.12; font-size:13.5px;
+}
+.binfo small{ overflow:hidden; }
+.binfo .desc{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  white-space:normal; line-height:1.3;
+}
+.bitem small{ opacity:0.75; font-size:11.5px; }
+.bitem .desc{ opacity:0.6; }
+.bitem.off{ opacity:0.5; }
+#sheet input[type=range]{ flex:1; }
+
+#game-menu,#dlg{
+  position:absolute; inset:0; background:rgba(8,12,18,0.72); z-index:20;
+  display:flex; align-items:center; justify-content:center; padding:18px;
+}
+#game-menu .panel,#dlg .panel{
+  background:
+    linear-gradient(rgba(29,42,58,0.86),rgba(22,32,46,0.92)),
+    url('assets/ui_wood.png') center/240px;
+  border:2px solid #6b5333; border-radius:18px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.35),
+             inset 0 2px 0 rgba(255,255,255,0.08);
+  min-height:0; width:100%; max-width:360px; max-height:82vh; overflow-y:auto;
+}
+/* Ziernägel in den Ecken der Holztafel */
+#game-menu .panel,#dlg .panel{ position:relative; }
+#game-menu .panel::before,#dlg .panel::before{
+  content:''; position:absolute; inset:7px; border-radius:12px; pointer-events:none;
+  border:1px dashed rgba(201,160,90,0.28);
+}
+
+/* ---------- Statistik (H3) ---------- */
+#stats{
+  position:absolute; inset:0; z-index:22; overflow-y:auto;
+  background:rgba(8,12,18,0.86);
+  padding:calc(14px + env(safe-area-inset-top)) 10px calc(18px + env(safe-area-inset-bottom));
+}
+#stats .panel{
+  background:
+    linear-gradient(rgba(29,42,58,0.92),rgba(22,32,46,0.96)),
+    url('assets/ui_wood.png') center/240px;
+  border:2px solid #6b5333; border-radius:18px; padding:12px 12px 16px;
+  max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:10px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.35);
+}
+#stats h3{ margin:6px 0 0; font-size:14px; color:#f2d98c; font-weight:700; }
+/* Fuenf Reiter passen auf 360 px nicht nebeneinander; sie werden deshalb
+   enger gesetzt und umbrechen statt am Rand abgeschnitten zu werden. */
+#stats .tabs{ flex-wrap:wrap; overflow:visible; margin-bottom:2px; }
+#stats .tab{ padding:6px 10px; font-size:12.5px; }
+.st-zeit{ margin-left:auto; margin-right:8px; font-size:12.5px; color:#b9c6d8; }
+#st-kurve{ width:100%; height:auto; display:block; border-radius:10px;
+  border:1px solid rgba(201,160,90,0.28); background:rgba(12,18,28,0.55); }
+.st-legende{ display:flex; flex-wrap:wrap; gap:10px; font-size:12.5px; }
+.st-balken{ display:flex; flex-direction:column; gap:6px; }
+.st-zeile{ display:flex; align-items:center; gap:8px; font-size:13.5px; }
+.st-name{ flex:0 0 104px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.st-bahn{ flex:1; height:14px; border-radius:7px; background:rgba(12,18,28,0.6);
+  border:1px solid rgba(201,160,90,0.25); overflow:hidden; }
+.st-bahn i{ display:block; height:100%; border-radius:7px; }
+.st-wert{ flex:0 0 52px; text-align:right; color:#f2d98c; }
+.st-waren{ display:flex; flex-wrap:wrap; gap:6px; }
+.st-ware{ display:inline-flex; align-items:center; gap:5px; font-size:12.5px;
+  padding:4px 8px; border-radius:9px; background:rgba(20,30,44,0.72);
+  border:1px solid rgba(201,160,90,0.22); color:#e8e4d8; }
+.st-ware i{ width:10px; height:10px; border-radius:3px; display:inline-block; }
+.st-ware b{ color:#f2d98c; }
+
+/* ---------- Steuerung im Gebäude-Sheet ---------- */
+.pips{ display:inline-flex; gap:5px; vertical-align:middle; flex-wrap:wrap; }
+.pip{
+  /* Daumenmass: 24 px waren im Wachturm sechs Ziele nebeneinander, jedes
+     kleiner als die Fingerkuppe. */
+  width:44px; height:44px; line-height:42px; font-size:15px; padding:0;
+  border-radius:7px; border:1px solid #4a5a70; background:#26364b;
+  color:#8fa2b8; cursor:pointer; filter:grayscale(1) brightness(0.7);
+}
+.pip.on{
+  border-color:#f2d98c; background:linear-gradient(#4a6b3e,#33512c);
+  color:#f4ecda; filter:none;
+}
+.pip:active{ transform:scale(0.92); }
+.orebar{
+  display:inline-block; vertical-align:middle; width:66px; height:8px;
+  border-radius:4px; background:rgba(0,0,0,0.45);
+  border:1px solid rgba(201,160,90,0.4); overflow:hidden;
+}
+.orebar i{ display:block; height:100%; }
+.lnk{
+  background:none; border:none; color:#8fc0f2; font-size:12.5px;
+  text-decoration:underline; cursor:pointer; padding:0 2px;
+}
+
+/* ---------- Menü-Stil: Holz, Gold und Serifen wie im Spielbanner ---------- */
+/* Alle Vollbild-Menüs bekommen die Kulisse des Titels, damit Haupt- und
+   Untermenüs aus einem Guss sind. */
+#scr-campaign,#scr-free,#scr-multi,#scr-load,#scr-options,#scr-help{
+  background:
+    radial-gradient(ellipse at 50% 8%, rgba(242,217,140,0.14) 0%, transparent 55%),
+    radial-gradient(ellipse at 30% 20%, #2a3c52 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 80%, #23392c 0%, transparent 55%),
+    #16202e;
+  position:relative;
+}
+/* dieselbe Spielszene wie am Titel, nur stiller: die Untermenues stehen
+   damit sichtbar IM Spiel statt vor grauem Grund */
+#scr-campaign::before,#scr-free::before,#scr-multi::before,
+#scr-load::before,#scr-options::before,#scr-help::before{
+  content:''; position:fixed; inset:0; pointer-events:none;
+  background:url('assets/ui_titel.jpg') center/cover no-repeat;
+  opacity:0.22; filter:saturate(0.85);
+}
+/* Checkboxen und Schieberegler: Gold statt Systemblau - der einzige
+   Fleck Browser-Optik, der noch in den Menues stand */
+input[type=checkbox], input[type=radio], input[type=range]{ accent-color:#c9a05a; }
+.opt{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.opt input[type=range]{ flex:1; min-width:130px; }
+/* Knopf-Icons im Hauptmenue */
+.mbtn .mi{ margin-right:9px; }
+
+/* ---------- Bedien-Zeichen ----------
+   Die Zeichen auf Knoepfen und Tafeln waren System-Emoji. Ein Emoji
+   zeichnet das BETRIEBSSYSTEM, nicht das Spiel: dieselbe Datei zeigt auf
+   einem iPhone Apples Burg, auf Android Googles, auf Windows Microsofts -
+   drei Bilder aus drei fremden Stilwelten mitten in einer Oberflaeche,
+   deren Flaechen alle aus einer Hand kommen.
+   Warum als Hintergrundbild auf einem leeren <span> und nicht als <img>
+   mit alt-Text: die Zeichen stehen an 57 Stellen, teils in einfach
+   gequoteten Zeichenketten, teils in Schablonenliteralen. Ein reines
+   HTML-Schnipsel passt in beide ohne Escaping; ein per Funktion gebautes
+   <img> haette in den einfach gequoteten Faellen still als Text
+   dagestanden (im ersten Anlauf genau so passiert).
+   Groesse in em, damit dasselbe Zeichen im Menue, im Meldeband und im
+   kleinen Aktionsknopf mit der jeweiligen Schrift mitwaechst. */
+.uic{
+  display:inline-block; width:1.15em; height:1.15em; vertical-align:-0.18em;
+  background:center/contain no-repeat;
+}
+.mbtn .mi{ width:1.5em; height:1.5em; vertical-align:-0.35em; }
+/* Der Glockenknopf traegt sein Zeichen wie Menue und Pause als Flaeche -
+   das Abzeichen mit der Zahl liegt darueber und behaelt seine Schrift. */
+#g-msgs{
+  background:url('assets/ui_ic_meldungen.png') center/22px no-repeat,
+             linear-gradient(rgba(40,52,70,0.35),rgba(28,38,54,0.45)),
+             url('assets/ui_wood.png') center/130px;
+}
+.ic-kampagne{ background-image:url('assets/ui_ic_kampagne.png'); }
+.ic-freispiel{ background-image:url('assets/ui_ic_freispiel.png'); }
+.ic-mehrspieler{ background-image:url('assets/ui_ic_mehrspieler.png'); }
+.ic-laden{ background-image:url('assets/ui_ic_laden.png'); }
+.ic-optionen{ background-image:url('assets/ui_ic_optionen.png'); }
+.ic-anleitung{ background-image:url('assets/ui_ic_anleitung.png'); }
+.ic-speichern{ background-image:url('assets/ui_ic_speichern.png'); }
+.ic-ziele{ background-image:url('assets/ui_ic_ziele.png'); }
+.ic-statistik{ background-image:url('assets/ui_ic_statistik.png'); }
+.ic-transport{ background-image:url('assets/ui_ic_transport.png'); }
+.ic-test{ background-image:url('assets/ui_ic_test.png'); }
+.ic-meldungen{ background-image:url('assets/ui_ic_meldungen.png'); }
+.ic-export{ background-image:url('assets/ui_ic_export.png'); }
+.ic-fahne{ background-image:url('assets/ui_ic_fahne.png'); }
+.ic-abreissen{ background-image:url('assets/ui_ic_abreissen.png'); }
+.ic-angriff{ background-image:url('assets/ui_ic_angriff.png'); }
+.ic-warnung{ background-image:url('assets/ui_ic_warnung.png'); }
+.ic-erfuellt{ background-image:url('assets/ui_ic_erfuellt.png'); }
+.ic-tipp{ background-image:url('assets/ui_ic_tipp.png'); }
+.ic-waren{ background-image:url('assets/ui_ic_waren.png'); }
+.ic-schliessen{ background-image:url('assets/ui_ic_schliessen.png'); }
+.ic-gebaeude{ background-image:url('assets/ui_ic_gebaeude.png'); }
+.ic-strasse{ background-image:url('assets/ui_ic_strasse.png'); }
+.ic-essen{ background-image:url('assets/ui_ic_essen.png'); }
+.ic-besatzung{ background-image:url('assets/ui_ic_besatzung.png'); }
+.ic-sieg{ background-image:url('assets/ui_ic_sieg.png'); }
+.ic-niederlage{ background-image:url('assets/ui_ic_niederlage.png'); }
+.ic-unterwegs{ background-image:url('assets/ui_ic_unterwegs.png'); }
+.ic-offen{ background-image:url('assets/ui_ic_offen.png'); }
+.ic-klein{ background-image:url('assets/ui_ic_klein.png'); }
+.ic-mittel{ background-image:url('assets/ui_ic_mittel.png'); }
+.ic-gross{ background-image:url('assets/ui_ic_gross.png'); }
+.ic-gebirge{ background-image:url('assets/ui_ic_gebirge.png'); }
+.ic-pausieren{ background-image:url('assets/ui_ic_pausieren.png'); }
+.ic-weiter{ background-image:url('assets/ui_ic_weiter.png'); }
+.ic-siedler{ background-image:url('assets/ui_ic_siedler.png'); }
+.ic-erz{ background-image:url('assets/ui_ic_erz.png'); }
+
+.panel{
+  max-width:520px; margin:14px auto; min-height:0;
+  border-radius:18px;
+  background:
+    linear-gradient(rgba(22,32,46,0.80),rgba(16,24,36,0.90)),
+    url('assets/ui_wood.png') center/260px;
+  border:2px solid #6b5333;
+  box-shadow:0 14px 40px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(201,160,90,0.3);
+}
+.panel h2{
+  text-align:center; border-bottom:0; padding-bottom:0;
+  letter-spacing:0.05em; font-size:24px;
+}
+.panel h2::after{
+  content:''; display:block; margin:8px auto 2px; width:72%; height:2px;
+  background:linear-gradient(90deg, transparent,
+    rgba(201,160,90,0.65) 18%, rgba(201,160,90,0.65) 82%, transparent);
+}
+.mbtn{
+  font-family:Georgia,'Times New Roman',serif;
+  letter-spacing:0.05em;
+  border:1px solid #201709; border-radius:13px;
+  color:#f2e4c2;
+  box-shadow:0 3px 10px rgba(0,0,0,0.35),
+    inset 0 0 0 2px rgba(201,160,90,0.5),
+    inset 0 0 0 3px rgba(0,0,0,0.35),
+    inset 0 14px 18px -12px rgba(255,235,190,0.22);
+}
+/* Eingabefelder im selben Ton: dunkles Blau, Goldrand, keine Systemoptik */
+.form label{ color:#e8dcc0; }
+.form select, .form input, #c-diff{
+  background:#1b2636; color:#f2e4c2;
+  border:1px solid rgba(201,160,90,0.45); border-radius:9px;
+  padding:7px 9px; font-size:15px;
+  font-family:Georgia,'Times New Roman',serif;
+}
+.opt{ color:#e8dcc0; }
+.subtitle{ font-family:Georgia,'Times New Roman',serif; }
+/* Zwei Spalten nur, wenn sie wirklich passen; die Felder dürfen ihre
+   Spalte nie sprengen (min-width:0 hebt die Mindestbreite von selects auf) */
+.form{ grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); }
+.form label{ min-width:0; }
+.form select, .form input{ width:100%; min-width:0; box-sizing:border-box; }
+
+/* ---------- Transport-Rangfolge (v196) ---------- */
+/* Aufbau bewusst wie der Statistikbildschirm: Vollbild-Overlay, dieselbe
+   Holztafel, damit kein neues Bedienmuster entsteht. */
+/* ---------- Testmodus ---------- */
+#testmode{
+  position:absolute; inset:0; z-index:23; overflow-y:auto;
+  background:rgba(8,12,18,0.86);
+  padding:calc(14px + env(safe-area-inset-top)) 10px calc(18px + env(safe-area-inset-bottom));
+}
+#testmode .panel{
+  background:
+    linear-gradient(rgba(29,42,58,0.92),rgba(22,32,46,0.96)),
+    url('assets/ui_wood.png') center/240px;
+  border:2px solid #6b5333; border-radius:18px; padding:12px 12px 16px;
+  max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:8px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.35);
+}
+.tm-zeile, .tm-selbst{
+  display:flex; align-items:center; gap:7px; font-size:13.5px;
+  padding:5px 7px; border-radius:9px; background:rgba(20,30,44,0.72);
+  border:1px solid rgba(201,160,90,0.22);
+}
+/* der eigene Eintrag steht ueber der Gegnerliste und darf sich absetzen */
+.tm-selbst{ border-color:rgba(122,178,132,0.45); }
+.tm-punkt{ flex:0 0 13px; width:13px; height:13px; border-radius:50%;
+  border:1px solid rgba(0,0,0,0.45); }
+.tm-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tm-zahl{ flex:0 0 44px; text-align:right; color:#f2d98c; font-weight:700; font-size:12.5px; }
+/* Daumenziele: schmaler als 34 px trifft man auf dem Handy nicht sicher */
+.tm-zeile .mbtn, .tm-selbst .mbtn{ flex:0 0 auto; padding:7px 9px; font-size:12.5px; min-height:34px; }
+
+#transport, #msglog{
+  position:absolute; inset:0; z-index:23; overflow-y:auto;
+  background:rgba(8,12,18,0.86);
+  padding:calc(14px + env(safe-area-inset-top)) 10px calc(18px + env(safe-area-inset-bottom));
+}
+#transport .panel, #msglog .panel{
+  background:
+    linear-gradient(rgba(29,42,58,0.92),rgba(22,32,46,0.96)),
+    url('assets/ui_wood.png') center/240px;
+  border:2px solid #6b5333; border-radius:18px; padding:12px 12px 16px;
+  max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:10px;
+  box-shadow:0 14px 40px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(201,160,90,0.35);
+}
+.tr-liste{ display:flex; flex-direction:column; gap:4px; }
+.tr-zeile{
+  display:flex; align-items:center; gap:5px; font-size:13.5px;
+  padding:4px 5px; border-radius:9px; background:rgba(20,30,44,0.72);
+  border:1px solid rgba(201,160,90,0.22);
+}
+.tr-platz{ flex:0 0 18px; text-align:right; color:#b9c6d8; font-size:12px; }
+.tr-ic{ flex:0 0 22px; display:flex; align-items:center; justify-content:center; }
+.tr-ic img{ width:22px; height:22px; object-fit:contain; }
+/* "Baumstamm" ist der laengste Name; er muss auf 390 px Breite ganz
+   dastehen, sonst liest man "Baumst...". */
+.tr-name{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tr-menge{ flex:0 0 30px; text-align:right; color:#f2d98c; font-weight:700; font-size:12.5px; }
+/* Die drei Pfeile sind Daumenziele - viel kleiner als 32 px trifft man sie
+   auf dem Handy nicht zuverlaessig. */
+.tr-zeile .hbtn{ flex:0 0 32px; width:32px; height:32px; padding:0; font-size:13px; }
+.tr-zeile .hbtn[disabled]{ opacity:0.28; pointer-events:none; }
+
+/* ---------- Meldungsbuch ---------- */
+.ml-liste{ display:flex; flex-direction:column; gap:4px; }
+.ml-zeile{
+  display:flex; align-items:center; gap:7px; font-size:13px;
+  padding:6px 8px; border-radius:9px; background:rgba(20,30,44,0.72);
+  border:1px solid rgba(201,160,90,0.18); color:#e8e4d8;
+}
+.ml-zeile.klick{ cursor:pointer; border-color:rgba(201,160,90,0.4); }
+.ml-zeile.klick:active{ background:rgba(38,54,74,0.9); }
+.ml-zeile.war{ border-color:rgba(196,74,60,0.75); background:rgba(58,24,22,0.72); }
+.ml-zeile.warn{ border-color:rgba(214,160,60,0.6); }
+.ml-ic{ flex:0 0 20px; }
+.ml-txt{ flex:1; }
+.ml-zeit{ flex:0 0 44px; text-align:right; font-size:11.5px; color:#95a3b6; }
+.ml-go{ flex:0 0 auto; font-size:11.5px; color:#f2d98c; }
+/* Zahl am Glockenknopf: wie viele Meldungen ungelesen durchgelaufen sind */
+#g-msgs{ position:relative; }
+#msg-badge{
+  position:absolute; top:-4px; right:-4px; min-width:17px; height:17px;
+  padding:0 3px; border-radius:9px; background:#c44a3c; color:#fff;
+  font-size:10.5px; line-height:17px; text-align:center; font-style:normal;
+  font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.5);
+}
+
+/* ---------- Meldungssparten in den Optionen (v197) ---------- */
+.opt-h{ margin:10px 0 2px; font-size:14px; color:#f2d98c; font-weight:700; }
+.opt.melde{ display:grid; grid-template-columns:auto auto 1fr; align-items:center;
+  gap:4px 8px; padding:5px 6px; border-radius:9px; margin:3px 0;
+  background:rgba(20,30,44,0.55); border:1px solid rgba(201,160,90,0.18); }
+.opt.melde .melde-ic{ font-size:15px; }
+.opt.melde b{ font-weight:700; }
+/* Der Hilfstext steht unter dem Namen, nicht daneben - auf 360 px ist rechts
+   sonst kein Platz mehr. */
+.opt.melde i{ grid-column:2 / -1; font-style:normal; font-size:11.5px;
+  color:#95a3b6; line-height:1.25; }
+/* abgeschaltete Meldung im Buch: sichtbar, aber zurueckgenommen */
+.ml-zeile.aus{ opacity:0.55; }
+.ml-zeile.aus .ml-ic{ filter:grayscale(1); }
