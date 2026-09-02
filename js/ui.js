@@ -82,12 +82,12 @@ export class UI {
         <h1>NEULAND</h1>
         <p class="subtitle">Siedeln · Wirtschaft · Eroberung</p>
         <div class="menu">
-          <button id="bt-campaign" class="mbtn"><span class="mi">🏰</span>Kampagne</button>
-          <button id="bt-free" class="mbtn"><span class="mi">🗺️</span>Freies Spiel</button>
-          <button id="bt-multi" class="mbtn"><span class="mi">⚔️</span>Mehrspieler</button>
-          <button id="bt-load" class="mbtn"><span class="mi">📜</span>Laden</button>
-          <button id="bt-options" class="mbtn"><span class="mi">⚙️</span>Optionen</button>
-          <button id="bt-help" class="mbtn"><span class="mi">📖</span>Anleitung</button>
+          <button id="bt-campaign" class="mbtn"><span class="mi uic ic-kampagne"></span>Kampagne</button>
+          <button id="bt-free" class="mbtn"><span class="mi uic ic-freispiel"></span>Freies Spiel</button>
+          <button id="bt-multi" class="mbtn"><span class="mi uic ic-mehrspieler"></span>Mehrspieler</button>
+          <button id="bt-load" class="mbtn"><span class="mi uic ic-laden"></span>Laden</button>
+          <button id="bt-options" class="mbtn"><span class="mi uic ic-optionen"></span>Optionen</button>
+          <button id="bt-help" class="mbtn"><span class="mi uic ic-anleitung"></span>Anleitung</button>
         </div>
         <p class="credits">Ein Aufbau-Strategiespiel im Geiste der Klassiker · eigene Grafik, Musik & Story</p>
       </div>
@@ -293,7 +293,7 @@ export class UI {
              Klicken und weiss danach nicht mehr, wo etwas los war. Der
              Knopf oeffnet das Meldungsbuch mit der ganzen Historie; die
              Zahl daneben zeigt, wie viel man verpasst hat. -->
-        <button id="g-msgs" class="hbtn" title="Meldungen">🔔<i id="msg-badge" class="hidden"></i></button>
+        <button id="g-msgs" class="hbtn" title="Meldungen"><i id="msg-badge" class="hidden"></i></button>
       </div>
       <div id="minimap-wrap"><canvas id="minimap" width="220" height="220"></canvas><img id="mapring" src="assets/ui_ring.png" alt=""></div>
       <div id="sheet" class="hidden"></div>
@@ -301,13 +301,13 @@ export class UI {
         <div class="panel">
           <h2>Pause</h2>
           <button id="gm-resume" class="mbtn primary">Weiterspielen</button>
-          <button id="gm-save" class="mbtn">💾 Speichern</button>
-          <button id="gm-objectives" class="mbtn">🎯 Missionsziele</button>
-          <button id="gm-stats" class="mbtn">📊 Statistik</button>
-          <button id="gm-transport" class="mbtn">🚚 Transport-Rangfolge</button>
-          <button id="gm-test" class="mbtn">🧪 Testmodus</button>
-          <button id="gm-msgs" class="mbtn">🔔 Meldungen</button>
-          <button id="gm-export" class="mbtn">📤 Spielstand exportieren</button>
+          <button id="gm-save" class="mbtn"><span class="mi uic ic-speichern"></span>Speichern</button>
+          <button id="gm-objectives" class="mbtn"><span class="mi uic ic-ziele"></span>Missionsziele</button>
+          <button id="gm-stats" class="mbtn"><span class="mi uic ic-statistik"></span>Statistik</button>
+          <button id="gm-transport" class="mbtn"><span class="mi uic ic-transport"></span>Transport-Rangfolge</button>
+          <button id="gm-test" class="mbtn"><span class="mi uic ic-test"></span>Testmodus</button>
+          <button id="gm-msgs" class="mbtn"><span class="mi uic ic-meldungen"></span>Meldungen</button>
+          <button id="gm-export" class="mbtn"><span class="mi uic ic-export"></span>Spielstand exportieren</button>
           <button id="gm-quit" class="mbtn back">Zum Hauptmenü</button>
           <p class="note" id="gm-build" style="text-align:center;opacity:0.5">Fassung –</p>
         </div>
@@ -612,7 +612,7 @@ export class UI {
         [100000,'Wachhäuser erweitern dein Gebiet. Erz findet der Geologe: Fahne im Gebirge antippen und losschicken.'],
       ];
       for(const [ms,txt] of T)
-        setTimeout(()=>{ if(this.game && this.screen==='game') this.toast('💡 '+txt); }, ms);
+        setTimeout(()=>{ if(this.game && this.screen==='game') this.toast('<span class="uic ic-tipp"></span> '+txt); }, ms);
     }
   }
   resumeFromData(data){
@@ -1089,8 +1089,8 @@ export class UI {
         <small class="desc">${def.desc}</small></span></button>`;
     }
     this.sheet(`<div class="sh-head"><b>Bauen</b>
-      <button class="hbtn" id="sh-flag" title="Fahne">🚩</button>
-      <button class="hbtn" id="sh-x">✕</button></div>
+      <button class="hbtn" id="sh-flag" title="Fahne"><span class="uic ic-fahne"></span></button>
+      <button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
       <div class="tabs">${tabs}</div>
       <div class="bgrid">${items}</div>`);
     this.blattFreiRuecken(i);          // H2: Bauplatz nicht unters Blatt legen
@@ -1114,7 +1114,7 @@ export class UI {
         // das Menü macht dafür den Blick frei
         this.closeSheet();
       } else {
-        this.sheet(`<div class="sh-head"><b>${BLD[key].name} platzieren</b><button class="hbtn" id="sh-x">✕</button></div>
+        this.sheet(`<div class="sh-head"><b>${BLD[key].name} platzieren</b><button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
           <p class="note">Grüne Punkte zeigen, wo ${BLD[key].name} gebaut werden darf.
           Tippe einen an, dann bestätigst du mit dem Haken.</p>`);
         $('#sh-x').onclick=()=>this.cancelPlace();
@@ -1155,10 +1155,10 @@ export class UI {
   openRoadSheet(road, i){
     const g=this.game;
     const canFlag=g.canPlaceFlag(i,0);
-    this.sheet(`<div class="sh-head"><b>Weg</b><button class="hbtn" id="sh-x">✕</button></div>
+    this.sheet(`<div class="sh-head"><b>Weg</b><button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
       <div class="row">
-      ${canFlag?'<button class="mbtn primary" id="rd-flag">🚩 Fahne setzen (Weg teilen)</button>':''}
-      <button class="mbtn back" id="rd-del">🔥 Weg abreißen</button>
+      ${canFlag?'<button class="mbtn primary" id="rd-flag"><span class="uic ic-fahne"></span> Fahne setzen (Weg teilen)</button>':''}
+      <button class="mbtn back" id="rd-del"><span class="uic ic-abreissen"></span> Weg abreißen</button>
       </div>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     const fl=$('#rd-flag');
@@ -1191,11 +1191,11 @@ export class UI {
         const isSite=b.state==='build';
         const defN=(b.soldiers?.length||0)+(b.type==='hq'?g.recruitTotal(b.player):0);
         this.sheet(`<div class="sh-head"><b style="color:${PLAYER_COLORS[b.player]}">${def.name} (${g.players[b.player].name})</b>
-          <button class="hbtn" id="sh-x">✕</button></div>
-          <p class="note">${isSite?'⚠️ Baustelle – ein Angriff reißt sie nieder (keine Eroberung).':`Verteidiger: ~${defN}`} · Deine verfügbaren Angreifer: ${avail}</p>
+          <button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
+          <p class="note">${isSite?'<span class="uic ic-warnung"></span> Baustelle – ein Angriff reißt sie nieder (keine Eroberung).':`Verteidiger: ~${defN}`} · Deine verfügbaren Angreifer: ${avail}</p>
           ${avail>0?`<div class="row"><input type="range" id="atk-n" min="1" max="${avail}" value="${isSite?1:Math.min(avail,Math.max(1,defN+1))}">
           <span id="atk-nv">${isSite?1:Math.min(avail,Math.max(1,defN+1))}</span></div>
-          <button class="mbtn primary" id="atk-go">${isSite?'🔥 Baustelle zerstören':'⚔️ Angriff!'}</button>`:'<p class="note">Keine Soldaten in Reichweite. Baue Militärgebäude näher an den Feind!</p>'}`);
+          <button class="mbtn primary" id="atk-go">${isSite?'<span class="uic ic-abreissen"></span> Baustelle zerstören':'<span class="uic ic-angriff"></span> Angriff!'}</button>`:'<p class="note">Keine Soldaten in Reichweite. Baue Militärgebäude näher an den Feind!</p>'}`);
         $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
         const rng=$('#atk-n');
         if(rng){ rng.oninput=()=>$('#atk-nv').textContent=rng.value;
@@ -1205,7 +1205,7 @@ export class UI {
         }
       } else {
         this.sheet(`<div class="sh-head"><b style="color:${PLAYER_COLORS[b.player]}">${def.name} (${g.players[b.player].name})</b>
-        <button class="hbtn" id="sh-x">✕</button></div><p class="note">Zivilgebäude des Gegners. Erobere das umliegende Militärgebäude!</p>`);
+        <button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div><p class="note">Zivilgebäude des Gegners. Erobere das umliegende Militärgebäude!</p>`);
         $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
       }
       return;
@@ -1216,18 +1216,18 @@ export class UI {
     if(b.state==='build'){
       const needB=def.cost.board||0, needS=def.cost.stone||0;
       body=`<p class="note">Baustelle · Bretter ${b.stock.board||0}/${needB} · Steine ${b.stock.stone||0}/${needS}</p>
-      ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;
+      ${this.isConnected(b)?'':'<p class="warn"><span class="uic ic-warnung"></span> Nicht mit dem Wegenetz verbunden!</p>'}`;
     } else {
       const rows=[];
       if(b.worker && !b.worker.present){
         rows.push(b.needTool
-          ? `⚠️ Wartet auf Werkzeug: <b>${GOODS[b.needTool].name}</b> (Werkzeugschmiede!)`
+          ? `<span class="uic ic-warnung"></span> Wartet auf Werkzeug: <b>${GOODS[b.needTool].name}</b> (Werkzeugschmiede!)`
           : '🚶 Fachkraft ist auf dem Weg …');
       }
       if(b.type==='hunter' && b.state==='done'){
         const [bx,by]=g.map.worldPos(b.node);
         const wild=g.animals.filter(a=>Math.hypot(a.x-bx,a.y-by)<(def.range||9)*40).length;
-        rows.push(wild? `Wild in Reichweite: ${wild}` : '⚠️ Kein Wild in Reichweite – Wälder ziehen Tiere an.');
+        rows.push(wild? `Wild in Reichweite: ${wild}` : '<span class="uic ic-warnung"></span> Kein Wild in Reichweite – Wälder ziehen Tiere an.');
       }
       if(def.prod){
         for(const k in def.prod.inputs) rows.push(`${GOODS[k].name}: ${b.stock[k]||0}`);
@@ -1238,7 +1238,7 @@ export class UI {
         const cur=b.makeGood||null;
         rows.push(`Schmiedet: <b>${cur? GOODS[cur].name : 'nach Bedarf'}</b>`);
         body_extra=`<div class="pickrow" id="mk-row">
-          <button class="pick${cur?'':' on'}" data-mk="">🎯<small>Bedarf</small></button>
+          <button class="pick${cur?'':' on'}" data-mk=""><span class="uic ic-ziele"></span><small>Bedarf</small></button>
           ${def.prod.outs.map(o=>`<button class="pick${cur===o?' on':''}" data-mk="${o}" title="${GOODS[o].name}">
             ${this.goodIcon(o)}<small>${GOODS[o].name}</small></button>`).join('')}
         </div>`;
@@ -1248,12 +1248,12 @@ export class UI {
         const oreN={coal:'Kohle',ironore:'Eisenerz',gold:'Golderz',stone:'Granit'}[def.mine]||'Vorkommen';
         rows.push(`Essen: ${['fish','bread','meat'].map(f=>b.stock[f]||0).reduce((a,c)=>a+c,0)}`,
           `Gefördert wartend: ${b.out||0}`,
-          b.depleted? '⚠️ Vorkommen erschöpft'
+          b.depleted? '<span class="uic ic-warnung"></span> Vorkommen erschöpft'
             : `${oreN} im Berg: <b>${left}</b> ${this.oreBar(left)}`);
       }
       if(def.gather){
         rows.push(`Ware wartend: ${b.out||0}`);
-        if(b.exhausted) rows.push('⚠️ Nichts mehr in Reichweite – Umgebung erschöpft');
+        if(b.exhausted) rows.push('<span class="uic ic-warnung"></span> Nichts mehr in Reichweite – Umgebung erschöpft');
       }
       if(def.cata){ rows.push(`Steine: ${b.stock.stone||0}`); }
       if(b.soldiers){
@@ -1289,7 +1289,7 @@ export class UI {
         }
       }
       body=`<p class="note">${rows.filter(Boolean).join('<br>')}</p>
-      ${this.isConnected(b)?'':'<p class="warn">⚠️ Nicht mit dem Wegenetz verbunden!</p>'}`;
+      ${this.isConnected(b)?'':'<p class="warn"><span class="uic ic-warnung"></span> Nicht mit dem Wegenetz verbunden!</p>'}`;
     }
     // Arbeitsbetrieb: pausieren und Essen zuteilen (nur fertige Produktionsstätten)
     const works=b.state==='done' && (def.prod||def.mine||def.gather);
@@ -1307,7 +1307,7 @@ export class UI {
         ${this.actBtn('bd-road','🛤️','Straße')}
         ${works? this.actBtn('bd-pause', b.paused?'▶️':'⏸️', b.paused?'Weiter':'Pausieren', b.paused):''}
         ${canFeed? this.actBtn('bd-food','🍖','Essen', b.foodPrio):''}
-        ${b.type!=='hq'? this.actBtn('bd-del','🔥','Abreißen', false, true):''}
+        ${b.type!=='hq'? this.actBtn('bd-del','<span class="uic ic-abreissen"></span>','Abreißen', false, true):''}
       </div>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
     $('#bd-road').onclick=()=>this.startRoad(b.door);
@@ -1344,7 +1344,7 @@ export class UI {
     const img= imgKey && this.renderer.asset(imgKey) ? `<img class="sh-ic" src="assets/${imgKey}.png" alt="">` : '';
     return `<div class="sh-head">${img}
       <div class="sh-title"><b>${title}</b>${status?`<small>${status}</small>`:''}</div>
-      <button class="hbtn" id="sh-x">✕</button></div>`;
+      <button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>`;
   }
   // Aktionsknopf: Symbol oben, Beschriftung darunter – überall gleich groß
   actBtn(id, icon, label, on=false, danger=false){
@@ -1374,7 +1374,7 @@ export class UI {
     // Eigene Fahnen (außer Türfahnen) lassen sich hier entfernen - das
     // Fahnen-Tippmenü zeigt nur noch die drei schwebenden Knöpfe.
     const darfWeg= m.flag[i] && m.owner[i]===0 && ![...g.buildings.values()].some(b=>b.door===i);
-    this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x">✕</button></div>
+    this.sheet(`<div class="sh-head"><b>Gelände-Info</b><button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
       <p class="note">${tn} · Besitzer: ${owner}${on?'<br>'+on:''}${ore?'<br>'+ore:''}</p>
       ${darfWeg?'<div class="row"><button class="mbtn back" id="in-delflag">Fahne entfernen</button></div>':''}`);
     $('#sh-x').onclick=()=>this.closeSheet();
@@ -1445,8 +1445,8 @@ export class UI {
     const o=$('#objectives');
     if(!this.game||!this.game.objectives.length){ o.classList.add('hidden'); return; }
     if(show){
-      o.innerHTML='<b>🎯 Missionsziele</b><br>'+this.game.objectives.map(ob=>
-        `${ob.done?'✅':'▫️'} ${ob.desc}${ob.count?` (${Math.min(ob.prog,ob.count)}/${ob.count})`:''}`).join('<br>');
+      o.innerHTML='<b><span class="uic ic-ziele"></span> Missionsziele</b><br>'+this.game.objectives.map(ob=>
+        `${ob.done?'<span class="uic ic-erfuellt"></span>':'▫️'} ${ob.desc}${ob.count?` (${Math.min(ob.prog,ob.count)}/${ob.count})`:''}`).join('<br>');
       o.classList.remove('hidden');
       if(autohide){ clearTimeout(this._objT); this._objT=setTimeout(()=>o.classList.add('hidden'),autohide); }
     } else o.classList.add('hidden');
@@ -1460,9 +1460,9 @@ export class UI {
   //   2. Der aktuelle Stand als Balken im Vergleich
   //   3. Das eigene Lager, Ware fuer Ware
   // Die Daten sammelt die Simulation alle 30 Sekunden Spielzeit selbst.
-  static STAT_FELDER=[['land','Land','🗺'],['bauten','Gebäude','🏠'],
-                      ['siedler','Siedler','🧍'],['soldaten','Soldaten','⚔️'],
-                      ['waren','Waren','📦']];
+  static STAT_FELDER=[['land','Land','<span class="uic ic-freispiel"></span>'],['bauten','Gebäude','<span class="uic ic-gebaeude"></span>'],
+                      ['siedler','Siedler','🧍'],['soldaten','Soldaten','<span class="uic ic-mehrspieler"></span>'],
+                      ['waren','Waren','<span class="uic ic-waren"></span>']];
   openStats(feld){
     const g=this.game; if(!g) return;
     if(!g.stats) g.statistikTakt();               // sofort einen Stand erzeugen
@@ -1489,9 +1489,9 @@ export class UI {
       .map(k=>`<span class="st-ware"><i style="background:${goodColor(k)}"></i>${GOODS[k].name} <b>${inv[k]}</b></span>`).join('');
     const min=Math.floor(g.t/600), sek=Math.floor(g.t/10)%60;
     $('#stats').innerHTML=`<div class="panel">
-      <div class="sh-head"><b>📊 Statistik</b>
+      <div class="sh-head"><b><span class="uic ic-statistik"></span> Statistik</b>
         <span class="st-zeit">${min}:${String(sek).padStart(2,'0')} Spielzeit</span>
-        <button class="hbtn" id="st-x">✕</button></div>
+        <button class="hbtn" id="st-x"><span class="uic ic-schliessen"></span></button></div>
       <div class="tabs">${tabs}</div>
       <canvas id="st-kurve" width="640" height="300"></canvas>
       <div class="st-legende">${g.players.map((p,i)=>
@@ -1526,8 +1526,8 @@ export class UI {
         <button class="hbtn tr-top" data-g="${k}" ${i===0?'disabled':''} title="ganz nach oben">⇈</button>
       </div>`).join('');
     $('#transport').innerHTML=`<div class="panel">
-      <div class="sh-head"><b>🚚 Transport-Rangfolge</b>
-        <button class="hbtn" id="tr-x">✕</button></div>
+      <div class="sh-head"><b><span class="uic ic-transport"></span> Transport-Rangfolge</b>
+        <button class="hbtn" id="tr-x"><span class="uic ic-schliessen"></span></button></div>
       <p class="note">Liegen an einer Fahne mehrere Waren, nimmt der Träger die
       oberste zuerst. Baustellen haben weiterhin Vorrang vor allem anderen.</p>
       <div class="tr-liste">${zeilen}</div>
@@ -1584,8 +1584,8 @@ export class UI {
       </div>`;
     }).join('') || '<p class="note">Diese Partie hat keine Gegner.</p>';
     $('#testmode').innerHTML=`<div class="panel">
-      <div class="sh-head"><b>🧪 Testmodus</b>
-        <button class="hbtn" id="tm-x">✕</button></div>
+      <div class="sh-head"><b><span class="uic ic-test"></span> Testmodus</b>
+        <button class="hbtn" id="tm-x"><span class="uic ic-schliessen"></span></button></div>
       <p class="note">Zum Ausprobieren gedacht, nicht zum Spielen. Die Schalter
       wandern mit in den Spielstand – ein gespeichertes Spiel läuft also nicht
       heimlich anders weiter, als es gespeichert wurde.</p>
@@ -1641,7 +1641,7 @@ export class UI {
     this.state.msgUngelesen=0;
     this.syncMsgBadge();
     const katIc=Object.fromEntries(MELDE_KATS.map(k=>[k.key, k.ic]));
-    katIc[MELDE_IMMER]='🎯';
+    katIc[MELDE_IMMER]='<span class="uic ic-ziele"></span>';
     const liste=g.msgs.slice(-60).reverse();
     const stumm=liste.filter(m=>!this.meldungAn(m)).length;
     const zeilen=liste.length? liste.map((m)=>{
@@ -1656,8 +1656,8 @@ export class UI {
       </div>`;
     }).join('') : '<p class="note">Noch nichts passiert.</p>';
     $('#msglog').innerHTML=`<div class="panel">
-      <div class="sh-head"><b>🔔 Meldungen</b>
-        <button class="hbtn" id="ml-x">✕</button></div>
+      <div class="sh-head"><b><span class="uic ic-meldungen"></span> Meldungen</b>
+        <button class="hbtn" id="ml-x"><span class="uic ic-schliessen"></span></button></div>
       <p class="note">Neueste zuerst. Meldungen mit Ortsangabe lassen sich antippen –
       die Karte gleitet hin.${stumm? ` <b>${stumm}</b> davon sind abgeschaltet und wurden
       nicht eingeblendet (Optionen → Meldungen).` : ''}</p>
@@ -1730,7 +1730,7 @@ export class UI {
     // "Hinsehen" gab es bisher NUR bei Kriegsmeldungen. Bei allen anderen war
     // der Klick zwar aktiv, aber unbeschriftet - man sah nicht, dass man
     // hinspringen kann. Jetzt zeigt jede Meldung mit Ortsangabe den Hinweis.
-    t.innerHTML= (war?'<span class="toast-ic">⚔️</span>':'')
+    t.innerHTML= (war?'<span class="toast-ic"><span class="uic ic-angriff"></span></span>':'')
       + `<span>${txt}</span>`
       + (node>=0? '<span class="toast-go">Hinsehen ▸</span>' : '');
     t.classList.remove('hidden');
@@ -1815,7 +1815,7 @@ export class UI {
     const ub=$('#unit-bar');
     if(ub) ub.innerHTML=
       sel.map(k=>`<span class="${(inv[k]||0)?'':'leer'}" title="${GOODS[k]?GOODS[k].name:k}">${ic(k)}${inv[k]||0}</span>`).join('')
-      +`<span class="res-more">📦</span>`;
+      +`<span class="res-more"><span class="uic ic-waren"></span></span>`;
     if(!$('#objectives').classList.contains('hidden')) this.toggleObjectives(true);
     // KD4/F2: Ziel-Chip aktualisieren - zeigt das naechste offene Ziel mit
     // Fortschritt (oder den Sieg-Haken), laeuft im updateHud-Takt (600 ms)
@@ -1859,8 +1859,8 @@ export class UI {
           zusatz=` <b>(${weg}/${gesamt})</b>`;
         }
         chip.innerHTML = o
-          ? `🎯 ${n>1?`<b>${fertig}/${n}</b> · `:''}${desc9}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
-          : '🎯 ✅ Alle Ziele erfüllt';
+          ? `<span class="uic ic-ziele"></span> ${n>1?`<b>${fertig}/${n}</b> · `:''}${desc9}${o.count?` <b>(${Math.min(o.prog||0,o.count)}/${o.count})</b>`:''}${zusatz}`
+          : '<span class="uic ic-ziele"></span> <span class="uic ic-erfuellt"></span> Alle Ziele erfüllt';
         chip.classList.remove('hidden');
       }
     }
@@ -1876,7 +1876,7 @@ export class UI {
     const cells=GOOD_LIST.map(k=>`<button class="stock-it${(inv[k]||0)?'':' zero'}${sel.includes(k)?' pinned':''}" data-good="${k}">${ic(k)}
       <b>${inv[k]||0}</b><small>${GOODS[k].name}</small></button>`).join('');
     const r=g.players[0].recruits;
-    this.sheet(`<div class="sh-head"><b>📦 Lager &amp; Vorräte</b><button class="hbtn" id="sh-x">✕</button></div>
+    this.sheet(`<div class="sh-head"><b><span class="uic ic-waren"></span> Lager &amp; Vorräte</b><button class="hbtn" id="sh-x"><span class="uic ic-schliessen"></span></button></div>
       <p class="note">Antippen heftet eine Ware oben an die Leiste (max. ${HUD_MAX}) – nochmal antippen nimmt sie wieder weg.
       Angeheftet: <b id="pin-n">${sel.length}</b>/${HUD_MAX} <button class="lnk" id="pin-clr">alle lösen</button></p>
       <div class="stock-grid">${cells}</div>

@@ -597,6 +597,56 @@ input[type=checkbox], input[type=radio], input[type=range]{ accent-color:#c9a05a
 .opt input[type=range]{ flex:1; min-width:130px; }
 /* Knopf-Icons im Hauptmenue */
 .mbtn .mi{ margin-right:9px; }
+
+/* ---------- Bedien-Zeichen ----------
+   Die Zeichen auf Knoepfen und Tafeln waren System-Emoji. Ein Emoji
+   zeichnet das BETRIEBSSYSTEM, nicht das Spiel: dieselbe Datei zeigt auf
+   einem iPhone Apples Burg, auf Android Googles, auf Windows Microsofts -
+   drei Bilder aus drei fremden Stilwelten mitten in einer Oberflaeche,
+   deren Flaechen alle aus einer Hand kommen.
+   Warum als Hintergrundbild auf einem leeren <span> und nicht als <img>
+   mit alt-Text: die Zeichen stehen an 57 Stellen, teils in einfach
+   gequoteten Zeichenketten, teils in Schablonenliteralen. Ein reines
+   HTML-Schnipsel passt in beide ohne Escaping; ein per Funktion gebautes
+   <img> haette in den einfach gequoteten Faellen still als Text
+   dagestanden (im ersten Anlauf genau so passiert).
+   Groesse in em, damit dasselbe Zeichen im Menue, im Meldeband und im
+   kleinen Aktionsknopf mit der jeweiligen Schrift mitwaechst. */
+.uic{
+  display:inline-block; width:1.15em; height:1.15em; vertical-align:-0.18em;
+  background:center/contain no-repeat;
+}
+.mbtn .mi{ width:1.5em; height:1.5em; vertical-align:-0.35em; }
+/* Der Glockenknopf traegt sein Zeichen wie Menue und Pause als Flaeche -
+   das Abzeichen mit der Zahl liegt darueber und behaelt seine Schrift. */
+#g-msgs{
+  background:url('assets/ui_ic_meldungen.png') center/22px no-repeat,
+             linear-gradient(rgba(40,52,70,0.35),rgba(28,38,54,0.45)),
+             url('assets/ui_wood.png') center/130px;
+}
+.ic-kampagne{ background-image:url('assets/ui_ic_kampagne.png'); }
+.ic-freispiel{ background-image:url('assets/ui_ic_freispiel.png'); }
+.ic-mehrspieler{ background-image:url('assets/ui_ic_mehrspieler.png'); }
+.ic-laden{ background-image:url('assets/ui_ic_laden.png'); }
+.ic-optionen{ background-image:url('assets/ui_ic_optionen.png'); }
+.ic-anleitung{ background-image:url('assets/ui_ic_anleitung.png'); }
+.ic-speichern{ background-image:url('assets/ui_ic_speichern.png'); }
+.ic-ziele{ background-image:url('assets/ui_ic_ziele.png'); }
+.ic-statistik{ background-image:url('assets/ui_ic_statistik.png'); }
+.ic-transport{ background-image:url('assets/ui_ic_transport.png'); }
+.ic-test{ background-image:url('assets/ui_ic_test.png'); }
+.ic-meldungen{ background-image:url('assets/ui_ic_meldungen.png'); }
+.ic-export{ background-image:url('assets/ui_ic_export.png'); }
+.ic-fahne{ background-image:url('assets/ui_ic_fahne.png'); }
+.ic-abreissen{ background-image:url('assets/ui_ic_abreissen.png'); }
+.ic-angriff{ background-image:url('assets/ui_ic_angriff.png'); }
+.ic-warnung{ background-image:url('assets/ui_ic_warnung.png'); }
+.ic-erfuellt{ background-image:url('assets/ui_ic_erfuellt.png'); }
+.ic-tipp{ background-image:url('assets/ui_ic_tipp.png'); }
+.ic-waren{ background-image:url('assets/ui_ic_waren.png'); }
+.ic-schliessen{ background-image:url('assets/ui_ic_schliessen.png'); }
+.ic-gebaeude{ background-image:url('assets/ui_ic_gebaeude.png'); }
+
 .panel{
   max-width:520px; margin:14px auto; min-height:0;
   border-radius:18px;
