@@ -646,6 +646,17 @@ input[type=checkbox], input[type=radio], input[type=range]{ accent-color:#c9a05a
 .ic-waren{ background-image:url('assets/ui_ic_waren.png'); }
 .ic-schliessen{ background-image:url('assets/ui_ic_schliessen.png'); }
 .ic-gebaeude{ background-image:url('assets/ui_ic_gebaeude.png'); }
+.ic-strasse{ background-image:url('assets/ui_ic_strasse.png'); }
+.ic-essen{ background-image:url('assets/ui_ic_essen.png'); }
+.ic-besatzung{ background-image:url('assets/ui_ic_besatzung.png'); }
+.ic-sieg{ background-image:url('assets/ui_ic_sieg.png'); }
+.ic-niederlage{ background-image:url('assets/ui_ic_niederlage.png'); }
+.ic-unterwegs{ background-image:url('assets/ui_ic_unterwegs.png'); }
+.ic-offen{ background-image:url('assets/ui_ic_offen.png'); }
+.ic-klein{ background-image:url('assets/ui_ic_klein.png'); }
+.ic-mittel{ background-image:url('assets/ui_ic_mittel.png'); }
+.ic-gross{ background-image:url('assets/ui_ic_gross.png'); }
+.ic-gebirge{ background-image:url('assets/ui_ic_gebirge.png'); }
 
 .panel{
   max-width:520px; margin:14px auto; min-height:0;

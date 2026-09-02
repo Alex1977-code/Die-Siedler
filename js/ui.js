@@ -1083,7 +1083,7 @@ export class UI {
       // Gebäudebild aus dem Asset-Pack (Baukarte)
       const img=this.renderer.asset('bld_'+key)
         ? `<img class="bthumb" src="assets/bld_${key}.png" alt="" loading="lazy">` : '';
-      const sz={S:'◾ klein', M:'◼ mittel', L:'⬛ groß', MINE:'⛰ Gebirge'}[def.size]||'';
+      const sz={S:'<span class="uic ic-klein"></span> klein', M:'<span class="uic ic-mittel"></span> mittel', L:'<span class="uic ic-gross"></span> groß', MINE:'<span class="uic ic-gebirge"></span> Gebirge'}[def.size]||'';
       items+=`<button class="bitem" data-bld="${key}">
         ${img}<span class="binfo"><b>${def.name}</b><small>${cost} · ${sz}${afford?'':' <span class="uic ic-warnung"></span>'}</small>
         <small class="desc">${def.desc}</small></span></button>`;
@@ -1222,7 +1222,7 @@ export class UI {
       if(b.worker && !b.worker.present){
         rows.push(b.needTool
           ? `<span class="uic ic-warnung"></span> Wartet auf Werkzeug: <b>${GOODS[b.needTool].name}</b> (Werkzeugschmiede!)`
-          : '🚶 Fachkraft ist auf dem Weg …');
+          : '<span class="uic ic-unterwegs"></span> Fachkraft ist auf dem Weg …');
       }
       if(b.type==='hunter' && b.state==='done'){
         const [bx,by]=g.map.worldPos(b.node);
@@ -1266,7 +1266,7 @@ export class UI {
           `Beförderung (Münzen): ${b.coins||0}/2`,
           `Soll-Stärke (antippen): <span class="pips" id="gar-pips">${
             Array.from({length:def.mil.cap},(_,k)=>
-              `<button class="pip${k<want?' on':''}" data-n="${k+1}" title="${k+1} Mann">🛡</button>`).join('')
+              `<button class="pip${k<want?' on':''}" data-n="${k+1}" title="${k+1} Mann"><span class="uic ic-besatzung"></span></button>`).join('')
           }</span>`);
       }
       if(b.inv){
@@ -1304,9 +1304,9 @@ export class UI {
       ${body}
       ${body_extra}
       <div class="sh-acts">
-        ${this.actBtn('bd-road','🛤️','Straße')}
+        ${this.actBtn('bd-road','<span class="uic ic-strasse"></span>','Straße')}
         ${works? this.actBtn('bd-pause', b.paused?'▶️':'⏸️', b.paused?'Weiter':'Pausieren', b.paused):''}
-        ${canFeed? this.actBtn('bd-food','🍖','Essen', b.foodPrio):''}
+        ${canFeed? this.actBtn('bd-food','<span class="uic ic-essen"></span>','Essen', b.foodPrio):''}
         ${b.type!=='hq'? this.actBtn('bd-del','<span class="uic ic-abreissen"></span>','Abreißen', false, true):''}
       </div>`);
     $('#sh-x').onclick=()=>{ this.state.sel=-1; this.closeSheet(); };
@@ -1446,7 +1446,7 @@ export class UI {
     if(!this.game||!this.game.objectives.length){ o.classList.add('hidden'); return; }
     if(show){
       o.innerHTML='<b><span class="uic ic-ziele"></span> Missionsziele</b><br>'+this.game.objectives.map(ob=>
-        `${ob.done?'<span class="uic ic-erfuellt"></span>':'▫️'} ${ob.desc}${ob.count?` (${Math.min(ob.prog,ob.count)}/${ob.count})`:''}`).join('<br>');
+        `${ob.done?'<span class="uic ic-erfuellt"></span>':'<span class="uic ic-offen"></span>'} ${ob.desc}${ob.count?` (${Math.min(ob.prog,ob.count)}/${ob.count})`:''}`).join('<br>');
       o.classList.remove('hidden');
       if(autohide){ clearTimeout(this._objT); this._objT=setTimeout(()=>o.classList.add('hidden'),autohide); }
     } else o.classList.add('hidden');
@@ -1966,7 +1966,7 @@ export class UI {
     Sound.sfx(won?'win':'lose');
     const d=$('#dlg');
     const finale=won && g.setup.mode==='kampagne' && g.setup.level.id===CAMPAIGN.length;
-    d.innerHTML=`<div class="panel"><h2>${won?'🏆 Sieg!':'💀 Niederlage'}</h2>
+    d.innerHTML=`<div class="panel"><h2>${won?'<span class="uic ic-sieg"></span> Sieg!':'<span class="uic ic-niederlage"></span> Niederlage'}</h2>
       <p>${finale? EPILOG.replace(/\n/g,'<br>') : won?'Deine Siedlung hat sich behauptet!':'Deine Siedlung ist gefallen. Versuche es erneut!'}</p>
       <div class="row">
       ${won&&g.setup.mode==='kampagne'&&!finale?'<button class="mbtn primary" id="go-next">Nächste Mission</button>':''}
