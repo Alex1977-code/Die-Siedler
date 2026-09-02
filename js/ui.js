@@ -1085,7 +1085,7 @@ export class UI {
         ? `<img class="bthumb" src="assets/bld_${key}.png" alt="" loading="lazy">` : '';
       const sz={S:'◾ klein', M:'◼ mittel', L:'⬛ groß', MINE:'⛰ Gebirge'}[def.size]||'';
       items+=`<button class="bitem" data-bld="${key}">
-        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} · ${sz}${afford?'':' ⚠️'}</small>
+        ${img}<span class="binfo"><b>${def.name}</b><small>${cost} · ${sz}${afford?'':' <span class="uic ic-warnung"></span>'}</small>
         <small class="desc">${def.desc}</small></span></button>`;
     }
     this.sheet(`<div class="sh-head"><b>Bauen</b>
@@ -1403,7 +1403,7 @@ export class UI {
     d.querySelectorAll('.slot').forEach(b=> b.onclick=()=>{
       SAVE.saveSlot(b.dataset.slot, this.game, 'Manuell');
       d.classList.add('hidden');
-      this.toast('Gespeichert ✓');
+      this.toast('Gespeichert <span class="uic ic-erfuellt"></span>');
       Sound.sfx('done');
     });
   }
