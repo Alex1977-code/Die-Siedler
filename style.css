@@ -208,7 +208,25 @@ h1::after{
   background:url('assets/ui_btn_menu.png') center/cover no-repeat, rgba(28,38,54,0.4);
   color:transparent; font-size:0;
 }
-#g-speed{ font-weight:700; font-size:15px; }
+/* Der Tempoknopf war der einzige der Daumenzone ohne gemaltes Blatt: er
+   zeigte den Text "1x" auf der Holzkachel, waehrend Menue und Pause runde
+   Scheiben tragen. assets/ui_btn_speed.png lag seit der GUI-Lieferung
+   ungenutzt daneben - kein fehlendes Bild, ein nicht angeschlossenes.
+   Die Scheibe zeigt einen Doppelpfeil und keine Zahl, der Faktor kommt
+   deshalb als kleines Abzeichen an den Rand (dasselbe Muster wie die
+   Meldungszahl am Glockenknopf). Bei Tempo 1 steht dort nichts:
+   Normaltempo braucht keine Marke. */
+#g-speed{
+  background:url('assets/ui_btn_speed.png') center/cover no-repeat, rgba(28,38,54,0.4);
+  color:transparent; font-size:0; position:relative;
+}
+#g-speed .sp-badge{
+  position:absolute; bottom:-3px; right:-3px; min-width:19px; height:17px;
+  padding:0 3px; border-radius:9px; background:#3d2f1e; color:#f4ecda;
+  border:1px solid rgba(201,160,90,0.55);
+  font-size:10.5px; line-height:16px; text-align:center; font-style:normal;
+  font-weight:700; box-shadow:0 1px 3px rgba(0,0,0,0.5);
+}
 /* H1: Daumenzone unten links. Menue, Pause und Geschwindigkeit sind die
    einzigen Knoepfe, die im Spiel dauernd gebraucht werden - sie gehoeren
    dorthin, wo der Daumen ohne Umgreifen hinkommt. Die Minikarte sitzt
@@ -221,9 +239,15 @@ h1::after{
 #hud-thumb .hbtn{ width:48px; min-width:48px; height:48px; border-radius:15px; }
 #hud-thumb #g-speed{ font-size:15px; }
 /* obere Leiste: Siedler nach Beruf/Waffengattung */
+/* Die Warenleiste war das einzige Bedienfeld ohne Holz: eine flache
+   blaugraue Flaeche mit Goldrand, waehrend Knoepfe, Tafeln und Panels
+   alle ui_wood tragen. Dasselbe Rezept wie .panel - dunkler Verlauf UEBER
+   der Maserung, damit die helle Schrift stehen bleibt. */
 #res-bar{
   flex:1; display:flex; gap:9px; overflow-x:auto; padding:4px 8px;
-  background:rgba(20,30,44,0.78); border-radius:12px; font-size:14.5px;
+  background:linear-gradient(rgba(20,30,44,0.74), rgba(14,22,34,0.84)),
+             url('assets/ui_wood.png') center/220px;
+  border-radius:12px; font-size:14.5px;
   white-space:nowrap; scrollbar-width:none;
   border:1px solid rgba(201,160,90,0.3);
 }
@@ -259,7 +283,9 @@ h1::after{
   flex:1; min-width:0;
   display:flex; gap:6px; align-items:center; justify-content:flex-start;
   padding:3px 7px; border-radius:11px; font-size:13px; white-space:nowrap;
-  background:rgba(20,30,44,0.72); border:1px solid rgba(201,160,90,0.28);
+  background:linear-gradient(rgba(20,30,44,0.74), rgba(14,22,34,0.84)),
+             url('assets/ui_wood.png') center/220px;
+  border:1px solid rgba(201,160,90,0.28);
   overflow-x:auto; scrollbar-width:none; cursor:pointer;
   box-shadow:0 2px 8px rgba(0,0,0,0.3);
 }

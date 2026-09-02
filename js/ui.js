@@ -468,7 +468,7 @@ export class UI {
       Sound.sfx('tap');
       const ix=SPEED_STEPS.indexOf(this.opts.speed);
       this.opts.speed=SPEED_STEPS[(ix+1)%SPEED_STEPS.length];
-      $('#g-speed').textContent=speedLabel(this.opts.speed);
+      this.tempoKnopf();
       SAVE.setOptions(this.opts);
     };
     $('#g-pause').onclick=()=>{
@@ -596,7 +596,7 @@ export class UI {
     // Minikarte sofort zeichnen statt erst im 500-ms-Takt der Spielschleife
     this._mmT=0;
     this.renderer.drawMinimap($('#minimap'), this.cam);
-    $('#g-speed').textContent=speedLabel(this.opts.speed);
+    this.tempoKnopf();
     this.syncPauseBtn();
     this.closeSheet();
     this.showScreen('game');
@@ -1422,6 +1422,16 @@ export class UI {
       list.appendChild(b);
     }
   }
+  // Tempoknopf zeichnen: gemalte Scheibe (CSS) plus Abzeichen mit dem
+  // Faktor. Bei Tempo 1 bleibt das Abzeichen weg - die Scheibe allein
+  // heisst "normal", eine Marke waere dann nur Rauschen.
+  tempoKnopf(){
+    const el=$('#g-speed'); if(!el) return;
+    const v=this.opts.speed;
+    el.innerHTML = (v===1) ? '' : `<i class="sp-badge">${speedLabel(v)}</i>`;
+    el.title = 'Tempo '+speedLabel(v);
+  }
+
   pauseMenu(show){
     this.paused=show;
     $('#game-menu').classList.toggle('hidden',!show);
