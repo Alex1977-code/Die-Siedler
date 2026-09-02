@@ -33,5 +33,15 @@
   "nach-01-bau-wachhaus-1.png": "bld_build_guardhouse_1.png",
   "nach-02-bau-wachhaus-2.png": "bld_build_guardhouse_2.png",
   "nach-03-bau-katapult-3.png": "bld_build_catapult_3.png",
-  "nach-04-muehlenfluegel.png": "obj_millsails.png"
+  "nach-04-muehlenfluegel.png": "obj_millsails.png",
+  "rest-01-bau-kapelle-3.png": "bld_build_chapel_3.png",
+  "rest-02-bau-muenze-3.png": "bld_build_mint_3.png",
+  "rest-03-bau-saegewerk-3.png": "bld_build_sawmill_3.png",
+  "rest-04-bau-baeckerei-3.png": "bld_build_bakery_3.png",
+  "rest-05-bau-brauerei-3.png": "bld_build_brewery_3.png",
+  "rest-06-bau-schmelze-3.png": "bld_build_smelter_3.png",
+  "rest-07-bau-wachhaus-3.png": "bld_build_guardhouse_3.png",
+  "rest-08-bau-steinbruch-1.png": "bld_build_quarry_1.png",
+  "rest-09-bau-steinbruch-2.png": "bld_build_quarry_2.png",
+  "rest-10-bau-steinbruch-3.png": "bld_build_quarry_3.png"
 }
