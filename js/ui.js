@@ -629,7 +629,39 @@ export class UI {
   }
   hookSounds(g){
     g.onBuilt=()=>Sound.sfx('done');
-    g.onProduce=()=>{};
+    // Werkstattklaenge. onProduce feuert, wenn ein Betrieb eine Ware
+    // ausstoesst - GEMESSEN 197 Mal in 20 Spielminuten bei sieben eigenen
+    // Betrieben, und bis hierher hing daran eine leere Funktion. Die
+    // Siedlung arbeitete also stumm; ausserhalb der Handwerker-Geraeusche
+    // im Freien war nur der Fertigstellungs-Dreiklang zu hoeren.
+    // Zugeordnet wird nur, wo ein VORHANDENER Effekt wirklich passt. Zwei
+    // davon waren bis jetzt gar nicht erreichbar: 'saw' und 'coin' standen
+    // seit jeher in sound.js und wurden von keiner Stelle gerufen.
+    const PROD_SFX={
+      sawmill:'saw', mint:'coin', market:'market', pigfarm:'oink', well:'splash',
+      toolsmith:'hammer', armory:'hammer', smelter:'hammer',
+      quarry:'pick', coalmine:'pick', ironmine:'pick', goldmine:'pick', granitemine:'pick',
+    };
+    // Gegen Gepolter: derselbe Klang fruehestens nach 5 Takten wieder (ein
+    // halbe Sekunde bei Tempo 1). Ohne die Sperre schlagen drei Bergwerke,
+    // die im selben Takt ausstossen, dreimal uebereinander - das klingt
+    // nach einem Fehler, nicht nach Arbeit.
+    // Gezaehlt wird in SPIELTAKTEN, nicht in Millisekunden: bei Tempo 3
+    // faellt sonst zwei Drittel weg, und in einer beschleunigten Messung
+    // (12 000 Takte in unter einer Sekunde Echtzeit) verschluckt eine
+    // Wanduhr-Sperre praktisch alles - beim ersten Anlauf blieben von 27
+    // Saegewerk-Ausstoessen drei uebrig.
+    this._prodT={};
+    g.onProduce=(b)=>{
+      const name=PROD_SFX[b.type]; if(!name) return;
+      if(g.t-(this._prodT[name]??-99) < 5) return;
+      this._prodT[name]=g.t;
+      const [x,y]=g.map.worldPos(b.node);
+      const d=Math.hypot(x-this.cam.x, y-this.cam.y)*this.cam.z;
+      if(d>750) return;
+      // leiser als die Handwerker im Freien: das kommt aus einem Haus
+      Sound.sfx(name, Math.max(0.12, (1-d/750)*0.55), this.panVon(x));
+    };
     // Handwerker-Geräusche je nach Tätigkeit, leiser mit Entfernung zur
     // Kamera und (KD2) von der Seite, auf der sie im Bild liegen
     const JOB_SFX={chop:'chop', pick:'pick', sow:'dig', plant:'dig', harvest:'rustle', fish:'splash', hunt:'rustle'};
