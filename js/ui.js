@@ -1461,7 +1461,7 @@ export class UI {
   //   3. Das eigene Lager, Ware fuer Ware
   // Die Daten sammelt die Simulation alle 30 Sekunden Spielzeit selbst.
   static STAT_FELDER=[['land','Land','<span class="uic ic-freispiel"></span>'],['bauten','Gebäude','<span class="uic ic-gebaeude"></span>'],
-                      ['siedler','Siedler','🧍'],['soldaten','Soldaten','<span class="uic ic-mehrspieler"></span>'],
+                      ['siedler','Siedler','<span class="uic ic-siedler"></span>'],['soldaten','Soldaten','<span class="uic ic-mehrspieler"></span>'],
                       ['waren','Waren','<span class="uic ic-waren"></span>']];
   openStats(feld){
     const g=this.game; if(!g) return;
@@ -1649,7 +1649,7 @@ export class UI {
       const sprung=(m.node!=null && m.node>=0);
       const aus=!this.meldungAn(m);
       return `<div class="ml-zeile ${m.type||'info'}${sprung?' klick':''}${aus?' aus':''}" data-node="${sprung?m.node:-1}">
-        <span class="ml-ic">${katIc[m.kat]||'ℹ️'}</span>
+        <span class="ml-ic">${katIc[m.kat]||'<span class="uic ic-tipp"></span>'}</span>
         <span class="ml-txt">${m.txt}</span>
         <span class="ml-zeit">${min}:${String(sek).padStart(2,'0')}</span>
         ${sprung?'<span class="ml-go">Hinsehen ▸</span>':''}

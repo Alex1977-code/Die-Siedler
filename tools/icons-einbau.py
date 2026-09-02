@@ -55,6 +55,9 @@ NAMEN = {
  'ic2-11-mittel':'mittel',       'ic2-12-gross':'gross',
  'ic2-13-gebirge':'gebirge',
  'ic2-02-pausieren':'pausieren', 'ic2-14-weiter':'weiter',
+ # Dritte Runde: die beiden, die eine ganze Gruppe blockierten - die
+ # Siedler-Kachel in der Statistik und die Spitzhacke der Meldungssparten.
+ 'ic3-01-siedler':'siedler',     'ic3-02-erz':'erz',
 }
 
 def frei(pfad):

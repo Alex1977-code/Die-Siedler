@@ -75,12 +75,17 @@ export const RANG_STD = [
 // die Meldung wird nur nicht mehr eingeblendet, im Meldungsbuch steht sie
 // weiter samt Sprung zum Ort. Missionsziele lassen sich nicht abschalten;
 // ohne sie waere nicht mehr erkennbar, warum eine Partie endet.
+// ic ist ein HTML-Schnipsel, kein Zeichen: die Sparten-Zeichen sind
+// gemalte Blaetter (assets/ui_ic_*.png, per Klasse im Stilblatt). Sie
+// stehen im Meldungsbuch und in der Meldungs-Einstellung untereinander -
+// vier gemalt und eines als Emoji faellt sofort auf, deshalb sind alle
+// fuenf zusammen umgestellt worden.
 export const MELDE_KATS = [
-  { key:'bau',        ic:'🏠', name:'Fertigstellung',   hilfe:'Gebäude fertig, Bauarbeiten' },
-  { key:'erz',        ic:'⛏️', name:'Erz und Geologen', hilfe:'Fundmeldungen, erschöpfte Vorkommen, Werkzeug' },
-  { key:'kampf',      ic:'⚔️', name:'Angriff und Kampf', hilfe:'Angriffe, Verluste, Eroberungen' },
-  { key:'wirtschaft', ic:'📦', name:'Wirtschaft',       hilfe:'Nachschub, Esel, Schiffe, Tipps' },
-  { key:'warnung',    ic:'⚠️', name:'Warnungen',        hilfe:'fehlendes Werkzeug, stockende Betriebe' },
+  { key:'bau',        ic:'<span class="uic ic-gebaeude"></span>', name:'Fertigstellung',   hilfe:'Gebäude fertig, Bauarbeiten' },
+  { key:'erz',        ic:'<span class="uic ic-erz"></span>', name:'Erz und Geologen', hilfe:'Fundmeldungen, erschöpfte Vorkommen, Werkzeug' },
+  { key:'kampf',      ic:'<span class="uic ic-angriff"></span>', name:'Angriff und Kampf', hilfe:'Angriffe, Verluste, Eroberungen' },
+  { key:'wirtschaft', ic:'<span class="uic ic-waren"></span>', name:'Wirtschaft',       hilfe:'Nachschub, Esel, Schiffe, Tipps' },
+  { key:'warnung',    ic:'<span class="uic ic-warnung"></span>', name:'Warnungen',        hilfe:'fehlendes Werkzeug, stockende Betriebe' },
 ];
 export const MELDE_STD = Object.fromEntries(MELDE_KATS.map(k=>[k.key, true]));
 // Immer sichtbar, egal was eingestellt ist.
