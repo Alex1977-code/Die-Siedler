@@ -428,11 +428,17 @@ export const Sound = {
       const CH=V.CH, ARP=V.ARP, MOTIFS=V.MOTIFS;
       // welche Schlagfigur traegt dieser Takt?
       const fig=(bar+this._var*2)%KICK.length;
-      // ATEMPAUSE: in jedem vierten Durchlauf schweigt das Schlagwerk zwei
-      // Takte lang. Pad, Bass und Melodie tragen weiter - danach setzt der
-      // Beat wieder ein, und genau dieses Wiedereinsetzen macht den Unter-
-      // schied hoerbar. Ohne Pause bleibt auch die schoenste Figur Tapete.
-      const pause=(loop%4===3) && (bar===6||bar===7);
+      // ATEMPAUSE: in jedem vierten Durchlauf schweigt das Schlagwerk kurz.
+      // Pad, Bass und Melodie tragen weiter - das Wiedereinsetzen macht den
+      // Unterschied hoerbar, ohne Pause bleibt auch die schoenste Figur
+      // Tapete.
+      // LAENGE NACHGEZOGEN (Nutzerbefund: "die pause ist zu lang"). Zuerst
+      // schwiegen ZWEI ganze Takte - bei 84 BPM sind das 5,7 Sekunden ohne
+      // Schlagwerk, das ist kein Atemholen mehr, das ist ein Aussetzer.
+      // Jetzt ist es der letzte Takt des Durchlaufs, und auch der nicht
+      // ganz: die ersten zehn Sechzehntel (1,8 s), danach fuehrt ein Wirbel
+      // zurueck und der naechste Durchlauf setzt voll ein.
+      const pause=(loop%4===3) && bar===7 && st<10;
       // steht am Ende dieses Durchlaufs ein Wechsel an?
       const wechselNah = bar===7 && (loop+1)>=this._nextSwitch;
       const ch=CH[bar];
@@ -483,10 +489,10 @@ export const Sound = {
       if(!pause && st===8) this._mNoise(t,0.12,0.045,1100,2800);
       if(!pause && st%HAT[fig]===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
       if(!pause && SHK[fig].includes(st)) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
-      // Wirbel in den letzten beiden Sechzehnteln vor der Atempause und vor
-      // dem Wiedereinsetzen - die Pause bekommt dadurch einen Rahmen
-      if((loop%4===3) && ((bar===5&&st>=14)||(bar===7&&st>=13)))
-        this._mNoise(t,0.05,0.022+(st-13)*0.004,2400,6000);
+      // Wirbel zurueck aus der Atempause: sechs Sechzehntel, die lauter
+      // werden - die Pause bekommt dadurch ein Ende statt eines Abbruchs
+      if((loop%4===3) && bar===7 && st>=10)
+        this._mNoise(t,0.05,0.016+(st-10)*0.005,2400,6000);
       // Arpeggio: festes Muster, sanfte Anschläge
       if(st%ARPD[fig]===0 && Math.random()<0.9){
         const f=ch.arp[ARP[(s>>1)%ARP.length]%ch.arp.length]*2;
