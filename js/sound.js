@@ -351,7 +351,62 @@ export const Sound = {
           [[7,4],[5,2],[3,4],[0,6]],
           [[10,2],[7,2],[5,4],[3,6]],
         ] },
+      { // Variante 4: die geraden Vier (Am - F - C - G), wiegendes Arpeggio
+        CH:[
+          mk(0,[0,3,7,10],[0,3,7,12]),    mk(-4,[0,4,7,11],[0,4,7,12]),
+          mk(3,[0,4,7,11],[0,4,7,12]),    mk(-2,[0,4,7,10],[0,4,7,10]),
+          mk(0,[0,3,7,10],[0,3,7,12]),    mk(-4,[0,4,7,11],[0,4,7,12]),
+          mk(5,[0,3,7,10],[0,3,7,10]),    mk(-5,[0,3,7,10],[0,3,7,10]),
+        ],
+        ARP:[0,1,2,3,3,2,1,0],
+        MOTIFS:[
+          [[5,2],[7,2],[10,4],[12,4],[10,4]],
+          [[12,4],[10,2],[7,2],[5,4],[3,4]],
+          [[7,2],[5,2],[3,4],[0,6]],
+          [[10,2],[12,2],[15,4],[12,4],[7,4]],
+        ] },
+      { // Variante 5: weicher Vorhalt (Dm7 - G - Cmaj7 - Am), jazzige Faerbung
+        CH:[
+          mk(5,[0,3,7,10],[0,3,7,10]),    mk(-2,[0,4,7,10],[0,4,7,10]),
+          mk(3,[0,4,7,11],[0,4,7,11]),    mk(0,[0,3,7,10],[0,3,7,10]),
+          mk(5,[0,3,7,10],[0,3,7,10]),    mk(-2,[0,4,7,10],[0,4,7,10]),
+          mk(3,[0,4,7,14],[0,7,11,14]),   mk(0,[0,3,7,14],[0,7,10,14]),
+        ],
+        ARP:[0,3,1,2,3,0,2,1],
+        MOTIFS:[
+          [[10,2],[12,2],[14,4],[12,4],[10,4]],
+          [[14,4],[12,2],[10,2],[7,4],[5,4]],
+          [[5,2],[7,2],[10,4],[14,6]],
+          [[12,2],[10,2],[7,2],[5,4],[3,6]],
+        ] },
+      { // Variante 6: duenn und hoch (Am - E - F - G), viel Luft
+        CH:[
+          mk(0,[0,7,12,19],[0,7,12,19]),  mk(-5,[0,7,12,19],[0,7,12,19]),
+          mk(-4,[0,7,12,16],[0,7,12,16]), mk(-2,[0,7,12,16],[0,7,12,16]),
+          mk(0,[0,7,12,19],[0,7,12,19]),  mk(-5,[0,7,12,19],[0,7,12,19]),
+          mk(3,[0,7,11,16],[0,7,11,16]),  mk(-2,[0,7,10,16],[0,7,10,16]),
+        ],
+        ARP:[0,2,3,1,2,0,1,3],
+        MOTIFS:[
+          [[19,4],[17,2],[15,4],[12,6]],
+          [[12,2],[15,2],[19,4],[17,4],[15,4]],
+          [[15,4],[12,4],[10,4],[7,4]],
+          [[17,2],[19,2],[22,4],[19,6]],
+        ] },
     ];
+    // SCHLAGFIGUREN (Nutzerbefund: "die musik ist zu eintoenig, mehr
+    // abwechslung"). Gemessen war der Befund praezise: von 599 Takten
+    // trugen 43,1 % DIESELBE Signatur, weil Kick, Hihat, Shaker und Bass
+    // in jedem Takt auf denselben Sechzehnteln sassen - unabhaengig von
+    // Variante und Takt. Nur Akkord, Arpeggio und Melodie wechselten.
+    // Jetzt hat jeder Takt eine von fuenf Figuren; welche, entscheidet
+    // Taktnummer plus Variantenversatz - also deterministisch und
+    // wiederholbar, kein Wuerfeln, und in jeder Variante eine andere Folge.
+    const KICK=[[0,11],[0,7,11],[0],[0,6,11],[0,11,14]];
+    const HAT =[2,2,4,2,1];                 // Schrittweite der Hihat
+    const SHK =[[6,14],[14],[6,10,14],[],[4,12]];
+    const BASS=[[0,7,10],[0,10],[0,3,7,10],[0,6],[0,7,12]];
+    const ARPD=[2,2,4,2,2];                 // Schrittweite des Arpeggios
     this._step=0;
     this._var=0; this._loopSeen=-1; this._nextSwitch=2;
     const play=()=>{
@@ -371,6 +426,13 @@ export const Sound = {
       }
       const V=VARS[this._var];
       const CH=V.CH, ARP=V.ARP, MOTIFS=V.MOTIFS;
+      // welche Schlagfigur traegt dieser Takt?
+      const fig=(bar+this._var*2)%KICK.length;
+      // ATEMPAUSE: in jedem vierten Durchlauf schweigt das Schlagwerk zwei
+      // Takte lang. Pad, Bass und Melodie tragen weiter - danach setzt der
+      // Beat wieder ein, und genau dieses Wiedereinsetzen macht den Unter-
+      // schied hoerbar. Ohne Pause bleibt auch die schoenste Figur Tapete.
+      const pause=(loop%4===3) && (bar===6||bar===7);
       // steht am Ende dieses Durchlaufs ein Wechsel an?
       const wechselNah = bar===7 && (loop+1)>=this._nextSwitch;
       const ch=CH[bar];
@@ -397,9 +459,9 @@ export const Sound = {
         }
       }
       // runder Bass (Grundton, Oktave als Antwort)
-      if(st===0||st===7||st===10){
+      if(BASS[fig].includes(st)){
         const o=this.ctx.createOscillator(); o.type='sine';
-        o.frequency.value=ch.bass*(st===10?2:1)*2;
+        o.frequency.value=ch.bass*(st>=10?2:1)*2;
         const gn=this.ctx.createGain();
         gn.gain.setValueAtTime(0.0001,t);
         gn.gain.linearRampToValueAtTime(st===0?0.17:0.11,t+0.02);
@@ -408,7 +470,7 @@ export const Sound = {
         o.start(t); o.stop(t+0.5);
       }
       // LoFi-Beat: Kick 1 & "und" von 3, Snare-Hauch auf 3, Hats mit Dynamik
-      if(st===0||st===11){
+      if(!pause && KICK[fig].includes(st)){
         const o=this.ctx.createOscillator(); o.type='sine';
         o.frequency.setValueAtTime(96,t);
         o.frequency.exponentialRampToValueAtTime(40,t+0.11);
@@ -418,11 +480,15 @@ export const Sound = {
         o.connect(gn); gn.connect(this.musicGain);
         o.start(t); o.stop(t+0.2);
       }
-      if(st===8) this._mNoise(t,0.12,0.045,1100,2800);
-      if(st%2===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
-      if(st===6||st===14) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
+      if(!pause && st===8) this._mNoise(t,0.12,0.045,1100,2800);
+      if(!pause && st%HAT[fig]===0) this._mNoise(t,0.022,(st===4||st===12)?0.03:0.016,7000,11000);
+      if(!pause && SHK[fig].includes(st)) this._mNoise(t,0.05,0.02,3200,5200);   // Shaker
+      // Wirbel in den letzten beiden Sechzehnteln vor der Atempause und vor
+      // dem Wiedereinsetzen - die Pause bekommt dadurch einen Rahmen
+      if((loop%4===3) && ((bar===5&&st>=14)||(bar===7&&st>=13)))
+        this._mNoise(t,0.05,0.022+(st-13)*0.004,2400,6000);
       // Arpeggio: festes Muster, sanfte Anschläge
-      if(st%2===0 && Math.random()<0.9){
+      if(st%ARPD[fig]===0 && Math.random()<0.9){
         const f=ch.arp[ARP[(s>>1)%ARP.length]%ch.arp.length]*2;
         this._pluck(t,f,0.045);
         this._pluck(t+STEP*3,f,0.016);
