@@ -3370,6 +3370,38 @@ export class Game {
       if(o===OBJ.TREE || o===OBJ.TREE2 || o===OBJ.STONE) R=SPERRKREIS;
       else if(m.flag[q]) R=FAHNENKREIS;
       if(!R) continue;
+      // WER DIESEN KNOTEN ALS NAECHSTEN UMWEG-WEGPUNKT ANSTEUERT, MUSS IHN
+      // ERREICHEN DUERFEN. Die Ausnahme weiter unten kannte nur u.wp - die
+      // Wegpunktliste der Traeger und Arbeiter - und galt nur fuer Fahnen.
+      // Wer ueber landDetour laeuft (Soldaten auf dem Weg in ihren Posten,
+      // Angriffsgruppen, ausweichende Figuren), fuehrt seine Route in
+      // u._det, und deren Knoten tragen auch Baeume und Felsbrocken. Fuer
+      // ihn war der angesteuerte Punkt damit gesperrt: er lief darauf zu
+      // und wurde jeden Takt auf genau den Kreisradius zurueckgeschoben.
+      //
+      // GEMESSEN, zuerst an den Fahnen (Saat 23, Stufe 2, Minute 25 bis
+      // 30): zehn Soldaten der KI standen als "unterwegs" fest, ihr
+      // Abstand zum Zielposten aenderte sich in fuenf Spielminuten um
+      // exakt NULL (222,5 / 263,8 / 313,8 / 390,6 Bildpunkte) - obwohl
+      // jeder eine fertige Route von 7 bis 14 Wegpunkten hatte. Die
+      // Fahnen-Ausnahme allein reichte nicht: danach hingen auf Saat 11
+      // und 4242 weiter zwoelf Soldaten, alle mit "Stein@12,0" und einem
+      // naechsten Wegpunkt in exakt 12,0 Bildpunkten Entfernung, also
+      // genau auf dem Sperrkreis des Felsbrockens; Bewegung in drei
+      // Spielminuten 0,0 Bildpunkte, Routenlaenge unveraendert 16.
+      // Deshalb gilt die Ausnahme jetzt fuer JEDEN Sperrkreis.
+      //
+      // Folge des Fehlers: nur 2 bis 3 Soldaten kamen je in einem Posten
+      // an, 10 bis 13 hingen fest, und weil ein haengender Marsch als
+      // "enroute" zaehlt, war der Zielposten fuer Nachschub obendrein
+      // gesperrt. Leere Posten verschieben die Grenze nicht
+      // (recalcTerritory: besetztWar) - das war die Wurzel der
+      // KI-Passivitaet.
+      if(u._det && u._det.length){
+        const w=u._det[0];
+        const [qx,qy]=m.worldPos(q);
+        if(w && Math.abs(w[0]-qx)<1.5 && Math.abs(w[1]-qy)<1.5) continue;
+      }
       // TUERFAHNEN sind ausgenommen, alle, nicht nur die eigene.
       // Drei Gruende, der letzte ist der zwingende:
       //   - dort geht der Arbeiter ins Haus hinein und wieder heraus,
@@ -4029,6 +4061,25 @@ export class Game {
       u.dead=true; this.players[u.player].recruits[u.stype]++; return;
     }
     const [tx,ty]=this.tuerPos(b);       // Einzug in den Posten durch die Tür
+    // ABBRUCH EINES AUSSICHTSLOSEN MARSCHES. Ein Marsch hatte bisher kein
+    // Ende: kam die Figur nicht an, lief sie bis zum Partieende weiter -
+    // und weil ein laufender Marsch in der Besatzungsverteilung als
+    // "enroute" zaehlt, war ihr Zielposten damit fuer JEDEN weiteren
+    // Nachschub gesperrt. GEMESSEN (Saat 23, Stufe 2, nach dem
+    // Sperrkreis-Fix): neun Soldaten ohne Umweg-Route (landDetour fand
+    // keine) zappelten auf der Stelle - 2,6 bis 12,6 Bildpunkte Weg in
+    // DREI Spielminuten, bei einem Schritt von 4,8 Punkten je Takt.
+    // Der laengste ehrliche Marsch der Messlaeufe war 391 Punkte lang,
+    // also gut eine Spielminute; fuenf Minuten sind grosszuegig. Danach
+    // geht der Mann zurueck in die Reserve und der Posten wird zehn
+    // Spielminuten uebersprungen, damit die naechsten Rekruten nicht in
+    // dieselbe Sackgasse laufen - danach wird es wieder versucht, denn
+    // das Gelaende aendert sich (neue Strassen, gefaellte Baeume).
+    if(u._marschT===undefined) u._marschT=this.t;
+    else if(this.t-u._marschT>3000){
+      b._marschNo=this.t;
+      u.dead=true; this.players[u.player].recruits[u.stype]++; return;
+    }
     if(this.moveToward(u,tx,ty,WALK_SPEED)){
       u.dead=true;
       const cap=BLD[b.type].mil.cap;
@@ -4334,6 +4385,9 @@ export class Game {
         }
         for(const b of milB){
           if(this.recruitTotal(p.id)<=0) break;
+          // Posten, zu dem der letzte Marsch aufgeben musste (s.
+          // tickSoldierMove), bleibt zehn Spielminuten aussen vor.
+          if(this.t-(b._marschNo||-1e9)<6000) continue;
           const cap=Math.min(BLD[b.type].mil.cap, b.garrison??BLD[b.type].mil.cap);
           const enroute=this.units.filter(u=>u.type==='soldierMove'&&u.targetB===b.id).length;
           if(b.soldiers.length+enroute<cap){
@@ -6061,6 +6115,25 @@ export class Game {
       // der Zug bleibt trotzdem richtig: unbefoerderte Soldaten kaempfen
       // schwaecher, und Gold holt man sich, solange die Reserve nicht
       // voll ist und Posten gebaut werden duerfen.
+      // VERWORFEN, WEIL GEMESSEN SCHLECHTER: Expansion Richtung fehlender
+      // KOHLE UND EISEN, so wie es sie fuer Gold gibt (v219). Der Gedanke
+      // war richtig - aiErzBekannt zaehlt nur das EIGENE Gebiet, der
+      // HQ-Radius ist 9 bis 11 Knoten, und auf zwei von drei Messsaaten lag
+      // NULL Kohle und NULL Eisen im KI-Gebiet, waehrend 3885 bis 4255
+      // Einheiten Kohle nur 10,4 bzw. 13,9 Knoten vom HQ entfernt lagen; die
+      // KI wuenschte sich in einer Stunde kein einziges Kohle- oder
+      // Eisenbergwerk.
+      // Der Posten Richtung Erz half aber nur auf EINER Saat und schadete
+      // auf zweien, weil er die Expansion kapert: gemessen (Grenzabstand
+      // zum Feind-HQ nach 60 Minuten, mit / ohne Zweig)
+      //   Saat 11    20 / 7      Saat 23    29 / 21,2     Saat 4242  3,2 / 12,1
+      // und auf Saat 11 dazu 5 statt 8 besetzte Posten und 0 statt 61 Kohle
+      // im Lager. Die Einschraenkung "nur wenn kein fertiges Bergwerk dieses
+      // Typs arbeitet" aenderte die Zahlen nicht um einen Punkt. Und das
+      // eigentliche Ziel verfehlte er ohnehin: Waffen blieben mit wie ohne
+      // Zweig bei null, weil das Eisen auch mit Bergwerk nicht bis zur
+      // Waffenschmiede durchkommt. Das ist ein eigener, noch offener Befund
+      // und nicht durch mehr Bergwerke zu heilen.
       if(def.mil && (inv.coin||0)<1 && this.recruitTotal(p.id)<10
          && (!this.aiErzBekannt(p,'goldmine')
              || this.t-(p.aiState.goldPlatzNot||-1e9)<1200))

@@ -46,6 +46,10 @@ for(const saat of SEEDS){
     g.players[0].aiLevel=g.players[1]?.aiLevel||2;
     const hq0=g.buildings.get(g.players[0].hq);
     let angriffe=0, ersterAngriff=-1, ersterKontakt=-1, erstesBrett=-1, zehnBauten=-1;
+    // ACHTUNG, das zaehlt KAMPFEREIGNISSE, nicht Feldzuege: onClash feuert
+    // bei jedem Zusammenstoss, ein einziger Feldzug erzeugt viele. Genau
+    // daher kam die alte Ungereimtheit "27 Angriffsmeldungen bei 4
+    // Angriffen" - beide Zahlen stimmten, sie zaehlten nur Verschiedenes.
     const oc=g.onClash; g.onClash=(...a)=>{ angriffe++; if(ersterAngriff<0) ersterAngriff=g.t; return oc&&oc(...a); };
     // GRENZKONTAKT ist eine Beruehrung, kein Abstand: hat irgendein eigener
     // Knoten einen Nachbarn in Feindhand? Der erste Lauf fragte stattdessen
@@ -123,7 +127,7 @@ for(const saat of SEEDS){
   console.log(`\n===== Saat ${saat} =====`);
   const z=(v)=> v<0? '  nie' : v.toFixed(1).padStart(6);
   console.log(`erstes Brett ${z(r.erstesBrett)} min   10 Gebaeude ${z(r.zehnBauten)} min`);
-  console.log(`Grenzkontakt ${z(r.ersterKontakt)} min   erster Angriff ${z(r.ersterAngriff)} min   Angriffe gesamt ${r.angriffe}`);
+  console.log(`Grenzkontakt ${z(r.ersterKontakt)} min   erster Angriff ${z(r.ersterAngriff)} min   Kampfereignisse gesamt ${r.angriffe}`);
   console.log(`Meldungen ${r.meldungen}, davon ${r.arten} verschiedene`);
   for(const [t,n] of r.haeufigste) console.log(`   ${String(n).padStart(3)}x  ${t}`);
   console.log('\n min  Spieler Gegner  HQ-Abst  Angriffe |  Betriebe  Lager voll  ohne Werkzeug  erschoepft');
@@ -135,7 +139,7 @@ for(const saat of SEEDS){
 await browser.close();
 
 console.log('\n===== Zusammenfassung =====');
-console.log('Saat   Kontakt  1.Angriff  Angriffe  Meldungsarten  Gebaeude S:G nach 60 min');
+console.log('Saat   Kontakt  1.Angriff  Kaempfe  Meldungsarten  Gebaeude S:G nach 60 min');
 for(const r of alle){
   const l=r.proben[r.proben.length-1];
   console.log(`${String(r.saat).padStart(4)}   `
