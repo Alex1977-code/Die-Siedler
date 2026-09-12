@@ -1776,19 +1776,74 @@ export class Game {
   // war geraten und ist damit nachpruefbar statt geglaubt.
   static ZIEL_FREI=FLAG_CAP;
   static WEG_TEILUNG=7;      // ab dieser Knotenzahl wird geteilt
+  // AUCH NACH VERKEHR TEILEN, NICHT NUR NACH LAENGE.
+  //
+  // Geteilt wurde bisher allein, was laenger als sieben Knoten ist. Der
+  // gemessene Pfropfen entsteht aber an KURZEN Strassen: GEMESSEN (Saat
+  // 4242, Stufe 2, Minute 35) waren von 74 Strassen genau ZWEI zu 100 %
+  // ausgelastet und 58 unter 10 % - alle Strassen im Netz waren dabei vier
+  // bis sechs Knoten lang, die Laengenteilung hatte also laengst alles
+  // erledigt, was sie erledigen konnte. Hinter diesen zwei Adern lagen 143
+  // Waren fest, 83 davon zum selben Lagerhaus unterwegs, waehrend die
+  // Strassen am Lager selbst zu 0 bis 38 % liefen.
+  //
+  // Zwischen je zwei Fahnen laeuft genau EIN Traeger - eine Ader ist damit
+  // bei einem Traeger gedeckelt, egal wie kurz sie ist. Die Antwort des
+  // Vorbilds auf einen Warenstau ist deshalb: eine Fahne mehr setzen, dann
+  // stehen zwei Traeger auf der Strecke. Genau das tut die KI jetzt auch
+  // bei kurzen Adern, sobald eine von ihnen deutlich aus dem Netz
+  // heraussticht.
+  //
+  // Das Mass ist der Rueckstau selbst, nicht der Durchsatz: wo nichts
+  // wartet, wird auch nichts geteilt. Vier Knoten sind die Untergrenze -
+  // darunter liegt kein Knoten mehr frei zwischen den beiden Fahnen.
   wegeTeilen(){
     for(const pl of this.players){
       if(pl.defeated || !pl.ai) continue;
-      for(const r of [...this.roads.values()]){
-        if(r.player!==pl.id || r.isSea) continue;
-        if(r.path.length < Game.WEG_TEILUNG) continue;
-        // Mitte nehmen: beide Haelften werden dadurch etwa gleich lang
+      const eigene=[...this.roads.values()].filter(r=>r.player===pl.id && !r.isSea);
+      if(!eigene.length) continue;
+      // Kann diese Strasse ueberhaupt geteilt werden?
+      const teilbar=(r)=>{
         const mitte=r.path[Math.floor(r.path.length/2)];
-        if(mitte==null || this.map.flag[mitte]) continue;
-        if(this.map.bld[mitte]>=0) continue;
-        this.addFlag(mitte);   // teilt die Strasse an dieser Stelle
-        return;                // eine Teilung je Aufruf genuegt
+        if(mitte==null || this.map.flag[mitte]) return -1;
+        if(this.map.bld[mitte]>=0) return -1;
+        return mitte;
+      };
+      // 1. wie bisher: zu lange Strassen
+      for(const r of eigene){
+        if(r.path.length < Game.WEG_TEILUNG) continue;
+        const mitte=teilbar(r);
+        if(mitte<0) continue;
+        this.addFlag(mitte);
+        return;
       }
+      // 2. neu: eine Ader, VOR DER WARE STEHT.
+      // Erst gemessen wurde der blosse Verkehrswert (teile, was das
+      // Dreifache des Medians traegt) - der misst aber Durchsatz, nicht
+      // Stau, und teilte deshalb auch in gesunden Netzen: auf der
+      // unauffaelligen Saat 23 fiel die Zustellung damit von 618 auf 393
+      // Waren je zehn Spielminuten, weil jede zusaetzliche Fahne einen
+      // Umladevorgang kostet. Gezaehlt wird jetzt, was wirklich weh tut:
+      // Waren an den Endfahnen, deren naechster Schritt genau diese Ader
+      // ist. Stehen davon so viele wie eine Fahne fasst, bekommt die
+      // Strecke eine zweite Fahne und damit einen zweiten Traeger.
+      let engste=null, ev=FLAG_CAP-1;
+      for(const [rid,r] of this.roads){
+        if(r.player!==pl.id || r.isSea || r.path.length<4) continue;
+        let stau=0;
+        for(const e of [r.path[0], r.path[r.path.length-1]]){
+          const items=this.flagItems.get(e);
+          if(!items) continue;
+          for(const it of items){
+            const d=this.buildings.get(it.destB);
+            if(d && this.nextRoad(e, d.door)===rid) stau++;
+          }
+        }
+        if(stau<=ev) continue;
+        if(teilbar(r)<0) continue;
+        ev=stau; engste=r;
+      }
+      if(engste){ this.addFlag(teilbar(engste)); return; }
     }
   }
 
