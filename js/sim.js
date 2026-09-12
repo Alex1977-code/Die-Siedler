@@ -321,7 +321,8 @@ export class Game {
       // Minenbild ist etwa 85 Bildpunkte breit, der Knotenabstand 52 - was
       // zwei Knoten entfernt steht, überlappt nicht mehr.
       for(const n of m.nbs(node))
-        if((m.obj[n]&127)===OBJ.ROCK) return {ok:false, r:'Felsen im Weg'};
+        if((m.obj[n]&127)===OBJ.ROCK && !this.felsRaeumbar(player, n))
+          return {ok:false, r:'Felsen im Weg'};
     }
     else {
       if(!m.terrOkBuild(node)) return {ok:false, r:'Untergrund ungeeignet'};
@@ -459,12 +460,45 @@ export class Game {
     if(door<0) return {ok:false, r:'Kein Platz für die Fahne'};
     return {ok:true};
   }
+  // DARF DIESER FELSBROCKEN EINEM BERGWERK WEICHEN?
+  //
+  // Ein Fels auf einem der sechs Nachbarknoten verbot das Bergwerk ganz -
+  // im Gebirge, wo Felsen nun einmal stehen, war das die haeufigste
+  // Absage. GEMESSEN (Saat 11, Stufe 2, Minute 40): die KI hatte 14
+  // Eisenerzknoten im EIGENEN Gebiet, jeder mit einem Ringvorrat von 102
+  // bis 225 Einheiten - und genau EINER war bebaubar. Sechs der dreizehn
+  // Absagen lauteten "Felsen im Weg". Ergebnis: null Eisenbergwerke, nie
+  // ein Eisenbarren, nie eine Waffe, und damit ab Minute 20 keine Rekruten
+  // mehr (s. v330). Bei Baeumen wurde dieselbe Sperre laengst gelockert -
+  // "das Vorbild faellt den Baum einfach"; fuer den Felsbrocken galt das
+  // nicht, obwohl ihn der Steinmetz ohnehin abbaut.
+  //
+  // Der Brocken weicht deshalb dem Bergwerk, aber NICHT umsonst: er darf
+  // nur fallen, wenn er dem Spieler nicht als Steinbruch-Vorrat dient -
+  // steht ein eigener Steinmetz in Reichweite, bleibt er stehen. So
+  // verliert niemand seine Steinversorgung an einen Stollen.
+  felsRaeumbar(player, n){
+    for(const b of this.buildings.values()){
+      if(b.player!==player || b.type!=='quarry' || b.state==='ruin') continue;
+      const d=Math.hypot(this.map.X(b.node)-this.map.X(n), this.map.Y(b.node)-this.map.Y(n));
+      if(d <= (BLD.quarry.range||5)) return false;
+    }
+    return true;
+  }
   placeBuilding(player, type, node){
     const c=this.canBuild(player,type,node); if(!c.ok) return c;
     // Steht ein Baum auf dem Bauplatz, faellt er mit dem ersten Spatenstich -
     // sonst waechst das Haus mitten durch die Krone.
     if(this.map.obj[node]!==OBJ.NONE && Game.isTree(this.map.obj[node]&127)){
       this.map.obj[node]=OBJ.NONE; this.changedNodes.push(node);
+    }
+    // Bergwerk: die Felsbrocken rundherum weichen dem Stollen (s.
+    // felsRaeumbar) - sonst stuende der Brocken mitten im Hausbild.
+    if(BLD[type] && BLD[type].size==='MINE'){
+      for(const n of this.map.nbs(node))
+        if((this.map.obj[n]&127)===OBJ.ROCK && this.felsRaeumbar(player, n)){
+          this.map.obj[n]=OBJ.NONE; this.changedNodes.push(n);
+        }
     }
     const b=this.spawnBuilding(player,type,node);
     // Bau-Anforderungen laufen über die Logistik (Bretter/Steine)
