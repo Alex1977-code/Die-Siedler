@@ -4627,8 +4627,34 @@ export class Game {
   // Route abarbeiten; true, wenn alle Wegpunkte erreicht sind
   routeStep(u, speed){
     if(u.wp && (u.wpi||0)<u.wp.length){
-      const [tx,ty]=u.wp[u.wpi||0];
-      if(this.moveToward(u,tx,ty,speed)) u.wpi=(u.wpi||0)+1;
+      const i=u.wpi||0;
+      const [tx,ty]=u.wp[i];
+      // WEGPUNKT-WAECHTER. Die Route wird EINMAL berechnet und danach nie
+      // wieder geprueft - wird ein Punkt darauf unpassierbar, weil dort
+      // inzwischen ein Haus steht oder die Strasse abgerissen wurde, laeuft
+      // die Figur bis zum Partieende davor hin und her.
+      // GEMESSEN (Saat 23, Stufe 2, Minute 40): ein Bergmann stand auf
+      // Wegpunkt 41 von 65 - in 600 Takten KEIN einziger Wegpunktwechsel,
+      // bei vollem Tempo von 4,80 Bildpunkten je Takt, pendelnd in einem
+      // Feld von 60 mal 160 Bildpunkten, waehrend moveToward laufend neue
+      // Umwege berechnete (Routenlaenge sprang zwischen 1 und 5). Netto kam
+      // er in drei Spielminuten 58 statt 8600 Bildpunkte voran. Sein
+      // Wegpunkt lag "unterHaus" und trug keine Strasse mehr.
+      // Folge auf dieser Saat: BEIDE Kohlebergwerke blieben unbesetzt, also
+      // kam keine Kohle, also schmolz keine der beiden Eisenhuetten (beide
+      // hatten Erz, keine Kohle), also gab es keinen Barren, kein neues
+      // Werkzeug und keine Waffe - bei 116 Eisenerz im eigenen Lager.
+      // Ein Wegpunkt liegt rund 52 Bildpunkte vom naechsten entfernt, ist
+      // also in gut zehn Takten erreicht; eine ganze Spielminute ist
+      // grosszuegig. Danach wird er uebersprungen und die Umwegroute
+      // verworfen, damit die Figur frisch auf den naechsten zulaeuft.
+      if(u._wpI!==i){ u._wpI=i; u._wpT=this.t; }
+      else if(this.t-(u._wpT||0)>600){
+        u._wpT=this.t; u._det=null;
+        u.wpi=i+1;
+        return (u.wpi||0)>=u.wp.length;
+      }
+      if(this.moveToward(u,tx,ty,speed)) u.wpi=i+1;
       return (u.wpi||0)>=u.wp.length;
     }
     return true;
