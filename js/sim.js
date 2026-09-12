@@ -2270,6 +2270,57 @@ export class Game {
           if(d<bd){ bd=d; best=s; }
           if(uralt && d<fd && (s.door===f || this.etappeFrei(f, s.door))){ fd=d; frei=s; }
         }
+        // NOTAUSGANG FUER LIEGENGEBLIEBENE WARE (Nutzerauftrag "logistik
+        // verbessern"). Alles darueber setzt voraus, dass irgendwo ein
+        // freier Weg existiert. In einem zusammenhaengenden Pfropfen gibt
+        // es den nicht: GEMESSEN (Saat 4242, Minute 40) hatte von 41
+        // Waren, die laenger als vier Spielminuten lagen, KEINE EINZIGE
+        // ein Lager mit freier erster Etappe - bei 52 leeren von 71 Fahnen,
+        // aber allesamt in Nebenaesten. Umbuchung und Ringrotation liefen
+        // (43 bzw. 36 Stueck je zehn Minuten) und kamen doch nicht an den
+        // Pfropfen heran; die aelteste Ware lag 26,8 Minuten, auf Saat 11
+        // sogar 38,6.
+        //
+        // Nach zehn Spielminuten gibt die Ware deshalb auf und wird ins
+        // naechste erreichbare Lager eingebucht - sie verlaesst das Netz,
+        // statt es weiter zu verstopfen. Das ist dieselbe Notbremse, die
+        // eine Ware an der Tuer schon kennt (600 Takte, s. pick), nur eine
+        // Stufe spaeter und fuer den Fall, dass gar kein Weg mehr frei ist.
+        // Sie zieht selten und nur im Stoerfall: gemessen 0 bis 16 Stueck je
+        // zehn Spielminuten gegen 120 bis 620 normale Zustellungen, und auf
+        // der gesunden Messsaat 23 ueber eine volle Stunde KEIN einziges Mal.
+        //
+        // FUENF ANDERE ANSAETZE WURDEN GEMESSEN UND VERWORFEN - alle
+        // versuchten, den Pfropfen ueber Vorfahrt oder Grenzen aufzuloesen,
+        // und alle waren schlechter:
+        //   Lagerware bremsen (Zielfahne nur bis 4):   147 -> 224 wartend
+        //   Betriebsware zwei Fahnenplaetze Vorrang:   216 -> 365 wartend,
+        //                                              und kein Barren mehr
+        //   Reihum je Warenart statt Rangfolge:        neutral, kein Barren
+        //   Lagerwahl nach freiem Zuweg:               68 -> 211 wartend
+        //   Druckausgleich (wer weniger traegt, nimmt): Durchsatz auf der
+        //     gesunden Saat 23 von 618 auf 72 Zustellungen eingebrochen,
+        //     aelteste Ware 1,5 -> 39,3 Minuten (die Ware pendelt im
+        //     Gefaelle, statt anzukommen)
+        // Die Lehre daraus: das Netz ist nicht ueberlastet - es stellt
+        // durchgehend mehrere hundert Waren je zehn Minuten zu - und
+        // Umsortieren hilft nicht. Was fehlte, war ein Ausgang fuer die
+        // wenigen Stuecke, die in einem Pfropfen gefangen sind.
+        if(this.t-(it.lagT||this.t) > 6000){
+          let ziel=null, zd=1e9;
+          for(const s2 of this.buildings.values()){
+            if(s2.player!==dest.player || !s2.inv || s2.state!=='done') continue;
+            const d2=this.flagDist(s2.door, f);
+            if(d2<zd){ zd=d2; ziel=s2; }
+          }
+          if(ziel){
+            const ix=items.indexOf(it);
+            if(ix>=0) items.splice(ix,1);
+            if(dest.incoming[it.good]) dest.incoming[it.good]--;
+            ziel.inv[it.good]=(ziel.inv[it.good]||0)+1;
+            continue;
+          }
+        }
         let neu=null;
         if(uralt && frei) neu=frei;
         else if(best && (!istLager || bd < this.flagDist(dest.door, f))) neu=best;
