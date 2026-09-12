@@ -1315,9 +1315,15 @@ export function genWorld(opts){
   // Massiv, jedes aus einer Sorte. Wer blind baut, kann eines treffen -
   // aber eben nur manchmal. Der Suchradius des Bergwerks schrumpft dazu auf
   // EINEN Ring (s. sim.js), sonst verwischt er die Nester wieder.
+  // SORTENSCHLUESSEL. Granit lag bei 28 % der Nester UND bekam mit 60 bis
+  // 119 Einheiten je Knoten die doppelte Menge der anderen - gemessen ueber
+  // 20 Saaten lagen damit 165 021 Granit gegen 60 388 Eisen auf den Karten,
+  // also das 2,7-fache. Gebraucht wird er am wenigsten: er liefert Steine,
+  // die auch jeder Steinmetz bringt, waehrend an Eisen die ganze Waffen-
+  // und Werkzeugkette haengt. Sein Anteil geht deshalb an das Eisen.
   const erzSorte = ()=>{
     const r=rng();
-    return r<0.34? 1 : r<0.60? 2 : r<0.72? 3 : 4;   // Kohle/Eisen/Gold/Granit
+    return r<0.34? 1 : r<0.70? 2 : r<0.82? 3 : 4;   // Kohle/Eisen/Gold/Granit
   };
   const erzMenge = (t)=> t===1? 26+((rng()*30)|0)
                        : t===2? 22+((rng()*26)|0)
@@ -1369,7 +1375,22 @@ export function genWorld(opts){
   // Nest gepflanzt - gleiches Wuchsmuster und gleiche Mengen wie die
   // natuerlichen Nester, der Geologe muss es weiterhin finden.
   {
-    const LIMIT=22;
+    // WIE NAH DAS ERZ AM START LIEGEN MUSS.
+    //
+    // Das Limit galt fuer alle drei Sorten gleich und war mit 22 Knoten
+    // deutlich weiter, als das Startgebiet reicht. GEMESSEN (20 Saaten, 40
+    // Startlagen, Landweg vom Hauptquartier): Kohle lag im Median 15 Knoten
+    // weit, Eisen 14 - und in nur 5 beziehungsweise 4 von 40 Startgebieten
+    // lag ueberhaupt ein Vorkommen IM eigenen Land. In neun von zehn
+    // Startlagen gab es also weder Kohle noch Eisen zu foerdern, bevor die
+    // Grenze verschoben war. Genau das ist die Henne-Ei-Falle: die Grenze
+    // schiebt nur ein besetzter Militaerposten, der Posten braucht einen
+    // Soldaten, der Soldat eine Waffe - und die Waffe braucht das Erz.
+    //
+    // Kohle und Eisen ruecken deshalb an den Rand des Startgebiets (das
+    // reicht im Median 12 Knoten). Gold bleibt weiter draussen: es ist seit
+    // v224 nur noch Befoerderung, keine Voraussetzung.
+    const LIMIT_JE={1:12, 2:12, 3:22};
     const istBerg=(q)=>map.terr[q]===TER.MOUNT;
     const menge=(t)=> t===1? 26+((rng()*30)|0)
                     : t===2? 22+((rng()*26)|0)
@@ -1390,7 +1411,7 @@ export function genWorld(opts){
         let nah=1e9;
         for(let i=0;i<w*h;i++)
           if(map.oreT[i]===sorte && map.oreA[i]>0 && d[i]>=0 && d[i]<nah) nah=d[i];
-        if(nah<=LIMIT) continue;
+        if(nah<=(LIMIT_JE[sorte]||22)) continue;
         // naechstgelegenen unvererzten Gebirgsknoten nehmen - im Limit,
         // wenn moeglich; sonst den naechsten ueberhaupt (besser ein fernes
         // Nest als gar keines)
