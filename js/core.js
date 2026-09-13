@@ -252,6 +252,55 @@ export const START_GOODS = { trunk:16, board:36, stone:24, fish:8, water:6, brea
 // edW = Richtungs-Gewicht der Militär-Bauplätze zum Feind hin: LEICHT
 // expandiert breit und gemütlich, NORMAL/SCHWER schieben ihre Postenkette
 // zielstrebig Richtung Gegner (Kontakt binnen ~30 min auf M-Karten).
+// WEGENETZ DER KI JE SCHWIERIGKEITSSTUFE (Nutzerauftrag: "anzahl der
+// fahnen soll auch als steuerung der schwierigkeit dienen").
+//
+// Zwischen je zwei Fahnen laeuft genau EIN Traeger. Die Fahnendichte
+// bestimmt damit unmittelbar, wie viel Ware die KI bewegen kann - und weil
+// an der Ware die ganze Wirtschaft haengt, ist sie ein ehrlicher Regler:
+// eine leichte KI baut genauso klug, sie bekommt ihre Waren nur langsamer
+// ans Ziel. Das ist besser als kuenstlich gedrosselte Bauzeiten, weil der
+// Spieler den Unterschied SIEHT (lange Strassen, Waren, die sich stapeln)
+// und mit denselben Mitteln kontern kann.
+//
+// GEMESSEN auf Stufe 2 (drei Saaten, 60 Spielminuten): Fahnenabstand im
+// Median 3 bis 4 Knoten, kuerzeste Ader 2, laengste 6 bis 7, rund 13
+// Gebietsknoten je Fahne.
+//
+//  teilLaenge   ab dieser Knotenzahl wird eine Strasse in der Mitte geteilt
+//  stauSchwelle ab so vielen wartenden Waren vor einer Ader bekommt sie eine
+//               zweite Fahne (0 = diese Teilung findet gar nicht statt)
+//  minLaenge    so lang muss eine Ader mindestens sein, um geteilt zu werden
+export const AI_WEGE = {
+  // LEICHT: lange Adern mit je einem Traeger, geteilt wird erst bei
+  // handfestem Rueckstau. Die Waren brauchen sichtbar laenger.
+  1: { teilLaenge: 8, stauSchwelle: 10, minLaenge: 5 },
+  // NORMAL: der gemessene Stand aus v335.
+  2: { teilLaenge: 7, stauSchwelle: 7, minLaenge: 4 },
+  // SCHWER: reagiert schon auf halben Rueckstau, bleibt aber bei vier
+  // Knoten Mindestlaenge.
+  3: { teilLaenge: 6, stauSchwelle: 5, minLaenge: 4 },
+};
+// DER REGLER WIRKT NACH UNTEN, NICHT NACH OBEN - auch das ist gemessen.
+// Ueber fuenf Saaten liegen Stufe 2 und 3 gleichauf: 54 gegen 56 Gebaeude
+// und 496 gegen 474 Zustellungen je zehn Spielminuten im Mittel, bei einer
+// Streuung von 39 bis 71 Gebaeuden zwischen den Saaten. Die Dichte der
+// Stufe 2 ist also bereits nahe am Optimum; die schwere Stufe reagiert nur
+// etwas frueher, ohne dass sich daraus ein messbarer Vorteil ergibt - ihre
+// Haerte kommt aus AI_MIL (Gruppengroesse, Angriffstakt, Vorlauf), nicht
+// aus dem Wegenetz. Wer hier weiter aufdreht, macht die KI SCHWAECHER.
+//
+// MEHR FAHNEN SIND NICHT AUTOMATISCH BESSER - das ist gemessen und der
+// Grund fuer die vorsichtige Staffelung oben. Eine erste Fassung liess die
+// schwere Stufe auch Dreier-Adern teilen (stauSchwelle 4, minLaenge 3):
+// dabei stieg die Fahnenzahl auf 179, der Fahnenabstand fiel auf einen
+// Median von ZWEI Knoten - und die Zustellung brach gegenueber Stufe 2 von
+// 971 auf 308 Waren je zehn Spielminuten ein, bei 739 statt 282 wartenden
+// Waren. Jede Fahne kostet einen Umladevorgang; ein uebersegmentiertes
+// Netz traegt weniger als ein grob geschnittenes. Die leichte Stufe stand
+// umgekehrt bei stauSchwelle 0 praktisch still (null Zustellungen auf einer
+// Messsaat, 24 statt 71 Gebaeude) - auch eine leichte KI soll spielen, nur
+// langsamer.
 export const AI_MIL = {
   // R4: Stufe 1 war nicht zahm, sondern TOT. Gemessen ueber 45 Spielminuten
   // stand sie ab Minute 10 vollstaendig still: Land 339, 16 Gebaeude, 3

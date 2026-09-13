@@ -1,5 +1,5 @@
 // Neuland – Spielsimulation: Wirtschaft, Logistik, Militär, KI.
-import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, RANG_STD, rangListe, meldeKat, AI_MIL, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
+import { TER, OBJ, BLD, GOODS, GOOD_LIST, FOODS, STYPES, STYPE_LIST, START_GOODS, PROF_OF, TOOL_OF, TOOLS, SAT_PAUSE, SAT_RESUME, SAT_OF, ESSEN_TEMPO, RANG_STD, rangListe, meldeKat, AI_MIL, AI_WEGE, BAUM_REIF, HQ_SCHUTZ, ATK_MARCH, MUSTER_DIST, MUSTER_WAIT, MinHeap, clamp } from './core.js';
 import { WorldMap, genWorld } from './map.js';
 import { mulberry32 } from './core.js';
 
@@ -1775,7 +1775,8 @@ export class Game {
   // herausgezogen, damit die Messsonden sie variieren koennen - der Wert 8
   // war geraten und ist damit nachpruefbar statt geglaubt.
   static ZIEL_FREI=FLAG_CAP;
-  static WEG_TEILUNG=7;      // ab dieser Knotenzahl wird geteilt
+  // Die Teilungsschwellen stehen jetzt je Schwierigkeitsstufe in AI_WEGE
+  // (core.js) - die Fahnendichte ist ein Schwierigkeitsregler.
   // AUCH NACH VERKEHR TEILEN, NICHT NUR NACH LAENGE.
   //
   // Geteilt wurde bisher allein, was laenger als sieben Knoten ist. Der
@@ -1802,6 +1803,8 @@ export class Game {
       if(pl.defeated || !pl.ai) continue;
       const eigene=[...this.roads.values()].filter(r=>r.player===pl.id && !r.isSea);
       if(!eigene.length) continue;
+      // Fahnendichte ist der Schwierigkeitsregler (s. AI_WEGE in core.js)
+      const W=AI_WEGE[pl.aiLevel]||AI_WEGE[2];
       // Kann diese Strasse ueberhaupt geteilt werden?
       const teilbar=(r)=>{
         const mitte=r.path[Math.floor(r.path.length/2)];
@@ -1811,7 +1814,7 @@ export class Game {
       };
       // 1. wie bisher: zu lange Strassen
       for(const r of eigene){
-        if(r.path.length < Game.WEG_TEILUNG) continue;
+        if(r.path.length < W.teilLaenge) continue;
         const mitte=teilbar(r);
         if(mitte<0) continue;
         this.addFlag(mitte);
@@ -1827,9 +1830,10 @@ export class Game {
       // Waren an den Endfahnen, deren naechster Schritt genau diese Ader
       // ist. Stehen davon so viele wie eine Fahne fasst, bekommt die
       // Strecke eine zweite Fahne und damit einen zweiten Traeger.
-      let engste=null, ev=FLAG_CAP-1;
+      if(!W.stauSchwelle) continue;          // Stufe Leicht teilt nicht nach Stau
+      let engste=null, ev=W.stauSchwelle-1;
       for(const [rid,r] of this.roads){
-        if(r.player!==pl.id || r.isSea || r.path.length<4) continue;
+        if(r.player!==pl.id || r.isSea || r.path.length<W.minLaenge) continue;
         let stau=0;
         for(const e of [r.path[0], r.path[r.path.length-1]]){
           const items=this.flagItems.get(e);
