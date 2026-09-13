@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Neuland – Sprite-Bäckerei (GLB → Frames)</title>
+<style>body{background:#4a4f57;color:#eee;font-family:sans-serif;margin:12px}</style>
+<script type="importmap">{ "imports": { "three": "./three/three.module.min.js" } }</script>
+</head>
+<body>
+<div id="log">lade…</div>
+<canvas id="out" width="384" height="384" style="background:repeating-conic-gradient(#555 0% 25%,#666 0% 50%) 0 0/20px 20px"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './three/GLTFLoader.js';
+
+const SIZE=384;
+const renderer=new THREE.WebGLRenderer({ alpha:true, antialias:true, preserveDrawingBuffer:true });
+renderer.setSize(SIZE,SIZE);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+// STILGUIDE "STYLIZED DIORAMA RENDER" - die Render-Einstellungen sind der
+// eigentliche Hebel fuer den Look, deshalb stehen sie hier vollstaendig
+// und mit den Zahlen des Guides. Wer sie aendert, aendert den Hausstil.
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.05;
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+const scene=new THREE.Scene();
+
+// EINE warme, tiefstehende Sonne von oben links, Goldene-Stunde-Charakter.
+// Hoehenwinkel 35 Grad: die waagerechte Entfernung ist hypot(1.4,1.6)=2,126,
+// also y = 2,126 * tan(35 Grad) = 1,49. Vorher stand y auf 2,2, das waren
+// 46 Grad - zu hoch fuer die Abendstimmung der Referenz.
+const sun=new THREE.DirectionalLight(0xffe2b8, 2.5);
+sun.position.set(-1.4, 1.49, 1.6);
+sun.castShadow=true;
+sun.shadow.mapSize.set(4096,4096);
+sun.shadow.normalBias=0.02;
+sun.shadow.camera.left=-2; sun.shadow.camera.right=2;
+sun.shadow.camera.top=2;   sun.shadow.camera.bottom=-2;
+scene.add(sun);
+// Fill: NUR Hemisphaere - kein zweites gerichtetes Licht (Guide)
+const fill=new THREE.HemisphereLight(0xcfe2ff, 0x8a7a5c, 0.6);
+scene.add(fill);
+// Neutrale Environment-Map mit niedriger Intensitaet fuer weiches
+// Rundum-Licht. Ein AmbientLight (frueher hier, Intensitaet 0,35) ist
+// richtungslos und flacht die Rundungen ab; eine Environment-Map gibt
+// oben Himmel und unten Bodenreflex und laesst die Kugelformen stehen.
+// Die Map ist ein 8x16-Verlauf, ueber PMREM zur Umgebung gefiltert.
+{
+  const W=8, H=16, d=new Float32Array(W*H*4);
+  for(let y=0;y<H;y++){
+    const t=y/(H-1);                        // 0 = oben (Himmel)
+    const r=0.812+(0.541-0.812)*t, g=0.886+(0.478-0.886)*t, b=1.000+(0.361-1.000)*t;
+    for(let x=0;x<W;x++){
+      const p=(y*W+x)*4; d[p]=r; d[p+1]=g; d[p+2]=b; d[p+3]=1;
+    }
+  }
+  const tex=new THREE.DataTexture(d,W,H,THREE.RGBAFormat,THREE.FloatType);
+  tex.mapping=THREE.EquirectangularReflectionMapping;
+  tex.needsUpdate=true;
+  const pmrem=new THREE.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromEquirectangular(tex).texture;
+  if('environmentIntensity' in scene) scene.environmentIntensity=0.30;
+  tex.dispose(); pmrem.dispose();
+}
+
+const cam=new THREE.OrthographicCamera(-1,1,1,-1,0.01,100);
+let mixer=null, root=null, clips=[], frame={h:1, cy:0};
+
+const params=new URLSearchParams(location.search);
+const MODEL=params.get('m')||'traeger';
+// Alle menschlichen Figuren teilen sich EIN Rig (41 Knochen, gleiche Namen).
+// Ein Clip aus einer anderen Figur lässt sich deshalb direkt auf dieses
+// Skelett abspielen – so bekommen auch Figuren ohne eigenen Warte-Clip einen.
+const DONOR=params.get('donor')||'';
+
+let hips=null, restQ=new Map(), boneMap=new Map();
+const loadDonor=(cb)=>{
+  if(!DONOR) return cb();
+  new GLTFLoader().load(`./models/${DONOR}.glb`, (dg)=>{
+    (dg.animations||[]).forEach((c,ix)=>{
+      const cl=c.clone(); cl.name='donor'+ix;
+      clips.push(cl);
+    });
+    cb();
+  }, undefined, ()=>cb());
+};
+new GLTFLoader().load(`./models/${MODEL}.glb`, (g)=>{
+  root=g.scene;
+  // MATERIALIEN NACH STILGUIDE: Standard-PBR, roughness 0,85-0,95,
+  // metalness 0, keine Clearcoat-/Glanz-Effekte. Die Tripo-Modelle bringen
+  // ihre eigenen Werte mit - oft glaenzend und halbmetallisch, was in der
+  // Diorama-Optik als Plastik liest. Hier wird das einmal geradegezogen,
+  // damit KEIN Blatt am Material-Zufall des Exports haengt.
+  root.traverse(o=>{
+    if(!o.isMesh) return;
+    o.castShadow=true; o.receiveShadow=true;
+    for(const mt of (Array.isArray(o.material)? o.material : [o.material])){
+      if(!mt) continue;
+      if('roughness' in mt) mt.roughness=Math.min(0.95, Math.max(0.85, mt.roughness ?? 0.9));
+      if('metalness' in mt) mt.metalness=0;
+      if('clearcoat' in mt) mt.clearcoat=0;
+      if('sheen' in mt) mt.sheen=0;
+      if('specularIntensity' in mt) mt.specularIntensity=0;
+      mt.needsUpdate=true;
+    }
+  });
+  scene.add(root);
+  clips=(g.animations||[]).slice();
+  mixer=new THREE.AnimationMixer(root);
+  root.traverse(o=>{ if(o.isBone){ boneMap.set(o.name,o); restQ.set(o.name, o.quaternion.clone()); } });
+  root.traverse(o=>{ if(!hips && o.isBone) hips=o; });   // Wurzelknochen (Hüfte)
+  // Rahmen: Bounding Box über mehrere Posen der längsten Animation vereinigen,
+  // damit ALLE Frames dieselbe Kamera bekommen (kein Zittern)
+  const box=new THREE.Box3();
+  const measure=()=>{
+    recenter();
+    box.union(skinnedBox());
+  };
+  if(clips.length){
+    const act=mixer.clipAction(clips[0]); act.play();
+    for(let k=0;k<8;k++){ mixer.setTime(clips[0].duration*k/8); measure(); }
+    act.stop();
+  } else measure();
+  applyFrame(box);
+  loadDonor(()=>{
+    document.getElementById('log').textContent=
+      'Clips: '+clips.map(c=>`${c.name} (${c.duration.toFixed(2)}s)`).join(' · ');
+    window.__ready=true;
+  });
+}, undefined, (e)=>{ window.__err=String(e); document.getElementById('log').textContent='FEHLER '+e; });
+
+// Zusatzdrehungen auf einzelne Knochen legen (Grad, lokal, additiv zur
+// aktuellen Clip-Pose). Damit lassen sich Posen von Hand schreiben:
+//   {Spine01:[2,0,0], Head:[0,-8,0], R_Upperarm:[0,0,-14]}
+const _e=new THREE.Euler(), _q=new THREE.Quaternion();
+window.poseAdd=(rots)=>{
+  for(const name in rots){
+    const b2=boneMap.get(name);
+    if(!b2) continue;
+    const r=rots[name];
+    _e.set(r[0]*Math.PI/180, r[1]*Math.PI/180, r[2]*Math.PI/180);
+    _q.setFromEuler(_e);
+    b2.quaternion.multiply(_q);
+  }
+  root.updateMatrixWorld(true);
+};
+window.bones=()=>[...boneMap.keys()];
+// ---- Koerperbau (Asterix-Silhouetten) ------------------------------------
+// Statische Knochen-Skalierung ueber der Clip-Pose: dick, drahtig, breit.
+// Die Tripo-Clips fuehren eigene Scale-Spuren (konstant 1) - der Mixer
+// ueberschreibt eine einmalig gesetzte Skalierung bei jedem setTime. Darum
+// merkt sich koerper() nur die Faktoren, und bake()/center() multiplizieren
+// sie NACH dem Stellen des Clips je Frame auf. Y bleibt ueberall 1, damit
+// Koerperhoehe und UNIT_FIT unveraendert bleiben; Kinder erben die
+// Skalierung (wer den Bauch verbreitert, gibt dem Hals den Kehrwert).
+// Kontrast-Faktor der Backstufe (T18); setKontrast nur fuer die
+// Kalibrier-Streifen (kontrastkalib.mjs) - im Betrieb gilt der Standard.
+let KONTRAST=1.2;
+window.setKontrast=(k)=>{ KONTRAST=k; return 'ok'; };
+let KOERPER=null;
+window.koerper=(scales)=>{
+  for(const n in scales) if(!boneMap.get(n)) return 'FEHLT '+n;
+  KOERPER=scales;
+  return 'ok';
+};
+function koerperAnwenden(){
+  if(!KOERPER) return;
+  for(const n in KOERPER){
+    const b=boneMap.get(n), s=KOERPER[n];
+    b.scale.x*=s[0]; b.scale.y*=s[1]; b.scale.z*=s[2];
+  }
+  root.updateMatrixWorld(true);
+}
+// Weltposition eines Knochens in der AKTUELLEN Pose (nach bake/center/poseAdd)
+// – für numerische Achsen-Kalibrierung statt Augenmaß
+window.bonePos=(name)=>{
+  const b=boneMap.get(name);
+  if(!b) return null;
+  root.updateMatrixWorld(true);
+  const v=new THREE.Vector3();
+  b.getWorldPosition(v);
+  return { x:+v.x.toFixed(4), y:+v.y.toFixed(4), z:+v.z.toFixed(4) };
+};
+
+window.info=()=> clips.map(c=>({name:c.name, duration:c.duration}));
+
+// ---- Werkzeug-Verwaltung -------------------------------------------------
+// Der Spieler wünscht Werkzeuge GETRENNT von der Figur: die Figur wird ohne
+// Werkzeug gebacken, das Werkzeug in einem zweiten Durchgang allein – dabei
+// bleibt die Figur als unsichtbarer Tiefen-Verdecker stehen, damit das
+// Werkzeug hinter dem Körper korrekt verdeckt wird. Beide Blätter teilen
+// Kamera und Pose und liegen deshalb im Spiel pixelgenau übereinander.
+window.meshes=()=>{
+  const out=[];
+  root.traverse(o=>{
+    if(o.isMesh){
+      let p=o.parent, chain=[];
+      while(p && p!==root){ chain.push(p.name); p=p.parent; }
+      out.push({ name:o.name, skinned:!!o.isSkinnedMesh, parents:chain.slice(0,4) });
+    }
+  });
+  return out;
+};
+window.setVis=(pattern,on)=>{
+  const re=new RegExp(pattern,'i'); let n=0;
+  root.traverse(o=>{ if(o.isMesh && re.test(o.name)){ o.visible=on; n++; } });
+  return n;
+};
+// Geist-Modus: Mesh bleibt in der Tiefe (verdeckt), zeichnet aber keine Farbe
+window.ghost=(pattern,on)=>{
+  const re=new RegExp(pattern,'i'); let n=0;
+  root.traverse(o=>{
+    if(o.isMesh && re.test(o.name)){
+      const ms=Array.isArray(o.material)?o.material:[o.material];
+      ms.forEach(m=>{ m.colorWrite=!on; });
+      n++;
+    }
+  });
+  return n;
+};
+// Prozedurale Werkzeuge im Stil der Low-Poly-Figuren (flache Farben). Für
+// Modelle, deren GLB kein (brauchbares) Werkzeug enthält. Das Werkzeug hängt
+// am Handknochen und folgt damit jeder Pose automatisch.
+// Stahl bewusst gedeckt (Stilguide: warme, stumpfe Farben – kein Weißblitzen)
+const TOOL_MATS={ wood:0x7a5a33, woodDark:0x5d4426, steel:0x767d83, steelDark:0x51565b };
+function mat(c){ return new THREE.MeshStandardMaterial({ color:c, roughness:0.75, metalness:0.05 }); }
+let toolGroups=[];
+window.toolClear=()=>{ toolGroups.forEach(g=>{ if(g.parent) g.parent.remove(g); }); toolGroups=[]; };
+// kind: axe|shovel|pick|hammer|chisel|mallet|scythe|rod|sack|bow|sword|spearw
+// Grundausrichtung: Stiel entlang +Y (aus der Faust nach oben), Kopf am +Y-Ende.
+// bow: Griff im Ursprung, Wurfarme entlang ±Y, Bogenbauch zeigt nach +Z,
+// Sehne parallel dazu bei z≈0.10 – Bogenebene ist die YZ-Ebene.
+// Mehrfach aufrufbar (Klüpfel + Meißel); toolClear() räumt alle ab.
+window.toolAttach=(kind, boneName, pos=[0,0,0], rotDeg=[0,0,0], scale=1)=>{
+  const b=boneMap.get(boneName);
+  if(!b) return 'KEIN KNOCHEN '+boneName;
+  const gph=new THREE.Group(); gph.name='TOOL_'+kind;
+  const cyl=(r1,r2,h,m)=>new THREE.Mesh(new THREE.CylinderGeometry(r1,r2,h,7),m);
+  const box=(x,y,z,m)=>new THREE.Mesh(new THREE.BoxGeometry(x,y,z),m);
+  const wood=mat(TOOL_MATS.wood), wood2=mat(TOOL_MATS.woodDark),
+        steel=mat(TOOL_MATS.steel), steel2=mat(TOOL_MATS.steelDark);
+  if(kind==='axe'){
+    const st=cyl(0.013,0.017,0.34,wood); st.position.y=0.10; gph.add(st);
+    const kopf=box(0.10,0.052,0.020,steel); kopf.position.set(0.038,0.26,0); gph.add(kopf);
+    const schneide=box(0.016,0.062,0.024,steel2); schneide.position.set(0.086,0.26,0); gph.add(schneide);
+  } else if(kind==='shovel'){
+    const st=cyl(0.014,0.016,0.42,wood); st.position.y=0.12; gph.add(st);
+    const blatt=box(0.062,0.088,0.012,steel); blatt.position.set(0,0.36,0); gph.add(blatt);
+    const spitze=box(0.05,0.02,0.012,steel2); spitze.position.set(0,0.41,0); gph.add(spitze);
+  } else if(kind==='pick'){
+    const st=cyl(0.014,0.018,0.36,wood); st.position.y=0.11; gph.add(st);
+    // Spitzhacke: zwei gebogene Zinken quer zum Stiel
+    const z1=cyl(0.008,0.020,0.15,steel); z1.rotation.z=Math.PI/2-0.35; z1.position.set(0.075,0.275,0); gph.add(z1);
+    const z2=cyl(0.008,0.020,0.15,steel); z2.rotation.z=-(Math.PI/2-0.35); z2.position.set(-0.075,0.275,0); gph.add(z2);
+  } else if(kind==='hammer'){
+    const st=cyl(0.012,0.015,0.24,wood); st.position.y=0.07; gph.add(st);
+    const kopf=box(0.052,0.046,0.10,steel); kopf.position.set(0,0.185,0); gph.add(kopf);
+  } else if(kind==='chisel'){
+    const k=cyl(0.016,0.02,0.20,steel); k.position.y=0.07; gph.add(k);
+    const sp=cyl(0.004,0.016,0.04,steel2); sp.position.y=0.19; gph.add(sp);
+  } else if(kind==='mallet'){
+    const st=cyl(0.012,0.014,0.20,wood); st.position.y=0.05; gph.add(st);
+    const kopf=cyl(0.05,0.05,0.10,wood2); kopf.rotation.x=Math.PI/2; kopf.position.set(0,0.16,0); gph.add(kopf);
+  } else if(kind==='scythe'){
+    // Sense: langer Stiel, kurzer Quergriff, gebogenes Blatt quer am Ende
+    const st=cyl(0.013,0.016,0.62,wood); st.position.y=0.17; gph.add(st);
+    const griff=cyl(0.010,0.010,0.09,wood2); griff.rotation.x=Math.PI/2; griff.position.set(0,0.30,0.035); gph.add(griff);
+    const seg=(a,l,y,x)=>{ const s=box(l,0.017,0.012,steel); s.rotation.y=a; s.position.set(x,y,0); return s; };
+    gph.add(seg(0.0,0.14,0.475,0.065));
+    gph.add(seg(0.5,0.13,0.475,0.175));
+    gph.add(seg(1.0,0.11,0.475,0.265));
+  } else if(kind==='rod'){
+    // Angelrute: dünn, kurz genug für den festen Bildausschnitt
+    const st=cyl(0.006,0.012,0.42,wood); st.position.y=0.13; gph.add(st);
+    const sp=cyl(0.004,0.006,0.16,wood2); sp.position.y=0.42; gph.add(sp);
+  } else if(kind==='sack'){
+    const s=new THREE.Mesh(new THREE.SphereGeometry(0.085,7,6), mat(0xa3814e));
+    s.scale.set(1,1.2,0.85); s.position.y=0.05; gph.add(s);
+    const kragen=cyl(0.03,0.04,0.05,mat(0x8a6f42)); kragen.position.y=0.15; gph.add(kragen);
+  } else if(kind==='sword'){
+    // Schwert (T16, Soldaten): gerade Klinge entlang +Y, Parierstange,
+    // kurzer dunkler Griff mit Knauf unter der Faust. Gesamt ~0.42 -
+    // die Klinge BREIT genug, dass sie auf 35px Spielgroesse liest.
+    const knauf=cyl(0.016,0.016,0.024,wood2); knauf.position.y=-0.062; gph.add(knauf);
+    const griff=cyl(0.011,0.012,0.075,wood2); griff.position.y=-0.012; gph.add(griff);
+    const parier=box(0.104,0.018,0.024,steel2); parier.position.y=0.032; gph.add(parier);
+    // Klinge bewusst BREIT (0.046): auf 35px Spielgroesse blieb die
+    // 0.036er-Klinge im Ausholen fast unsichtbar (spielgroesse.png)
+    const klinge=box(0.046,0.27,0.014,steel); klinge.position.y=0.175; gph.add(klinge);
+    const spitze=box(0.026,0.06,0.012,steel); spitze.position.y=0.335; gph.add(spitze);
+  } else if(kind==='spearw'){
+    // Speer (T16, Soldaten): schlanker Schaft ~0.55, blattfoermige Spitze
+    // (zwei 4-seitige Pyramiden Basis an Basis, flachgedrueckt).
+    const st=cyl(0.010,0.012,0.55,wood); st.position.y=0.175; gph.add(st);
+    const zw=cyl(0.014,0.014,0.02,steel2); zw.position.y=0.455; gph.add(zw);
+    const b1=cyl(0.001,0.030,0.075,steel); b1.position.y=0.525; b1.scale.z=0.45; gph.add(b1);
+    const b2=cyl(0.030,0.001,0.035,steel); b2.position.y=0.470; b2.scale.z=0.45; gph.add(b2);
+  } else if(kind==='bart'||kind==='bartGross'||kind==='bartSchmal'){
+    // ASTERIX-SCHNURRBART (T18): gebogene Doppelwulst unterm Näschen -
+    // DAS Asterix-Merkmal. Aufbau in "Gesichtsraum": x = links/rechts,
+    // y = hoch, z = aus dem Gesicht; Anbringung/Neigung kommt vom
+    // Aufrufer (Head-Knochen, kalibriert ueber Vorschau-Zooms).
+    // Drei Varianten: buschig (Standard), gewaltig (Walross, dunkler),
+    // schmal (duenn) - markant verteilt statt Einheitsbart.
+    const dick = kind==='bartGross'? 1.5 : kind==='bartSchmal'? 0.62 : 1;
+    const lang = kind==='bartGross'? 1.35 : kind==='bartSchmal'? 0.85 : 1;
+    const farbe= mat(kind==='bartGross'? 0x4e3820 : 0x6b4a2a);
+    // Fluegel zeigen seitlich-ABWAERTS (rotation.z=-sgn*2.0 legt die
+    // Zylinderachse auf "rechts-unten 25 Grad"; die erste Fassung
+    // -sgn*1.05 zeigte nach OBEN in die Nase - unsichtbar). Die Spitze
+    // (+y-Ende) liegt aussen, darum r1 duenn.
+    const seite=(sgn)=>{
+      const a=cyl(0.012*dick,0.018*dick,0.062*lang,farbe);
+      a.rotation.z=-sgn*2.0; a.position.set(sgn*0.030*lang,-0.010,0); gph.add(a);
+      const b2=cyl(0.005*dick,0.013*dick,0.05*lang,farbe);
+      b2.rotation.z=-sgn*2.5; b2.position.set(sgn*0.070*lang,-0.036*lang,0); gph.add(b2);
+    };
+    seite(1); seite(-1);
+    const mitte=cyl(0.013*dick,0.013*dick,0.034,farbe);
+    mitte.rotation.z=Math.PI/2; mitte.position.set(0,-0.002,0); gph.add(mitte);
+  } else if(kind==='feder'){
+    // Hutfeder (Jaeger/Faehrtenleser): flachgedrueckter Kegel, Kiel unten
+    const kiel=cyl(0.003,0.003,0.045,mat(0xd8d2c2)); kiel.position.y=0.02; gph.add(kiel);
+    const fahne=cyl(0.002,0.020,0.13,mat(0xe8e2d2)); fahne.scale.z=0.35;
+    fahne.position.y=0.10; gph.add(fahne);
+  } else if(kind==='guertel'){
+    // Guertel mit heller Schnalle (Hip/Waist, kraeftige Figuren) - erbt
+    // die koerper()-Skalierung des Knochens und waechst mit dem Bauch mit
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(0.155,0.020,6,14), mat(0x4f3a22));
+    ring.rotation.x=Math.PI/2; gph.add(ring);
+    const schnalle=box(0.05,0.034,0.014, mat(0xc9a227)); schnalle.position.set(0,0,0.162); gph.add(schnalle);
+  } else if(kind==='bow'){
+    // Jagdbogen: Griff + je zwei zunehmend gebogene Wurfarm-Segmente,
+    // Sehne als dünner Zylinder zwischen den Spitzen (YZ-Ebene)
+    const griff=cyl(0.013,0.013,0.10,wood2); gph.add(griff);
+    const arm=(sgn)=>{
+      const a1=cyl(0.010,0.012,0.13,wood); a1.rotation.x=sgn*0.30;
+      a1.position.set(0, sgn*0.105, 0.019); gph.add(a1);
+      const a2=cyl(0.007,0.010,0.12,wood); a2.rotation.x=sgn*0.62;
+      a2.position.set(0, sgn*0.215, 0.062); gph.add(a2);
+    };
+    arm(1); arm(-1);
+    const sehne=cyl(0.0028,0.0028,0.52,steel2); sehne.position.set(0,0,0.096); gph.add(sehne);
+  }
+  gph.position.set(pos[0],pos[1],pos[2]);
+  gph.rotation.set(rotDeg[0]*Math.PI/180, rotDeg[1]*Math.PI/180, rotDeg[2]*Math.PI/180);
+  gph.scale.setScalar(scale);
+  b.add(gph);
+  toolGroups.push(gph);
+  return 'ok';
+};
+// Weltlage der Werkzeug-Köpfe in der AKTUELLEN Pose – für numerische
+// Posen-Kalibrierung (z. B. Hammerkopf-Richtung) statt Augenmaß
+window.toolHeadPos=()=>{
+  root.updateMatrixWorld(true);
+  const v=new THREE.Vector3();
+  return toolGroups.map(g=>{
+    const k=g.children[1]||g.children[0];
+    k.getWorldPosition(v);
+    return { name:g.name, x:+v.x.toFixed(4), y:+v.y.toFixed(4), z:+v.z.toFixed(4) };
+  });
+};
+// ---- Inseln: Werkzeuge stecken als eigene Zusammenhangs-Komponenten im
+// EINEN SkinnedMesh der Tripo-Modelle. Über die Dreiecks-Nachbarschaft lassen
+// sie sich finden und abtrennen (Axt/Schaufel/Rute raus aus der Figur).
+function mainSkin(){ let sm=null; root.traverse(o=>{ if(!sm && o.isSkinnedMesh) sm=o; }); return sm; }
+window.islands=()=>{
+  const sm=mainSkin(); if(!sm) return [];
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position,
+        si=sm.geometry.attributes.skinIndex, swt=sm.geometry.attributes.skinWeight;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const stats=new Map();
+  for(let i=0;i<pos.count;i++){
+    const r=find(i);
+    let s=stats.get(r);
+    if(!s){ s={id:r, verts:0, tris:0, min:[1e9,1e9,1e9], max:[-1e9,-1e9,-1e9], boneW:new Map()}; stats.set(r,s); }
+    s.verts++;
+    for(let d=0;d<3;d++){
+      const v=pos.getComponent(i,d);
+      if(v<s.min[d]) s.min[d]=v;
+      if(v>s.max[d]) s.max[d]=v;
+    }
+    for(let k=0;k<4;k++){
+      const b=si.getComponent(i,k), w=swt.getComponent(i,k);
+      if(w>0.01) s.boneW.set(b,(s.boneW.get(b)||0)+w);
+    }
+  }
+  for(let t=0;t<idx.length;t+=3){ stats.get(find(idx[t])).tris++; }
+  const bones2=sm.skeleton.bones;
+  return [...stats.values()].map(s=>{
+    const top=[...s.boneW.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6)
+      .map(([b,w])=>bones2[b]? bones2[b].name+':'+w.toFixed(2) : '?'+b);
+    return { id:s.id, verts:s.verts, tris:s.tris,
+      min:s.min.map(v=>+v.toFixed(3)), max:s.max.map(v=>+v.toFixed(3)), bones:top };
+  }).sort((a,b)=>b.verts-a.verts);
+};
+// WO liegt eine Insel, wenn die Figur POSIERT ist? Die eingebauten
+// Werkzeuge der Tripo-Modelle sind ueber viele kleine Inseln verstreut
+// (Bauarbeiter: 1029 Inseln, groesste 60 Vertices) - sie einzeln
+// anzusehen fuehrt zu nichts. Sie fallen aber raeumlich auf: ein
+// Werkzeug, das neben der Figur in der Luft haengt, hat einen
+// Schwerpunkt AUSSERHALB des Koerpers. getVertexPosition (three r170)
+// liefert den geskinnten Ort, also den mit allen Knochen verrechneten -
+// genau den, den man im Bild sieht.
+window.inselOrte=()=>{
+  const sm=mainSkin(); if(!sm) return [];
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  sm.updateMatrixWorld(true);
+  const v=new THREE.Vector3(), agg=new Map();
+  for(let i=0;i<pos.count;i++){
+    sm.getVertexPosition(i, v);
+    v.applyMatrix4(sm.matrixWorld);
+    const r=find(i);
+    let a=agg.get(r);
+    if(!a){ a={id:r,n:0,sx:0,sy:0,sz:0,minx:1e9,maxx:-1e9,miny:1e9,maxy:-1e9,minz:1e9,maxz:-1e9}; agg.set(r,a); }
+    a.n++; a.sx+=v.x; a.sy+=v.y; a.sz+=v.z;
+    if(v.x<a.minx)a.minx=v.x; if(v.x>a.maxx)a.maxx=v.x;
+    if(v.y<a.miny)a.miny=v.y; if(v.y>a.maxy)a.maxy=v.y;
+    if(v.z<a.minz)a.minz=v.z; if(v.z>a.maxz)a.maxz=v.z;
+  }
+  return [...agg.values()].map(a=>({ id:a.id, verts:a.n,
+    c:[+(a.sx/a.n).toFixed(4), +(a.sy/a.n).toFixed(4), +(a.sz/a.n).toFixed(4)],
+    min:[+a.minx.toFixed(4),+a.miny.toFixed(4),+a.minz.toFixed(4)],
+    max:[+a.maxx.toFixed(4),+a.maxy.toFixed(4),+a.maxz.toFixed(4)] }));
+};
+// Nur bestimmte Inseln zeigen (Diagnose: welche Insel ist das Werkzeug?)
+let fullIndex=null;
+window.isolate=(ids)=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  if(!fullIndex) fullIndex=sm.geometry.index.array.slice();
+  if(!ids){ sm.geometry.setIndex([...fullIndex]); return 'alles'; }
+  const n=sm.geometry.attributes.position.count;
+  const parent=new Int32Array(n); for(let i=0;i<n;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<fullIndex.length;t+=3){ uni(fullIndex[t],fullIndex[t+1]); uni(fullIndex[t+1],fullIndex[t+2]); }
+  const roots=new Set(ids.map(i=>find(i)));
+  const keep=[];
+  for(let t=0;t<fullIndex.length;t+=3)
+    if(roots.has(find(fullIndex[t]))) keep.push(fullIndex[t],fullIndex[t+1],fullIndex[t+2]);
+  sm.geometry.setIndex(keep);
+  return keep.length/3;
+};
+// Inseln abtrennen: toolIds wandern in ein eigenes (mit-geskintes) Mesh,
+// der Rest bleibt die Figur. So bäckt Durchgang A die Figur ohne Werkzeug
+// und Durchgang B das Werkzeug allein (Figur nur als Tiefen-Verdecker).
+let toolMesh=null;
+window.splitIslands=(toolIds)=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  const idx=sm.geometry.index.array, n=sm.geometry.attributes.position.count;
+  const parent=new Int32Array(n); for(let i=0;i<n;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const roots=new Set(toolIds.map(i=>find(i)));
+  const tool=[], body=[];
+  for(let t=0;t<idx.length;t+=3)
+    (roots.has(find(idx[t]))?tool:body).push(idx[t],idx[t+1],idx[t+2]);
+  const gTool=new THREE.BufferGeometry();
+  for(const k in sm.geometry.attributes) gTool.setAttribute(k, sm.geometry.attributes[k]);
+  gTool.setIndex(tool);
+  toolMesh=new THREE.SkinnedMesh(gTool, sm.material.clone());
+  toolMesh.bindMode=sm.bindMode;
+  sm.parent.add(toolMesh);
+  toolMesh.bind(sm.skeleton, sm.bindMatrix);
+  sm.geometry.setIndex(body);
+  return { toolTris:tool.length/3, bodyTris:body.length/3 };
+};
+// Werkzeug-Sichtbarkeit für die zwei Back-Durchgänge (prozedural UND Insel)
+// WERKZEUG UMHAENGEN statt wegwerfen.
+//
+// Die Tripo-Modelle bringen ihr Werkzeug im selben SkinnedMesh mit, oft an
+// den falschen Knochen gewichtet: die Schaufel des Planierers haengt zu
+// 100 % an R_ToeBase und steht deshalb senkrecht neben dem rechten Fuss
+// statt in der Faust. Bisher blieb nur, sie zu loeschen und durch einen
+// prozeduralen Kasten zu ersetzen - dabei ist die gemalte Schaufel die
+// bessere Grafik.
+//
+// umhaengen() macht aus ihr ein starres Kind der Faust:
+//   1. Werkzeug-Vertices aus den Inselnummern sammeln,
+//   2. laengste Achse der Bindepose bestimmen - das ist der Stiel,
+//   3. Griffende (greifer 0 = kleines Ende der Achse, 1 = grosses) auf die
+//      BINDEPOSITION des Zielknochens legen,
+//   4. optional um dieses Griffende drehen (Grad, XYZ), Normalen mit,
+//   5. Gewichte auf (Zielknochen, 1) setzen.
+// Danach folgt das Werkzeug der Faust wie ein angeschraubtes Teil - genau
+// das, was toolAttach mit seinen Primitiven tut, nur mit dem gemalten
+// Werkzeug des Modells.
+//
+// Die Bindeposition des Knochens steckt in skeleton.boneInverses: sie ist
+// die Inverse davon, angewandt auf den Ursprung.
+window.umhaengen=(toolIds, boneName, opt={})=>{
+  const sm=mainSkin(); if(!sm) return 'KEIN MESH';
+  const bi=sm.skeleton.bones.findIndex(b=>b.name===boneName);
+  if(bi<0) return 'KEIN KNOCHEN '+boneName;
+  const idx=sm.geometry.index.array, pos=sm.geometry.attributes.position,
+        nor=sm.geometry.attributes.normal,
+        si=sm.geometry.attributes.skinIndex, sw=sm.geometry.attributes.skinWeight;
+  const parent=new Int32Array(pos.count); for(let i=0;i<pos.count;i++) parent[i]=i;
+  const find=(a)=>{ while(parent[a]!==a){ parent[a]=parent[parent[a]]; a=parent[a]; } return a; };
+  const uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) parent[a]=b; };
+  for(let t=0;t<idx.length;t+=3){ uni(idx[t],idx[t+1]); uni(idx[t+1],idx[t+2]); }
+  const soll=new Set(toolIds.map(Number));
+  let vs=[];
+  if(sm.userData.__wzVs) vs=sm.userData.__wzVs;      // Liste vom ersten Mal
+  else {
+    for(let i=0;i<pos.count;i++) if(soll.has(find(i))) vs.push(i);
+    sm.userData.__wzVs=vs;
+  }
+  if(!vs.length) return 'KEINE VERTICES';
+  // WIEDERHOLBAR MACHEN. Der Aufruf verschiebt Vertices; ein zweiter Aufruf
+  // mit einem anderen Winkel wuerde sonst auf dem Ergebnis des ersten
+  // aufsetzen. Gebraucht wird das, weil das Werkzeug je Blattsatz anders
+  // gehalten wird: im Gehen geschultert, beim Graben zum Boden. Also die
+  // Ausgangslage einmal merken und jedes Mal von dort losrechnen.
+  if(!sm.userData.__wzOrig){
+    const o=new Map();
+    for(const i of vs) o.set(i, [pos.getX(i),pos.getY(i),pos.getZ(i),
+                                 nor?nor.getX(i):0, nor?nor.getY(i):0, nor?nor.getZ(i):0]);
+    sm.userData.__wzOrig=o;
+  } else {
+    for(const [i,o] of sm.userData.__wzOrig){
+      pos.setXYZ(i,o[0],o[1],o[2]);
+      if(nor) nor.setXYZ(i,o[3],o[4],o[5]);
+    }
+  }
+  // 2. laengste Achse
+  const mn=[1e9,1e9,1e9], mx=[-1e9,-1e9,-1e9];
+  for(const i of vs) for(let d=0;d<3;d++){
+    const v=pos.getComponent(i,d); if(v<mn[d])mn[d]=v; if(v>mx[d])mx[d]=v; }
+  const sp=[mx[0]-mn[0],mx[1]-mn[1],mx[2]-mn[2]];
+  const ax=sp.indexOf(Math.max(...sp));
+  const mitte=[(mn[0]+mx[0])/2,(mn[1]+mx[1])/2,(mn[2]+mx[2])/2];
+  const griff=[...mitte]; griff[ax]= (opt.greifer===1? mx[ax] : mn[ax]);
+  // 3. Bindeposition des Zielknochens
+  const inv=sm.skeleton.boneInverses[bi].clone().invert();
+  const ziel=new THREE.Vector3().setFromMatrixPosition(inv);
+  // 4./6. drehen um den Griff, dann auf den Knochen schieben
+  const R=new THREE.Matrix4();
+  const r=opt.rot||[0,0,0];
+  R.makeRotationFromEuler(new THREE.Euler(r[0]*Math.PI/180, r[1]*Math.PI/180, r[2]*Math.PI/180,'XYZ'));
+  const sc=opt.scale||1;
+  const v=new THREE.Vector3(), n=new THREE.Vector3();
+  for(const i of vs){
+    v.set(pos.getX(i)-griff[0], pos.getY(i)-griff[1], pos.getZ(i)-griff[2]);
+    v.multiplyScalar(sc).applyMatrix4(R).add(ziel);
+    pos.setXYZ(i, v.x, v.y, v.z);
+    if(nor){ n.set(nor.getX(i),nor.getY(i),nor.getZ(i)).applyMatrix4(R).normalize();
+             nor.setXYZ(i,n.x,n.y,n.z); }
+    // 5. Gewichte: allein der Zielknochen
+    si.setXYZW(i, bi,0,0,0);
+    sw.setXYZW(i, 1,0,0,0);
+  }
+  pos.needsUpdate=true; if(nor) nor.needsUpdate=true;
+  si.needsUpdate=true; sw.needsUpdate=true;
+  return 'ok '+vs.length+' Vertices, Achse '+'xyz'[ax]+', Griff '+griff.map(x=>x.toFixed(3)).join(',');
+};
+window.toolVis=(on)=>{ toolGroups.forEach(g=>{ g.visible=on; }); if(toolMesh) toolMesh.visible=on; };
+// Abgetrenntes Insel-Werkzeug endgültig verwerfen (kaputte eingebaute
+// Werkzeuge: verzerrte Bindungen an Hand UND Fuß) – danach zählt nur noch
+// das prozedurale Werkzeug
+window.toolDiscard=()=>{ if(toolMesh&&toolMesh.parent) toolMesh.parent.remove(toolMesh); toolMesh=null; };
+
+// Bildausschnitt festlegen: HÖHEN-dominant (eine breite Arbeitspose darf die
+// Figur nicht schrumpfen) und so verschoben, dass die FÜSSE knapp über dem
+// unteren Bildrand sitzen -> im Spiel steht die Figur exakt auf ihrem Schatten.
+const FOOT=0.04;                        // Restluft unter den Füßen (Anteil)
+// ELEV=90 blickt senkrecht von oben – für Dinge, die flach im Wasser oder auf
+// dem Boden liegen (Fischschwarm), statt der schrägen Figurenperspektive
+const ELEV=+(params.get('elev')||38);
+function applyFrame(box){
+  const h=(box.max.y-box.min.y);
+  const w=Math.max(box.max.x-box.min.x, box.max.z-box.min.z);
+  const top=ELEV>75;
+  const span= top ? Math.max(box.max.x-box.min.x, box.max.z-box.min.z)*1.12
+                  : Math.max(h*1.30, w*1.05)*1.06;
+  frame={ h:span, cy: top ? (box.min.y+box.max.y)/2 : box.min.y+span*(0.5-FOOT) };
+  cam.left=-span/2; cam.right=span/2;
+  cam.top=span/2; cam.bottom=-span/2;
+  // Kamera: ~38° von schräg oben (Spielperspektive), 90° = Draufsicht
+  const el=ELEV*Math.PI/180, d=6;
+  cam.position.set(0, frame.cy+Math.sin(el)*d, Math.cos(el)*d);
+  cam.lookAt(0, frame.cy, 0);
+  cam.up.set(0, top?0:1, top?-1:0);
+  cam.updateProjectionMatrix();
+}
+// Rahmen anhand EINES Clips (i.d.R. Gehen) neu vermessen – für alle Sets gleich
+window.setFrame=(clipName)=>{
+  const clip=clips.find(c=>c.name===clipName)||clips[0];
+  const box=new THREE.Box3();
+  mixer.stopAllAction();
+  if(clip){
+    const act=mixer.clipAction(clip); act.play();
+    for(let k=0;k<10;k++){
+      mixer.setTime(clip.duration*k/10);
+      recenter();
+      box.union(skinnedBox());
+    }
+    act.stop();
+  } else { recenter(); box.union(skinnedBox()); }
+  applyFrame(box);
+  return { h:frame.h, cy:frame.cy };
+};
+window.footFrac=()=>FOOT;
+
+// Root-Motion ausgleichen: geskinnte Bounding-Box (echte Vertexlagen unter
+// Bone-Verformung) berechnen und die Figur horizontal auf den Ursprung ziehen
+const _tmpBox=new THREE.Box3();
+function skinnedBox(){
+  const bb=new THREE.Box3(); bb.makeEmpty();
+  root.updateMatrixWorld(true);
+  root.traverse(o=>{
+    if(o.isSkinnedMesh){
+      o.computeBoundingBox();                       // berücksichtigt Knochen
+      _tmpBox.copy(o.boundingBox).applyMatrix4(o.matrixWorld);
+      bb.union(_tmpBox);
+    } else if(o.isMesh){
+      _tmpBox.setFromObject(o); bb.union(_tmpBox);
+    }
+  });
+  return bb;
+}
+function recenter(){
+  root.position.set(0,0,0);
+  const bb=skinnedBox();
+  root.position.x=-(bb.min.x+bb.max.x)/2;
+  root.position.z=-(bb.min.z+bb.max.z)/2;
+  root.updateMatrixWorld(true);
+}
+
+// Mittelpunkt der geskinnten Box an einem Zeitpunkt (für Drift-Ausgleich);
+// extra = zusätzliche Knochendrehungen wie bei bake() (Hand-Posen)
+window.center=(clipName, t, yawDeg, extra=null)=>{
+  const clip=clips.find(c=>c.name===clipName)||clips[0];
+  mixer.stopAllAction();
+  if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
+  if(extra) window.poseAdd(extra);
+  koerperAnwenden();
+  root.rotation.y=yawDeg*Math.PI/180;
+  root.position.set(0,0,0);
+  const bb=skinnedBox();
+  return { x:(bb.min.x+bb.max.x)/2, z:(bb.min.z+bb.max.z)/2 };
+};
+
+// einen Frame backen: Clip + Zeitpunkt + Blickrichtung; optional expliziter
+// Versatz (ox/oz) statt Auto-Zentrierung -> ruckelfreie Zyklen
+window.bake=(clipName, t, yawDeg, outH=300, ox=null, oz=null, extra=null)=>{
+  const clip=clips.find(c=>c.name===clipName)||clips[0];
+  mixer.stopAllAction();
+  if(clip){ const a=mixer.clipAction(clip); a.play(); mixer.setTime(Math.min(t, clip.duration-0.001)); }
+  if(extra) window.poseAdd(extra);
+  koerperAnwenden();
+  root.rotation.y=yawDeg*Math.PI/180;
+  if(ox!=null){
+    root.position.set(-ox,0,-(oz||0));
+    root.updateMatrixWorld(true);
+  } else {
+    recenter();
+  }
+  renderer.render(scene,cam);
+  // auf Zielhöhe verkleinern (fester Rahmen -> stabile Ankerpunkte)
+  const cv=document.createElement('canvas');
+  cv.width=outH; cv.height=outH;
+  const g2=cv.getContext('2d');
+  g2.imageSmoothingQuality='high';
+  g2.drawImage(renderer.domElement,0,0,outH,outH);
+  // ASTERIX-FARBPASS (T14): die Tripo-Texturen sind gedeckt-trist; erst
+  // die Saettigungsanhebung am GEBACKENEN Bild bringt die kraeftigen,
+  // klaren Comic-Farben (kalibriert am Vergleichsstreifen: x1,45 trifft,
+  // x1,7 kippt ins Neon). Identische Faktoren nutzt tools/farbpass.mjs
+  // fuer die Bestandsblaetter - NIE beides auf dasselbe Blatt anwenden.
+  // KONTRAST-STUFE (T18, "alles zu braun"): Luma-Spreizung um den
+  // Mittelton NACH der Saettigung - kalibriert am Vergleichsstreifen
+  // (kontrastkalib.mjs: 1,1 kaum sichtbar, 1,35 saeuft in den Schatten
+  // ab / Weissbluehen auf Helm und Haut, 1,2 trennt Falten und Riemen
+  // sauber). tools/kontrastpass.mjs traegt DENSELBEN Faktor auf
+  // Bestandsblaetter nach - nie beides auf dasselbe Blatt.
+  // SCHUTZ Haarmaske: render.haarMaske nimmt Kopfzonen-Pixel mit
+  // HSL-L unter 0,30 als Haar - braune Kopfbedeckungen (Strohhut des
+  // Bauern) liegen knapp darueber (L 0,30-0,49). Die Spreizung wuerde
+  // L 0,30-0,33 UNTER die Schwelle druecken (schwarzer "Strohhut",
+  // s. T5-Vorfall). Darum klemmt die Kurve im Braunfenster (Ton 15-48,
+  // gesaettigt) auf minimal 0,305, wenn der Pixel VOR der Spreizung
+  // ueber der Schwelle lag.
+  const px=g2.getImageData(0,0,outH,outH), d=px.data;
+  for(let i=0;i<d.length;i+=4){
+    if(d[i+3]===0) continue;
+    let r=d[i]/255, g4=d[i+1]/255, b=d[i+2]/255;
+    const mx=Math.max(r,g4,b), mn=Math.min(r,g4,b);
+    let h=0, s=0, l=(mx+mn)/2;
+    if(mx!==mn){ const df=mx-mn; s=l>0.5? df/(2-mx-mn):df/(mx+mn);
+      h= mx===r? (g4-b)/df+(g4<b?6:0) : mx===g4? (b-r)/df+2 : (r-g4)/df+4; h/=6; }
+    s=Math.min(1, s*1.45); l=Math.min(1, l*1.05);
+    const lVor=l;
+    l=Math.min(1, Math.max(0, 0.5+(l-0.5)*KONTRAST));
+    if(lVor>=0.30 && l<0.305){
+      const grad=h*360;
+      if(grad>=15 && grad<=48 && s>=0.15) l=0.305;
+    }
+    const f=(p,q,t2)=>{ if(t2<0)t2+=1; if(t2>1)t2-=1;
+      if(t2<1/6) return p+(q-p)*6*t2; if(t2<1/2) return q;
+      if(t2<2/3) return p+(q-p)*(2/3-t2)*6; return p; };
+    if(s===0){ d[i]=d[i+1]=d[i+2]=l*255; }
+    else { const q=l<0.5? l*(1+s): l+s-l*s, p=2*l-q;
+      d[i]=f(p,q,h+1/3)*255; d[i+1]=f(p,q,h)*255; d[i+2]=f(p,q,h-1/3)*255; }
+  }
+  g2.putImageData(px,0,0);
+  const g3=document.getElementById('out').getContext('2d');
+  g3.clearRect(0,0,SIZE,SIZE);
+  g3.drawImage(renderer.domElement,0,0);
+  return cv.toDataURL('image/png');
+};
+</script>
+</body>
+</html>
