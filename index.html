@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#16202e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Neuland – Aufbau-Strategie</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-512.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+<script>
+// NOTAUSSTIEG UND WEISSE-SEITE-BREMSE.
+//
+// Dieses Skript steht ABSICHTLICH hier und nicht in js/main.js: es muss auch
+// dann laufen, wenn das Modul gar nicht erst geladen werden kann. Genau das
+// war der Fehlerfall - bleibt das Modul stecken, sieht der Spieler eine leere
+// Seite, und auf dem Handy gibt es keine Entwicklerwerkzeuge, mit denen er
+// den Serviceworker loswerden koennte. Die Seite war damit eine Sackgasse.
+//
+//   ...?neu   meldet den Serviceworker ab, raeumt alle Zwischenspeicher und
+//             laedt frisch vom Server. Gespeicherte Spielstaende bleiben.
+// SELBSTAUSKUNFT: .../?info zeigt, was dieser Browser WIRKLICH geladen hat.
+// Ohne sie laesst sich aus der Ferne nicht unterscheiden, ob jemand eine alte
+// Fassung sieht, weil der Worker nicht gewechselt hat, weil Grafiken noch
+// nachladen, oder weil ein zweites Fenster den alten Stand festhaelt.
+(function(){
+  if(location.search.indexOf('info')<0) return;
+  // Eigene Ebene ueber allem: in #app wuerde das startende Spiel die Auskunft
+  // wieder ueberschreiben, bevor die Abfragen durch sind (nachgemessen).
+  var out=function(t){
+    var d=document.getElementById('neuland-info');
+    if(!d){ d=document.createElement('div'); d.id='neuland-info';
+      d.setAttribute('style','position:fixed;inset:0;z-index:99999;background:#101722;'
+        +'overflow:auto;padding:20px;color:#e8eef7;font:13px/1.6 ui-monospace,monospace;'
+        +'white-space:pre-wrap');
+      document.body.appendChild(d); }
+    d.textContent=t;
+  };
+  out('Lese Zustand ...');
+  var z=[];
+  Promise.resolve().then(function(){
+    z.push('Adresse      : '+location.href);
+    z.push('Anzeigemodus : '+(window.matchMedia('(display-mode: standalone)').matches
+      ? 'als App installiert (eigenes Fenster)' : 'normaler Browser-Tab'));
+    return window.caches ? caches.keys() : [];
+  }).then(function(ks){
+    z.push('Speicher     : '+(ks.length? ks.join(', ') : 'keine'));
+    if(!ks.length) return [];
+    return Promise.all(ks.map(function(k){
+      return caches.open(k).then(function(c){ return c.keys(); })
+        .then(function(rs){
+          var bilder=rs.filter(function(r){ return r.url.indexOf('/assets/')>=0; }).length;
+          return k+': '+rs.length+' Eintraege, davon '+bilder+' Grafiken';
+        });
+    }));
+  }).then(function(det){
+    det.forEach(function(d){ z.push('  '+d); });
+    return 'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations() : [];
+  }).then(function(rs){
+    z.push('Worker       : '+rs.length+' registriert, Regie: '
+      +(navigator.serviceWorker && navigator.serviceWorker.controller ? 'ja' : 'NEIN'));
+    return fetch('./sw.js?x='+(''+Math.random()).slice(2), {cache:'reload'}).then(function(r){
+      return r.text(); }).catch(function(){ return ''; });
+  }).then(function(t){
+    var m=t.match(/const BUILD = '([^']+)'/);
+    z.push('Server hat   : '+(m? m[1] : 'nicht lesbar'));
+    z.push('Hier laeuft  : '+(window.__build||'(noch nicht gemeldet)'));
+    z.push('');
+    z.push('Stimmen "Server hat" und "Hier laeuft" nicht ueberein, hilft ?neu.');
+    out(z.join('\n'));
+    // Die laufende Fassung meldet der Worker erst kurz nach dem Start -
+    // deshalb nach zwei Sekunden noch einmal nachtragen.
+    setTimeout(function(){
+      z[z.length-3]='Hier laeuft  : '+(window.__build||'(keine Antwort vom Worker)');
+      out(z.join('\n'));
+    }, 2500);
+  });
+})();
+(function(){
+  if(location.search.indexOf('neu')<0) return;
+  document.getElementById('app').textContent='Setze zurueck ...';
+  var fertig=function(){ location.replace(location.pathname); };
+  var jobs=[];
+  try{
+    if('serviceWorker' in navigator)
+      jobs.push(navigator.serviceWorker.getRegistrations()
+        .then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); }));
+    if(window.caches)
+      jobs.push(caches.keys().then(function(ks){
+        return Promise.all(ks.map(function(k){ return caches.delete(k); })); }));
+  }catch(e){}
+  Promise.all(jobs).then(fertig, fertig);
+  setTimeout(fertig, 4000);   // haengt etwas, wird trotzdem neu geladen
+})();
+// Laedt das Spiel nicht, bleibt der Bildschirm sonst leer und schwarz. Lieber
+// eine Zeile, die sagt was los ist - und der Weg zurueck in einem Antippen.
+//
+// Der Waechter ist ein ZEITGEBER und haengt nicht an Fehler-Ereignissen: ein
+// Modul, das gar nicht erst geladen werden kann, meldet sich bei window nicht
+// (nachgemessen - mit entferntem js/ui.js blieb die Seite still und leer).
+// So faengt er jede Ursache ab, auch eine, die wir noch nicht kennen.
+(function(){
+  var zeigen=function(){
+    var app=document.getElementById('app');
+    if(!app || window.__ui || app.querySelector('.startfehler')) return;
+    app.innerHTML='<div class="startfehler" style="padding:24px;color:#e8eef7;'
+      +'font:16px/1.5 system-ui,-apple-system,sans-serif">'
+      +'<p style="font-size:20px;margin:0 0 12px">Neuland konnte nicht starten.</p>'
+      +'<p style="margin:0 0 18px;opacity:.8">Meist hilft es, den Zwischenspeicher '
+      +'zurueckzusetzen. Gespeicherte Spielstaende bleiben erhalten.</p>'
+      +'<a href="?neu" style="display:inline-block;padding:12px 20px;background:#3b6ea5;'
+      +'color:#fff;border-radius:8px;text-decoration:none">Zuruecksetzen und neu laden</a></div>';
+  };
+  // true = auch Ressourcen-Fehler, die nicht bis window hochblubbern
+  window.addEventListener('error', function(){ setTimeout(zeigen, 1200); }, true);
+  // Der Waechter zaehlt erst ab "load", also wenn der Browser mit dem Laden
+  // durch ist - nicht ab Skriptstart. Sonst gaebe es auf einer langsamen
+  // Verbindung Fehlalarm, waehrend render.js (rund 800 KB) noch unterwegs
+  // ist. Nach "load" sind fuenf Sekunden ohne laufendes Spiel eindeutig.
+  window.addEventListener('load', function(){ setTimeout(zeigen, 5000); });
+  // Und falls "load" nie kommt, weil etwas ganz haengt: eine Minute.
+  setTimeout(zeigen, 60000);
+})();
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

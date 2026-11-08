@@ -1,0 +1,37 @@
+{
+ "hunter": [
+  "smoke"
+ ],
+ "farm": [
+  "smoke"
+ ],
+ "bakery": [
+  "smoke",
+  "glow"
+ ],
+ "butcher": [
+  "smoke"
+ ],
+ "brewery": [
+  "smoke",
+  "glow"
+ ],
+ "smelter": [
+  "smoke",
+  "glow",
+  "sparks"
+ ],
+ "mint": [
+  "smoke"
+ ],
+ "armory": [
+  "smoke",
+  "glow",
+  "sparks"
+ ],
+ "toolsmith": [
+  "smoke",
+  "glow",
+  "sparks"
+ ]
+}
