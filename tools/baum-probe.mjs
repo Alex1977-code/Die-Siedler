@@ -10,8 +10,7 @@
 //   node tools/baum-probe.mjs [port]
 import { chromium } from 'playwright';
 const PORT=+(process.argv[2]||8901);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
+const br=await chromium.launch({args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
 const page=await br.newPage({viewport:{width:900,height:640}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 const ZIEL='/tmp/claude-0/-home-user-Die-Siedler/fbbd5f27-b354-51b2-90dd-1b50b428c3b9/scratchpad/';

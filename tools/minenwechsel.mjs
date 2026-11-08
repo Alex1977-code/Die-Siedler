@@ -9,8 +9,7 @@
 //   node tools/minenwechsel.mjs
 import { chromium } from 'playwright';
 import { starteSpiel } from './messhelfer.mjs';
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
+const br=await chromium.launch({args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
 const page=await br.newPage({viewport:{width:700,height:560}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 // Saat waehlbar: Gold und Granit liegen nicht auf jeder Karte in

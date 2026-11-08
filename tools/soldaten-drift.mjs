@@ -12,7 +12,7 @@ import { starteSpiel } from './messhelfer.mjs';
 const TICKS=+(process.argv[2]||9000);
 const SAATEN=process.argv.slice(3).length? process.argv.slice(3)
   : ['501','502','503','504','505','506','507','508','509','510','511','512'];
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 const alle=[];

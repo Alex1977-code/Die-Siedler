@@ -2,7 +2,7 @@
 // wie viel Schaerfe kostet S=1 wirklich? (Kantenenergie + Bilder)
 import { chromium } from 'playwright';
 const AUS='/tmp/claude-0/-home-user-Die-Siedler/fbbd5f27-b354-51b2-90dd-1b50b428c3b9/scratchpad';
-const browser=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const browser=await chromium.launch({});
 const ctx=await browser.newContext({viewport:{width:419,height:811},hasTouch:true,deviceScaleFactor:2});
 const page=await ctx.newPage();
 await page.goto('http://localhost:8901/',{waitUntil:'networkidle'});

@@ -20,7 +20,7 @@ const WAS=process.argv[2]||'voll';
 const MIN=+(process.argv[3]||30);
 const SAATEN=process.argv.slice(4).length? process.argv.slice(4)
   : Array.from({length:12},(_,k)=>String(801+k));
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 const alle=[];

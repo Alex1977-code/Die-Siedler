@@ -12,7 +12,7 @@ const KAPPE=+(process.argv[2]||0);
 const TICKS=+(process.argv[3]||9000);
 const SAATEN=process.argv.slice(4).length? process.argv.slice(4)
   : ['11','23','7','41','58','3','97','64','12','80','5','33'];
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 const erg=[];

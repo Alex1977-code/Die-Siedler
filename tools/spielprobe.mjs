@@ -26,8 +26,7 @@ const SAATEN = process.argv.slice(2).map(Number).filter(Boolean);
 const SEEDS = SAATEN.length ? SAATEN : [11, 23, 4242];
 const MINUTEN = 60, TAKTE_JE_MIN = 600, PROBE = 5;
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
+const browser = await chromium.launch({ executablePath: process.env.CHROME||undefined,
   args:['--use-gl=swiftshader','--enable-unsafe-swiftshader'] });
 
 const alle=[];

@@ -6,7 +6,7 @@
 // Geprueft wird auch das Sicherheitsnetz: wer den Gegner ganz ausloescht,
 // statt zu erobern, muss die Mission trotzdem gewinnen koennen.
 import { chromium } from 'playwright';
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 

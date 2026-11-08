@@ -26,7 +26,7 @@ const QUELLE='assets/tree_conifer.png';
 const ZIEL_W=150, ZIEL_H=300, KRONE_ANTEIL=0.80, STAMM_BREITE=34, ZIEL_RminusB=35;
 
 const src='data:image/png;base64,'+readFileSync(QUELLE).toString('base64');
-const browser=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const browser=await chromium.launch({});
 const page=await (await browser.newContext()).newPage();
 await page.goto('about:blank');
 const erg=await page.evaluate(async ({src,ZIEL_W,ZIEL_H,KRONE_ANTEIL,STAMM_BREITE,ZIEL_RminusB})=>{

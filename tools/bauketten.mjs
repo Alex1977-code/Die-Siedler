@@ -27,7 +27,7 @@
 //   node tools/bauketten.mjs [port]
 import { chromium } from 'playwright';
 import { starteSpiel } from './messhelfer.mjs';
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:900,height:640}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 // Landschaft waehlbar: die Bergwerke brauchen Erz in Reichweite, das gibt

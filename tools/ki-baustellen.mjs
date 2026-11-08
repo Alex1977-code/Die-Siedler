@@ -7,7 +7,7 @@
 // Lebenslauf begonnener MILITAERBAUTEN der KI: begonnen, sofort abgerissen
 // (Anschluss fehlgeschlagen), nach 3000 Takten aufgegeben, fertig geworden.
 import { chromium } from 'playwright';
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const out=[];
 for(const saat of ['23','11','41','58']){

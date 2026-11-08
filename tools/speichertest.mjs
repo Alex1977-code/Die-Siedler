@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 import { starteSpiel } from '/home/user/Die-Siedler/tools/messhelfer.mjs';
 const SAAT=+(process.argv[2]||11);
 const MIN=+(process.argv[3]||20);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:900,height:600}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await starteSpiel(page,{saat:SAAT, groesse:'M', gegner:'1'});

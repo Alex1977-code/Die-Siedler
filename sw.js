@@ -6,7 +6,7 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v336';
+const BUILD = 'v337';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
@@ -81,7 +81,19 @@ self.addEventListener('fetch', (e)=>{
           caches.open(CACHE).then(c=>c.put(e.request, copy));
         }
         return res;
-      }).catch(()=> caches.match(e.request).then(hit=> hit || caches.match('./index.html')))
+      }).catch(()=> caches.match(e.request).then(hit=>{
+        if(hit) return hit;
+        // NIEMALS index.html als Antwort auf eine .js- oder .css-Anfrage.
+        // Genau das tat der Rueckfall hier bisher: faellt das Netz aus und
+        // liegt die Datei nicht im Zwischenspeicher, bekam der Browser ein
+        // HTML-Dokument, wo er ein Modul erwartet - das ergibt einen
+        // Syntaxfehler ("Unexpected token '<'") statt einer ehrlichen
+        // Fehlermeldung, und der Spieler sieht eine leere Seite ohne Grund.
+        // Nur eine Seitennavigation darf index.html bekommen; alles andere
+        // meldet sauber einen Netzfehler, den die Seite behandeln kann.
+        if(e.request.mode==='navigate') return caches.match('./index.html');
+        return Response.error();
+      }))
     );
     return;
   }
@@ -93,6 +105,11 @@ self.addEventListener('fetch', (e)=>{
         caches.open(CACHE).then(c=>c.put(e.request, copy));
       }
       return res;
-    }).catch(()=>caches.match('./index.html')))
+    }).catch(()=>
+      // Auch hier kein index.html als Ersatz fuer ein fehlendes Bild oder
+      // einen fehlenden Ton: das Spiel hat fuer beides prozedurale
+      // Rueckfaelle und kommt mit einem Fehler besser zurecht als mit
+      // einem HTML-Dokument, das es fuer eine Grafik haelt.
+      e.request.mode==='navigate' ? caches.match('./index.html') : Response.error()))
   );
 });

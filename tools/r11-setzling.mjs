@@ -12,7 +12,7 @@
 import { chromium } from 'playwright';
 const GROESSE=process.argv[2]||'M';
 const N=+(process.argv[3]||300);
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 await p.goto('http://127.0.0.1:8901/',{waitUntil:'load'});

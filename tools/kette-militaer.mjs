@@ -16,7 +16,7 @@ import { chromium } from 'playwright';
 import { starteSpiel } from './messhelfer.mjs';
 const MIN=+(process.argv[2]||60);
 const SAATEN=(process.argv[3]||'42,7,99,11').split(',').map(Number);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const alle=[];
 for(const saat of SAATEN){
   const page=await br.newPage({viewport:{width:900,height:600}});

@@ -11,8 +11,7 @@ import { starteSpiel } from './messhelfer.mjs';
 const TYPEN=process.argv.slice(2);
 const Z='/tmp/claude-0/-home-user-Die-Siedler/fbbd5f27-b354-51b2-90dd-1b50b428c3b9/scratchpad/bk/';
 fs.mkdirSync(Z,{recursive:true});
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
+const br=await chromium.launch({args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
 const page=await br.newPage({viewport:{width:640,height:520}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await starteSpiel(page,{saat:11, groesse:'M', gegner:'0'});

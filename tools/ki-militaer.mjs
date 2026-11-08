@@ -7,7 +7,7 @@ import { chromium } from 'playwright';
 const MIN=+(process.argv[2]||35);
 const SAATEN=(process.argv[3]||'42,7,99,11,2024,777').split(',').map(Number);
 const PORT=+(process.argv[4]||8901);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const summe={land:0, bauten:0, soldaten:0, posten:0, siedler:0, eisen:0, kohle:0, waffen:0};
 for(const saat of SAATEN){
   const page=await br.newPage({viewport:{width:900,height:600}});

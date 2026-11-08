@@ -9,7 +9,7 @@
 //   node tools/fischprobe2.mjs [port]
 import { chromium } from 'playwright';
 import { starteSpiel } from './messhelfer.mjs';
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:900,height:640}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await starteSpiel(page,{saat:11, groesse:'M', gegner:'0'});

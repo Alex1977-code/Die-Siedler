@@ -10,7 +10,7 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 import { POSEN, atkPose } from './posen.js';
-const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME=process.env.CHROME||undefined;
 const BERUFE=['leveler','builder','woodcutter','forester','fisher','farm','geo','miner','quarry','hunter'];
 const br=await chromium.launch({executablePath:CHROME,args:['--enable-unsafe-swiftshader','--use-angle=swiftshader']});
 const ziel='/tmp/claude-0/-home-user-Die-Siedler/fbbd5f27-b354-51b2-90dd-1b50b428c3b9/scratchpad/ws/';

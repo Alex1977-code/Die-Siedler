@@ -26,7 +26,7 @@ for(const a of args.slice(1)){
 const roh=readFileSync(datei);
 const b64='data:image/png;base64,'+roh.toString('base64');
 
-const browser=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const browser=await chromium.launch({});
 const page=await (await browser.newContext()).newPage();
 await page.goto('about:blank');
 const erg=await page.evaluate(async ({src,P})=>{

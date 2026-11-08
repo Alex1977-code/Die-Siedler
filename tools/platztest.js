@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await b.newPage({viewport:{width:760,height:660},hasTouch:true});
 const errors=[]; p.on('pageerror',e=>errors.push(e.message));
 await p.goto('http://localhost:8901/',{waitUntil:'networkidle'});

@@ -6,7 +6,7 @@
 //   5. die Einstellung ueberlebt einen Neustart der Seite
 import { chromium } from 'playwright';
 import { starteSpiel, SERVER } from './messhelfer.mjs';
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:390,height:844}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await starteSpiel(page,{saat:11, groesse:'M', gegner:'1'});

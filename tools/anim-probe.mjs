@@ -9,8 +9,7 @@
 //   node tools/anim-probe.mjs [port]
 import { chromium } from 'playwright';
 const PORT=+(process.argv[2]||8901);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
-  args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
+const br=await chromium.launch({args:['--use-gl=swiftshader','--enable-unsafe-swiftshader']});
 const page=await br.newPage({viewport:{width:900,height:640}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/`, {waitUntil:'load'});

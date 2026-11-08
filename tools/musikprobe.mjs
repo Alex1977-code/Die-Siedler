@@ -24,8 +24,7 @@
 import { chromium } from 'playwright';
 const TAKTE = +(process.argv[2]||600);
 
-const browser = await chromium.launch({ executablePath: process.env.CHROME
-  || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args:['--use-gl=swiftshader'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROME||undefined, args:['--use-gl=swiftshader'] });
 const page = await browser.newPage();
 await page.goto((process.env.BAKE_URL||'http://127.0.0.1:8901')+'/index.html', {waitUntil:'load'});
 const r = await page.evaluate(async (TAKTE)=>{

@@ -15,7 +15,7 @@
 import { chromium } from 'playwright';
 import fs from 'fs';
 const modell=process.argv[2], N=+(process.argv[3]||14);
-const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME=process.env.CHROME||undefined;
 const br=await chromium.launch({executablePath:CHROME,args:['--enable-unsafe-swiftshader','--use-angle=swiftshader']});
 const page=await br.newPage({viewport:{width:500,height:520}});
 page.on('pageerror',e=>console.log('PAGEERR',e.message));

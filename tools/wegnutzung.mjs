@@ -15,7 +15,7 @@ import { starteSpiel } from './messhelfer.mjs';
 const MIN=+(process.argv[2]||30);
 const SAATEN=process.argv.slice(3).length? process.argv.slice(3)
   : ['701','702','703','704','705','706'];
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const fehler=[]; p.on('pageerror',e=>fehler.push(e.message));
 const alle=[];

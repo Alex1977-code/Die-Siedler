@@ -16,7 +16,7 @@
 // Warum hat die KI keinen Bauplatz? Alle eigenen Knoten nach Ablehnungsgrund
 // aufschluesseln - und "Untergrund ungeeignet" nach der WAHREN Ursache.
 import { chromium } from 'playwright';
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const out=[];
 for(const saat of ['41','58','23']){

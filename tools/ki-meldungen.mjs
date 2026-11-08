@@ -8,7 +8,7 @@
 // R7: Was PASSIERT in einem langen Spiel ueberhaupt? Alle Meldungen des
 // Spielers ueber 45 Spielminuten nach Art zaehlen.
 import { chromium } from 'playwright';
-const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const b=await chromium.launch({});
 const p=await (await b.newContext({viewport:{width:900,height:700}})).newPage();
 const alle={};
 for(const saat of ['11','23','41']){

@@ -26,7 +26,7 @@ import { POSEN, atkPose, keyPose, FLUCHT } from './posen.js';
 const HIER=path.dirname(fileURLToPath(import.meta.url));
 const ASSETS=path.join(HIER,'..','assets');
 const URL_BASIS=process.env.BAKE_URL||'http://localhost:8901';
-const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME=process.env.CHROME||undefined;
 const CELL=88;
 // 'trag' = Geh-Zyklus mit konstanter Zusatzpose (Traeger haelt die Last
 // vor der Brust, die Beine laufen aus dem Clip weiter)

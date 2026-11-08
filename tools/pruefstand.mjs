@@ -22,7 +22,7 @@ const zahl=(name,vor)=>{ const i=args.indexOf('--'+name); return i>=0? +args[i+1
 const MIN=zahl('minuten',10), SAAT=zahl('saat',11);
 const NUR=args.filter(a=>!a.startsWith('--') && !/^\d+$/.test(a));
 
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:900,height:600}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await starteSpiel(page,{saat:SAAT, groesse:'M', gegner:'0'});

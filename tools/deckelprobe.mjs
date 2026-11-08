@@ -8,7 +8,7 @@
 //   node deckel.mjs [port]
 import { chromium } from 'playwright';
 const PORT=+(process.argv[2]||8901);
-const br=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const br=await chromium.launch({});
 const page=await br.newPage({viewport:{width:900,height:600}});
 const fehler=[]; page.on('pageerror',e=>fehler.push(e.message));
 await page.goto(`http://127.0.0.1:${PORT}/`, {waitUntil:'load'});

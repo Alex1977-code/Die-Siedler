@@ -19,7 +19,7 @@ import fs from 'fs';
 import { POSEN, atkPose } from './posen.js';
 const modell=process.argv[2];
 const schwelleArg=process.argv.includes('--schwelle')? +process.argv[process.argv.indexOf('--schwelle')+1] : null;
-const CHROME=process.env.CHROME||'/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+const CHROME=process.env.CHROME||undefined;
 const br=await chromium.launch({executablePath:CHROME,args:['--enable-unsafe-swiftshader','--use-angle=swiftshader']});
 const page=await br.newPage({viewport:{width:500,height:520}});
 page.on('pageerror',e=>console.log('PAGEERR',e.message));

@@ -15,6 +15,63 @@
 </head>
 <body>
 <div id="app"></div>
+<script>
+// NOTAUSSTIEG UND WEISSE-SEITE-BREMSE.
+//
+// Dieses Skript steht ABSICHTLICH hier und nicht in js/main.js: es muss auch
+// dann laufen, wenn das Modul gar nicht erst geladen werden kann. Genau das
+// war der Fehlerfall - bleibt das Modul stecken, sieht der Spieler eine leere
+// Seite, und auf dem Handy gibt es keine Entwicklerwerkzeuge, mit denen er
+// den Serviceworker loswerden koennte. Die Seite war damit eine Sackgasse.
+//
+//   ...?neu   meldet den Serviceworker ab, raeumt alle Zwischenspeicher und
+//             laedt frisch vom Server. Gespeicherte Spielstaende bleiben.
+(function(){
+  if(location.search.indexOf('neu')<0) return;
+  document.getElementById('app').textContent='Setze zurueck ...';
+  var fertig=function(){ location.replace(location.pathname); };
+  var jobs=[];
+  try{
+    if('serviceWorker' in navigator)
+      jobs.push(navigator.serviceWorker.getRegistrations()
+        .then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); }));
+    if(window.caches)
+      jobs.push(caches.keys().then(function(ks){
+        return Promise.all(ks.map(function(k){ return caches.delete(k); })); }));
+  }catch(e){}
+  Promise.all(jobs).then(fertig, fertig);
+  setTimeout(fertig, 4000);   // haengt etwas, wird trotzdem neu geladen
+})();
+// Laedt das Spiel nicht, bleibt der Bildschirm sonst leer und schwarz. Lieber
+// eine Zeile, die sagt was los ist - und der Weg zurueck in einem Antippen.
+//
+// Der Waechter ist ein ZEITGEBER und haengt nicht an Fehler-Ereignissen: ein
+// Modul, das gar nicht erst geladen werden kann, meldet sich bei window nicht
+// (nachgemessen - mit entferntem js/ui.js blieb die Seite still und leer).
+// So faengt er jede Ursache ab, auch eine, die wir noch nicht kennen.
+(function(){
+  var zeigen=function(){
+    var app=document.getElementById('app');
+    if(!app || window.__ui || app.querySelector('.startfehler')) return;
+    app.innerHTML='<div class="startfehler" style="padding:24px;color:#e8eef7;'
+      +'font:16px/1.5 system-ui,-apple-system,sans-serif">'
+      +'<p style="font-size:20px;margin:0 0 12px">Neuland konnte nicht starten.</p>'
+      +'<p style="margin:0 0 18px;opacity:.8">Meist hilft es, den Zwischenspeicher '
+      +'zurueckzusetzen. Gespeicherte Spielstaende bleiben erhalten.</p>'
+      +'<a href="?neu" style="display:inline-block;padding:12px 20px;background:#3b6ea5;'
+      +'color:#fff;border-radius:8px;text-decoration:none">Zuruecksetzen und neu laden</a></div>';
+  };
+  // true = auch Ressourcen-Fehler, die nicht bis window hochblubbern
+  window.addEventListener('error', function(){ setTimeout(zeigen, 1200); }, true);
+  // Der Waechter zaehlt erst ab "load", also wenn der Browser mit dem Laden
+  // durch ist - nicht ab Skriptstart. Sonst gaebe es auf einer langsamen
+  // Verbindung Fehlalarm, waehrend render.js (rund 800 KB) noch unterwegs
+  // ist. Nach "load" sind fuenf Sekunden ohne laufendes Spiel eindeutig.
+  window.addEventListener('load', function(){ setTimeout(zeigen, 5000); });
+  // Und falls "load" nie kommt, weil etwas ganz haengt: eine Minute.
+  setTimeout(zeigen, 60000);
+})();
+</script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

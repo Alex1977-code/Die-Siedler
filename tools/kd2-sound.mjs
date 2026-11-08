@@ -5,7 +5,6 @@
 //    laufen ohne Fehler; Ambience-Gains reagieren auf die Umgebung
 import { chromium } from 'playwright';
 const browser=await chromium.launch({
-  executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome',
   args:['--autoplay-policy=no-user-gesture-required'],
 });
 const page=await browser.newPage({viewport:{width:760,height:660},hasTouch:true});

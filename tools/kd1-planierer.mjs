@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 import { starteSpiel } from './messhelfer.mjs';
 
 const SAAT=Number(process.argv[2]||3001), MIN=Number(process.argv[3]||35);
-const browser=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const browser=await chromium.launch({});
 const page=await browser.newPage({viewport:{width:760,height:660},hasTouch:true});
 const errors=[]; page.on('pageerror',e=>errors.push(e.message));
 const t0=await starteSpiel(page, {saat:SAAT, groesse:'M', gegner:'1'});

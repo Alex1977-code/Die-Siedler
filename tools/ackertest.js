@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-const browser=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
+const browser=await chromium.launch({});
 const page=await browser.newPage({viewport:{width:760,height:660},hasTouch:true});
 const errors=[]; page.on('pageerror',e=>errors.push(e.message));
 page.on('console',m=>{ if(m.type()==='error') errors.push('console: '+m.text()); });
