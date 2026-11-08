@@ -19,6 +19,20 @@ window.addEventListener('DOMContentLoaded', ()=>{
         if(el) el.textContent='Neue Fassung bereit – beim nächsten Start aktiv';
         return;
       }
+      // HOECHSTENS EIN SELBSTTAETIGES NEULADEN JE SITZUNG.
+      //
+      // Hier stand ein ungebremstes location.reload(). Meldet der Browser
+      // den Worker wiederholt als neu - etwa weil er wegen der Cache-Header
+      // von GitHub Pages mal die alte, mal die neue sw.js sieht -, laedt die
+      // Seite in einer Schleife neu, und jedes Mal faengt der Worker wieder
+      // an, Grafiken nachzuladen. Ein Dauerlauf, der den Rechner heiss
+      // werden laesst. Der Merker liegt im sessionStorage: er gilt fuer
+      // dieses Fenster und verfaellt beim Schliessen, bremst also nur die
+      // Schleife und nicht das Update von morgen.
+      try{
+        if(sessionStorage.getItem('neuland.neugeladen')) return;
+        sessionStorage.setItem('neuland.neugeladen','1');
+      }catch(_){ /* privater Modus: dann eben ohne Bremse */ }
       location.reload();
     };
     navigator.serviceWorker.register('./sw.js').then(reg=>{

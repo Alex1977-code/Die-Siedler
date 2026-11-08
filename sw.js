@@ -6,7 +6,7 @@
 // Server längst die neue auslieferte. Beim Installieren wird zusätzlich am
 // HTTP-Cache vorbei geladen (cache:'reload'), sonst holt sich der neue
 // Serviceworker über die noch gültigen Cache-Header wieder die alten Bytes.
-const BUILD = 'v337';
+const BUILD = 'v338';
 const CACHE = 'neuland-' + BUILD;
 const FILES = [
   './', './index.html', './style.css', './manifest.webmanifest',
@@ -48,7 +48,37 @@ self.addEventListener('activate', (e)=>{
       if(r.ok){
         const list=await r.clone().json();
         await c.put('./assets/manifest.json', r);
-        await Promise.allSettled(list.map(f=>c.add('./assets/'+f)));
+        // IN STAPELN UND AM BROWSER-CACHE VORBEI.
+        //
+        // Zwei Fehler steckten in der einen Zeile, die hier vorher stand
+        // (Promise.allSettled(list.map(f=>c.add('./assets/'+f)))):
+        //
+        // ERSTENS wurden ALLE Grafiken gleichzeitig angefordert - das sind
+        // 610 Dateien mit zusammen 84 MB. Ein Browser macht daraus einen
+        // Anfragensturm; auf dem Rechner laeuft der Luefter hoch, und das
+        // bei jedem Fassungswechsel aufs Neue (Nutzerbefund: "der rechner
+        // luefter laeuft hochtourig"). Jetzt gehen sechs auf einmal raus,
+        // der Rest wartet. Das dauert laenger, stoert aber niemanden: zu
+        // diesem Zeitpunkt laeuft das Spiel laengst, und was noch nicht im
+        // Zwischenspeicher liegt, holt der fetch-Zweig vom Netz.
+        //
+        // ZWEITENS geht cache.add() durch den HTTP-Zwischenspeicher des
+        // Browsers - und holt damit genau die alten Bytes, vor denen der
+        // Kommentar ganz oben warnt. NACHGEMESSEN mit einem Server, der wie
+        // GitHub Pages "max-age=600" sendet: Datei auf dem Server geaendert,
+        // Fassung hochgezaehlt, Seite neu geladen - der NEUE Zwischenspeicher
+        // (neuland-vB) enthielt die ALTE Datei. Genau so kommt man zu alten
+        // Grafiken in einer neuen Fassung (Nutzerbefund: "wieso bekomme ich
+        // am rechner so alte grafiken"). Mit cache:'reload' wird am
+        // Browser-Zwischenspeicher vorbei geladen, wie beim Programmcode.
+        const STAPEL=6;
+        for(let i=0;i<list.length;i+=STAPEL){
+          await Promise.allSettled(list.slice(i,i+STAPEL).map(async (f)=>{
+            const u='./assets/'+f;
+            const res=await fetch(new Request(u, {cache:'reload'}));
+            if(res.ok) await c.put(u, res);
+          }));
+        }
       }
     }catch(_){ /* offline/fehlend: Spiel laeuft prozedural weiter */ }
   }));
