@@ -26,6 +26,63 @@
 //
 //   ...?neu   meldet den Serviceworker ab, raeumt alle Zwischenspeicher und
 //             laedt frisch vom Server. Gespeicherte Spielstaende bleiben.
+// SELBSTAUSKUNFT: .../?info zeigt, was dieser Browser WIRKLICH geladen hat.
+// Ohne sie laesst sich aus der Ferne nicht unterscheiden, ob jemand eine alte
+// Fassung sieht, weil der Worker nicht gewechselt hat, weil Grafiken noch
+// nachladen, oder weil ein zweites Fenster den alten Stand festhaelt.
+(function(){
+  if(location.search.indexOf('info')<0) return;
+  // Eigene Ebene ueber allem: in #app wuerde das startende Spiel die Auskunft
+  // wieder ueberschreiben, bevor die Abfragen durch sind (nachgemessen).
+  var out=function(t){
+    var d=document.getElementById('neuland-info');
+    if(!d){ d=document.createElement('div'); d.id='neuland-info';
+      d.setAttribute('style','position:fixed;inset:0;z-index:99999;background:#101722;'
+        +'overflow:auto;padding:20px;color:#e8eef7;font:13px/1.6 ui-monospace,monospace;'
+        +'white-space:pre-wrap');
+      document.body.appendChild(d); }
+    d.textContent=t;
+  };
+  out('Lese Zustand ...');
+  var z=[];
+  Promise.resolve().then(function(){
+    z.push('Adresse      : '+location.href);
+    z.push('Anzeigemodus : '+(window.matchMedia('(display-mode: standalone)').matches
+      ? 'als App installiert (eigenes Fenster)' : 'normaler Browser-Tab'));
+    return window.caches ? caches.keys() : [];
+  }).then(function(ks){
+    z.push('Speicher     : '+(ks.length? ks.join(', ') : 'keine'));
+    if(!ks.length) return [];
+    return Promise.all(ks.map(function(k){
+      return caches.open(k).then(function(c){ return c.keys(); })
+        .then(function(rs){
+          var bilder=rs.filter(function(r){ return r.url.indexOf('/assets/')>=0; }).length;
+          return k+': '+rs.length+' Eintraege, davon '+bilder+' Grafiken';
+        });
+    }));
+  }).then(function(det){
+    det.forEach(function(d){ z.push('  '+d); });
+    return 'serviceWorker' in navigator ? navigator.serviceWorker.getRegistrations() : [];
+  }).then(function(rs){
+    z.push('Worker       : '+rs.length+' registriert, Regie: '
+      +(navigator.serviceWorker && navigator.serviceWorker.controller ? 'ja' : 'NEIN'));
+    return fetch('./sw.js?x='+(''+Math.random()).slice(2), {cache:'reload'}).then(function(r){
+      return r.text(); }).catch(function(){ return ''; });
+  }).then(function(t){
+    var m=t.match(/const BUILD = '([^']+)'/);
+    z.push('Server hat   : '+(m? m[1] : 'nicht lesbar'));
+    z.push('Hier laeuft  : '+(window.__build||'(noch nicht gemeldet)'));
+    z.push('');
+    z.push('Stimmen "Server hat" und "Hier laeuft" nicht ueberein, hilft ?neu.');
+    out(z.join('\n'));
+    // Die laufende Fassung meldet der Worker erst kurz nach dem Start -
+    // deshalb nach zwei Sekunden noch einmal nachtragen.
+    setTimeout(function(){
+      z[z.length-3]='Hier laeuft  : '+(window.__build||'(keine Antwort vom Worker)');
+      out(z.join('\n'));
+    }, 2500);
+  });
+})();
 (function(){
   if(location.search.indexOf('neu')<0) return;
   document.getElementById('app').textContent='Setze zurueck ...';
