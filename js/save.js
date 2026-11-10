@@ -45,7 +45,10 @@ export function getProgress(){
   try{ return JSON.parse(localStorage.getItem(PROG_KEY))||{unlocked:1}; }
   catch(e){ return {unlocked:1}; }
 }
-export function setProgress(p){ localStorage.setItem(PROG_KEY, JSON.stringify(p)); }
+// Speichern darf nie werfen: mit gesperrtem oder vollem Speicher (privater
+// Modus, strenge Browser-Einstellungen) brach setOptions im Konstruktor der
+// Oberflaeche ab - das Spiel startete dann gar nicht.
+export function setProgress(p){ try{ localStorage.setItem(PROG_KEY, JSON.stringify(p)); }catch(e){} }
 
 // Standardbelegung der Warenleiste: Baustoffe, Nahrung und Werkzeug
 export const HUD_DEFAULT=['trunk','board','stone','fish','meat','grain','water','shovel','hammer','axe','saw'];
@@ -53,4 +56,4 @@ export function getOptions(){
   try{ return Object.assign({sfx:true,music:true,speed:1,hudGoods:HUD_DEFAULT}, JSON.parse(localStorage.getItem(OPT_KEY))||{}); }
   catch(e){ return {sfx:true,music:true,speed:1,hudGoods:HUD_DEFAULT}; }
 }
-export function setOptions(o){ localStorage.setItem(OPT_KEY, JSON.stringify(o)); }
+export function setOptions(o){ try{ localStorage.setItem(OPT_KEY, JSON.stringify(o)); }catch(e){} }

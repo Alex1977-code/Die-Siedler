@@ -1459,7 +1459,7 @@ export class Game {
         // und sein Schild staende mitten im Block
         if(m.terr[n]!==TER.MOUNT || this.signs.has(n) || m.bld[n]>=0) continue;
         if((m.obj[n]&127)===OBJ.ROCK) continue;
-        if(u.meide && u.meide.has(n)) continue;   // als unerreichbar erkannt
+        if(u.meide && u.meide[n]) continue;       // als unerreichbar erkannt
         best=n; break;
       }
       if(best<0 || u.probes<=0){ u.state='home'; return; }
@@ -1474,7 +1474,14 @@ export class Game {
       // Takten nicht ankommt, meidet den Knoten und sucht den naechsten.
       u.walkT=(u.walkT||0)+1;
       if(u.walkT>900){
-        (u.meide=u.meide||new Set()).add(u.target);
+        // EINFACHES OBJEKT, KEIN Set (wie b.tabu, s. dort): ein Set wird
+        // von JSON.stringify zu {} - nach Speichern und Laden warf die
+        // Zeile oben "u.meide.has is not a function", und zwar in JEDEM
+        // Takt. Die Partie stand still, sobald ein Geologe mit Meideliste
+        // im Spielstand war. Ein geladenes {} aus so einem Stand ist als
+        // Objekt weiter brauchbar - alte Spielstaende laufen damit wieder.
+        if(!u.meide || typeof u.meide!=='object' || u.meide instanceof Set) u.meide={};
+        u.meide[u.target]=1;
         u.state='seek';
         return;
       }
@@ -1799,7 +1806,24 @@ export class Game {
   // wartet, wird auch nichts geteilt. Vier Knoten sind die Untergrenze -
   // darunter liegt kein Knoten mehr frei zwischen den beiden Fahnen.
   wegeTeilen(){
-    for(const pl of this.players){
+    // EINE TEILUNG JE KI UND RUNDE - nicht eine fuer alle zusammen.
+    // Bis v340 stand an den beiden Stellen unten ein "return": sobald die
+    // ERSTE KI etwas zu teilen hatte, war die Runde fuer alle anderen
+    // vorbei. Wer weiter hinten in der Spielerliste stand, kam nur zum
+    // Zug, wenn die Vorderen gerade nichts hatten - die Staerke einer KI
+    // hing an ihrem Platz in der Liste.
+    // GEMESSEN (drei KI, Karte L, 40 Spielminuten, vier Saaten), ehrlich:
+    // ein Fairness-, kein Leistungsgewinn.
+    //   dritte KI, Fahnen:   33/50/53/43  ->  76/97/56/95
+    //   dritte KI, Bauten:   30/41/42/35  ->  37/45/36/46   (+11 %)
+    //   alle KI, Bauten:     502 -> 519 (+3 %, drei Saaten rauf, Saat 11
+    //                        von 145 auf 125 runter)
+    //   Waren aelter als zwei Minuten: 302 -> 279, je Saat aber von
+    //                        111 -> 13 bis 88 -> 185 - das streut staerker,
+    //                        als die Aenderung wirkt.
+    // Erwartet hatte ich vorher "mehr Fahnen je Strasse bei der ersten KI";
+    // das Mass taugte nichts (in einem Baumnetz ist es immer rund eins).
+    spieler: for(const pl of this.players){
       if(pl.defeated || !pl.ai) continue;
       const eigene=[...this.roads.values()].filter(r=>r.player===pl.id && !r.isSea);
       if(!eigene.length) continue;
@@ -1818,7 +1842,7 @@ export class Game {
         const mitte=teilbar(r);
         if(mitte<0) continue;
         this.addFlag(mitte);
-        return;
+        continue spieler;       // eine Teilung je KI und Runde (s. unten)
       }
       // 2. neu: eine Ader, VOR DER WARE STEHT.
       // Erst gemessen wurde der blosse Verkehrswert (teile, was das
@@ -1847,7 +1871,7 @@ export class Game {
         if(teilbar(r)<0) continue;
         ev=stau; engste=r;
       }
-      if(engste){ this.addFlag(teilbar(engste)); return; }
+      if(engste){ this.addFlag(teilbar(engste)); continue spieler; }
     }
   }
 
@@ -2287,7 +2311,10 @@ export class Game {
   // sind bedarfsgebunden und behalten ihr Ziel.
   warenUmwidmen(){
     for(const [f,items] of this.flagItems){
-      for(const it of items){
+      // ueber eine KOPIE: der Notausgang unten nimmt Waren aus der Liste,
+      // und beim Laufen ueber das Original wurde danach die naechste
+      // Ware uebersprungen
+      for(const it of [...items]){
         if(it.reserved || it.wartet) continue;
         if(this.t-(it.lagT||this.t) < 1200) continue;
         const dest=this.buildings.get(it.destB);
@@ -2366,12 +2393,20 @@ export class Game {
         // Umsortieren hilft nicht. Was fehlte, war ein Ausgang fuer die
         // wenigen Stuecke, die in einem Pfropfen gefangen sind.
         if(this.t-(it.lagT||this.t) > 6000){
-          let ziel=null, zd=1e9;
+          // Gesucht wird ueber das Strassennetz; haengt die Fahne an gar
+          // keiner Strasse mehr (abgerissen, vom Gegner gekappt), liefert
+          // flagDist Unendlich fuer JEDES Lager, und die Ware blieb fuer
+          // immer liegen - samt erhoehtem incoming beim Besteller. Dann
+          // zaehlt die Luftlinie: weg muss sie in jedem Fall.
+          let ziel=null, zd=Infinity, luft=null, ld=Infinity;
           for(const s2 of this.buildings.values()){
             if(s2.player!==dest.player || !s2.inv || s2.state!=='done') continue;
             const d2=this.flagDist(s2.door, f);
             if(d2<zd){ zd=d2; ziel=s2; }
+            const d3=Math.hypot(this.map.X(s2.node)-this.map.X(f), this.map.Y(s2.node)-this.map.Y(f));
+            if(d3<ld){ ld=d3; luft=s2; }
           }
+          if(!ziel) ziel=luft;
           if(ziel){
             const ix=items.indexOf(it);
             if(ix>=0) items.splice(ix,1);
@@ -6652,7 +6687,10 @@ export class Game {
         let rid=-1; for(const [id,x] of this.roads) if(x===r){ rid=id; break; }
         klasse = tot.has(rid) ? 1 : 2;                  // 1 = tote Kette, 2 = lebend
       }
-      const failT=p.aiState.raeumNo && p.aiState.raeumNo.get(i);
+      // raeumNo ist ein einfaches Objekt Knoten -> Takt, keine Map: eine
+      // Map kaeme aus einem Spielstand als {} zurueck, und .get() darauf
+      // wirft - die KI des geladenen Spiels stand dann bei jedem Bauwunsch.
+      const failT=p.aiState.raeumNo ? p.aiState.raeumNo[i] : undefined;
       if(failT!==undefined && this.t-failT<6000) continue;   // juengst gescheitert
       let fels=false;
       for(const n of m.nbs(i)) if((m.obj[n]&127)===OBJ.ROCK){ fels=true; break; }
@@ -6688,7 +6726,8 @@ export class Game {
       }
       if(m.flag[k.i]) this.removeFlag(k.i);
       if(this.canBuild(p.id, type, k.i).ok) return k.i;
-      (p.aiState.raeumNo=p.aiState.raeumNo||new Map()).set(k.i, this.t);
+      if(!p.aiState.raeumNo || p.aiState.raeumNo instanceof Map) p.aiState.raeumNo={};
+      p.aiState.raeumNo[k.i]=this.t;
       if(k.klasse===2) rz[type]=(rz[type]||0)+1;
     }
     return -1;
