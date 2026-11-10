@@ -31,7 +31,9 @@
 // Fassung sieht, weil der Worker nicht gewechselt hat, weil Grafiken noch
 // nachladen, oder weil ein zweites Fenster den alten Stand festhaelt.
 (function(){
-  if(location.search.indexOf('info')<0) return;
+  // Genau der Parameter "info" - nicht jede Adresse, in der die Buchstaben
+  // irgendwo vorkommen.
+  if(!/[?&]info(=|&|$)/.test(location.search)) return;
   // Eigene Ebene ueber allem: in #app wuerde das startende Spiel die Auskunft
   // wieder ueberschreiben, bevor die Abfragen durch sind (nachgemessen).
   var out=function(t){
@@ -39,16 +41,44 @@
     if(!d){ d=document.createElement('div'); d.id='neuland-info';
       d.setAttribute('style','position:fixed;inset:0;z-index:99999;background:#101722;'
         +'overflow:auto;padding:20px;color:#e8eef7;font:13px/1.6 ui-monospace,monospace;'
-        +'white-space:pre-wrap');
+        +'white-space:pre-wrap;user-select:text;-webkit-user-select:text');
       document.body.appendChild(d); }
     d.textContent=t;
   };
   out('Lese Zustand ...');
-  var z=[];
+  var z=[], lebend=[];
+  // Welche Grafikkarte zeichnet? Steht hier "SwiftShader" oder "llvmpipe",
+  // rechnet der Prozessor das Bild allein - dann laufen die Luefter.
+  var karte=function(){
+    try{
+      var c=document.createElement('canvas');
+      var gl=c.getContext('webgl2')||c.getContext('webgl');
+      if(!gl) return 'kein WebGL';
+      var x=gl.getExtension('WEBGL_debug_renderer_info');
+      var n=x? gl.getParameter(x.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+      var lose=gl.getExtension('WEBGL_lose_context'); if(lose) lose.loseContext();
+      return n;
+    }catch(e){ return 'nicht lesbar ('+e.message+')'; }
+  };
+  // Zeilen, die sich waehrend des Ladens aendern, werden laufend nachgetragen
+  var laufend=function(){
+    var r=window.__ui && window.__ui.renderer, L=r && r.ladeStand, a=[];
+    a.push('Hier laeuft  : '+(window.__build||'(keine Antwort vom Worker)'));
+    a.push('Grafiken     : '+(L&&L.soll
+      ? L.da+' von '+L.soll+' geladen, '+L.offen+' offen, '+L.fehl+' fehlgeschlagen'
+        +(L.versuche>L.soll? ' ('+(L.versuche-L.soll)+' Wiederholungen)' : '')
+      : '(Liste noch nicht da)'));
+    a.push('Bildrate     : '+(window.__bildrate? window.__bildrate+' Bilder/s' : '(Spiel laeuft nicht)'));
+    a.push('Fehler       : '+(window.__fehler||'keine'));
+    return a;
+  };
+  var zeigen=function(){ out(z.concat(laufend()).join('\n')); };
   Promise.resolve().then(function(){
     z.push('Adresse      : '+location.href);
     z.push('Anzeigemodus : '+(window.matchMedia('(display-mode: standalone)').matches
       ? 'als App installiert (eigenes Fenster)' : 'normaler Browser-Tab'));
+    z.push('Bildschirm   : '+innerWidth+'x'+innerHeight+' Punkte, Dichte '+(window.devicePixelRatio||1));
+    z.push('Grafikkarte  : '+karte());
     return window.caches ? caches.keys() : [];
   }).then(function(ks){
     z.push('Speicher     : '+(ks.length? ks.join(', ') : 'keine'));
@@ -71,21 +101,38 @@
   }).then(function(t){
     var m=t.match(/const BUILD = '([^']+)'/);
     z.push('Server hat   : '+(m? m[1] : 'nicht lesbar'));
-    z.push('Hier laeuft  : '+(window.__build||'(noch nicht gemeldet)'));
-    z.push('');
-    z.push('Stimmen "Server hat" und "Hier laeuft" nicht ueberein, hilft ?neu.');
-    out(z.join('\n'));
-    // Die laufende Fassung meldet der Worker erst kurz nach dem Start -
-    // deshalb nach zwei Sekunden noch einmal nachtragen.
-    setTimeout(function(){
-      z[z.length-3]='Hier laeuft  : '+(window.__build||'(keine Antwort vom Worker)');
-      out(z.join('\n'));
-    }, 2500);
+  }).catch(function(e){
+    // Ohne diesen Zweig blieb die Auskunft bei einem einzigen Fehler in der
+    // Kette (gesperrter Speicher, privater Modus) auf "Lese Zustand ..." stehen
+    z.push('Abfrage abgebrochen: '+(e && e.message || e));
+  }).then(function(){
+    zeigen();
+    // Fassung, Ladestand und Bildrate aendern sich noch - laufend nachtragen
+    setInterval(zeigen, 2000);
   });
 })();
 (function(){
-  if(location.search.indexOf('neu')<0) return;
-  document.getElementById('app').textContent='Setze zurueck ...';
+  // Genau der Parameter "neu". Vorher reichte es, dass die Buchstaben
+  // irgendwo in der Adresse standen - ein Link mit "?utm_source=neuland"
+  // haette den ganzen Zwischenspeicher geloescht.
+  var m=location.search.match(/[?&]neu(?:=([^&]*))?(?:&|$)/);
+  if(!m) return;
+  var app=document.getElementById('app');
+  // Ohne Netz wuerde das Zuruecksetzen die einzige lauffaehige Kopie
+  // loeschen und danach nichts mehr laden koennen.
+  if(navigator.onLine===false){
+    app.innerHTML='<div class="startfehler" style="padding:24px;color:#e8eef7;'
+      +'font:16px/1.5 system-ui,-apple-system,sans-serif">Kein Netz - das Zuruecksetzen '
+      +'wuerde die gespeicherte Kopie des Spiels loeschen. Bitte mit Verbindung noch '
+      +'einmal versuchen. <a href="./" style="color:#8fc1ff">Zurueck zum Spiel</a></div>';
+    return;
+  }
+  app.textContent='Setze zurueck ...';
+  // ?neu       raeumt Programm und Worker, BEHAELT aber die Grafiken: die
+  //            werden beim naechsten Start einzeln beim Server nachgefragt
+  //            und nur ersetzt, wo sie abweichen (84 MB nicht noch einmal).
+  // ?neu=alles raeumt wirklich alles.
+  var alles=(m[1]==='alles');
   var fertig=function(){ location.replace(location.pathname); };
   var jobs=[];
   try{
@@ -94,7 +141,12 @@
         .then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); }));
     if(window.caches)
       jobs.push(caches.keys().then(function(ks){
-        return Promise.all(ks.map(function(k){ return caches.delete(k); })); }));
+        return Promise.all(ks.map(function(k){
+          if(alles || k.indexOf('neuland-grafik-')!==0) return caches.delete(k);
+          // Marke loeschen: die Pflege prueft dann jede Grafik neu
+          return caches.open(k).then(function(c){ return c.delete('./__grafik-pflege'); });
+        })); }));
+    try{ sessionStorage.removeItem('neuland.neugeladen'); }catch(e){}
   }catch(e){}
   Promise.all(jobs).then(fertig, fertig);
   setTimeout(fertig, 4000);   // haengt etwas, wird trotzdem neu geladen
@@ -119,7 +171,13 @@
       +'color:#fff;border-radius:8px;text-decoration:none">Zuruecksetzen und neu laden</a></div>';
   };
   // true = auch Ressourcen-Fehler, die nicht bis window hochblubbern
-  window.addEventListener('error', function(){ setTimeout(zeigen, 1200); }, true);
+  // ... aber NUR Skripte: ein einzelnes Bild, das nicht laedt, ist kein
+  // Startfehler (das Spiel hat fuer jede Grafik einen Ersatz).
+  window.addEventListener('error', function(e){
+    var t=e && e.target;
+    if(t && t!==window && t.tagName && t.tagName!=='SCRIPT') return;
+    setTimeout(zeigen, 1200);
+  }, true);
   // Der Waechter zaehlt erst ab "load", also wenn der Browser mit dem Laden
   // durch ist - nicht ab Skriptstart. Sonst gaebe es auf einer langsamen
   // Verbindung Fehlalarm, waehrend render.js (rund 800 KB) noch unterwegs

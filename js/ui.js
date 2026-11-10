@@ -1780,10 +1780,33 @@ export class UI {
 
   // ================= Spielschleife =================
   loop(){
-    let last=performance.now();
+    // BILDRATE GEDECKELT, SCHLEIFE ABGESICHERT.
+    //
+    // Die Schleife zeichnete bei JEDEM Bild des Monitors voll - auf einem
+    // 144-Hz-Bildschirm also 144-mal je Sekunde, auch in der Pause, wo sich
+    // nichts bewegt. Fuer ein Aufbauspiel ist das Verschwendung, die man am
+    // Rechner als Luefter hoert (Nutzerbefund: "der rechner luefter laeuft
+    // hochtourig"). Jetzt hoechstens 60 Bilder je Sekunde, in der Pause 30 (die Karte
+    // laesst sich auch pausiert verschieben, das soll nicht ruckeln).
+    // Auf einem 60-Hz-Handy aendert sich dadurch nichts.
+    //
+    // Und sie hatte keinen Fangblock: warf ein einziges Bild einen Fehler,
+    // wurde das naechste nie mehr angefordert - das Spiel stand still, ohne
+    // jede Meldung. Jetzt laeuft die Schleife weiter, der Fehler steht in
+    // der Konsole und in der Selbstauskunft (?info).
+    let last=performance.now(), faellig=0, gez=0, gezT=last, fehler=0;
     const frame=(now)=>{
+      requestAnimationFrame(frame);
+      const takt=this.paused? 1000/30 : 1000/60;
+      // 1 ms Luft: auf einem 60-Hz-Schirm kommt jedes Bild knapp um die
+      // 16,7 ms, und keins davon soll an einer Rundung haengenbleiben
+      if(now<faellig-1) return;
+      faellig=Math.max(faellig+takt, now-takt);
       const dt=Math.min(100, now-last); last=now;
-      if(this.game && this.screen==='game'){
+      if(!(this.game && this.screen==='game')){ window.__bildrate=0; return; }
+      gez++;
+      if(now-gezT>=2000){ window.__bildrate=Math.round(gez*1000/(now-gezT)); gez=0; gezT=now; }
+      try{
         if(!this.paused) this.game.update(dt, SPEED_MULT[this.opts.speed]||1);
         this.kameraZiehen(now);
         // Straßenvorschau
@@ -1810,8 +1833,12 @@ export class UI {
         if(!this._marT||now-this._marT>1200){ this._marT=now; this.marschTrommel(); }
         this.pollMsgs();
         if(this.game.over) this.onGameOver();
+      }catch(e){
+        // die ersten paar melden, dann still weiterlaufen - ein Fehler in
+        // jedem Bild soll die Konsole nicht fluten
+        if(fehler++<3) console.error('Bildschleife:', e);
+        window.__fehler=(e && e.message || String(e))+' ('+fehler+'-mal)';
       }
-      requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
   }

@@ -6287,13 +6287,74 @@ export class Renderer {
       .then(r=> r.ok? r.json() : null)
       .then(s=>{ if(s) this._scales=s; })
       .catch(()=>{});
+    // LADEN NACH VORRANG, MIT BEGRENZTER GLEICHZEITIGKEIT UND WIEDERHOLUNG.
+    //
+    // Vorher wurden alle 599 PNG (rund 83 MB) in EINEM Rutsch angefordert,
+    // in der alphabetischen Reihenfolge des Manifests, ohne onerror und
+    // ohne zweiten Versuch. Das hatte drei Folgen, die zehn unabhaengige
+    // Pruefer uebereinstimmend gemessen haben (Nutzerbefund: "am rechner
+    // so alte grafiken", leere graue Knoepfe, nur Nadelbaeume):
+    //  - Was das Spiel zuerst zeigt, kam zuletzt: bld_hq steht im Manifest
+    //    auf Platz 116 (5 MB davor), ter_ ab 382, tree_ ab 439 (61 MB davor),
+    //    ui_ ab 452. Solange diese Dateien fehlen, zeichnet das Spiel seinen
+    //    prozeduralen Ersatz - dunkelgruene Nadelbaeume, einfarbigen Boden,
+    //    leere Knoepfe -, die Burg aber schon als Grafik. Genau das Bild des
+    //    Nutzers; im Versuch mit gedrosselter Leitung exakt nachgestellt.
+    //  - Scheiterte EINE Anfrage (Netzfehler, 429, 5xx), blieb ihr Ersatz
+    //    bis zum Neuladen der Seite stehen.
+    //  - Jedes der 84 Gelaendebilder verwarf beim Eintreffen sofort alle
+    //    Gelaendespeicher und baute das GPU-Material neu: 84 Vollaufbauten
+    //    waehrend des Ladens.
+    // Jetzt: erst Bedienung, Boden und Baeume, dann Gebaeude, dann der Rest;
+    // hoechstens ZEHN Anfragen gleichzeitig (so bleibt die Reihenfolge auch
+    // auf einer langsamen Leitung die des Vorrangs); bis zu vier Versuche
+    // je Datei mit wachsender Pause; und das Verwerfen der Gelaendespeicher
+    // wird gebuendelt statt je Bild ausgeloest.
+    this.ladeStand={soll:0, da:0, fehl:0, offen:0, versuche:0};
+    const verwerfen=()=>{
+      this._verwT=null;
+      const voll=this._verwVoll, mat=this._verwMat;
+      this._verwVoll=false; this._verwMat=false;
+      if(voll){
+        this._terPat=null; this._rockPats=null; this._oreBlobs=null;
+        this._kachelC=null;           // Randausgleich neu rechnen
+        this._screeTile=null; this._screePatC=null; this._fbr=null;
+        this._spireTint=null; this._schneeHaube=null; this._lasurC=null; this._matC=null;
+        this._felsPool=null;
+        this._felsBox=null;
+        this.glMaterialNeu();         // GPU-Ebene bekommt die Kachel auch
+        this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
+        this._waterStamps=null;       // Glanzlichter und Schaum neu stempeln
+        this.chunks.clear();
+      } else if(mat){
+        this._kachelC=null;
+        this.glMaterialNeu();
+      }
+    };
+    const melden=(voll)=>{
+      if(voll) this._verwVoll=true; else this._verwMat=true;
+      if(!this._verwT) this._verwT=setTimeout(verwerfen, 250);
+    };
+    this._grafikMelden=melden;
     fetch('assets/manifest.json')
       .then(r=> r.ok? r.json() : null)
       .then(list=>{
         if(!Array.isArray(list)) return;
+        // Vorrang: kleiner = frueher. Innerhalb einer Stufe bleibt die
+        // Manifest-Reihenfolge (sort ist stabil).
+        const stufe=(key)=>{
+          if(key.startsWith('ui_')||key.startsWith('icon_')) return 0;
+          if(key.startsWith('ter_')||key.startsWith('mat_')||key.startsWith('trans_')
+             ||key.startsWith('tree_')||key.startsWith('deco_')) return 1;
+          if(key==='bld_hq'||key.startsWith('obj_')||key.startsWith('road_')
+             ||key.startsWith('sign_')) return 2;
+          if(key.startsWith('unit_')||key.startsWith('good_')||key.startsWith('tool_')) return 3;
+          if(key.startsWith('bld_')) return 4;
+          return 5;                                   // fx_ und alles Uebrige
+        };
+        const schlange=[];
         for(const name of list){
           if(!/\.png$/i.test(name)) continue;      // JPEGs (Story-Tafeln) laufen direkt über <img src>
-          const img=new Image();
           const key=name.replace(/\.png$/i,'');
           // Terrain-Texturen wirken in die Chunk-Caches hinein -> neu aufbauen
           // (auch die abgeleiteten Fels-Muster und Erzflecken verwerfen, sonst
@@ -6308,35 +6369,83 @@ export class Renderer {
           // gelesen. Laedt das Bild erst danach - und das tut es immer, das
           // Laden laeuft asynchron -, bliebe der prozedurale Ersatz fuer
           // immer eingebacken. Deshalb gehoeren sie in dieselbe Verwerfliste.
-          if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')
-             ||key==='fx_glanz'||key==='fx_schaum'
-             ||key.startsWith('obj_rockspire')||key.startsWith('obj_crag')
-             ||key.startsWith('obj_summit')||key.startsWith('obj_cliff')
-             ||key.startsWith('obj_glacier')) img.onload=()=>{
-            this._terPat=null; this._rockPats=null; this._oreBlobs=null;
-            this._kachelC=null;           // Randausgleich neu rechnen
-            this._screeTile=null; this._screePatC=null; this._fbr=null;
-            this._spireTint=null; this._schneeHaube=null; this._lasurC=null; this._matC=null;
-            this._felsPool=null;
-            this._felsBox=null;
-            this.glMaterialNeu();         // GPU-Ebene bekommt die Kachel auch
-            this._mineApronC=undefined;   // Minen-Schürze nutzt ter_rock_top
-            this._waterStamps=null;       // Glanzlichter und Schaum neu stempeln
-            this.chunks.clear();
-          };
-          // mat_-Kacheln (Lieferung 8) wirken NUR in die GPU-Ebene. Ohne
-          // diesen Zweig gewann das Laden gegen glKarteNeu das Rennen nicht
-          // immer: kam die Kachel NACH dem Kartenaufbau an, blieb der alte
-          // Rueckfall (felsMaterial/ter_-Kachel) fuer immer stehen.
-          else if(key.startsWith('mat_')) img.onload=()=>{
-            this._kachelC=null;
-            this.glMaterialNeu();
-          };
-          img.src='assets/'+name;
-          this.assets.set(key, img);
+          const wirkt=this._grafikWirkt(key);
+          // fx_glanz/fx_schaum und die Felsakzente sind eingebacken - sie
+          // gehoeren deshalb trotz ihres Praefixes in die Landschaftsstufe
+          schlange.push({name, key, wirkt, st: wirkt===2? Math.min(1, stufe(key)) : stufe(key)});
         }
+        schlange.sort((x,y)=>x.st-y.st);
+        const L=this.ladeStand;
+        L.soll=schlange.length; L.offen=schlange.length;
+        const GLEICHZEITIG=10, PAUSEN=[1200, 4000, 10000];
+        let laufend=0, zeiger=0;
+        const weiter=()=>{
+          while(laufend<GLEICHZEITIG && zeiger<schlange.length) starte(schlange[zeiger++], 0);
+        };
+        const starte=(e, versuch)=>{
+          laufend++; L.versuche++;
+          const img=new Image();
+          img.onload=()=>{
+            this.assets.set(e.key, img);
+            L.da++; L.offen--; laufend--;
+            if(e.wirkt) melden(e.wirkt===2);
+            weiter();
+          };
+          img.onerror=()=>{
+            laufend--;
+            if(versuch<PAUSEN.length){
+              // Platz sofort freigeben, den neuen Versuch spaeter einreihen
+              setTimeout(()=>{ starte(e, versuch+1); }, PAUSEN[versuch]);
+            } else { L.fehl++; L.offen--; }
+            weiter();
+          };
+          img.src='assets/'+e.name;
+        };
+        weiter();
       })
       .catch(()=>{});
+  }
+  // In welche Zwischenspeicher wirkt eine Grafik hinein?
+  //  2 = Gelaende (Chunks, Felsmuster, Wasserstempel, GPU-Material)
+  //  1 = nur das GPU-Material
+  //  0 = nichts, sie wird je Bild frisch gezeichnet
+  _grafikWirkt(key){
+    if(key.startsWith('ter_')||key.startsWith('deco_')||key.startsWith('trans_')
+       ||key==='fx_glanz'||key==='fx_schaum'
+       ||key.startsWith('obj_rockspire')||key.startsWith('obj_crag')
+       ||key.startsWith('obj_summit')||key.startsWith('obj_cliff')
+       ||key.startsWith('obj_glacier')) return 2;
+    // mat_-Kacheln (Lieferung 8) wirken NUR in die GPU-Ebene. Ohne
+    // diesen Zweig gewann das Laden gegen glKarteNeu das Rennen nicht
+    // immer: kam die Kachel NACH dem Kartenaufbau an, blieb der alte
+    // Rueckfall (felsMaterial/ter_-Kachel) fuer immer stehen.
+    if(key.startsWith('mat_')) return 1;
+    return 0;
+  }
+  // Der Worker meldet nach seiner Grafikpflege, welche Dateien sich auf dem
+  // Server geaendert haben. Die werden hier im laufenden Spiel ausgetauscht,
+  // statt bis zum naechsten Neuladen die alte Fassung zu zeigen. Geholt wird
+  // ueber fetch und eine Blob-Adresse: 'new Image()' mit derselben Adresse
+  // bekaeme vom Browser das schon dekodierte alte Bild aus dem Arbeitsspeicher.
+  grafikNeu(namen){
+    if(!this.assets || !Array.isArray(namen)) return;
+    for(const name of namen){
+      if(!/\.png$/i.test(name)) continue;
+      const key=name.replace(/\.png$/i,'');
+      fetch('assets/'+name, {cache:'reload'})
+        .then(r=> r.ok? r.blob() : null)
+        .then(b=>{
+          if(!b) return;
+          const adr=URL.createObjectURL(b);
+          const img=new Image();
+          img.onload=()=>{
+            this.assets.set(key, img);
+            const w=this._grafikWirkt(key);
+            if(w && this._grafikMelden) this._grafikMelden(w===2);
+          };
+          img.src=adr;
+        }).catch(()=>{});
+    }
   }
   // Anzeigehöhe aus dem Asset-Paket (Sheet-Proportionen, Wohnhaus=Anker)
   scaleOf(key, fb){
